@@ -55,13 +55,14 @@
 ## 流程
 
 ```
-RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256
+RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256 （identify 时另出长边 ≤3072 的细节图）
               │
               ├─ SigLIP2 整图 ─▶ 门：bird / mammal / other_animal / person / none    ─▶ embed 产物
               │
-              ├─ OWLv2 开放词表检测（词表按门选）─▶ 每框 SigLIP2 裁切复判 ─▶ 画质
+              ├─ OWLv2 开放词表检测（词表按门选；门判 none/person 但三类动物合计 ≥0.25 时
+              │   仍按最强动物类的词表查一遍）─▶ 每框 SigLIP2 裁切复判 ─▶ 画质
               │
-              └─ BioCLIP 2.5 Huge 对裁切框编码 ─▶ 与该纲名单的文本向量做余弦
+              └─ BioCLIP 2.5 Huge 对细节图上同一取景的裁切编码 ─▶ 与该纲名单的文本向量做余弦
                         × (0.02 + BirdNET 地理先验)  ─▶ 归一化 ─▶ top-k ─▶ 定级
 ```
 
@@ -110,7 +111,7 @@ uv run bioscan health
 ```sh
 bioscan run /path/to/photos                            # 目录按扩展名过滤、排序；-r 递归
 bioscan run a.ARW b.ARW --want identify,embed --json --out preds.ndjson
-bioscan run DIR --want jpg --jpg-out /tmp/jpg          # 旋正、长边 2048 的 JPG
+bioscan run DIR --want jpg --jpg-out /tmp/jpg          # 旋正、长边 2048 的 JPG，文件名 <stem>-<sha256前8位>.jpg
 bioscan run DIR --lat 37.4 --lon -122.1                # EXIF 无坐标时整批默认坐标（地理先验很重要）
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
@@ -144,6 +145,8 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | `BIOSCAN_URL` / `--url` | CLI 连哪个服务 | `http://127.0.0.1:8765` |
 | `--decode-workers` / `BIOSCAN_DECODE_WORKERS` | 解码进程数（USB 机械盘 4 左右最佳） | 4 |
 | `--chunk` / `BIOSCAN_CHUNK` | 流水 chunk 张数 | 32 |
+| `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | 物种裁切用细节图的长边；≤2048 关闭（回到 2048 图上裁） | 3072 |
+| `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | 只允许读写这些目录下的文件（可重复；环境变量用 `:` 分隔）；不设则不限制，监听非本机地址时会告警 | 不限 |
 
 ### HTTP API
 
@@ -165,11 +168,18 @@ bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>          # 调服�
 bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-nogeo --no-geo
 bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只重算指标
 ```
+报告里"没框"按整图门类拆开：`none/person` 是门漏判（检测器没跑），其余是检测器没框到。
 真值格式：`path, scientific, tier, lat, lon, taken_at, source, kind`。真值学名会先经 `data/names/synonyms.csv` 归一到 AviList/MDD 再比较。
 
 ## 名字映射
 
 `data/names/avilist_map.csv`：每个 AviList 种对应的 TreeOfLife 名和 BirdNET 标签及匹配方式（exact / synonym / none）。`synonyms.csv` 是手工维护的别名表，每条带来源和说明；`candidates.csv` 是脚本列出的疑似拼写差异，只供人审，不自动采纳。重建：`uv run python scripts/build_name_map.py`。
+
+没有 BirdNET 标签的 749 个 AviList 种在地理先验里按 0 处理（多为灭绝种或被 BirdNET 并入姊妹种，如 *Tyto javanica*，应当被压低）。要找某地真正该补的缺口：
+```sh
+bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在当地有分布、自己却没标签的种
+```
+确认后把对应行写进 `synonyms.csv`（source `birdnet`）再重建映射表。
 
 | 名单 | 总数 | TreeOfLife 官方向量 | BirdNET 标签 |
 |---|---|---|---|
@@ -178,7 +188,7 @@ bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只�
 
 ## 已知局限与路线
 
-- 哺乳检测词表缺大型食肉兽（熊、美洲狮、短尾猫），golden 集 45 张没框。
+- 哺乳 golden 集 45 张没框（熊、美洲狮、短尾猫为主）。已补检测词表并加了门漏判时的补查，效果待 `bioscan eval` 复测。
 - 哺乳没有地理先验。
 - 近期拆分的种（北鹞 / 白尾鹞、美洲仓鸮 / 西方仓鸮）在训练数据里用旧名，靠共用向量 + 地点先验区分；同义词目前不按地区生效。
 - 先验公式的底数 0.02 限制了地点对视觉的纠正幅度，尚未在 golden 集上调参。
@@ -188,9 +198,13 @@ bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只�
 ## 测试
 
 ```sh
-uv run pytest tests/unit tests/contract          # 75 个，无模型，秒级
+uv run ruff check .
+uv run pytest                                     # 无模型，秒级；tests/models 默认跳过
+uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # 真模型冒烟，77 张 iNat 图
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
+
+CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 每次 push / PR 在 CPU 上跑真模型冒烟（权重与图片有缓存），指标写进 job summary。
 
 ## 布局
 
