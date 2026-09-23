@@ -46,7 +46,8 @@ jobs:
         run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs
       - name: Job summary
         if: always()
-        run: test -f models-report.md && cat models-report.md >> "$GITHUB_STEP_SUMMARY" || true
+        # also printed to the log so the numbers are readable wherever the summary is not
+        run: test -f models-report.md && tee -a "$GITHUB_STEP_SUMMARY" < models-report.md || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -55,12 +55,12 @@ Verify: contract tests (inside ok, outside 400, symlink/`..` escape rejected).
 - [x] `.github/workflows/ci.yml`: ruff + pytest on push/PR
 - [x] `tests/models/` real-model smoke (SigLIP2, OWLv2, BioCLIP 2.5 Huge on CPU, small in-memory name list, iNat open-data photos)
 - [x] `.github/workflows/models.yml`: every PR/push, HF cache
-Verify: workflows green on the pushed branch.
+Verify: workflows green on the pushed branch. ci green; models run 3 green on 7c1b99c (7 passed, 23.5 min on CPU, cold caches).
 
 ## 7. Wrap-up
 - [x] README updated (data/README unchanged: its facts still hold)
-- [ ] self-review of the diff against main (blocking problems only)
-- [ ] push `claude/sleepy-hawking-0jht6y`
+- [x] self-review of the diff against main (subagent; 1 blocker found and fixed: `serve --launchd` dropped `--allow-root`/`--detail-edge`)
+- [x] push `claude/sleepy-hawking-0jht6y` (PR lincleejun/bioscan#1)
 
 ## Found along the way
 - Geo prior: 749 AviList species have no BirdNET label; most are extinct or lumped sisters
