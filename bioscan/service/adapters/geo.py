@@ -1,14 +1,16 @@
-"""BirdNET geo model (v3.0) as a location/week prior over bird candidates (migrated from
-PhotoOS scan/geo.py). Reranks the visual top-k; never removes a candidate. Optional: if
-birdnet cannot load there is no prior and posterior == p_visual."""
+"""BirdNET geo model (v3.0) as a location/week prior over bird names (migrated from PhotoOS
+scan/geo.py). The prior multiplies the whole name list's visual scores before top-k, so a species
+the eye ranks low can still win where it lives. Optional: if birdnet cannot load there is no
+prior and posterior == p_visual."""
 from __future__ import annotations
 
 from functools import lru_cache
 from typing import Any
 
+import numpy as np
+
 GEO_MODEL = ("geo", "3.0", "onnx")
 GEO_FLOOR = 0.02
-GEO_MISSING = 0.05
 
 
 def week_of(taken_at: str | None) -> int | None:
@@ -31,6 +33,7 @@ def _norm(s: str | None) -> str:
 class GeoPrior:
     def __init__(self, model: Any) -> None:
         self._model = model
+        self.labels = [str(s) for s in model.species_list]  # "Scientific name_Common name"
 
     @classmethod
     def load(cls) -> GeoPrior | None:
@@ -42,35 +45,29 @@ class GeoPrior:
         except Exception:  # noqa: BLE001 - a missing prior is not an error
             return None
 
-    @lru_cache(maxsize=64)  # noqa: B019 - one instance per process
-    def _probs(self, lat: float, lon: float, week: int | None) -> dict[str, float]:
-        result = self._model.predict(lat, lon, week=week, min_confidence=0.0)
-        out: dict[str, float] = {}
-        for label, p in zip(result.species_list, result.species_probs):
-            sci, _, common = str(label).partition("_")
-            for k in (_norm(sci), _norm(common)):
-                if k:
-                    out[k] = float(p)
-        return out
+    def index(self, labels: list[str]) -> np.ndarray:
+        """Position of each name-list row's BirdNET label in `probs()`, -1 where it has none."""
+        pos = {label: i for i, label in enumerate(self.labels)}
+        return np.array([pos.get(label, -1) for label in labels], dtype=np.int64)
 
-    def probs(self, lat: float, lon: float, week: int | None) -> dict[str, float]:
+    @lru_cache(maxsize=64)  # noqa: B019 - one instance per process
+    def _probs(self, lat: float, lon: float, week: int | None) -> np.ndarray:
+        result = self._model.predict(lat, lon, week=week, min_confidence=0.0)
+        return np.asarray(result.species_probs, dtype=np.float64)  # aligned with self.labels
+
+    def probs(self, lat: float, lon: float, week: int | None) -> np.ndarray:
         return self._probs(round(lat, 2), round(lon, 2), week)
 
 
-def rerank(cands: list[dict[str, Any]], probs: dict[str, float] | None) -> list[dict[str, Any]]:
-    """posterior = p_visual * (0.02 + p_geo), renormalised over this list; None prior -> p_visual."""
-    out = []
-    for c in cands:
-        c = dict(c)
-        if probs is None:
-            c["p_geo"], c["posterior"] = None, c["p_visual"]
-        else:
-            p = probs.get(_norm(c["scientific"]), probs.get(_norm(c.get("common"))))
-            c["p_geo"] = GEO_MISSING if p is None else p
-            c["posterior"] = c["p_visual"] * (GEO_FLOOR + c["p_geo"])
-        out.append(c)
-    if probs is not None:
-        total = sum(c["posterior"] for c in out) or 1.0
-        for c in out:
-            c["posterior"] /= total
-    return sorted(out, key=lambda c: -c["posterior"])
+def align(probs: np.ndarray, index: np.ndarray) -> np.ndarray:
+    """BirdNET probabilities -> one p_geo per name-list row; rows without a label get 0."""
+    return np.where(index >= 0, probs[np.maximum(index, 0)], 0.0)
+
+
+def posterior(p_visual: np.ndarray, p_geo: np.ndarray | None) -> np.ndarray:
+    """p_visual * (0.02 + p_geo) renormalised over the whole list; no prior -> p_visual."""
+    if p_geo is None:
+        return p_visual
+    post = p_visual * (GEO_FLOOR + p_geo)
+    total = post.sum()
+    return post / total if total > 0 else p_visual

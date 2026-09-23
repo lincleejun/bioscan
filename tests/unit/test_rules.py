@@ -65,17 +65,58 @@ def test_quality_prefers_sharp():
     assert -0.5 <= sharp["exposure"] <= 0.5
 
 
-def test_geo_week_and_rerank():
+def test_geo_week_and_posterior():
     assert geo.week_of("2026-01-01T00:00:00Z") == 1
     assert geo.week_of("2026-12-31") == 48
     assert geo.week_of(None) is None and geo.week_of("garbage!!!") is None
-    cands = [{"scientific": "A a", "common": "Aa", "p_visual": 0.6}, {"scientific": "B b", "common": "Bee-eater", "p_visual": 0.4}]
-    same = geo.rerank(cands, None)
-    assert [c["posterior"] for c in same] == [0.6, 0.4] and same[0]["p_geo"] is None
-    ranked = geo.rerank(cands, {"b b": 0.9})
-    assert ranked[0]["scientific"] == "B b" and ranked[1]["p_geo"] == geo.GEO_MISSING
-    assert abs(sum(c["posterior"] for c in ranked) - 1) < 1e-9
-    assert geo.rerank(cands, {"bee eater": 0.9})[0]["scientific"] == "B b"   # common-name match
+    pv = np.array([0.6, 0.4, 0.0])
+    assert geo.posterior(pv, None) is pv
+    p_geo = geo.align(np.array([0.0, 0.9]), np.array([-1, 1, 0]))   # row 0 has no BirdNET label -> 0
+    np.testing.assert_allclose(p_geo, [0.0, 0.9, 0.0])
+    post = geo.posterior(pv, p_geo)
+    assert post.argmax() == 1 and abs(post.sum() - 1) < 1e-12
+
+
+def test_geo_prior_applies_to_whole_list_before_top_k():
+    """The species the eye ranks 6th (outside top_k=5) is where it lives and must come out first."""
+    from types import SimpleNamespace
+
+    from bioscan.service.names import NameList
+
+    sci = [f"Circus s{i}" for i in range(8)]
+    tax = [["Animalia", "Chordata", "Aves", "Accipitriformes", "Accipitridae", "Circus", s] for s in sci]
+    birds = NameList("avilist-2025", "bird", sci, [""] * 8, tax, np.zeros((8, 4), np.float32), ["exact"] * 8,
+                     birdnet=[f"{s}_x" for s in sci[:7]] + [""], birdnet_how=["exact"] * 7 + ["none"])
+    visual = np.array([0.30, 0.20, 0.15, 0.12, 0.10, 0.08, 0.03, 0.02])   # row 5 is visual rank 6
+    birdnet_labels = [f"{s}_x" for s in reversed(sci[:7])]                 # BirdNET's own order
+    probs = {lab: 1e-6 for lab in birdnet_labels} | {"Circus s5_x": 0.9}
+
+    class Geo:
+        labels = birdnet_labels
+
+        def probs(self, lat, lon, week):
+            return np.array([probs[lab] for lab in self.labels])
+
+    g = Geo()
+    eng = SimpleNamespace(names={"bird": birds}, geo=g, geo_index={"bird": geo.GeoPrior.index(g, birds.birdnet)},
+                          BIOCLIP_BATCH=16, name_matrix=lambda k: None,
+                          bioclip=SimpleNamespace(encode_images=lambda ims: ims, probs=lambda f, m: np.array([visual])))
+
+    def run(**opts):
+        boxes = [{"kind": "bird"}]
+        products._species(eng, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], 37.4, -122.1, None,
+                          {"geo": True, "top_k": 5} | opts)
+        return boxes[0]["species"]
+
+    sp = run()
+    top = sp["top"][0]
+    assert top["scientific"] == "Circus s5" and top["p_visual"] == 0.08 and top["p_geo"] == 0.9
+    assert sp["level"] == "species" and len(sp["top"]) == 5
+    assert abs(top["posterior"] - 0.08 * 0.92 / (0.08 * 0.92 + 0.92 * 0.02)) < 1e-5   # ~0.8
+    assert all(c["p_geo"] == 1e-6 for c in sp["top"][1:])
+    off = run(geo=False)                                                 # geo off: visual order, no prior
+    assert [c["scientific"] for c in off["top"]] == sci[:5]
+    assert off["top"][0]["p_geo"] is None and off["top"][0]["posterior"] == 0.3
 
 
 def test_softmax_gate():
@@ -128,13 +169,13 @@ def test_mammal_species_uses_mdd_without_geo():
     tax = ["Animalia", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Rangifer", "Rangifer tarandus"]
     tax2 = ["Animalia", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Alces", "Alces alces"]
     mdd = NameList("mdd-2025", "mammal", ["Rangifer tarandus", "Alces alces"], ["Reindeer", "Moose"],
-                   [tax, tax2], np.zeros((2, 4), np.float32), np.ones(2, bool))
+                   [tax, tax2], np.zeros((2, 4), np.float32), ["exact", "exact"])
 
     class Geo:
         def probs(self, *a):
             raise AssertionError("mammals get no geo prior")
 
-    eng = SimpleNamespace(names={"mammal": mdd}, geo=Geo(), BIOCLIP_BATCH=16, name_matrix=lambda k: None,
+    eng = SimpleNamespace(names={"mammal": mdd}, geo=Geo(), geo_index={}, BIOCLIP_BATCH=16, name_matrix=lambda k: None,
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims,
                                                   probs=lambda f, m: np.array([[0.9, 0.1]] * len(f))))
     boxes = [{"kind": "mammal"}]

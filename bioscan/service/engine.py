@@ -54,6 +54,7 @@ class Engine:
         self.bioclip: Any = None
         self.names: dict[str, Any] = {}
         self.geo: Any = None
+        self.geo_index: dict[str, Any] = {}  # kind -> name-list row -> BirdNET label position (-1 = none)
         self._matrices: dict[str, Any] = {}
         self._lock = threading.Lock()
 
@@ -86,6 +87,8 @@ class Engine:
         bioclip, self.names = load_species(self.device)
         self._matrices = {k: bioclip.torch.from_numpy(nl.matrix).to(self.device) for k, nl in self.names.items()}
         self.geo = GeoPrior.load()
+        if self.geo:
+            self.geo_index = {k: self.geo.index(nl.birdnet) for k, nl in self.names.items() if nl.birdnet}
         log.info("geo prior: %s", "birdnet geo 3.0" if self.geo else "unavailable")
         self.bioclip = bioclip
 

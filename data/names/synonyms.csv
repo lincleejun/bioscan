@@ -1,0 +1,6 @@
+avilist_scientific,alias,source,note
+Pica nuttallii,Pica nuttalli,spelling,"Yellow-billed Magpie: AviList spells nuttallii; TreeOfLife, BirdNET geo 3.0 and iNaturalist spell nuttalli. Same taxon."
+Tyto furcata,Tyto alba,birdnet,"American Barn Owl: AviList splits T. furcata from T. alba; BirdNET geo 3.0 has only Tyto alba (lumped). TreeOfLife has T. furcata itself, so no tol alias."
+Circus hudsonius,Circus cyaneus,inat,"Northern Harrier: split from Hen Harrier. Only valid for observations in the Americas (our golden set is California); BirdNET has hudsonius itself."
+Cervus canadensis,Cervus elaphus,inat,"Wapiti (MDD): North American observations labelled Cervus elaphus under the older lumped taxonomy. Only valid for North America."
+Circus hudsonius,Circus cyaneus,tol,"Northern Harrier: TreeOfLife-200M has no hudsonius row; its Circus cyaneus (Hen Harrier) row is the lumped taxon incl. American photos. Shares that vector with AviList C. cyaneus, so the BirdNET prior (hudsonius vs cyaneus) decides by location."

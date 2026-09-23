@@ -8,11 +8,26 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from bioscan.cli import client
+from bioscan.service import names
+
+SYNONYMS_CSV = names.DATA_DIR / names.NAMES_DIR / "synonyms.csv"
+TRUTH_SOURCES = ("inat", "spelling")   # synonyms.csv sources that rename a ground-truth label
 
 
 def read_gt(path: str) -> list[dict]:
     with open(path, newline="", encoding="utf-8-sig") as f:
         return [r for r in csv.DictReader(f) if r.get("path")]
+
+
+def normalise_truth(rows: list[dict], synonyms: list[dict]) -> list[dict]:
+    """Truth labels renamed to the AviList/MDD name (inat + spelling synonyms); the original stays
+    in `scientific_raw`. ponytail: aliases apply regardless of where the photo was taken; add a
+    region column to synonyms.csv if a non-Americas set ever needs Circus cyaneus kept."""
+    to_list = {names.norm_binomial(r["alias"]): r["avilist_scientific"].strip()
+               for r in synonyms if r["source"].strip() in TRUTH_SOURCES}
+    return [{**r, "scientific_raw": r.get("scientific", ""),
+             "scientific": to_list.get(names.norm_binomial(r.get("scientific") or ""), r.get("scientific", ""))}
+            for r in rows]
 
 
 def load_preds(lines) -> dict[str, dict]:
@@ -92,6 +107,9 @@ def compute(gt_rows: list[dict], preds: dict[str, dict]) -> dict[tuple[str, str]
             "coverage": _rate(len(sp), n),
             "precision": _rate(sum(o["top1"] for o in sp), len(sp)),
             "confusion": [(t, p, c) for (t, p), c in conf.most_common(10)],
+            # Top-1 hits that only exist because the truth label was renamed (a miss on the raw label)
+            "synonym_hits": sum(o["top1"] and _sci(r.get("scientific_raw", r.get("scientific"))) != _sci(r.get("scientific"))
+                                for r, o in items),
             "decode_ms": _ms(o["decode_ms"] for o in os_),
             "identify_ms": _ms(o["identify_ms"] for o in os_),
         }
@@ -118,7 +136,9 @@ def report_md(metrics: dict, meta: dict) -> str:
                      f"{_pct(m['top1'])} | {_pct(m['top5'])} | {_pct(m['coverage'])} | {_pct(m['precision'])} | "
                      f"{_msf(m['decode_ms'])} | {_msf(m['identify_ms'])} |")
     lines += ["", "Definitions: Top-1/Top-5 use the highest-`score` box; coverage = best box at `level == species`; "
-              "precision = Top-1 hit rate among those; failed images count as misses everywhere.", ""]
+              "precision = Top-1 hit rate among those; failed images count as misses everywhere.", "",
+              "Top-1 hits gained by synonym normalisation of the truth (miss -> hit): "
+              + ", ".join(f"{t}/{k} {m['synonym_hits']}" for (t, k), m in metrics.items()), ""]
     for (tier, kind), m in metrics.items():
         lines += [f"## Confusion Top-10 — {tier} / {kind}", ""]
         if not m["confusion"]:
@@ -130,8 +150,11 @@ def report_md(metrics: dict, meta: dict) -> str:
     return "\n".join(lines)
 
 
-def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str | None = None) -> str:
+def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str | None = None,
+             synonyms: bool = True) -> str:
     rows = read_gt(gt_csv)
+    if synonyms:
+        rows = normalise_truth(rows, names.read_synonyms(SYNONYMS_CSV))
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     preds_path = Path(preds_file) if preds_file else out / "preds.ndjson"
@@ -160,7 +183,7 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
         preds = load_preds(f)
     metrics = compute(rows, preds)
     meta = {"groundtruth": gt_csv, "preds": str(preds_path), "images": len(rows), "geo": not no_geo,
-            "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "wall_s": f"{time.monotonic() - t0:.1f}"}
+            "synonyms": str(SYNONYMS_CSV) if synonyms else "off", "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "wall_s": f"{time.monotonic() - t0:.1f}"}
     engines = {json.dumps(e.get("engine"), sort_keys=True) for e in preds.values() if e.get("engine")}
     if engines:
         meta["engine"] = " | ".join(sorted(engines))

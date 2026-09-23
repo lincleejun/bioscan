@@ -132,7 +132,7 @@ def cmd_gt_inat(a):
 
 def cmd_eval(a):
     from bioscan.cli import eval as ev
-    print(ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds))
+    print(ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms))
     return 0
 
 
@@ -197,6 +197,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--out", required=True)
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--preds", help="score an existing preds.ndjson instead of calling the service")
+    s.add_argument("--no-synonyms", action="store_true", help="compare raw truth labels (skip data/names/synonyms.csv)")
     s.set_defaults(func=cmd_eval)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)

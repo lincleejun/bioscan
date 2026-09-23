@@ -98,9 +98,12 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
         "an image of Animalia Chordata Aves Strigiformes Strigidae Megascops kennicottii with common name Western Screech-Owl.",
         "an image of Animalia Chordata Mammalia Artiodactyla Cervidae Alces alces with common name Moose.",
     ])
+    how = {"exact": 1, "synonym": 0, "none": 1}
     assert names.stats(lists) == {
-        "bird": {"list_id": "avilist-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5},
-        "mammal": {"list_id": "mdd-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5},
+        "bird": {"list_id": "avilist-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
+                 "tol": how, "birdnet": None},
+        "mammal": {"list_id": "mdd-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
+                   "tol": how, "birdnet": None},
     }
     assert len(list(cache.glob(f"{names.MODEL_NAME}-*.npz"))) == 2
 
@@ -118,3 +121,84 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
     third = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", cache, data_dir=data, tol_files=tol)
     assert third["mammal"].scientific == ["Rangifer tarandus"]
     assert len(list(cache.glob("*.npz"))) == 3
+
+
+SYN = [{"avilist_scientific": "Megascops kennicottii", "alias": "Megascops kennicotti", "source": "spelling", "note": ""},
+       {"avilist_scientific": "Alces alces", "alias": "Alces americanus", "source": "tol", "note": ""},
+       {"avilist_scientific": "Corvus corax", "alias": "Corvus sinuatus", "source": "inat", "note": ""}]
+
+
+def test_match_names_exact_then_synonym_by_source():
+    targets = {"corvus corax": "Corvus corax", "megascops kennicotti": "Megascops kennicotti",
+               "corvus sinuatus": "Corvus sinuatus"}
+    got = names.match_names(["Corvus  corax", "Megascops kennicottii", "Alces alces"], targets,
+                            names.aliases(SYN, ("tol", "spelling")))
+    assert got == [("Corvus corax", "exact"), ("Megascops kennicotti", "synonym"), ("", "none")]
+    assert names.aliases(SYN, ("inat", "spelling")) == {"megascops kennicottii": ["Megascops kennicotti"],
+                                                         "corvus corax": ["Corvus sinuatus"]}
+
+
+def test_load_lists_uses_map_for_birds_and_synonyms_for_mammals(tmp_path):
+    data, tol, vecs = setup(tmp_path)
+    (data / "names").mkdir()
+    write_csv(data / "names" / "synonyms.csv", list(SYN[0]), [list(r.values()) for r in SYN])
+    # The map says kennicottii takes TreeOfLife's (wrong-class, so unusable) row and a BirdNET label.
+    write_csv(data / "names" / "avilist_map.csv",
+              ["scientific", "common", "order", "family", "tol_name", "tol_how", "birdnet_label", "birdnet_how"],
+              [["Corvus corax", "Northern Raven", "Passeriformes", "Corvidae", "Corvus corax", "exact", "", "none"],
+               ["Megascops kennicottii", "", "Strigiformes", "Strigidae", "", "none",
+                "Megascops kennicottii_Western Screech Owl", "exact"]])
+    # mammals: Alces alces reaches TreeOfLife's Alces americanus through a tol synonym
+    tol_names = TOL_NAMES + [[["Animalia", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Alces", "americanus"], "Moose"]]
+    rng = np.random.default_rng(1)
+    v = rng.normal(size=(names.DIM, len(tol_names))).astype(np.float32)
+    v /= np.linalg.norm(v, axis=0)
+    (tmp_path / "tol.json").write_text(json.dumps(tol_names))
+    np.save(tmp_path / "tol.npy", v)
+
+    lists = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", tmp_path / "cache", data_dir=data, tol_files=tol)
+    bird, mammal = lists["bird"], lists["mammal"]
+    assert bird.tol_how == ["exact", "none"]
+    assert bird.birdnet == ["", "Megascops kennicottii_Western Screech Owl"] and bird.birdnet_how == ["none", "exact"]
+    assert mammal.tol_how == ["exact", "synonym"] and mammal.birdnet == []
+    np.testing.assert_allclose(mammal.matrix[1], v[:, 4], rtol=1e-5)
+    s = names.stats(lists)
+    assert s["mammal"]["tol"] == {"exact": 1, "synonym": 1, "none": 0} and s["mammal"]["coverage"] == 1.0
+    assert s["bird"]["birdnet"] == {"exact": 1, "synonym": 0, "none": 1}
+    again = names.load_lists(None, None, "cpu", tmp_path / "cache", data_dir=data, tol_files=(tmp_path / "x", tmp_path / "x"))
+    assert again["bird"].birdnet == bird.birdnet and again["mammal"].tol_how == mammal.tol_how
+
+
+def test_build_name_map_small_sample():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "build_name_map", Path(__file__).resolve().parents[2] / "scripts" / "build_name_map.py")
+    bnm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bnm)
+
+    tax = lambda g, e, f="Fam": ["Animalia", "Chordata", "Aves", "Ord", f, g, f"{g} {e}"]  # noqa: E731
+    rows = [("Pica nuttallii", "Yellow-billed Magpie", tax("Pica", "nuttallii", "Corvidae")),
+            ("Tyto furcata", "American Barn Owl", tax("Tyto", "furcata")),
+            ("Tyto alba", "Western Barn Owl", tax("Tyto", "alba")),
+            ("Gyps rueppelli", "", tax("Gyps", "rueppelli"))]
+    tol_names = [[["Animalia", "Chordata", "Aves", "O", "Corvidae", "Pica", "nuttalli"], ""],
+                 [["Animalia", "Chordata", "Aves", "O", "Tytonidae", "Tyto", "furcata"], ""],
+                 [["Animalia", "Chordata", "Aves", "O", "Tytonidae", "Tyto", "alba"], ""],
+                 [["Animalia", "Chordata", "Aves", "O", "Accipitridae", "Gyps", "rueppellii"], ""]]
+    labels = ["Pica nuttalli_Yellow-billed Magpie", "Tyto alba_Barn Owl"]
+    syn = [{"avilist_scientific": "Pica nuttallii", "alias": "Pica nuttalli", "source": "spelling"},
+           {"avilist_scientific": "Tyto furcata", "alias": "Tyto alba", "source": "birdnet"}]
+    mapped, cands = bnm.build(rows, tol_names, labels, syn)
+    got = {m["scientific"]: (m["tol_name"], m["tol_how"], m["birdnet_label"], m["birdnet_how"]) for m in mapped}
+    assert got == {
+        "Pica nuttallii": ("Pica nuttalli", "synonym", "Pica nuttalli_Yellow-billed Magpie", "synonym"),
+        "Tyto furcata": ("Tyto furcata", "exact", "Tyto alba_Barn Owl", "synonym"),
+        "Tyto alba": ("Tyto alba", "exact", "Tyto alba_Barn Owl", "exact"),
+        "Gyps rueppelli": ("", "none", "", "none"),                    # near miss is NOT adopted
+    }
+    assert mapped[0]["order"] == "Ord" and mapped[0]["family"] == "Corvidae"
+    assert cands == [{"side": "tol", "scientific": "Gyps rueppelli", "candidate": "Gyps rueppellii",
+                      "distance": 1, "candidate_in_avilist": False}]
+    assert bnm.edit_distance("kitten", "sitting") == 3

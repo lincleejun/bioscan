@@ -216,25 +216,27 @@ def _species(engine: Any, image: Image.Image, boxes: list[dict[str, Any]], bboxe
             by_kind[b["kind"]].append(i)
     for kind, idx in by_kind.items():
         names = engine.names[kind]
-        prior = None
-        if opts["geo"] and kind == "bird" and engine.geo is not None and lat is not None and lon is not None:
+        p_geo = None
+        index = engine.geo_index.get(kind)
+        if opts["geo"] and index is not None and engine.geo is not None and lat is not None and lon is not None:
             try:
-                prior = engine.geo.probs(lat, lon, geo_mod.week_of(taken_at))
+                p_geo = geo_mod.align(engine.geo.probs(lat, lon, geo_mod.week_of(taken_at)), index)
             except Exception:  # noqa: BLE001 - an optional prior must not discard the visual result
-                prior = None
+                p_geo = None
         for start in range(0, len(idx), engine.BIOCLIP_BATCH):
             part = idx[start:start + engine.BIOCLIP_BATCH]
             feats = engine.bioclip.encode_images([crop_with_context(image, bboxes[i]) for i in part])
             probs = engine.bioclip.probs(feats, engine.name_matrix(kind))
             for i, row in zip(part, probs):
-                top = np.argsort(-row)[:opts["top_k"]]
-                cands = [{"scientific": names.scientific[j], "common": names.common[j] or None,
-                          "taxonomy": list(names.taxonomy[j]), "p_visual": float(row[j])} for j in top]
-                ranked = geo_mod.rerank(cands, prior)
-                for c in ranked:
-                    for key in ("p_visual", "p_geo", "posterior"):
-                        c[key] = None if c[key] is None else round(float(c[key]), 6)
-                boxes[i]["species"] = {"list": names.list_id, "level": species_level(ranked), "top": ranked}
+                row = np.asarray(row, dtype=np.float64)
+                post = geo_mod.posterior(row, p_geo)
+                top = [
+                    {"scientific": names.scientific[j], "common": names.common[j] or None,
+                     "taxonomy": list(names.taxonomy[j]), "p_visual": round(float(row[j]), 6),
+                     "p_geo": None if p_geo is None else round(float(p_geo[j]), 6),
+                     "posterior": round(float(post[j]), 6)}
+                    for j in np.argsort(-post, kind="stable")[:opts["top_k"]]]
+                boxes[i]["species"] = {"list": names.list_id, "level": species_level(top), "top": top}
 
 
 def identify(engine: Any, image: Image.Image, gate: dict[str, float], lat: float | None, lon: float | None,

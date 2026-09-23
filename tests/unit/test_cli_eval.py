@@ -108,3 +108,24 @@ def test_eval_service_down_is_clear(tmp_path):
     gt_csv.write_text("path,scientific,tier,kind\n/1,A b,own,bird\n")
     with pytest.raises(client.ServiceError, match="cannot reach"):
         ev.run_eval(str(gt_csv), str(tmp_path / "out"), False, "http://127.0.0.1:1")
+
+
+def test_truth_synonyms_normalised_and_counted(tmp_path):
+    syn = [{"avilist_scientific": "Pica nuttallii", "alias": "Pica nuttalli", "source": "spelling"},
+           {"avilist_scientific": "Circus hudsonius", "alias": "Circus cyaneus", "source": "inat"},
+           {"avilist_scientific": "Tyto furcata", "alias": "Tyto alba", "source": "birdnet"}]   # not a truth source
+    gt = [{"path": "/m", "scientific": "Pica nuttalli", "tier": "inat", "kind": "bird"},
+          {"path": "/h", "scientific": "Circus cyaneus", "tier": "inat", "kind": "bird"},
+          {"path": "/t", "scientific": "Tyto alba", "tier": "inat", "kind": "bird"},
+          {"path": "/r", "scientific": "Buteo jamaicensis", "tier": "inat", "kind": "bird"}]
+    preds = {"/m": res("/m", "bird", [box("bird", 1, "species", ["Pica nuttallii"])]),
+             "/h": res("/h", "bird", [box("bird", 1, "species", ["Circus hudsonius"])]),
+             "/t": res("/t", "bird", [box("bird", 1, "species", ["Tyto furcata"])]),
+             "/r": res("/r", "bird", [box("bird", 1, "species", ["Buteo jamaicensis"])])}
+    rows = ev.normalise_truth(gt, syn)
+    assert [r["scientific"] for r in rows] == ["Pica nuttallii", "Circus hudsonius", "Tyto alba", "Buteo jamaicensis"]
+    assert rows[0]["scientific_raw"] == "Pica nuttalli"
+    on, off = ev.compute(rows, preds)[("inat", "bird")], ev.compute(gt, preds)[("inat", "bird")]
+    assert (on["top1"], on["synonym_hits"]) == (3 / 4, 2)
+    assert (off["top1"], off["synonym_hits"]) == (1 / 4, 0)
+    assert "Top-1 hits gained by synonym normalisation of the truth (miss -> hit): inat/bird 2" in ev.report_md({("inat", "bird"): on}, {})

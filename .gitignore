@@ -10,3 +10,4 @@ data/avilist/*.xlsx
 data/mdd/*.csv
 runs/
 uv.lock
+data/inat/*/

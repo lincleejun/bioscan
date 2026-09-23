@@ -28,3 +28,21 @@ gate 错的 59 张里 55 张是角鸮整图被判 mammal，但框级复判全部
 bioscan 的真实失败（与谁比都错）：红尾鵟 6 张被判成鹪鹩/啄木鸟/花栗鼠/鼯鼠（`level` 为 unconfirmed/family/species 均有），主体很可能在画面里很小，检测框选错目标。这是下一轮要修的。
 
 复核脚本：`scripts/verify/codex_verify.py`、`scripts/verify/compare2.py`；答案：`runs/2026-09-22-baseline/codex_answers.jsonl`。
+
+## iNaturalist golden 集（2026-09-23）
+
+`bioscan gt inat --place california --taxa data/taxa.csv --per-species 25`：65 种 × 25 张 = 1625 张 research-grade，CC0/CC-BY/CC-BY-NC，1624 张带真实 GPS 与日期。真值 `data/inat/groundtruth-inat.csv`。
+
+| run | 类群 | n | gate | 检出 | Top-1 | Top-5 | 覆盖率 | 精度 |
+|---|---|---|---|---|---|---|---|---|
+| inat（真实坐标） | 鸟 | 1050 | 97.0% | 97.0% | 85.7% | 91.8% | 95.4% | 89.0% |
+| inat-nogeo | 鸟 | 1050 | 97.0% | 97.0% | 83.3% | 91.8% | 94.0% | 87.3% |
+| inat | 哺乳 | 575 | 89.7% | 84.9% | 74.1% | 81.4% | 82.3% | 89.2% |
+
+同物异名修正后（Pica nuttalli/nuttallii、Circus hudsonius/cyaneus、Tyto furcata/alba、Cervus canadensis/elaphus、Alces alces/americanus）：鸟 Top-1 **91.1%**，哺乳 **78.1%**。这五对是 AviList/MDD 与 iNat/TreeOfLife 的拆分或拼写差异，不是视觉错误。
+
+关键物种（有先验 / 无先验结果相同）：红尾鵟 24/25，红肩鵟 24/25，暗冠蓝鸦 24/25，西美角鸮 19/25。bioscan 在 golden 集上能稳定分开红尾鵟和红肩鵟，支持"自有照片的文件夹标签是对的，codex 判红肩鵟是错的"。
+
+真实失败：哺乳"没框"45 张，集中在黑熊 8、美洲狮 8、灰熊 5、短尾猫 4，是 mammal 检测词表的问题；鸟"没框"19 张，穴小鸮 4、暗眼灯草鹀 3。
+
+下一轮优先级：1) 同物异名表（真值侧与名单侧各一份）；2) mammal 检测词表补大型食肉兽；3) 地理先验对拆分种（hudsonius）的名字对齐。
