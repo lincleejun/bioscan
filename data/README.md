@@ -33,7 +33,7 @@
 
 - taxonomy 7 级：`[Animalia, Chordata, Aves|Mammalia, 目, 科, 属, "属 种加词"]`。两张表都没有界、门，固定填 Animalia、Chordata。
 - 官方向量：HF dataset `imageomics/TreeOfLife-200M` 的 `embeddings/txt_emb_bioclip-2.5-vith14.{json,npy}`（snapshot `5f2dc493`，npy 形状 `(1024, 794878)`，3.26 GB）。json 每行 `[[界, 门, 纲, 目, 科, 属, 种加词], 俗名]`。
-- 匹配：鸟走 `names/avilist_map.csv` 的 `tol_name`，哺乳在建缓存时现算；两者规则相同：`geo._norm(属 + " " + 种加词)`（下划线转空格、`-` 转空格、去 `'`、合并空白、小写）精确相等 → `names/synonyms.csv` → 无。TreeOfLife 行的纲必须是 Aves / Mammalia（避免跨界同名，例如 *Oenanthe albifrons* 在 TreeOfLife 里只有植物那一行）。同一学名多行时取科相同的那行，否则取第一行。exact 和 synonym 都用官方向量。
+- 匹配：鸟走 `names/avilist_map.csv` 的 `tol_name`，哺乳在建缓存时现算；两者规则相同：`naming.norm_binomial(属 + " " + 种加词)`（下划线转空格、`-` 转空格、去 `'`、合并空白、小写）精确相等 → `names/synonyms.csv` → 无。TreeOfLife 行的纲必须是 Aves / Mammalia（避免跨界同名，例如 *Oenanthe albifrons* 在 TreeOfLife 里只有植物那一行）。同一学名多行时取科相同的那行，否则取第一行。exact 和 synonym 都用官方向量。
 - 对不上的名字用 BioCLIP 2.5 Huge 文本塔编码，文本与 TreeOfLife-toolbox `processing/scripts/make_txt_embedding.py` 完全一致：`"an image of {界 门 纲 目 科 属 种加词} with common name {俗名}."`（无俗名时省掉 ` with common name …`），L2 归一化。实测对 10 个 TreeOfLife 行用此模板重编码，与官方向量余弦均为 1.0000。
 - 缓存：`~/.cache/bioscan/names/bioclip-2.5-vith14-<sha>.npz`，sha 取 CSV 内容 + list_id + 缓存版本（2）+ synonyms.csv +（鸟）avilist_map.csv；改任一文件都会重建。建完缓存后 3.26 GB 的官方文件可删。
 
