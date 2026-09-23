@@ -27,7 +27,7 @@
 
 - PhotoOS 现有链路：SigLIP2 场景门 → OWLv2 开放词表检测（框再用 SigLIP2 复判）→ BioCLIP 2.5 Huge 对 11045 鸟种零样本打分 → BirdNET 地理先验重排 → 定级（种/属/科/unconfirmed）。哺乳和其他动物无物种头。
 - BioCLIP 2.5 Huge 的输入是裁切框像素，不使用 SigLIP2 的向量。两者向量空间互不通用。
-- 三个模型 fp16 常驻 MPS 合计约 3.5 GB，24 GB 统一内存放得下。冷启动数十秒，所以做常驻服务。
+- 三个模型常驻 MPS，冷启动数十秒，所以做常驻服务。（2026-09-23 更正：实现是 fp32，约为 fp16 估算 3.5 GB 的两倍，24 GB 统一内存仍放得下；fp16 需在 Mac 上跑 `bioscan eval` 对比精度后再定。）
 - 真值现状：`/Volumes/Media/bird/` 三个物种文件夹共 404 张；阿拉斯加 `ak_selected` 含驯鹿等哺乳；PhotoOS `review/` 有一组约 90 到 100 张的测试卡。哺乳动物真值几乎为零，需要用 iNaturalist 补广度集。
 - AviList 2025 是统一的全球鸟类清单（11131 种，含目/科/属层级），只是名单不含照片。哺乳用 Mammal Diversity Database（MDD）。BioCLIP 官方预计算的名字向量基于 TreeOfLife 分类，与 AviList 有拆并差异，需要映射表。
 
@@ -148,7 +148,7 @@
 
 ### 文件布局
 ```
-bioscan/service/app.py        路由、NDJSON 流、请求锁与队列
+bioscan/service/app.py        路由、NDJSON 流、按 chunk 的模型锁与队列
 bioscan/service/engine.py     模型注册、懒加载、设备选择、batch size 常量
 bioscan/service/products.py   identify / embed / jpg
 bioscan/service/decode.py     RAW/JPG → 旋正 2048 图 + EXIF + sha256
@@ -159,9 +159,10 @@ bioscan/service/adapters/     owlv2.py siglip2.py bioclip.py geo.py
 ## 6. 并发
 
 三层：
-1. **请求之间串行。** `/run` 上一把 `asyncio.Lock`，同时只跑一批，后来的排队，队列无上限。`/health` 的 `running/queued` 反映状态。
+1. **按 chunk 轮流用模型。** 模型锁（`asyncio.Lock`，FIFO）按 chunk 取放，而不是整个请求持有：单张请求最多等正在跑的那个 chunk，不等整批。解码在锁外。`/health` 的 `running` 是此刻占着模型的请求数（0 或 1），`queued` 是在等下一个 chunk 轮次的请求数。（2026-09-23 由"请求之间串行"改为此。）
 2. **一批之内流水。** 解码用 `ProcessPoolExecutor`，默认 4 进程（/Volumes/Media 是 USB 机械盘，实测并发 5 是拐点），解码池预取下一个 chunk，GPU 处理当前 chunk。在飞行中最多 2 个 chunk，内存封顶约 800 MB。GPU 单流，靠 batch：SigLIP2 32 张、OWLv2 8 张、BioCLIP 16 个裁切。
 3. **取消。** 客户端断开，服务在当前 chunk 结束后停止并释放锁。
+4. **解码进程崩溃。** 解码 worker 死掉（如 LibRaw 遇损坏 RAW）时重建进程池，本 chunk 逐张重解码，只有致崩的那张报错。
 
 可调项：`--decode-workers`（默认 4）、`--chunk`（默认 32）。每模型 batch size 写死在 engine.py。
 

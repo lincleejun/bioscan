@@ -11,25 +11,12 @@ from typing import Any
 
 import numpy as np
 
+from bioscan.service.taxa import GATE_CLASSES, GATE_PROMPTS  # noqa: F401 - re-exported
+
 MODEL_ID = "google/siglip2-base-patch16-224"
 MODEL_NAME = "siglip2-base-patch16-224"
+REVISION = "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2"
 
-# Order matters: softmax_gate zips it onto the class matrix rows.
-GATE_CLASSES = ("bird", "mammal", "other_animal", "person", "none")
-GATE_PROMPTS: dict[str, list[str]] = {
-    "bird": ["a photo of a bird.", "a bird perched on a branch.", "a bird flying.", "a small bird.",
-             "a duck, gull, hawk, owl or songbird."],
-    "mammal": ["a photo of a mammal.", "a deer, bear, seal, whale, squirrel or fox.", "a wild mammal.", "a dog or cat."],
-    "other_animal": ["a photo of a reptile or amphibian.", "a lizard, snake, turtle or frog.", "a fish.",
-                     "an insect, butterfly or spider."],
-    "person": ["a photo of a person.", "a person standing.", "people walking.", "a portrait of a man or woman.",
-               "a painting of a person."],
-    "none": ["a landscape with mountains, sea or sky.", "a sunset.", "leaves, trees or flowers.",
-             "a building or street.", "a plate of food.", "an object or artifact.", "snow and ice.",
-             "a photo with no animal in it.", "a tree trunk, bark or forest.", "a rock face, cliff or boulder.",
-             "a glacier, snow or ice field.", "a painting, mural or artwork.", "a statue or sculpture.",
-             "a city, street or building."],
-}
 
 
 def softmax_gate(vecs: np.ndarray, class_matrix: np.ndarray, scale: float) -> list[dict[str, float]]:
@@ -55,8 +42,8 @@ class SigLIP2:
         from transformers import AutoModel, AutoProcessor
 
         self.torch, self.device = torch, device
-        self.processor = AutoProcessor.from_pretrained(MODEL_ID)
-        self.model = AutoModel.from_pretrained(MODEL_ID).to(device).eval()
+        self.processor = AutoProcessor.from_pretrained(MODEL_ID, revision=REVISION)
+        self.model = AutoModel.from_pretrained(MODEL_ID, revision=REVISION).to(device).eval()
         self.logit_scale = float(self.model.logit_scale.exp().item())
         rows = []
         for name in GATE_CLASSES:

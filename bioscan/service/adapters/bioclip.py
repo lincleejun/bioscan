@@ -8,6 +8,14 @@ import numpy as np
 
 MODEL_ID = "hf-hub:imageomics/bioclip-2.5-vith14"
 MODEL_NAME = "bioclip-2.5-vith14"
+REVISION = "6e3d04e3d6522012c88181085c5ae666e14c45cd"   # HF commit; open_clip's hf-hub: path cannot pin one
+
+
+def snapshot_dir() -> str:
+    """The pinned snapshot in the HF cache (downloaded by tests/models/download.py; offline after)."""
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(MODEL_ID.removeprefix("hf-hub:"), revision=REVISION, ignore_patterns=["*.bin"])
 
 
 class BioCLIP:
@@ -16,9 +24,10 @@ class BioCLIP:
         import torch
 
         self.torch, self.device = torch, device
-        self.model, _, self.preprocess = open_clip.create_model_and_transforms(MODEL_ID, device=device)
+        local = "local-dir:" + snapshot_dir()
+        self.model, _, self.preprocess = open_clip.create_model_and_transforms(local, device=device)
         self.model.eval()
-        self.tokenizer = open_clip.get_tokenizer(MODEL_ID)
+        self.tokenizer = open_clip.get_tokenizer(local)
         self.logit_scale = float(self.model.logit_scale.exp().item())
 
     def encode_images(self, images: list[Any]) -> Any:

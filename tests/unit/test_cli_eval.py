@@ -103,6 +103,7 @@ def test_run_eval_from_existing_preds(tmp_path):
 
 def test_eval_service_down_is_clear(tmp_path):
     import pytest
+
     from bioscan.cli import client
     gt_csv = tmp_path / "gt.csv"
     gt_csv.write_text("path,scientific,tier,kind\n/1,A b,own,bird\n")
@@ -129,3 +130,60 @@ def test_truth_synonyms_normalised_and_counted(tmp_path):
     assert (on["top1"], on["synonym_hits"]) == (3 / 4, 2)
     assert (off["top1"], off["synonym_hits"]) == (1 / 4, 0)
     assert "Top-1 hits gained by synonym normalisation of the truth (miss -> hit): inat/bird 2" in ev.report_md({("inat", "bird"): on}, {})
+
+
+def test_no_box_split_by_gate_class():
+    m = metrics()
+    assert m[("own", "bird")]["no_box_gate"] == {"mammal": 1}      # /4: the gate said mammal, no box
+    assert m[("inat", "mammal")]["no_box_gate"] == {}
+    md = ev.report_md(m, {})
+    assert "No box, by whole-frame gate class" in md and "own/bird mammal 1" in md and "inat/mammal 0" in md
+
+
+def _fake_service(monkeypatch, events):
+    monkeypatch.setattr(ev.client, "health", lambda url: {"status": "ok"})
+    monkeypatch.setattr(ev.client, "run", lambda payload, url: (json.dumps(e).encode() for e in events))
+
+
+def _gt(tmp_path):
+    p = tmp_path / "gt.csv"
+    p.write_text("path,scientific,tier,lat,lon,taken_at,source,kind\n" +
+                 "".join(f"{r['path']},{r['scientific']},{r['tier']},,,,,{r['kind']}\n" for r in GT))
+    return str(p)
+
+
+def test_preds_file_carries_meta_and_rescoring_reads_it(tmp_path, monkeypatch):
+    _fake_service(monkeypatch, [{"type": "progress", "product": "identify", "done": 1, "total": 6}, *PREDS])
+    report, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), True, "http://x")   # --no-geo run
+    lines = (tmp_path / "a" / "preds.ndjson").read_text().splitlines()
+    meta = json.loads(lines[0])
+    assert meta["type"] == "meta" and meta["schema"] == ev.PREDS_SCHEMA and len(meta["groundtruth_sha256"]) == 64
+    assert meta["options"]["identify"]["geo"] is False
+    assert not any(json.loads(line)["type"] == "progress" for line in lines)
+    assert complete and "- geo: False" in report
+    # rescoring the same preds without --no-geo still reports what the preds were made with
+    report2, complete2 = ev.run_eval(_gt(tmp_path), str(tmp_path / "b"), False, "http://x",
+                                     str(tmp_path / "a" / "preds.ndjson"))
+    assert complete2 and "- geo: False" in report2 and "- preds schema: 1" in report2
+
+
+def test_stream_without_done_is_incomplete(tmp_path, monkeypatch):
+    _fake_service(monkeypatch, PREDS[:3])
+    _, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    assert complete is False
+    from bioscan.cli import main as cli
+    monkeypatch.setattr(ev.client, "run", lambda payload, url: (json.dumps(e).encode() for e in PREDS[:3]))
+    assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "c")]) == cli.EXIT_INCOMPLETE
+
+
+def test_old_preds_without_meta_still_score(tmp_path):
+    preds = tmp_path / "p.ndjson"
+    preds.write_text("".join(json.dumps(p) + "\n" for p in PREDS if p["type"] != "done"))
+    report, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "o"), False, "http://x", str(preds))
+    assert complete and "from the command line; preds file has no meta line" in report
+
+
+def test_hyphen_and_case_only_differences_match():
+    truth = {"scientific": "Canis latrans", "kind": "mammal"}
+    pred = res("/x", "mammal", [box("mammal", 1, "species", ["canis-latrans"])])
+    assert ev.outcome(truth, pred)["top1"]

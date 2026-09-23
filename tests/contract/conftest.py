@@ -22,6 +22,7 @@ class FakeEngine:
         self.fail_load, self.block = fail_load, block
         self._loaded: list[str] = []
         self.calls: list[dict] = []
+        self.details: list[tuple[int, int] | None] = []
 
     def loaded(self):
         return list(self._loaded)
@@ -39,8 +40,18 @@ class FakeEngine:
         gate = {"bird": 0.93, "mammal": 0.02, "other_animal": 0.01, "person": 0.0, "none": 0.04}
         return vecs, [dict(gate) for _ in images]
 
-    def identify(self, image, gate, lat, lon, taken_at, opts):
+    def identify_many(self, frames, opts):
+        out = []
+        for f in frames:
+            try:
+                out.append(self.identify(f.image, f.gate, f.lat, f.lon, f.taken_at, opts, detail=f.detail))
+            except Exception as exc:  # noqa: BLE001 - per-frame, like the real pipeline
+                out.append(exc)
+        return out
+
+    def identify(self, image, gate, lat, lon, taken_at, opts, detail=None):
         self.calls.append({"size": image.size, "lat": lat, "lon": lon, "taken_at": taken_at})
+        self.details.append(None if detail is None else detail.size)
         if self.block is not None:
             self.block.wait(10)
         if image.size == FAIL_SIZE:
@@ -61,8 +72,14 @@ def make_jpg(path, size=(64, 48)):
 
 
 def events(resp):
+    """Parsed NDJSON events; every one must carry its contract fields (bioscan/contract.py)."""
+    from bioscan import contract
+
     assert resp.headers["content-type"].startswith("application/x-ndjson")
-    return [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    evs = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    for ev in evs:
+        assert not contract.missing_fields(ev), (ev.get("type"), contract.missing_fields(ev))
+    return evs
 
 
 def client_for(engine, chunk=32):

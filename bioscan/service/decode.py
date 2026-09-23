@@ -1,4 +1,5 @@
-"""RAW/JPG -> upright 2048 px RGB image + EXIF GPS/time + sha256 of the original bytes.
+"""RAW/JPG -> upright 2048 px RGB image + EXIF GPS/time + sha256 of the original bytes, and on
+request a larger "detail" copy of the same frame for species crops.
 
 Runs in a ProcessPoolExecutor worker, so everything here is a plain picklable function.
 RAW decode is rawpy (LibRaw applies the camera's rotation itself); half_size demosaic is
@@ -14,6 +15,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 MAX_EDGE = 2048
+DETAIL_EDGE = 3072   # default long edge of the species-crop image; <= MAX_EDGE turns it off
 RAW_EXT = {".arw", ".cr2", ".cr3", ".nef", ".nrw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw"}
 # LibRaw `sizes.flip` -> EXIF orientation value
 _FLIP_TO_ORIENTATION = {0: 1, 3: 3, 5: 8, 6: 6}
@@ -30,6 +32,7 @@ class Decoded:
     lat: float | None
     lon: float | None
     taken_at: str | None        # ISO 8601
+    detail: Image.Image | None = None   # same frame, long edge <= detail_edge; None = no larger copy
 
 
 def _ratio(v) -> float:
@@ -100,18 +103,24 @@ def fit(image: Image.Image, max_edge: int = MAX_EDGE) -> Image.Image:
     return image.resize((round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS)
 
 
-def decode(path: str) -> Decoded:
+def decode(path: str, detail_edge: int | None = None) -> Decoded:
+    """`detail_edge` asks for a second, larger copy (long edge <= detail_edge) for species crops;
+    none is made when it would not be larger than the 2048 image."""
     data = Path(path).read_bytes()
     image, w, h, orientation = (_raw if Path(path).suffix.lower() in RAW_EXT else _raster)(data)
     lat, lon, taken_at = read_exif(data)
-    return Decoded(path=path, sha256=hashlib.sha256(data).hexdigest(), image=fit(image), width=w, height=h,
-                   orientation=orientation, lat=lat, lon=lon, taken_at=taken_at)
+    small = fit(image)
+    detail = None
+    if detail_edge and detail_edge > MAX_EDGE and max(image.size) > max(small.size):
+        detail = fit(image, detail_edge)
+    return Decoded(path=path, sha256=hashlib.sha256(data).hexdigest(), image=small, width=w, height=h,
+                   orientation=orientation, lat=lat, lon=lon, taken_at=taken_at, detail=detail)
 
 
-def timed_decode(path: str) -> tuple[Decoded, float]:
+def timed_decode(path: str, detail_edge: int | None = None) -> tuple[Decoded, float]:
     """decode() plus its wall time in ms; what the process pool runs."""
     import time
 
     t = time.perf_counter()
-    d = decode(path)
+    d = decode(path, detail_edge)
     return d, (time.perf_counter() - t) * 1000

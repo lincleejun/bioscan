@@ -1,0 +1,78 @@
+name: models
+
+# Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo) on CPU over 77 iNaturalist photos.
+# Report: the job summary and the `models-report` artifact.
+on:
+  push:
+    paths:
+      - "bioscan/service/**"
+      - "tests/models/**"
+      - "data/names/**"
+      - "uv.lock"
+      - "pyproject.toml"
+      - ".github/workflows/models.yml"
+  pull_request:
+    paths:
+      - "bioscan/service/**"
+      - "tests/models/**"
+      - "data/names/**"
+      - "uv.lock"
+      - "pyproject.toml"
+      - ".github/workflows/models.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: models-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      BIOSCAN_MODEL_TESTS: "1"
+      BIOSCAN_REPORT: ${{ github.workspace }}/models-report.md
+      BIOSCAN_PHOTO_CACHE: ${{ github.workspace }}/.photos
+      BIOSCAN_REQUIRE_GEO: "1"
+    steps:
+      - name: Free disk (torch + ~4 GB of weights)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Cache model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('tests/models/download.py', 'bioscan/service/adapters/*.py') }}
+          restore-keys: hf-
+      - name: Cache BirdNET geo model
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/birdnet
+          key: birdnet-geo-3.0-${{ hashFiles('uv.lock') }}
+      - name: Download weights and BirdNET geo
+        run: uv run python tests/models/download.py
+      - name: Cache photos
+        uses: actions/cache@v4
+        with:
+          path: .photos
+          key: photos-${{ hashFiles('tests/models/sample.csv') }}
+      - name: Real-model smoke
+        run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs
+      - name: Job summary
+        if: always()
+        # also printed to the log so the numbers are readable wherever the summary is not
+        run: test -f models-report.md && tee -a "$GITHUB_STEP_SUMMARY" < models-report.md || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: models-report
+          path: |
+            models-report.md
+            models-report.ndjson
+          if-no-files-found: ignore

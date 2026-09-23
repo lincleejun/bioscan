@@ -5,24 +5,31 @@ import os
 import plistlib
 import shutil
 import sys
+import urllib.error
 from pathlib import Path
 
+from bioscan import contract
 from bioscan.cli import client, gt
 from bioscan.cli.render import Renderer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PRODUCTS = ("identify", "embed", "jpg")
+PRODUCTS = contract.PRODUCTS
+EXIT_OK, EXIT_PARTIAL, EXIT_SERVICE, EXIT_INCOMPLETE = 0, 1, 2, 3
 
 
 # ---- serve -------------------------------------------------------------------
 
-def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = None, root: Path = PROJECT_ROOT) -> bytes:
+def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = None, root: Path = PROJECT_ROOT,
+                  allow_roots: list[str] | None = None, detail_edge: int | None = None) -> bytes:
     uv = uv or shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
     log = os.path.expanduser("~/Library/Logs/bioscan.log")
+    extra = [a for r in allow_roots or [] for a in ("--allow-root", os.path.abspath(r))]
+    extra += ["--detail-edge", str(detail_edge)] if detail_edge is not None else []
     return plistlib.dumps({
         "Label": "cc.outman.bioscan",
         "ProgramArguments": [os.path.abspath(uv), "run", "--project", str(root), "bioscan", "serve",
-                             "--port", str(port), "--decode-workers", str(decode_workers), "--chunk", str(chunk)],
+                             "--port", str(port), "--decode-workers", str(decode_workers), "--chunk", str(chunk),
+                             *extra],
         "WorkingDirectory": str(root),
         "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"},
         "RunAtLoad": True,
@@ -34,13 +41,18 @@ def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = N
 
 def cmd_serve(a):
     if a.launchd:
-        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or 4, a.chunk or 32))
+        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or 4, a.chunk or 32,
+                                              allow_roots=a.allow_root, detail_edge=a.detail_edge))
         return 0
     # The service reads its tunables from the environment (flag > env > default 4/32).
     if a.decode_workers is not None:
         os.environ["BIOSCAN_DECODE_WORKERS"] = str(a.decode_workers)
     if a.chunk is not None:
         os.environ["BIOSCAN_CHUNK"] = str(a.chunk)
+    if a.detail_edge is not None:
+        os.environ["BIOSCAN_DETAIL_EDGE"] = str(a.detail_edge)
+    if a.allow_root:
+        os.environ["BIOSCAN_ALLOW_ROOTS"] = os.pathsep.join(os.path.abspath(r) for r in a.allow_root)
     from bioscan.service import app  # service deps live with bioscan.service; keep the CLI import-light
 
     app.main(["--port", str(a.port)])
@@ -83,16 +95,27 @@ def build_payload(a) -> dict:
     return {"inputs": inputs, "want": want, "options": options}
 
 
+def exit_code(errors: int, done: bool) -> int:
+    """0 every image ok, 1 some images failed, 3 the stream ended without `done` (service died)."""
+    if not done:
+        return EXIT_INCOMPLETE
+    return EXIT_PARTIAL if errors else EXIT_OK
+
+
 def cmd_run(a):
     payload = build_payload(a)
     out = open(a.out, "w" if not a.json else "wb") if a.out else None
     try:
-        if a.json:  # raw NDJSON passthrough, no reprocessing
+        if a.json:  # raw NDJSON passthrough; only the event type is looked at, for the exit code
             sink = out or sys.stdout.buffer
+            errors, done = 0, False
             for line in client.run(payload, a.url):
                 sink.write(line + b"\n")
                 sink.flush()
-            return 0
+                t = json.loads(line).get("type")
+                errors += t == contract.ERROR
+                done = done or t == contract.DONE
+            return exit_code(errors, done)
         sink = out or sys.stdout
         r = Renderer()
         for line in client.run(payload, a.url):
@@ -100,7 +123,7 @@ def cmd_run(a):
             if text is not None:
                 print(text, file=sink, flush=True)
         print(r.summary(), file=sink)
-        return 1 if r.errors else 0
+        return exit_code(len(r.errors), r.done is not None)
     finally:
         if out:
             out.close()
@@ -132,7 +155,12 @@ def cmd_gt_inat(a):
 
 def cmd_eval(a):
     from bioscan.cli import eval as ev
-    print(ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms))
+    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms)
+    print(report)
+    if not complete:
+        print("error: the prediction stream ended before the service's `done`; missing images count as misses",
+              file=sys.stderr)
+        return EXIT_INCOMPLETE
     return 0
 
 
@@ -148,8 +176,42 @@ def cmd_names_stats(a):
     return 0
 
 
+def cmd_names_geo_gaps(a, prior=None):
+    """Unlabelled AviList species whose genus lives at --lat/--lon: candidates for a `birdnet`
+    row in data/names/synonyms.csv. Needs only the birdnet package, not the models."""
+    import csv
+
+    import numpy as np
+
+    from bioscan.service.adapters import geo
+
+    with open(a.map, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    cands: dict[str, list[str]] = {}
+    cand_path = Path(a.map).with_name("candidates.csv")
+    if cand_path.is_file():
+        with open(cand_path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if r["side"] == "birdnet":
+                    cands.setdefault(r["scientific"], []).append(r["candidate"])
+    prior = prior or geo.GeoPrior.load()
+    if prior is None:
+        raise SystemExit("BirdNET geo model unavailable (pip package `birdnet`, model geo 3.0)")
+    index = prior.index([r["birdnet_label"] for r in rows])
+    probs = prior.probs(a.lat, a.lon, geo.week_of(a.date))
+    found = geo.gaps([r["scientific"] for r in rows], [r["common"] for r in rows], np.asarray(index), probs, a.min_p)
+    print(f"{len(found)} unlabelled species whose genus has p_geo >= {a.min_p} at {a.lat},{a.lon}"
+          f" (week {geo.week_of(a.date) or 'all'}):")
+    for g in found:
+        extra = f"  candidates: {', '.join(cands[g['scientific']])}" if g["scientific"] in cands else ""
+        print(f"  {g['scientific']} ({g['common']})  <- congener {g['congener']} p_geo {g['congener_p_geo']}{extra}")
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="bioscan", description="Animal detection + species ID (thin client for the bioscan service).")
+    p = argparse.ArgumentParser(prog="bioscan", description="Animal detection + species ID (thin client for the bioscan service).",
+                                epilog="exit codes: 0 ok, 1 some images failed, 2 service unreachable or refused, "
+                                       "3 incomplete stream or upstream error, 130 interrupted")
     p.add_argument("--url", default=client.DEFAULT_URL, help="service URL (env BIOSCAN_URL; default %(default)s)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -157,6 +219,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--decode-workers", type=int, help="env BIOSCAN_DECODE_WORKERS, default 4")
     s.add_argument("--chunk", type=int, help="env BIOSCAN_CHUNK, default 32")
+    s.add_argument("--allow-root", action="append", help="only serve files under DIR (repeatable); env BIOSCAN_ALLOW_ROOTS")
+    s.add_argument("--detail-edge", type=int, help="species-crop image long edge, <=2048 = off; env BIOSCAN_DETAIL_EDGE, default 3072")
     s.add_argument("--launchd", action="store_true", help="print a launchd plist to stdout instead of serving")
     s.set_defaults(func=cmd_serve)
 
@@ -202,6 +266,13 @@ def parser() -> argparse.ArgumentParser:
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)
+    s = n.add_parser("geo-gaps", help="unlabelled AviList species whose genus lives at a place (review for synonyms.csv)")
+    s.add_argument("--lat", type=float, required=True)
+    s.add_argument("--lon", type=float, required=True)
+    s.add_argument("--date", help="YYYY-MM-DD for BirdNET's week; default: whole year")
+    s.add_argument("--min-p", type=float, default=0.05, help="congener p_geo threshold (default %(default)s)")
+    s.add_argument("--map", default=str(PROJECT_ROOT / "data" / "names" / "avilist_map.csv"))
+    s.set_defaults(func=cmd_names_geo_gaps)
     return p
 
 
@@ -211,7 +282,10 @@ def main(argv=None) -> int:
         return a.func(a)
     except client.ServiceError as e:
         print(f"error: {e}", file=sys.stderr)
-        return 2
+        return EXIT_SERVICE
+    except urllib.error.URLError as e:   # upstream (iNaturalist, HF) during gt / names
+        print(f"error: upstream request failed: {getattr(e, 'reason', e)}", file=sys.stderr)
+        return EXIT_INCOMPLETE
     except KeyboardInterrupt:
         return 130
     except BrokenPipeError:  # e.g. `bioscan run ... --json | head`

@@ -4,6 +4,7 @@ the eye ranks low can still win where it lives. Optional: if birdnet cannot load
 prior and posterior == p_visual."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -24,10 +25,6 @@ def week_of(taken_at: str | None) -> int | None:
     if not 1 <= month <= 12 or not 1 <= day <= 31:
         return None
     return (month - 1) * 4 + min(3, (day - 1) // 8) + 1
-
-
-def _norm(s: str | None) -> str:
-    return " ".join((s or "").lower().replace("-", " ").replace("'", "").split())
 
 
 class GeoPrior:
@@ -59,15 +56,48 @@ class GeoPrior:
         return self._probs(round(lat, 2), round(lon, 2), week)
 
 
+@dataclass(frozen=True)
+class PriorBinding:
+    """A location prior attached to one name list: the model (anything with `probs(lat, lon, week)`
+    aligned to its own labels), each list row's position in those labels (-1 = none) and the
+    floor of the posterior formula. Engine keeps one per kind that has a prior."""
+    model: Any
+    index: np.ndarray
+    floor: float = GEO_FLOOR
+    name: str = "birdnet-geo-3.0"
+
+
 def align(probs: np.ndarray, index: np.ndarray) -> np.ndarray:
     """BirdNET probabilities -> one p_geo per name-list row; rows without a label get 0."""
     return np.where(index >= 0, probs[np.maximum(index, 0)], 0.0)
 
 
-def posterior(p_visual: np.ndarray, p_geo: np.ndarray | None) -> np.ndarray:
-    """p_visual * (0.02 + p_geo) renormalised over the whole list; no prior -> p_visual."""
+def posterior(p_visual: np.ndarray, p_geo: np.ndarray | None, floor: float = GEO_FLOOR) -> np.ndarray:
+    """p_visual * (floor + p_geo) renormalised over the whole list; no prior -> p_visual."""
     if p_geo is None:
         return p_visual
-    post = p_visual * (GEO_FLOOR + p_geo)
+    post = p_visual * (floor + p_geo)
     total = post.sum()
     return post / total if total > 0 else p_visual
+
+
+def gaps(scientific: list[str], common: list[str], index: np.ndarray, probs: np.ndarray,
+         min_p: float) -> list[dict[str, Any]]:
+    """Name-list rows with no BirdNET label whose genus *is* present here (a mapped congener has
+    p_geo >= min_p). Those rows get p_geo = 0 today; a reviewed `birdnet` synonym is the fix, not a
+    blanket rule (most unmapped rows are extinct or lumped sisters that should stay at 0).
+    Sorted by the congener's p_geo, strongest first."""
+    p_geo = align(probs, index)
+    best: dict[str, tuple[float, int]] = {}
+    for i, sci in enumerate(scientific):
+        if index[i] >= 0:
+            genus = sci.split(" ")[0]
+            if p_geo[i] > best.get(genus, (-1.0, -1))[0]:
+                best[genus] = (float(p_geo[i]), i)
+    out = []
+    for i, sci in enumerate(scientific):
+        hit = best.get(sci.split(" ")[0]) if index[i] < 0 else None
+        if hit and hit[0] >= min_p:
+            out.append({"scientific": sci, "common": common[i], "congener": scientific[hit[1]],
+                        "congener_p_geo": round(hit[0], 4)})
+    return sorted(out, key=lambda g: -g["congener_p_geo"])

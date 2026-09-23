@@ -55,13 +55,14 @@
 ## 流程
 
 ```
-RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256
+RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256 （identify 时另出长边 ≤3072 的细节图）
               │
               ├─ SigLIP2 整图 ─▶ 门：bird / mammal / other_animal / person / none    ─▶ embed 产物
               │
-              ├─ OWLv2 开放词表检测（词表按门选）─▶ 每框 SigLIP2 裁切复判 ─▶ 画质
+              ├─ OWLv2 开放词表检测（词表按门选；门判 none/person 但三类动物合计 ≥0.25 时
+              │   仍按最强动物类的词表查一遍）─▶ 每框 SigLIP2 裁切复判 ─▶ 画质
               │
-              └─ BioCLIP 2.5 Huge 对裁切框编码 ─▶ 与该纲名单的文本向量做余弦
+              └─ BioCLIP 2.5 Huge 对细节图上同一取景的裁切编码 ─▶ 与该纲名单的文本向量做余弦
                         × (0.02 + BirdNET 地理先验)  ─▶ 归一化 ─▶ top-k ─▶ 定级
 ```
 
@@ -88,10 +89,11 @@ git clone https://github.com/lincleejun/bioscan && cd bioscan
 uv sync                                   # Python 3.12
 ```
 
-模型权重从 `~/.cache/huggingface` 读，服务本身离线（`HF_HUB_OFFLINE=1`）。新机器先联网拉一次：
+模型权重从 `~/.cache/huggingface` 读，服务本身离线（`HF_HUB_OFFLINE=1`）。三个模型和 TreeOfLife 向量都钉在固定的 HF 提交上（`siglip2.REVISION`、`bioclip.REVISION`、`owlv2.REVISION`、`names.TOL_REVISION`），`result.engine.models` 里带着这些版本。新机器（或升级到钉版本之后缓存里没有对应快照时）先联网拉一次：
 ```sh
-uv run python -c "from huggingface_hub import snapshot_download as s; s('google/siglip2-base-patch16-224'); s('google/owlv2-base-patch16-ensemble', revision='cfd3195ba4ea9592eec887ded089f4c08eff231d', ignore_patterns=['*.bin']); s('imageomics/bioclip-2.5-vith14', ignore_patterns=['*.bin'])"
+uv run python tests/models/download.py      # 三个模型的钉定版本 + BirdNET geo 模型，打印各自版本
 ```
+名单向量缓存会记录建它时的 BioCLIP / TreeOfLife 版本，版本变了自动重建；早于记录的旧缓存照常使用。
 
 名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，建完可删，约半分钟），之后秒开。
 
@@ -110,7 +112,7 @@ uv run bioscan health
 ```sh
 bioscan run /path/to/photos                            # 目录按扩展名过滤、排序；-r 递归
 bioscan run a.ARW b.ARW --want identify,embed --json --out preds.ndjson
-bioscan run DIR --want jpg --jpg-out /tmp/jpg          # 旋正、长边 2048 的 JPG
+bioscan run DIR --want jpg --jpg-out /tmp/jpg          # 旋正、长边 2048 的 JPG，文件名 <stem>-<sha256前8位>.jpg
 bioscan run DIR --lat 37.4 --lon -122.1                # EXIF 无坐标时整批默认坐标（地理先验很重要）
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
@@ -144,6 +146,8 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | `BIOSCAN_URL` / `--url` | CLI 连哪个服务 | `http://127.0.0.1:8765` |
 | `--decode-workers` / `BIOSCAN_DECODE_WORKERS` | 解码进程数（USB 机械盘 4 左右最佳） | 4 |
 | `--chunk` / `BIOSCAN_CHUNK` | 流水 chunk 张数 | 32 |
+| `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | 物种裁切用细节图的长边；≤2048 关闭（回到 2048 图上裁） | 3072 |
+| `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | 只允许读写这些目录下的文件（可重复；环境变量用 `:` 分隔）；不设则不限制，监听非本机地址时会告警 | 不限 |
 
 ### HTTP API
 
@@ -153,7 +157,9 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
-响应是 NDJSON 流：`progress` / `result` / `error` / `done`。请求之间串行排队，一批之内 CPU 解码与 GPU 推理流水。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`（`result`、`done` 带 `schema: 1`）。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+
+CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。`run --json` 过去总是返回 0，现在也按这套退出码返回，脚本里若把非 0 当失败需留意。eval 的学名比较改用与 synonyms 查找相同的归一化（忽略连字符与大小写），旧报告的 Top-1/Top-5 可能因此有细微差别。
 
 ## 评测
 
@@ -165,11 +171,19 @@ bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>          # 调服�
 bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-nogeo --no-geo
 bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只重算指标
 ```
+`preds.ndjson` 第一行是 meta（schema、请求参数、真值与 synonyms.csv 的 sha256），重算时按它报告当时是否开了地理先验；流中断时 eval 退出码为 3。
+报告里"没框"按整图门类拆开：`none/person` 是门漏判（检测器没跑），其余是检测器没框到。
 真值格式：`path, scientific, tier, lat, lon, taken_at, source, kind`。真值学名会先经 `data/names/synonyms.csv` 归一到 AviList/MDD 再比较。
 
 ## 名字映射
 
 `data/names/avilist_map.csv`：每个 AviList 种对应的 TreeOfLife 名和 BirdNET 标签及匹配方式（exact / synonym / none）。`synonyms.csv` 是手工维护的别名表，每条带来源和说明；`candidates.csv` 是脚本列出的疑似拼写差异，只供人审，不自动采纳。重建：`uv run python scripts/build_name_map.py`。
+
+没有 BirdNET 标签的 749 个 AviList 种在地理先验里按 0 处理（多为灭绝种或被 BirdNET 并入姊妹种，如 *Tyto javanica*，应当被压低）。要找某地真正该补的缺口：
+```sh
+bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在当地有分布、自己却没标签的种
+```
+确认后把对应行写进 `synonyms.csv`（source `birdnet`）再重建映射表。
 
 | 名单 | 总数 | TreeOfLife 官方向量 | BirdNET 标签 |
 |---|---|---|---|
@@ -178,7 +192,7 @@ bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只�
 
 ## 已知局限与路线
 
-- 哺乳检测词表缺大型食肉兽（熊、美洲狮、短尾猫），golden 集 45 张没框。
+- 哺乳 golden 集 45 张没框（熊、美洲狮、短尾猫为主）。已补检测词表并加了门漏判时的补查，效果待 `bioscan eval` 复测。
 - 哺乳没有地理先验。
 - 近期拆分的种（北鹞 / 白尾鹞、美洲仓鸮 / 西方仓鸮）在训练数据里用旧名，靠共用向量 + 地点先验区分；同义词目前不按地区生效。
 - 先验公式的底数 0.02 限制了地点对视觉的纠正幅度，尚未在 golden 集上调参。
@@ -188,17 +202,27 @@ bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只�
 ## 测试
 
 ```sh
-uv run pytest tests/unit tests/contract          # 75 个，无模型，秒级
+uv run ruff check .
+uv run pytest                                     # 无模型，秒级；tests/models 默认跳过
+uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # 真模型冒烟，77 张 iNat 图
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
+
+CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 每次 push / PR 在 CPU 上跑真模型冒烟（权重与图片有缓存），指标写进 job summary。
 
 ## 布局
 
 ```
-bioscan/service/app.py           路由、NDJSON 流、请求锁与队列
-bioscan/service/engine.py        设备选择、懒加载、batch 常量
-bioscan/service/products.py      identify / embed / jpg，定级 / 复判 / 画质规则
-bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + EXIF + sha256
+bioscan/contract.py              /run 事件与产物名的唯一定义（CLI 与服务共用，纯标准库）
+bioscan/naming.py                学名归一化、synonyms.csv、映射表过期检查（纯标准库）
+bioscan/service/app.py           路由、NDJSON 流、按 chunk 的模型锁、解码进程池自愈
+bioscan/service/engine.py        设备选择、模型加载注册表、每类先验、EngineProtocol
+bioscan/service/products.py      产物注册表：依赖、选项、校验、schema、执行器
+bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
+bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
+bioscan/service/taxa.py          门类提示词、检测词表、可提升的类别
+bioscan/service/settings.py      影响输出的设置指纹
+bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF + sha256
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/cli/                     main client render gt eval

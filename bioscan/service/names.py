@@ -19,16 +19,15 @@ from pathlib import Path
 
 import numpy as np
 
-from bioscan.service.adapters.geo import _norm
+from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, map_problems, norm_binomial, read_synonyms  # noqa: F401
 
 log = logging.getLogger(__name__)
 
 MODEL_NAME = "bioclip-2.5-vith14"
 TOL_REPO = "imageomics/TreeOfLife-200M"
+TOL_REVISION = "5f2dc493b3dc0e544438a04038ab15faa646b749"   # the snapshot data/README.md was measured on
 TOL_FILES = ("embeddings/txt_emb_bioclip-2.5-vith14.json", "embeddings/txt_emb_bioclip-2.5-vith14.npy")
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 CACHE_DIR = Path("~/.cache/bioscan/names")
-NAMES_DIR = "names"                 # under data_dir: synonyms.csv, avilist_map.csv
 CACHE_VERSION = "2"  # bump when text format, matching or npz layout changes
 DIM = 1024
 
@@ -45,11 +44,6 @@ class NameList:
     sha: str = ""                # list hash (CSV + map + synonyms + list_id + cache version), the cache key
     birdnet: list[str] = field(default_factory=list)      # BirdNET label per row ("" = none); birds only
     birdnet_how: list[str] = field(default_factory=list)  # exact | synonym | none
-
-
-def norm_binomial(name: str) -> str:
-    """'Corvus_corax', ' corvus  Corax ' -> 'corvus corax' (match key, geo._norm after '_' -> ' ')."""
-    return _norm(name.replace("_", " "))
 
 
 def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> list[str]:
@@ -95,24 +89,6 @@ def tol_text(taxonomy: list[str], common: str) -> str:
     return f"an image of {name}."
 
 
-def read_synonyms(path: Path) -> list[dict[str, str]]:
-    """synonyms.csv rows (avilist_scientific, alias, source, note); [] when the file is absent."""
-    if not path.is_file():
-        return []
-    with open(path, newline="", encoding="utf-8") as f:
-        return [r for r in csv.DictReader(f) if r.get("avilist_scientific") and r.get("alias")]
-
-
-def aliases(synonyms: list[dict[str, str]], sources: tuple[str, ...]) -> dict[str, list[str]]:
-    """norm(list name) -> aliases usable on one side. tol/birdnet/inat apply only to that side;
-    spelling applies everywhere."""
-    out: dict[str, list[str]] = {}
-    for r in synonyms:
-        if r["source"].strip() in sources:
-            out.setdefault(norm_binomial(r["avilist_scientific"]), []).append(r["alias"].strip())
-    return out
-
-
 def match_names(scis: list[str], targets: dict[str, str], alias: dict[str, list[str]]) -> list[tuple[str, str]]:
     """(target name, how) per list name: exact normalised match, else the first alias that
     matches, else ("", "none"). `targets` maps norm_binomial(name) -> name as the target spells it."""
@@ -148,7 +124,7 @@ def match_tol(rows, tol_names, cls: str, keys: list[str] | None = None) -> list[
         if tax[2] == cls:
             index.setdefault(norm_binomial(f"{tax[5]} {tax[6]}"), []).append((i, tax[4].lower()))
     out = []
-    for (sci, _common, tax), key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
+    for (_sci, _common, tax), key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
         hits = index.get(norm_binomial(key)) if key else None
         if not hits:
             out.append(None)
@@ -189,7 +165,14 @@ def _read_tol(tol_files):
 
 def _download_tol():
     from huggingface_hub import hf_hub_download
-    return tuple(hf_hub_download(TOL_REPO, f, repo_type="dataset") for f in TOL_FILES)
+    return tuple(hf_hub_download(TOL_REPO, f, repo_type="dataset", revision=TOL_REVISION) for f in TOL_FILES)
+
+
+def _built_with() -> dict[str, str]:
+    """What a cached matrix depends on besides the lists: the text tower and the official vectors."""
+    from bioscan.service.adapters import bioclip
+
+    return {"bioclip_revision": bioclip.REVISION, "tol_revision": TOL_REVISION}
 
 
 def _build(kind, rows, tol, model, tokenizer, device, keys: list[tuple[str, str]] | None,
@@ -224,8 +207,19 @@ def _save(path: Path, nl: NameList) -> None:
     tmp = path.with_suffix(".tmp")
     with open(tmp, "wb") as f:
         np.savez(f, scientific=np.array(nl.scientific), common=np.array(nl.common),
-                 taxonomy=np.array(nl.taxonomy), matrix=nl.matrix, tol_how=np.array(nl.tol_how))
+                 taxonomy=np.array(nl.taxonomy), matrix=nl.matrix, tol_how=np.array(nl.tol_how),
+                 **{k: np.array(v) for k, v in _built_with().items()})
     os.replace(tmp, path)
+
+
+def _stale(path: Path) -> bool:
+    """True when the cache was built with another BioCLIP or TreeOfLife revision. Caches written
+    before revisions were recorded are trusted (they were built with the revisions now pinned)."""
+    with np.load(path, allow_pickle=False) as z:
+        recorded = {k: str(z[k]) for k in _built_with() if k in z.files}
+    if not recorded:
+        log.info("%s predates recorded model revisions; using it", path.name)
+    return any(recorded[k] != v for k, v in _built_with().items() if k in recorded)
 
 
 def _load(path: Path, kind: str) -> NameList:
@@ -244,6 +238,8 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
     amap = read_map(map_path)
     if not amap:
         log.warning("%s missing: birds matched to TreeOfLife here, no BirdNET labels (no geo prior)", map_path)
+    for problem in map_problems(amap, synonyms) if amap else []:
+        log.warning("stale name map: %s", problem)
     out, tol = {}, None
     for kind, (list_id, sub, _cls, reader) in LISTS.items():
         src = _list_file(data_dir, sub)
@@ -252,7 +248,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
         sha = hashlib.sha256(f"{CACHE_VERSION}\0{list_id}\0".encode() + src.read_bytes() + b"\0" + extra).hexdigest()[:16]
         path = cache_dir / f"{MODEL_NAME}-{sha}.npz"
         rows = reader(src)
-        if path.is_file():
+        if path.is_file() and not _stale(path):
             out[kind] = _load(path, kind)
         else:
             if tol is None:
@@ -267,7 +263,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
             out[kind].birdnet = [x.get("birdnet_label", "") for x in m]
             out[kind].birdnet_how = [x.get("birdnet_how") or "none" for x in m]
         out[kind].sha = sha
-    for kind, s in stats(out).items():
+    for s in stats(out).values():
         log.info("names %s: %d species, TreeOfLife %s, BirdNET %s", s["list_id"], s["total"], s["tol"], s["birdnet"])
     return out
 

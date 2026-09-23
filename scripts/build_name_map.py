@@ -74,13 +74,18 @@ def write(path: Path, cols, rows):
 
 
 def main():
-    import birdnet
     from huggingface_hub import hf_hub_download
 
+    from bioscan.service.adapters import geo
+
     rows = names.read_avilist(names._list_file(names.DATA_DIR, "avilist"))
-    with open(hf_hub_download(names.TOL_REPO, names.TOL_FILES[0], repo_type="dataset"), encoding="utf-8") as f:
+    with open(hf_hub_download(names.TOL_REPO, names.TOL_FILES[0], repo_type="dataset", revision=names.TOL_REVISION),
+              encoding="utf-8") as f:
         tol_names = json.load(f)
-    labels = [str(s) for s in birdnet.load("geo", "3.0", "onnx").species_list]
+    prior = geo.GeoPrior.load()                 # the same BirdNET model (geo.GEO_MODEL) the service loads
+    if prior is None:
+        raise SystemExit("BirdNET geo model unavailable")
+    labels = prior.labels
     mapped, cands = build(rows, tol_names, labels, names.read_synonyms(OUT / "synonyms.csv"))
     write(OUT / "avilist_map.csv", MAP_COLS, mapped)
     write(OUT / "candidates.csv", CAND_COLS, cands)

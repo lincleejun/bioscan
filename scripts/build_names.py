@@ -10,9 +10,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from bioscan.service import names  # noqa: E402
-
-MODEL_ID = "hf-hub:imageomics/bioclip-2.5-vith14"
+from bioscan.service import engine, names  # noqa: E402
+from bioscan.service.adapters.bioclip import BioCLIP  # noqa: E402
 
 
 def main():
@@ -21,13 +20,10 @@ def main():
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-    import open_clip
-    import torch
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = engine.pick_device()
     t0 = time.perf_counter()
-    model, _, _ = open_clip.create_model_and_transforms(MODEL_ID, device=device)
-    model.eval()
-    tokenizer = open_clip.get_tokenizer(MODEL_ID)
+    bioclip = BioCLIP(device)                 # the pinned revision the service uses
+    model, tokenizer = bioclip.model, bioclip.tokenizer
     print(f"model load {time.perf_counter() - t0:.1f}s on {device}")
 
     for label in ("first", "second"):
