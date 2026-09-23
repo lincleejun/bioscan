@@ -1,0 +1,11 @@
+.worktrees/
+.venv/
+__pycache__/
+*.pyc
+tests/smoke/*.ARW
+tests/smoke/*.arw
+tests/smoke/*.jpg
+data/avilist/*.csv
+data/avilist/*.xlsx
+data/mdd/*.csv
+runs/
