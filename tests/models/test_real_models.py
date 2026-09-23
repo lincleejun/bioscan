@@ -248,3 +248,14 @@ def test_detail_path_with_real_models(run, tmp_path):
             f.write(f"\n## Detail path\n\n{len(big)} bird photos upscaled to 4000 px, detail copies {seen}; "
                     f"top-1 same as the 500 px run on {same}/{len(big)} (upscaling adds no detail, so this is a "
                     f"consistency check, not an accuracy one).\n")
+
+
+def test_every_map_label_exists_in_birdnet(run):
+    """avilist_map.csv birdnet_label values (some synced by hand after a synonyms.csv edit) must be
+    labels the real BirdNET model has, else that species silently gets no prior."""
+    _, _, engine = run
+    labels = set(engine.geo.labels)
+    with open(ROOT / "data" / "names" / "avilist_map.csv", newline="", encoding="utf-8") as f:
+        missing = [(r["scientific"], r["birdnet_label"]) for r in csv.DictReader(f)
+                   if r["birdnet_label"] and r["birdnet_label"] not in labels]
+    assert not missing, missing[:10]

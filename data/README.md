@@ -51,12 +51,13 @@
 
 以 AviList（鸟）/ MDD（哺乳）学名为准，把另外三套名字对齐过来：TreeOfLife-200M（BioCLIP 官方向量）、BirdNET geo 3.0（地理先验）、iNaturalist（真值标签）。
 
-- `synonyms.csv`（手工维护）：`avilist_scientific, alias, source, note`。`avilist_scientific` 是 AviList 或 MDD 的学名；`source` 决定别名用在哪一侧：`tol` 只用于 TreeOfLife 匹配，`birdnet` 只用于 BirdNET，`inat` 只用于 eval 真值，`spelling`（拼写差异）三侧都用。每条必须写 note。目前 5 条：
+- `synonyms.csv`（手工维护）：`avilist_scientific, alias, source, note`。`avilist_scientific` 是 AviList 或 MDD 的学名；`source` 决定别名用在哪一侧：`tol` 只用于 TreeOfLife 匹配，`birdnet` 只用于 BirdNET，`inat` 只用于 eval 真值，`spelling`（拼写差异）三侧都用。每条必须写 note。目前 6 条：
   - `Pica nuttallii` ← `Pica nuttalli`（spelling；TreeOfLife、BirdNET、iNat 都拼单 l）
   - `Tyto furcata` ← BirdNET `Tyto alba`（birdnet；BirdNET 只有合并的 Tyto alba）
   - `Circus hudsonius` ← `Circus cyaneus`（inat；美洲观测）
   - `Circus hudsonius` ← TreeOfLife `Circus cyaneus`（tol；TreeOfLife 没有 hudsonius 行，与 AviList C. cyaneus 共用官方向量，由地理先验按地点区分）
   - `Cervus canadensis` ← `Cervus elaphus`（inat；北美观测）
+  - `Icterus bullockiorum` ← BirdNET `Icterus bullockii`（birdnet；BirdNET 用旧拼写。2026-09-23 由 `bioscan names geo-gaps` 在加州查出；映射表该行按脚本规则手工同步：birdnet_label `Icterus bullockii_Bullock's Oriole`、birdnet_how `synonym`）
   - 未收：`Alces alces → Alces americanus`。MDD v2.5 只有 `Alces alces`，没有 americanus，真值 `Alces alces` 已直接对上。
 - `avilist_map.csv`（`uv run python scripts/build_name_map.py` 生成，需要 HF 缓存里的 TreeOfLife json 和 birdnet 包）：每个 AviList 种一行，`scientific, common, order, family, tol_name, tol_how, birdnet_label, birdnet_how`，`*_how` 取 `exact | synonym | none`。`birdnet_label` 是 BirdNET 原样的 `学名_俗名`，服务加载时建好"名单行号 → BirdNET 输出位置"索引，请求时一次数组查表得每行 `p_geo`（无标签的行为 0）。
 - `candidates.csv`（同一脚本生成，只供人审，不会自动采纳）：映射为 none 的种里，同属且种加词编辑距离 ≤ 2 的 TreeOfLife / BirdNET 名字。`candidate_in_avilist=True` 表示候选本身也是 AviList 的另一个种，多半是不同种。确认后把对应行抄进 `synonyms.csv` 再重跑脚本。
@@ -66,7 +67,7 @@
 
 | 名单 | 总数 | TreeOfLife exact / synonym / none | 官方向量覆盖 | BirdNET exact / synonym / none |
 |---|---|---|---|---|
-| avilist-2025 | 11131 | 9416 / 2 / 1713 | 84.6% | 10380 / 2 / 749（93.3%） |
+| avilist-2025 | 11131 | 9416 / 2 / 1713 | 84.6% | 10380 / 3 / 748（93.3%） |
 | mdd-2025 | 6904 | 3835 / 0 / 3069 | 55.5% | — |
 
 旧版 BirdNET 匹配另外用俗名兜底（多 15 种），新版只按学名 + 别名，暂未把俗名匹配搬进映射表。`candidates.csv` 当前 49 条（distance 1：11 条）。

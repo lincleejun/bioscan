@@ -179,7 +179,7 @@ bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只�
 
 `data/names/avilist_map.csv`：每个 AviList 种对应的 TreeOfLife 名和 BirdNET 标签及匹配方式（exact / synonym / none）。`synonyms.csv` 是手工维护的别名表，每条带来源和说明；`candidates.csv` 是脚本列出的疑似拼写差异，只供人审，不自动采纳。重建：`uv run python scripts/build_name_map.py`。
 
-没有 BirdNET 标签的 749 个 AviList 种在地理先验里按 0 处理（多为灭绝种或被 BirdNET 并入姊妹种，如 *Tyto javanica*，应当被压低）。要找某地真正该补的缺口：
+没有 BirdNET 标签的 748 个 AviList 种在地理先验里按 0 处理（多为灭绝种或被 BirdNET 并入姊妹种，如 *Tyto javanica*，应当被压低）。要找某地真正该补的缺口：
 ```sh
 bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在当地有分布、自己却没标签的种
 ```
