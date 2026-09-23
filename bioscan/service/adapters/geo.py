@@ -4,6 +4,7 @@ the eye ranks low can still win where it lives. Optional: if birdnet cannot load
 prior and posterior == p_visual."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -55,16 +56,27 @@ class GeoPrior:
         return self._probs(round(lat, 2), round(lon, 2), week)
 
 
+@dataclass(frozen=True)
+class PriorBinding:
+    """A location prior attached to one name list: the model (anything with `probs(lat, lon, week)`
+    aligned to its own labels), each list row's position in those labels (-1 = none) and the
+    floor of the posterior formula. Engine keeps one per kind that has a prior."""
+    model: Any
+    index: np.ndarray
+    floor: float = GEO_FLOOR
+    name: str = "birdnet-geo-3.0"
+
+
 def align(probs: np.ndarray, index: np.ndarray) -> np.ndarray:
     """BirdNET probabilities -> one p_geo per name-list row; rows without a label get 0."""
     return np.where(index >= 0, probs[np.maximum(index, 0)], 0.0)
 
 
-def posterior(p_visual: np.ndarray, p_geo: np.ndarray | None) -> np.ndarray:
-    """p_visual * (0.02 + p_geo) renormalised over the whole list; no prior -> p_visual."""
+def posterior(p_visual: np.ndarray, p_geo: np.ndarray | None, floor: float = GEO_FLOOR) -> np.ndarray:
+    """p_visual * (floor + p_geo) renormalised over the whole list; no prior -> p_visual."""
     if p_geo is None:
         return p_visual
-    post = p_visual * (GEO_FLOOR + p_geo)
+    post = p_visual * (floor + p_geo)
     total = post.sum()
     return post / total if total > 0 else p_visual
 

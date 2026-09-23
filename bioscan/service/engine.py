@@ -13,7 +13,7 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 import bioscan
-from bioscan.service import products
+from bioscan.service import pipeline, products
 
 log = logging.getLogger("bioscan.engine")
 
@@ -21,8 +21,8 @@ SIGLIP_BATCH = 32
 OWLV2_BATCH = 8      # ponytail: OWLv2 runs one frame at a time today; batch across frames if it dominates
 BIOCLIP_BATCH = 16
 
-# What each product needs loaded.
-NEEDS = {"identify": ("siglip2", "owlv2", "bioclip"), "embed": ("siglip2",), "jpg": ()}
+# What each product needs loaded, from the product registry.
+NEEDS = {name: p.needs for name, p in products.REGISTRY.items()}
 
 
 @runtime_checkable
@@ -62,6 +62,11 @@ def load_species(device: str) -> tuple[Any, dict[str, Any]]:
     return bioclip, lists
 
 
+# Model name -> loader (an Engine method). Order is load order and the order of `loaded()`.
+MODELS = {"siglip2": lambda e: e._load_siglip2(), "owlv2": lambda e: e._load_owlv2(),
+          "bioclip": lambda e: e._load_bioclip()}
+
+
 class Engine:
     BIOCLIP_BATCH = BIOCLIP_BATCH
 
@@ -73,21 +78,20 @@ class Engine:
         self.owlv2: Any = None
         self.bioclip: Any = None
         self.names: dict[str, Any] = {}
-        self.geo: Any = None
-        self.geo_index: dict[str, Any] = {}  # kind -> name-list row -> BirdNET label position (-1 = none)
+        self.priors: dict[str, Any] = {}      # kind -> geo.PriorBinding
         self._matrices: dict[str, Any] = {}
         self._lock = threading.Lock()
 
     # ---- loading ----
     def loaded(self) -> list[str]:
-        return [n for n in ("siglip2", "owlv2", "bioclip") if getattr(self, n) is not None]
+        return [n for n in MODELS if getattr(self, n) is not None]
 
     def ensure(self, want: list[str]) -> None:
         """Load whatever `want` needs that is not loaded yet. Raises on failure (-> 503)."""
         with self._lock:
-            for name in {m for p in want for m in NEEDS[p]}:
-                if getattr(self, name) is None:
-                    getattr(self, f"_load_{name}")()
+            for name in MODELS:                       # registry order: gate, detector, species
+                if name in {m for p in want for m in NEEDS[p]} and getattr(self, name) is None:
+                    MODELS[name](self)
 
     def _load_siglip2(self) -> None:
         from bioscan.service.adapters.siglip2 import SigLIP2
@@ -102,29 +106,36 @@ class Engine:
         self.owlv2 = OWLv2(self.device)
 
     def _load_bioclip(self) -> None:
-        from bioscan.service.adapters.geo import GeoPrior
+        """BioCLIP, the name lists in its text space and the location prior of each list that has one."""
+        from bioscan.service.adapters.geo import GeoPrior, PriorBinding
 
         bioclip, self.names = load_species(self.device)
         self._matrices = {k: bioclip.torch.from_numpy(nl.matrix).to(self.device) for k, nl in self.names.items()}
-        self.geo = GeoPrior.load()
-        if self.geo:
-            self.geo_index = {k: self.geo.index(nl.birdnet) for k, nl in self.names.items() if nl.birdnet}
-        log.info("geo prior: %s", "birdnet geo 3.0" if self.geo else "unavailable")
+        birdnet = GeoPrior.load()
+        self.priors = {k: PriorBinding(birdnet, birdnet.index(nl.birdnet)) for k, nl in self.names.items()
+                       if birdnet is not None and nl.birdnet}
+        log.info("location priors: %s", {k: b.name for k, b in self.priors.items()} or "unavailable")
         self.bioclip = bioclip
+
+    @property
+    def geo(self) -> Any:
+        """The BirdNET prior model (what `bioscan names geo-gaps` needs), or None."""
+        bird = self.priors.get("bird")
+        return bird.model if bird is not None else None
 
     def name_matrix(self, kind: str) -> Any:
         return self._matrices[kind]
 
     def info(self) -> dict[str, Any]:
+        from bioscan.service import settings
         from bioscan.service.adapters import bioclip, owlv2, siglip2
 
         lists = {k: f"{nl.list_id}@{nl.sha}" for k, nl in self.names.items()}
-        from bioscan.service import settings
-
+        priors = {k: b.name for k, b in self.priors.items()}
         return {"version": bioscan.__version__, "settings": settings.fingerprint(),
                 "models": {"gate": siglip2.MODEL_ID, "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
                            "species": bioclip.MODEL_ID.removeprefix("hf-hub:"), "names": lists,
-                           "geo": "birdnet-geo-3.0" if self.geo else None}}
+                           "geo": priors.get("bird"), "priors": priors}}
 
     # ---- inference ----
     def frame(self, images: list[Any]) -> tuple[np.ndarray, list[dict[str, float]]]:
@@ -135,4 +146,4 @@ class Engine:
 
     def identify(self, image: Any, gate: dict[str, float], lat: float | None, lon: float | None,
                  taken_at: str | None, opts: dict[str, Any], detail: Any = None) -> dict[str, Any]:
-        return products.identify(self, image, gate, lat, lon, taken_at, opts, detail)
+        return pipeline.identify(self, image, gate, lat, lon, taken_at, opts, detail)

@@ -61,7 +61,7 @@ def parse_run(body: Any) -> tuple[list[dict[str, Any]], list[str], dict[str, dic
 async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
                      *, decode_pool: Executor, gpu: Executor, chunk: int,
                      is_disconnected: Callable[[], Awaitable[bool]],
-                     detail_edge: int | None = None) -> AsyncIterator[dict[str, Any]]:
+                     detail_edge: int | None = None, cpu: Executor | None = None) -> AsyncIterator[dict[str, Any]]:
     """The /run event stream. Decode of chunk k+1 overlaps the models on chunk k; a client that
     went away is noticed between chunks, so the current chunk always finishes. The larger species
     image (`detail_edge`) is decoded only when identify is wanted."""
@@ -91,7 +91,7 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
                 items.append({"inp": inp, "dec": dec, "products": {}, "errors": [],
                               "timing": {"decode": round(ms, 1)}})
             if items:
-                async for ev in _run_chunk(engine, items, want, opts, loop, gpu, len(ch), done, total):
+                async for ev in _run_chunk(engine, items, want, opts, loop, gpu, len(ch), done, total, cpu):
                     yield ev
             for it in items:
                 if it["errors"]:
@@ -120,11 +120,13 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
 
 async def _run_chunk(engine: Any, items: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
                      loop: asyncio.AbstractEventLoop, gpu: Executor, n_chunk: int, done: dict[str, int],
-                     total: int) -> AsyncIterator[dict[str, Any]]:
-    """Product-first over one chunk; a product that throws on one image costs that image only."""
+                     total: int, cpu: Executor | None = None) -> AsyncIterator[dict[str, Any]]:
+    """Product-first over one chunk (products.REGISTRY order); a product that throws on one image
+    costs that image only. Model work runs on the single model thread, the rest on `cpu`."""
     vecs: Any = None
-    gates: list[Any] = []
-    if "identify" in want or "embed" in want:
+    gates: list[Any] = [None] * len(items)
+    framed = [p for p in want if products.REGISTRY[p].uses_frame]
+    if framed:
         def frame() -> Any:
             t = time.perf_counter()
             out = engine.frame([it["dec"].image for it in items])
@@ -132,38 +134,32 @@ async def _run_chunk(engine: Any, items: list[dict[str, Any]], want: list[str], 
         try:
             (vecs, gates), per = await loop.run_in_executor(gpu, frame)
             for it in items:
-                it["timing"]["identify" if "identify" in want else "embed"] = round(per, 1)
+                it["timing"][framed[0]] = round(per, 1)
         except Exception as exc:  # noqa: BLE001
             for it in items:
-                for p in (p for p in ("identify", "embed") if p in want):
+                for p in framed:
                     it["errors"].append((p, f"{type(exc).__name__}: {exc}"))
 
-    def step(product: str) -> None:
-        for i, it in enumerate(items):
-            if it["errors"] and product in ("identify", "embed") and vecs is None:
-                continue
-            dec, inp = it["dec"], it["inp"]
+    for name in want:
+        product = products.REGISTRY[name]
+        if product.uses_frame and vecs is None:
+            outs: list[Any] = [None] * len(items)          # frame failed: already reported per image
+        else:
+            batch = [products.Item(it["dec"], it["inp"], None if vecs is None else vecs[i], gates[i])
+                     for i, it in enumerate(items)]
             t = time.perf_counter()
-            try:
-                if product == "identify":
-                    lat = inp["lat"] if inp["lat"] is not None else dec.lat
-                    lon = inp["lon"] if inp["lon"] is not None else dec.lon
-                    it["products"]["identify"] = engine.identify(dec.image, gates[i], lat, lon,
-                                                                 inp["taken_at"] or dec.taken_at, opts["identify"],
-                                                                 detail=dec.detail)
-                elif product == "embed":
-                    it["products"]["embed"] = products.embed(vecs[i], opts["embed"]["format"])
-                else:
-                    it["products"]["jpg"] = products.jpg(dec.image, dec.path, opts["jpg"]["out_dir"], dec.sha256)
-            except Exception as exc:  # noqa: BLE001
-                it["errors"].append((product, f"{type(exc).__name__}: {exc}"))
-            ms = (time.perf_counter() - t) * 1000
-            it["timing"][product] = round(it["timing"].get(product, 0.0) + ms, 1)
-
-    for product in want:
-        await loop.run_in_executor(gpu, step, product)
-        done[product] += n_chunk
-        yield contract.progress(product, done[product], total)
+            outs = await loop.run_in_executor(gpu if product.on_model_thread else cpu, product.run, engine, batch,
+                                              opts[name])
+            per = (time.perf_counter() - t) * 1000 / len(items)
+            for it in items:
+                it["timing"][name] = round(it["timing"].get(name, 0.0) + per, 1)
+        for it, out in zip(items, outs):
+            if isinstance(out, BaseException):
+                it["errors"].append((name, f"{type(out).__name__}: {out}"))
+            elif out is not None:
+                it["products"][name] = out
+        done[name] += n_chunk
+        yield contract.progress(name, done[name], total)
 
 
 def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
@@ -172,7 +168,7 @@ def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str,
     `..` resolved first, so neither escapes). No roots = everything allowed."""
     if not roots:
         return []
-    paths = [inp["path"] for inp in inputs] + ([opts["jpg"]["out_dir"]] if "jpg" in want else [])
+    paths = [inp["path"] for inp in inputs] + [w for p in want for w in products.REGISTRY[p].writes(opts[p])]
     return [p for p in paths if not any(Path(p).resolve().is_relative_to(r) for r in roots)]
 
 
@@ -183,6 +179,7 @@ def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int =
     state = State()
     pool = decode_pool or ProcessPoolExecutor(max_workers=decode_workers)
     gpu = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu")   # one GPU stream
+    cpu = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cpu")   # jpg writes, off the model thread
     app.state.bioscan = state
     roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
 
@@ -223,7 +220,7 @@ def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int =
                     try:
                         async for ev in run_events(engine, inputs, want, opts, decode_pool=pool, gpu=gpu,
                                                    chunk=chunk, is_disconnected=request.is_disconnected,
-                                                   detail_edge=detail_edge):
+                                                   detail_edge=detail_edge, cpu=cpu):
                             yield (json.dumps(ev, ensure_ascii=False) + "\n").encode()
                     finally:
                         state.running -= 1

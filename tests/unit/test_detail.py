@@ -44,7 +44,7 @@ class Engine:
         gate = {"bird": 0.9, "mammal": 0.05, "other_animal": 0.02, "person": 0.01, "none": 0.02}
         self.owlv2 = SimpleNamespace(detect=lambda im, prompts, threshold: [Detection("a bird", 0.8, (900, 500, 960, 560))])
         self.siglip2 = SimpleNamespace(embed_images=lambda ims: ims, gate=lambda ims: [dict(gate) for _ in ims])
-        self.names, self.geo, self.geo_index, self.BIOCLIP_BATCH = names, None, {}, 16
+        self.names, self.priors, self.BIOCLIP_BATCH = names, {}, 16
         self.bioclip = SimpleNamespace(encode_images=self._encode, probs=lambda f, m: np.array([[0.7, 0.3]] * len(f)))
 
     def _encode(self, ims):
