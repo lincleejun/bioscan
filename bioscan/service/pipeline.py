@@ -11,7 +11,6 @@ from typing import Any, Protocol
 import numpy as np
 from PIL import Image
 
-from bioscan.service.adapters import geo as geo_mod
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
     RESCUE,
@@ -37,7 +36,7 @@ class Models(Protocol):
     siglip2: Any                    # .embed_images(images) -> vecs; .gate(vecs) -> [{class: p}]
     bioclip: Any                    # .encode_images(crops) -> feats; .probs(feats, matrix) -> (n, N)
     names: dict[str, Any]           # kind -> names.NameList
-    priors: dict[str, Any]          # kind -> geo.PriorBinding (absent = no prior for that kind)
+    priors: dict[str, Any]          # kind -> geo.LocationPrior (absent = no prior for that kind)
     BIOCLIP_BATCH: int
 
     def name_matrix(self, kind: str) -> Any: ...
@@ -107,19 +106,13 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
         p_geo: dict[int, np.ndarray | None] = {}
         for fi in {fi for fi, _bi in refs}:
             f = work[fi][0]
-            p_geo[fi] = None
-            if opts["geo"] and prior is not None and f.lat is not None and f.lon is not None:
-                try:
-                    p_geo[fi] = geo_mod.align(prior.model.probs(f.lat, f.lon, geo_mod.week_of(f.taken_at)), prior.index)
-                except Exception:  # noqa: BLE001 - an optional prior must not discard the visual result
-                    p_geo[fi] = None
-        floor = prior.floor if prior is not None else geo_mod.GEO_FLOOR
+            p_geo[fi] = prior.p_geo(f.lat, f.lon, f.taken_at) if opts["geo"] and prior is not None else None
         for part in _batches(refs, engine.BIOCLIP_BATCH):
             crops = [species_crops(work[fi][0].image, [work[fi][2][bi]], work[fi][0].detail)[0] for fi, bi in part]
             probs = engine.bioclip.probs(engine.bioclip.encode_images(crops), engine.name_matrix(kind))
             for (fi, bi), row in zip(part, probs):
                 row = np.asarray(row, dtype=np.float64)
-                post = geo_mod.posterior(row, p_geo[fi], floor)
+                post = prior.posterior(row, p_geo[fi]) if prior is not None else row
                 top = [
                     {"scientific": names.scientific[j], "common": names.common[j] or None,
                      "taxonomy": list(names.taxonomy[j]), "p_visual": round(float(row[j]), 6),

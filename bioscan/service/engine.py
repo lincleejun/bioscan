@@ -76,7 +76,7 @@ class Engine:
         self.owlv2: Any = None
         self.bioclip: Any = None
         self.names: dict[str, Any] = {}
-        self.priors: dict[str, Any] = {}      # kind -> geo.PriorBinding
+        self.priors: dict[str, Any] = {}      # kind -> geo.LocationPrior
         self._matrices: dict[str, Any] = {}
         self._lock = threading.Lock()
 
@@ -105,13 +105,11 @@ class Engine:
 
     def _load_bioclip(self) -> None:
         """BioCLIP, the name lists in its text space and the location prior of each list that has one."""
-        from bioscan.service.adapters.geo import GeoPrior, PriorBinding
+        from bioscan.service.adapters import geo
 
         bioclip, self.names = load_species(self.device)
         self._matrices = {k: bioclip.torch.from_numpy(nl.matrix).to(self.device) for k, nl in self.names.items()}
-        birdnet = GeoPrior.load()
-        self.priors = {k: PriorBinding(birdnet, birdnet.index(nl.birdnet)) for k, nl in self.names.items()
-                       if birdnet is not None and nl.birdnet}
+        self.priors = geo.priors_for(self.names)
         log.info("location priors: %s", {k: b.name for k, b in self.priors.items()} or "unavailable")
         self.bioclip = bioclip
 
@@ -119,7 +117,7 @@ class Engine:
     def geo(self) -> Any:
         """The BirdNET prior model (what `bioscan names geo-gaps` needs), or None."""
         bird = self.priors.get("bird")
-        return bird.model if bird is not None else None
+        return bird.source if bird is not None else None
 
     def name_matrix(self, kind: str) -> Any:
         return self._matrices[kind]
