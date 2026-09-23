@@ -217,7 +217,8 @@ CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.ym
 bioscan/contract.py              single definition of /run events, product names and the identify payload (shared by CLI and service, stdlib only)
 bioscan/naming.py                name normalisation (scientific names; gt folder labels), synonyms.csv, stale-map check (stdlib only)
 bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > default, once, for both entry points (stdlib only)
-bioscan/service/app.py           routes, NDJSON stream, per-chunk model lock, self-healing decode pool
+bioscan/service/app.py           routes, request validation, allow-roots, NDJSON stream
+bioscan/service/run.py           a /run as events: chunks, per-chunk model turn, self-healing decode pool
 bioscan/service/engine.py        device choice, lazy model loading via Loaders (tests inject fake adapters), per-kind priors
 bioscan/service/products.py      product registry: dependencies, options, validation, schema, runner
 bioscan/service/pipeline.py      identify orchestration (batched across images) behind the Models protocol

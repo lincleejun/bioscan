@@ -14,7 +14,8 @@ from PIL import Image
 
 import bioscan
 from bioscan.service import products
-from bioscan.service.app import create_app, run_events
+from bioscan.service import run as run_mod
+from bioscan.service.app import create_app
 
 
 def test_health(client):
@@ -219,10 +220,10 @@ def test_disconnect_stops_after_current_chunk(tmp_path):
         return True
 
     async def collect():
-        with ThreadPoolExecutor(2) as pool, ThreadPoolExecutor(1) as gpu:
-            return [e async for e in run_events(engine, [{"path": q, "lat": None, "lon": None, "taken_at": None} for q in paths],
-                                                ["identify"], products.resolve_options(None),
-                                                decode_pool=pool, gpu=gpu, chunk=2, is_disconnected=gone)]
+        with ThreadPoolExecutor(2) as pool:
+            runs = run_mod.RunQueue(engine, decode_pool=pool, chunk=2)
+            return [e async for e in runs.events([{"path": q, "lat": None, "lon": None, "taken_at": None} for q in paths],
+                                                 ["identify"], products.resolve_options(None), gone)]
 
     ev = asyncio.run(collect())
     assert len([e for e in ev if e["type"] == "result"]) == 2
@@ -316,11 +317,9 @@ def test_decode_worker_crash_costs_one_file(tmp_path, monkeypatch):
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
 
-    from bioscan.service import app as app_mod
-
-    monkeypatch.setattr(app_mod, "timed_decode", _crash_on)
+    monkeypatch.setattr(run_mod, "timed_decode", _crash_on)
     ctx = multiprocessing.get_context("fork")        # the worker must see the patched function
-    pool = app_mod.DecodePool(lambda: ProcessPoolExecutor(1, mp_context=ctx))
+    pool = run_mod.DecodePool(lambda: ProcessPoolExecutor(1, mp_context=ctx))
     good = [make_jpg(tmp_path / f"{i}.jpg") for i in range(3)]
     bad = make_jpg(tmp_path / "crash.jpg")
     engine = Fakes().engine()
@@ -338,19 +337,17 @@ def test_decode_worker_crash_costs_one_file(tmp_path, monkeypatch):
 def test_decode_pool_rebuild_only_replaces_the_broken_executor():
     """Two requests that saw the same crash both call rebuild; the second must not shut down the
     fresh executor the first created (that cancelled another request's queued decodes)."""
-    from bioscan.service import app as app_mod
-
     made: list[ThreadPoolExecutor] = []
 
     def factory():
         made.append(ThreadPoolExecutor(1))
         return made[-1]
 
-    pool = app_mod.DecodePool(factory)
+    pool = run_mod.DecodePool(factory)
     broken = pool.executor
     assert pool.rebuild(broken) and pool.executor is made[1]
     fut = pool.executor.submit(time.sleep, 0.05)             # queued work on the healthy executor
     assert pool.rebuild(broken) and pool.executor is made[1] and len(made) == 2   # late caller: no-op
     fut.result(timeout=5)                                    # not cancelled
-    assert not app_mod.DecodePool(executor=broken).rebuild(broken)   # a caller's executor is never rebuilt
+    assert not run_mod.DecodePool(executor=broken).rebuild(broken)   # a caller's executor is never rebuilt
     made[1].shutdown()
