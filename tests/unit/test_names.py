@@ -169,6 +169,55 @@ def test_load_lists_uses_map_for_birds_and_synonyms_for_mammals(tmp_path):
     assert again["bird"].birdnet == bird.birdnet and again["mammal"].tol_how == mammal.tol_how
 
 
+def write_map(path, rows):
+    write_csv(path, ["scientific", "common", "order", "family", "tol_name", "tol_how", "birdnet_label", "birdnet_how"],
+              rows)
+
+
+def test_loaded_lists_are_finished_and_frozen(tmp_path):
+    import dataclasses
+
+    import pytest
+
+    data, tol, _ = setup(tmp_path)
+    write_map(data / "names" / "avilist_map.csv",
+              [["Megascops kennicottii", "", "Strigiformes", "Strigidae", "", "none", "Megascops kennicottii_WSO", "exact"]])
+    cache = tmp_path / "cache"
+    fresh = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", cache, data_dir=data, tol_files=tol)
+    cached = names.load_lists(None, None, "cpu", cache, data_dir=data, tol_files=(tmp_path / "x", tmp_path / "x"))
+    for kind, nl in fresh.items():
+        assert (cache / f"{names.MODEL_NAME}-{nl.sha}.npz").is_file()           # sha is the cache key
+        other = cached[kind]
+        assert [nl.sha, nl.birdnet, nl.birdnet_how, nl.tol_how, nl.scientific] == \
+            [other.sha, other.birdnet, other.birdnet_how, other.tol_how, other.scientific]
+    # Corvus corax is not in the map: it gets no label rather than a missing row.
+    assert fresh["bird"].birdnet == ["", "Megascops kennicottii_WSO"] and fresh["bird"].birdnet_how == ["none", "exact"]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        fresh["bird"].birdnet = []
+
+
+def test_label_map_is_list_data_not_a_kind_check(tmp_path, monkeypatch):
+    """Which list carries BirdNET labels is LISTS data: give the mammal list a map and take the birds' away."""
+    data, tol, _ = setup(tmp_path)
+    write_map(data / "names" / "avilist_map.csv",
+              [["Corvus corax", "", "Passeriformes", "Corvidae", "", "none", "Corvus corax_Common Raven", "exact"]])
+    write_map(data / "names" / "mdd_map.csv",
+              [["Rangifer tarandus", "Reindeer", "Artiodactyla", "Cervidae", "Rangifer tarandus", "exact",
+                "Rangifer tarandus_Reindeer", "exact"]])
+    monkeypatch.setitem(names.LISTS, "bird", names.LISTS["bird"]._replace(label_map=None))
+    monkeypatch.setitem(names.LISTS, "mammal", names.LISTS["mammal"]._replace(label_map="mdd_map.csv"))
+    lists = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", tmp_path / "cache", data_dir=data, tol_files=tol)
+    assert lists["bird"].birdnet == [] and lists["bird"].tol_how == ["exact", "none"]   # matched here, map ignored
+    assert lists["mammal"].birdnet == ["Rangifer tarandus_Reindeer", ""]
+    assert lists["mammal"].birdnet_how == ["exact", "none"] and lists["mammal"].tol_how == ["exact", "none"]
+    assert names.stats(lists)["mammal"]["birdnet"] == {"exact": 1, "synonym": 0, "none": 1}
+    # The map is part of the key of the list that uses it, and only that one.
+    write_map(data / "names" / "mdd_map.csv", [])
+    again = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", tmp_path / "cache", data_dir=data, tol_files=tol)
+    assert again["mammal"].sha != lists["mammal"].sha and again["bird"].sha == lists["bird"].sha
+    assert again["mammal"].birdnet == []
+
+
 def test_build_name_map_small_sample():
     import importlib.util
     from pathlib import Path

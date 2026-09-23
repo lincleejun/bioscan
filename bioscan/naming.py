@@ -1,4 +1,5 @@
-"""Scientific-name normalisation, the synonyms table and the committed data paths.
+"""Name normalisation (norm / norm_binomial for scientific names, norm_label for folder labels),
+the synonyms table and the committed data paths.
 
 Standard library only: the CLI (eval, gt) and the service share these without the CLI importing
 numpy or torch.
@@ -22,6 +23,14 @@ def norm(s: str | None) -> str:
 def norm_binomial(name: str | None) -> str:
     """'Corvus_corax', ' corvus  Corax ' -> 'corvus corax': the one match key for scientific names."""
     return norm((name or "").replace("_", " "))
+
+
+def norm_label(name: str | None) -> str:
+    """Match key for a folder name against common or scientific names (`gt folders`): as
+    norm_binomial, but the apostrophe is kept and the typographic ’ folded to it, so
+    'Steller’s_Jay' == "steller's jay" while 'Stellers Jay' stays a different name. Common names
+    spell the apostrophe; dropping it would change which folders match."""
+    return " ".join((name or "").replace("’", "'").replace("_", " ").replace("-", " ").lower().split())
 
 
 def read_synonyms(path: Path = SYNONYMS_CSV) -> list[dict[str, str]]:

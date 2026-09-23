@@ -72,12 +72,12 @@ def small_lists(bioclip) -> dict:
         common = [r["common"] for r in recs]
         matrix = names.encode([names.tol_text(t, c) for t, c in zip(tax, common)], bioclip.model, bioclip.tokenizer,
                               bioclip.device)
-        nl = names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs))
-        if kind == "bird":
-            nl.birdnet = [r["birdnet_label"] for r in recs]
-            nl.birdnet_how = [r["birdnet_how"] or "none" for r in recs]
-        nl.sha = f"test-{len(recs)}"
-        return nl
+        labels = {}
+        if names.LISTS[kind].label_map:          # rows come from avilist_map.csv, BirdNET labels included
+            labels = {"birdnet": [r["birdnet_label"] for r in recs],
+                      "birdnet_how": [r["birdnet_how"] or "none" for r in recs]}
+        return names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs),
+                              sha=f"test-{len(recs)}", **labels)
 
     return {"bird": build("avilist-2025-test-subset", "bird", "Aves", birds),
             "mammal": build("mdd-test-subset", "mammal", "Mammalia", mammals)}

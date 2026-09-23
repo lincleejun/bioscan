@@ -18,6 +18,16 @@ def test_norm_binomial():
     assert naming.norm_binomial(None) == ""
 
 
+def test_norm_label_keeps_apostrophes_for_folder_names():
+    assert naming.norm_label("Steller’s_Jay") == naming.norm_label(" steller's  JAY") == "steller's jay"
+    assert naming.norm_label("Red-Tailed-Hawk") == naming.norm_label("Red-tailed Hawk") == "red tailed hawk"
+    assert naming.norm_label("Rangifer_tarandus") == naming.norm_binomial("Rangifer_tarandus")
+    assert naming.norm_label(None) == ""
+    # Where it differs from norm_binomial on purpose: an apostrophe is part of a common name.
+    assert naming.norm_label("Stellers Jay") != naming.norm_label("Steller's Jay")
+    assert naming.norm_binomial("Stellers Jay") == naming.norm_binomial("Steller's Jay")
+
+
 def test_map_in_sync_with_applied_synonyms():
     assert naming.map_problems(MAP, [syn("Tyto furcata", "Tyto alba", "birdnet"),
                                      syn("Pica nuttallii", "Pica nuttalli", "spelling"),
