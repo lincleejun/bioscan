@@ -11,10 +11,10 @@ RANK_INDEX = {"genus": 5, "family": 4}
 
 
 def box_label(i: int, box: dict) -> str:
-    sp = box.get("species")
+    sp = contract.species_of(box)
     if not sp:  # other_animal (null) or --no-species (omitted)
         return f"[{i}] {box.get('kind', '?')} {box.get('score', 0):.2f}"
-    level, top = sp.get("level"), sp.get("top") or []
+    level, top = contract.level_of(sp), contract.top_of(sp)
     if level == "unconfirmed" or not top:
         return f"[{i}] unconfirmed"
     t0 = top[0]
@@ -29,11 +29,11 @@ def box_label(i: int, box: dict) -> str:
 
 def result_line(ev: dict) -> str:
     name = os.path.basename(ev["path"])
-    ident = (ev.get("products") or {}).get("identify")
+    ident = contract.identify_of(ev)
     if ident is None:  # identify not requested
         return name
-    cls = ident["gate"]["class"]
-    boxes = ident.get("boxes") or []
+    cls = ident["gate"]["class"]    # not contract.gate_class_of: a result without a gate still raises here
+    boxes = contract.boxes_of(ident)
     if not boxes:
         return f"{name}  {cls}"
     n = f"{len(boxes)} box" if len(boxes) == 1 else f"{len(boxes)} boxes"
@@ -57,14 +57,14 @@ class Renderer:
         if t == contract.RESULT:
             self.results += 1
             self.paths.add(ev.get("path"))
-            for b in ((ev.get("products") or {}).get("identify") or {}).get("boxes") or []:
-                sp = b.get("species")
+            for b in contract.boxes_of(contract.identify_of(ev)):
+                sp = contract.species_of(b)
                 if not sp:
                     continue
-                if sp.get("level") == "species" and sp.get("top"):
-                    t0 = sp["top"][0]
+                if contract.level_of(sp) == "species" and contract.top_of(sp):
+                    t0 = contract.top_of(sp)[0]
                     self.species[t0.get("common") or t0["scientific"]] += 1
-                elif sp.get("level") == "unconfirmed":
+                elif contract.level_of(sp) == "unconfirmed":
                     self.unconfirmed += 1
             return result_line(ev)
         if t == contract.ERROR:
