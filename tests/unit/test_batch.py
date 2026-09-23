@@ -39,8 +39,7 @@ class Models:
             def probs(self, lat, lon, week):
                 return np.array([0.9, 0.05, 0.02, 0.03]) if lat > 0 else np.array([0.01, 0.01, 0.9, 0.08])
 
-        prior = Prior()
-        self.priors = {"bird": geo.PriorBinding(prior, geo.GeoPrior.index(prior, self.names["bird"].birdnet))}
+        self.priors = {"bird": geo.LocationPrior(Prior(), self.names["bird"].birdnet)}
         models = self
 
         class Owl:

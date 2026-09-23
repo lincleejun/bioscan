@@ -176,12 +176,11 @@ def cmd_names_stats(a):
     return 0
 
 
-def cmd_names_geo_gaps(a, prior=None):
+def cmd_names_geo_gaps(a, source=None):
     """Unlabelled AviList species whose genus lives at --lat/--lon: candidates for a `birdnet`
-    row in data/names/synonyms.csv. Needs only the birdnet package, not the models."""
+    row in data/names/synonyms.csv. Needs only the birdnet package, not the models. `source` is
+    the BirdNET geo model (default: load it)."""
     import csv
-
-    import numpy as np
 
     from bioscan.service.adapters import geo
 
@@ -194,12 +193,11 @@ def cmd_names_geo_gaps(a, prior=None):
             for r in csv.DictReader(f):
                 if r["side"] == "birdnet":
                     cands.setdefault(r["scientific"], []).append(r["candidate"])
-    prior = prior or geo.GeoPrior.load()
-    if prior is None:
+    source = source or geo.GeoPrior.load()
+    if source is None:
         raise SystemExit("BirdNET geo model unavailable (pip package `birdnet`, model geo 3.0)")
-    index = prior.index([r["birdnet_label"] for r in rows])
-    probs = prior.probs(a.lat, a.lon, geo.week_of(a.date))
-    found = geo.gaps([r["scientific"] for r in rows], [r["common"] for r in rows], np.asarray(index), probs, a.min_p)
+    prior = geo.LocationPrior(source, [r["birdnet_label"] for r in rows])
+    found = prior.gaps([r["scientific"] for r in rows], [r["common"] for r in rows], a.lat, a.lon, a.date, a.min_p)
     print(f"{len(found)} unlabelled species whose genus has p_geo >= {a.min_p} at {a.lat},{a.lon}"
           f" (week {geo.week_of(a.date) or 'all'}):")
     for g in found:
