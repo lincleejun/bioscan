@@ -148,10 +148,57 @@ equivalence evidence re-run by the reviewer, diff review with no blocking findin
 Integration: merged in order 5, 6, 2, 1, 4, 3 onto claude/sleepy-hawking-0jht6y; real-model CI there must
 reproduce bird 97.6/95.2/88.1/92.9 and mammal 91.4/91.4/85.7/91.4 exactly.
 
-- [ ] 1 One identify module; seam at the three model adapters; contract tests run the real pipeline
-- [ ] 2 Deepen the location prior (one module per name list: p_geo(lat, lon, taken_at) or None)
-- [ ] 3 Run module owning chunk / model turn / decode (small interface, yields events)
-- [ ] 4 Identify output (gate, box, species) owned by bioscan/contract.py
-- [ ] 5 One serve-config module (flag -> env -> default once; launchd and fingerprint read it)
-- [ ] 6 Name-list load returns finished lists; one normaliser
-- [ ] integration + CONTEXT.md from the terms the tasks named + real-model CI + final review
+Run: 6 background agents, one worktree each (they started at 78af566 and branched from 7c011d5 as told).
+Every task recorded golden outputs before its first edit and again from a clean `git archive 7c011d5`.
+Acceptance by the orchestrator: golden re-run on fresh base/branch trees, ruff + pytest x2, and an
+independent read-only reviewer per task ("NO BLOCKERS" for all six; its extra edge-case runs noted below).
+
+- [x] 1 One identify module; seam at the three model adapters (`engine.Loaders`); Engine.identify /
+      identify_many / name_matrix / EngineProtocol deleted; product runner calls `pipeline.identify_many`;
+      BioCLIP `place()` puts name-list matrices on the device at load (a failure there is still a 503);
+      contract tests run the real Engine + pipeline on fake adapters. Golden sha 6fa4f1eb (4800 direct +
+      1200 via the product runner); reviewer: 503 path, one device copy, `array_equal` probs, and every
+      assertion of the deleted test_engine_protocol.py covered by test_adapter_seam.py / contract tests.
+- [x] 2 Location prior: `geo.LocationPrior(source, row_labels)` with `p_geo(lat, lon, taken_at)`,
+      `posterior`, `gaps`; `priors_for(lists, source)`; PriorBinding / align / GeoPrior.index / module
+      posterior+gaps removed. Golden sha d64f6578 (15727 identify results, 12495 geo-gaps lines);
+      reviewer: 170 extra edge cases (no geo, lat/lon None, bad dates, failing source, mammal list) identical.
+- [x] 3 Run module `bioscan/service/run.py`: `RunQueue.events(inputs, want, opts, is_disconnected)` owns
+      chunks, the per-chunk FIFO model turn, executors and the self-healing decode pool; app.py is HTTP only.
+      Golden sha 59559456 (110 /run scenarios); reviewer: lock and counters released on cancel and on error.
+- [x] 4 Identify payload owned by `bioscan/contract.py` (fields, constructors, CLI readers,
+      `identify_problems`, `IDENTIFY_OUTPUT`). Goldens identical (identify, render, eval, /products, /run);
+      reviewer: 1022 partial/malformed payload events through render/eval identical; 10/10 one-sided field
+      renames caught by tests.
+- [x] 5 `bioscan/serve_config.py`: flag > BIOSCAN_* > default resolved once for `bioscan serve`,
+      `bioscan-serve` and launchd; fingerprint reads every numeric UPPER_CASE constant of rules.py (value
+      unchanged 1dd3f33ab9c7). Golden: 710 cases, 0 differences except the two intended ones below.
+- [x] 6 Name-list load returns finished, frozen lists (`ListSource.label_map` instead of `kind == "bird"`);
+      `naming.norm_label` replaces `gt.norm`. Golden identical; cache files identical, old caches load
+      with 0 re-encodes both ways (the 3.26 GB cache is reused).
+- [x] integration onto claude/sleepy-hawking-0jht6y in order 5, 6, 2, 1, 4, 3 (merge commits). Conflicts:
+      READMEs (layout lines), engine/pipeline/test_rules (task 1 moved to task 2's LocationPrior;
+      `priors_for` now takes the source from the injected geo loader), conftest (task 1's fake adapters
+      replace the FakeEngine task 4 had edited), app.py imports (3 + 5).
+- [x] all six goldens re-run on the merged head against the 7c011d5 recordings: identical (1: 6fa4f1eb;
+      2: d64f6578 with a recorder adapted to the merged API, same hash on base; 3 and 4 with a shim routing
+      the merged app to the old FakeEngine: identical; 5: 0 non-env differences; 6: identical + cache reuse)
+- [x] CONTEXT.md (domain terms named by the six tasks); CLAUDE.md project facts updated (fake engine gone)
+- [x] duplicate test_names.py::test_norm_binomial removed (test_naming.py has the same cases)
+- [ ] ci.yml + models.yml green on the pushed head; real-model numbers identical to the v1.2 run
+- [ ] final review of the diff against main
+
+Intended behaviour changes (both in task 5):
+- `bioscan serve` no longer writes BIOSCAN_* into its own environment (nothing read them back).
+- `--allow-root /a:b` is one root; before, `bioscan serve` split it on ":" (a relative second root that
+  widened access) while `bioscan-serve` did not. Both entry points now agree.
+
+Kept as before (decided by the orchestrator; behaviour-preserving):
+- `--launchd` ignores BIOSCAN_* and validates nothing (plist bytes identical).
+- gt folder matching keeps its own normaliser (`norm_label`): merging with `norm_binomial` would change
+  840 folder matches.
+- `render.result_line` still raises on an identify payload without a gate.
+
+Found:
+- Fingerprint scan counts numbers only; a future tuple threshold in rules.py would need adding by hand.
+- `pipeline.identify` (one-frame helper) is used only by unit tests.

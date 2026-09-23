@@ -60,11 +60,6 @@ def setup(tmp_path):
     return data, (tmp_path / "tol.json", tmp_path / "tol.npy"), vecs
 
 
-def test_norm_binomial():
-    assert names.norm_binomial("Rangifer_tarandus") == "rangifer tarandus"
-    assert names.norm_binomial("  Corvus   Corax ") == "corvus corax"
-
-
 def test_tol_text_matches_treeoflife_format():
     tax = ["Animalia", "Chordata", "Aves", "Passeriformes", "Corvidae", "Corvus", "Corvus corax"]
     assert names.tol_text(tax, "Northern Raven") == \

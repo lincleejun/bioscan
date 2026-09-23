@@ -53,5 +53,7 @@ No "think carefully" / "think step by step" lines in this file or in prompts. Th
 
 ## Project facts
 - Python 3.12, `uv`. Service deps (torch, transformers, open_clip) load lazily; the CLI stays import-light.
-- Tests use a fake engine (`tests/contract/conftest.py`); the engine contract is `frame`, `identify`, `ensure`, `loaded`, `info`.
+- Contract tests run the real Engine and identify pipeline on fake model adapters injected through
+  `engine.Loaders` (`tests/contract/conftest.py`); app.py uses `frame`, `ensure`, `loaded`, `info`.
+- Domain terms live in `CONTEXT.md`; use them in code, tests and docs.
 - Real-model checks live in `tests/models/` and only run with `BIOSCAN_MODEL_TESTS=1` (CI `models.yml`).

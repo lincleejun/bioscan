@@ -169,7 +169,8 @@ def test_embed_is_a_unit_siglip2_vector(run):
 def test_boxes_are_well_formed(run):
     _, events, _ = run
     for e in (e for e in events if e["type"] == "result"):
-        assert not contract.identify_problems(e["products"]["identify"]), (e["path"], contract.identify_problems(e["products"]["identify"]))
+        problems = contract.identify_problems(e["products"]["identify"])
+        assert not problems, (e["path"], problems)
         for b in e["products"]["identify"]["boxes"]:
             x0, y0, x1, y1 = b["xyxy"]
             assert 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1 and b["kind"] in ("bird", "mammal", "other_animal")

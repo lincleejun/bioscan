@@ -77,7 +77,7 @@ class Loaders:
     siglip2: Callable[[str], Any] = _load_siglip2       # device -> gate and crop check: embed_images, gate
     owlv2: Callable[[str], Any] = _load_owlv2           # device -> detector: detect, detect_batch
     species: Callable[[str], tuple[Any, dict[str, Any]]] = _load_species  # device -> (BioCLIP, {kind: NameList})
-    geo: Callable[[], Any] = _load_geo                  # () -> location prior model (index, probs) or None
+    geo: Callable[[], Any] = _load_geo                  # () -> location prior source (labels, probs) or None
 
 
 # Model name -> loader (an Engine method). Order is load order and the order of `loaded()`.
