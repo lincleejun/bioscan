@@ -1,0 +1,57 @@
+name: models
+
+# Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo) on CPU over 77 iNaturalist photos.
+# Report: the job summary and the `models-report` artifact.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: models-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      BIOSCAN_MODEL_TESTS: "1"
+      BIOSCAN_REPORT: ${{ github.workspace }}/models-report.md
+      BIOSCAN_PHOTO_CACHE: ${{ github.workspace }}/.photos
+    steps:
+      - name: Free disk (torch + ~4 GB of weights)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Cache model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('tests/models/download.py', 'bioscan/service/adapters/*.py') }}
+          restore-keys: hf-
+      - name: Download weights
+        run: uv run python tests/models/download.py
+      - name: Cache photos
+        uses: actions/cache@v4
+        with:
+          path: .photos
+          key: photos-${{ hashFiles('tests/models/sample.csv') }}
+      - name: Real-model smoke
+        run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs
+      - name: Job summary
+        if: always()
+        run: test -f models-report.md && cat models-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: models-report
+          path: |
+            models-report.md
+            models-report.ndjson
+          if-no-files-found: ignore

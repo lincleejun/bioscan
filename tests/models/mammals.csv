@@ -1,0 +1,42 @@
+scientific,common,order,family
+Alces alces,Moose,Artiodactyla,Cervidae
+Cervus canadensis,Wapiti,Artiodactyla,Cervidae
+Odocoileus hemionus,Mule Deer,Artiodactyla,Cervidae
+Odocoileus virginianus,White-tailed Deer,Artiodactyla,Cervidae
+Rangifer tarandus,Reindeer,Artiodactyla,Cervidae
+Antilocapra americana,Pronghorn,Artiodactyla,Antilocapridae
+Ovis canadensis,Bighorn Sheep,Artiodactyla,Bovidae
+Sus scrofa,Wild Boar,Artiodactyla,Suidae
+Canis latrans,Coyote,Carnivora,Canidae
+Canis lupus,Gray Wolf,Carnivora,Canidae
+Urocyon cinereoargenteus,Gray Fox,Carnivora,Canidae
+Vulpes vulpes,Red Fox,Carnivora,Canidae
+Lynx rufus,Bobcat,Carnivora,Felidae
+Lynx canadensis,Canada Lynx,Carnivora,Felidae
+Puma concolor,Puma,Carnivora,Felidae
+Ursus americanus,American Black Bear,Carnivora,Ursidae
+Ursus arctos,Brown Bear,Carnivora,Ursidae
+Ursus maritimus,Polar Bear,Carnivora,Ursidae
+Enhydra lutris,Sea Otter,Carnivora,Mustelidae
+Lontra canadensis,North American River Otter,Carnivora,Mustelidae
+Taxidea taxus,American Badger,Carnivora,Mustelidae
+Mephitis mephitis,Striped Skunk,Carnivora,Mephitidae
+Spilogale gracilis,Western Spotted Skunk,Carnivora,Mephitidae
+Procyon lotor,Common Raccoon,Carnivora,Procyonidae
+Mirounga angustirostris,Northern Elephant Seal,Carnivora,Phocidae
+Phoca vitulina,Harbor Seal,Carnivora,Phocidae
+Zalophus californianus,California Sea Lion,Carnivora,Otariidae
+Eumetopias jubatus,Steller Sea Lion,Carnivora,Otariidae
+Didelphis virginiana,Virginia Opossum,Didelphimorphia,Didelphidae
+Lepus californicus,Black-tailed Jackrabbit,Lagomorpha,Leporidae
+Lepus americanus,Snowshoe Hare,Lagomorpha,Leporidae
+Sylvilagus audubonii,Desert Cottontail,Lagomorpha,Leporidae
+Sylvilagus bachmani,Brush Rabbit,Lagomorpha,Leporidae
+Marmota flaviventris,Yellow-bellied Marmot,Rodentia,Sciuridae
+Marmota monax,Woodchuck,Rodentia,Sciuridae
+Otospermophilus beecheyi,California Ground Squirrel,Rodentia,Sciuridae
+Sciurus griseus,Western Gray Squirrel,Rodentia,Sciuridae
+Sciurus niger,Fox Squirrel,Rodentia,Sciuridae
+Sciurus carolinensis,Eastern Gray Squirrel,Rodentia,Sciuridae
+Neotamias merriami,Merriam's Chipmunk,Rodentia,Sciuridae
+Castor canadensis,North American Beaver,Rodentia,Castoridae
