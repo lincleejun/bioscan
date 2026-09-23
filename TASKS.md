@@ -135,3 +135,23 @@ Verify: tests; real-model CI numbers identical; speed unverified until Mac bench
       91.4/91.4/85.7/91.4 (gate/detect/top-1/top-5), coverage/precision and every per-image row identical to the
       pre-refactor run. CPU identify ms/image 11.7 s bird / 12.7 s mammal vs 10.9 / 14.1 before: batching shows no
       clear gain on a 4-core CPU runner; MPS speed unverified until a Mac benchmark.
+
+---
+
+# TASKS — v1.3 deepening (report candidates 1-6), run as 6 parallel worktrees
+
+Source: /improve-codebase-architecture report 2026-09-23 (candidates 1-6; 7 not in scope).
+Base: 7959dc2. Each task: own worktree + local branch `arch/N-*`, own checklist `TASKS-arch-N.md`,
+behaviour-preserving (identify output, /run events, CLI behaviour and exit codes unchanged).
+Acceptance per task (by the orchestrating session): ruff + pytest green in the worktree, golden-output
+equivalence evidence re-run by the reviewer, diff review with no blocking findings.
+Integration: merged in order 5, 6, 2, 1, 4, 3 onto claude/sleepy-hawking-0jht6y; real-model CI there must
+reproduce bird 97.6/95.2/88.1/92.9 and mammal 91.4/91.4/85.7/91.4 exactly.
+
+- [ ] 1 One identify module; seam at the three model adapters; contract tests run the real pipeline
+- [ ] 2 Deepen the location prior (one module per name list: p_geo(lat, lon, taken_at) or None)
+- [ ] 3 Run module owning chunk / model turn / decode (small interface, yields events)
+- [ ] 4 Identify output (gate, box, species) owned by bioscan/contract.py
+- [ ] 5 One serve-config module (flag -> env -> default once; launchd and fingerprint read it)
+- [ ] 6 Name-list load returns finished lists; one normaliser
+- [ ] integration + CONTEXT.md from the terms the tasks named + real-model CI + final review
