@@ -30,13 +30,19 @@ Verify: unit tests with a fake prior; prior values for mapped rows unchanged (ex
 
 ## 3. Mammal detection vocabulary
 Goal: fewer "no box" mammals (black bear, mountain lion, grizzly, bobcat in the golden set).
-- [ ] add large carnivores and common CA mammals to VOCAB["mammal"]
-Verify: unit test on vocab; real-model smoke on bear / mountain lion / bobcat photos in CI.
+- [x] add large carnivores and common CA mammals to VOCAB["mammal"]
+- [x] gate rescue: gate says none/person but bird+mammal+other_animal >= 0.25 -> first-pass detection with the
+      strongest animal's vocab (crop gate still vetoes; no low-floor second pass; reported gate class unchanged)
+- [x] eval: "no box" split by whole-frame gate class (works on existing preds.ndjson via `--preds`)
+Found: eval's "(no box)" includes images the gate called none/person, where the detector never ran,
+so vocab alone could not fix gate misses.
+Verify: unit tests (rescue on/off, first pass only, veto, old path unchanged, vocab); real-model smoke in CI.
 Accuracy: unverified until `bioscan eval`.
 
 ## 4. jpg product naming
 Goal: no silent overwrite across folders or RAW+JPG pairs.
-- [ ] `<out_dir>/<stem>-<sha256[:8]>.jpg`; /products description; README
+- [x] `<out_dir>/<stem>-<sha256[:8]>.jpg`; /products description
+- [ ] README
 Verify: contract test with two same-stem files in different dirs → two outputs.
 
 ## 5. Path allow-list for the service

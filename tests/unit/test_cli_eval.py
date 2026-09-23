@@ -130,3 +130,11 @@ def test_truth_synonyms_normalised_and_counted(tmp_path):
     assert (on["top1"], on["synonym_hits"]) == (3 / 4, 2)
     assert (off["top1"], off["synonym_hits"]) == (1 / 4, 0)
     assert "Top-1 hits gained by synonym normalisation of the truth (miss -> hit): inat/bird 2" in ev.report_md({("inat", "bird"): on}, {})
+
+
+def test_no_box_split_by_gate_class():
+    m = metrics()
+    assert m[("own", "bird")]["no_box_gate"] == {"mammal": 1}      # /4: the gate said mammal, no box
+    assert m[("inat", "mammal")]["no_box_gate"] == {}
+    md = ev.report_md(m, {})
+    assert "No box, by whole-frame gate class" in md and "own/bird mammal 1" in md and "inat/mammal 0" in md

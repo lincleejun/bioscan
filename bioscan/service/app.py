@@ -153,7 +153,7 @@ async def _run_chunk(engine: Any, items: list[dict[str, Any]], want: list[str], 
                 elif product == "embed":
                     it["products"]["embed"] = products.embed(vecs[i], opts["embed"]["format"])
                 else:
-                    it["products"]["jpg"] = products.jpg(dec.image, dec.path, opts["jpg"]["out_dir"])
+                    it["products"]["jpg"] = products.jpg(dec.image, dec.path, opts["jpg"]["out_dir"], dec.sha256)
             except Exception as exc:  # noqa: BLE001
                 it["errors"].append((product, f"{type(exc).__name__}: {exc}"))
             ms = (time.perf_counter() - t) * 1000

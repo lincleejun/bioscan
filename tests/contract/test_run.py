@@ -4,6 +4,7 @@ import base64
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -92,6 +93,24 @@ def test_detail_image_only_for_identify_and_can_be_off(tmp_path):
     with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(2), detail_edge=None)) as c:
         events(c.post("/run", json={"inputs": [{"path": p}]}))
     assert engine.details == [None] and engine.calls[0]["size"] == (2048, 1365)
+
+
+def test_jpg_names_do_not_collide(client, tmp_path):
+    (tmp_path / "card1").mkdir()
+    (tmp_path / "card2").mkdir()
+    a = make_jpg(tmp_path / "card1" / "DSC0001.jpg")
+    b = str(tmp_path / "card2" / "DSC0001.jpg")
+    Image.new("RGB", (64, 48), (1, 2, 3)).save(b)
+    out = tmp_path / "out"
+    body = {"inputs": [{"path": a}, {"path": b}], "want": ["jpg"], "options": {"jpg": {"out_dir": str(out)}}}
+    res = {e["path"]: e for e in events(client.post("/run", json=body)) if e["type"] == "result"}
+    written = {p: Path(e["products"]["jpg"]["path"]) for p, e in res.items()}
+    assert len(set(written.values())) == 2 and sorted(out.iterdir()) == sorted(written.values())
+    for p, e in res.items():
+        assert written[p].name == f"DSC0001-{e['sha256'][:8]}.jpg"
+    again = {e["path"]: e for e in events(client.post("/run", json=body)) if e["type"] == "result"}
+    assert {p: Path(e["products"]["jpg"]["path"]) for p, e in again.items()} == written   # idempotent
+    assert len(list(out.iterdir())) == 2
 
 
 def test_embed_f16_and_species_off(client, tmp_path):

@@ -62,6 +62,7 @@ def outcome(truth: dict, ev: dict | None) -> dict:
     o["detected"] = any(b.get("kind") == kind for b in boxes)
     if not boxes:
         o["pred"] = "(no box)"
+        o["no_box_gate"] = (ident.get("gate") or {}).get("class") or "?"
         return o
     best = max(boxes, key=lambda b: b.get("score", 0))
     sp = best.get("species")
@@ -107,6 +108,8 @@ def compute(gt_rows: list[dict], preds: dict[str, dict]) -> dict[tuple[str, str]
             "coverage": _rate(len(sp), n),
             "precision": _rate(sum(o["top1"] for o in sp), len(sp)),
             "confusion": [(t, p, c) for (t, p), c in conf.most_common(10)],
+            # why there was no box: the whole-frame gate class of those images (none/person = gate miss)
+            "no_box_gate": dict(Counter(o["no_box_gate"] for o in os_ if "no_box_gate" in o).most_common()),
             # Top-1 hits that only exist because the truth label was renamed (a miss on the raw label)
             "synonym_hits": sum(o["top1"] and _sci(r.get("scientific_raw", r.get("scientific"))) != _sci(r.get("scientific"))
                                 for r, o in items),
@@ -138,7 +141,10 @@ def report_md(metrics: dict, meta: dict) -> str:
     lines += ["", "Definitions: Top-1/Top-5 use the highest-`score` box; coverage = best box at `level == species`; "
               "precision = Top-1 hit rate among those; failed images count as misses everywhere.", "",
               "Top-1 hits gained by synonym normalisation of the truth (miss -> hit): "
-              + ", ".join(f"{t}/{k} {m['synonym_hits']}" for (t, k), m in metrics.items()), ""]
+              + ", ".join(f"{t}/{k} {m['synonym_hits']}" for (t, k), m in metrics.items()), "",
+              "No box, by whole-frame gate class (none/person: the gate missed the animal; else the detector did): "
+              + "; ".join(f"{t}/{k} " + (", ".join(f"{g} {c}" for g, c in m["no_box_gate"].items()) or "0")
+                          for (t, k), m in metrics.items()), ""]
     for (tier, kind), m in metrics.items():
         lines += [f"## Confusion Top-10 — {tier} / {kind}", ""]
         if not m["confusion"]:

@@ -24,6 +24,7 @@ ROLLUP = 0.6
 SECOND_PASS_FLOOR = 0.1
 SECOND_PASS_TOP = 3
 IOU_SAME = 0.5
+RESCUE = 0.25           # gate says none/person but bird+mammal+other_animal >= this: still look (first pass only)
 
 DEFAULTS: dict[str, dict[str, Any]] = {
     "identify": {"top_k": 5, "geo": True, "species": True},
@@ -51,7 +52,8 @@ PRODUCTS: dict[str, Any] = {
         "output": {"model": "siglip2-base-patch16-224", "dim": 768, "vector": "list[float] | base64 float16 LE"},
     },
     "jpg": {
-        "description": "Upright JPEG, long edge 2048, quality 92, written as <out_dir>/<stem>.jpg (overwrites).",
+        "description": "Upright JPEG, long edge 2048, quality 92, written as <out_dir>/<stem>-<sha256[:8]>.jpg "
+                       "(same source bytes -> same file; same-named sources never collide).",
         "options": {"out_dir": {"type": "string", "format": "absolute path", "default": DEFAULTS["jpg"]["out_dir"]}},
         "output": {"path": "string", "width": "int", "height": "int"},
     },
@@ -257,11 +259,17 @@ def identify(engine: Any, image: Image.Image, gate: dict[str, float], lat: float
     """Gate, boxes and quality on the 2048 px `image`; species crops from `detail` when given."""
     cls = max(gate, key=lambda k: gate[k])
     out = {"gate": {"class": cls, "probs": {k: round(v, 4) for k, v in gate.items()}}, "boxes": []}
-    if cls not in VOCAB:
-        return out
+    rescue = cls not in VOCAB
+    if rescue:
+        # A bear at night or a bobcat in brush can lose the whole-frame vote to "none" while the
+        # animal classes together still hold real mass: look with the strongest animal's words.
+        # The reported gate class stays what the gate said.
+        if sum(gate.get(k, 0.0) for k in VOCAB) < RESCUE:
+            return out
+        cls = max(VOCAB, key=lambda k: gate.get(k, 0.0))
     vocab = VOCAB[cls]
     kept = _judged(engine, image, dedupe(_detect(engine, image, vocab, False)), cls)
-    if not kept:
+    if not kept and not rescue:
         # The gate says an animal is there and the detector boxed none: floor 0.1, best three,
         # the crop gate still decides.
         kept = _judged(engine, image, dedupe(_detect(engine, image, vocab, True))[:SECOND_PASS_TOP], cls)
@@ -287,8 +295,10 @@ def embed(vec: np.ndarray, fmt: str) -> dict[str, Any]:
     return {"model": MODEL_NAME, "dim": int(v.shape[0]), "vector": vector}
 
 
-def jpg(image: Image.Image, src_path: str, out_dir: str) -> dict[str, Any]:
-    target = Path(out_dir) / (Path(src_path).stem + ".jpg")
+def jpg(image: Image.Image, src_path: str, out_dir: str, sha256: str) -> dict[str, Any]:
+    """`<stem>-<sha8>.jpg`: DSC0001.ARW from two cards, or a RAW+JPG pair, get two files; a re-run
+    rewrites the same one."""
+    target = Path(out_dir) / f"{Path(src_path).stem}-{sha256[:8]}.jpg"
     target.parent.mkdir(parents=True, exist_ok=True)
     image.save(target, "JPEG", quality=92)
     return {"path": str(target), "width": image.width, "height": image.height}

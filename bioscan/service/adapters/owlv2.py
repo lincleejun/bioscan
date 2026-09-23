@@ -18,7 +18,12 @@ VOCAB: dict[str, dict[str, float]] = {
     "mammal": {"a mammal": 0.1, "an animal": 0.1, "a wild animal": 0.1,
                **{f"a {n}": 0.2 for n in ("deer", "bear", "seal", "sea lion", "whale", "moose", "caribou",
                                           "sea otter", "squirrel", "fox", "coyote", "mountain goat", "rabbit",
-                                          "elk", "bison", "marmot")}},
+                                          "elk", "bison", "marmot",
+                                          # large carnivores and brush mammals the golden set missed
+                                          "black bear", "grizzly bear", "mountain lion", "cougar", "bobcat",
+                                          "lynx", "wolf", "wild cat", "raccoon", "skunk", "badger", "bighorn sheep",
+                                          "pronghorn", "wild pig", "beaver", "chipmunk")},
+               "an opossum": 0.2, "an otter": 0.2},
     "other_animal": {"an animal": 0.1, "a reptile": 0.15, "a lizard": 0.2, "a snake": 0.2, "a turtle": 0.2,
                      "a frog": 0.2, "a fish": 0.2, "an insect": 0.15, "a butterfly": 0.2, "a spider": 0.2},
 }
