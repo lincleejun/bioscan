@@ -185,8 +185,11 @@ independent read-only reviewer per task ("NO BLOCKERS" for all six; its extra ed
       the merged app to the old FakeEngine: identical; 5: 0 non-env differences; 6: identical + cache reuse)
 - [x] CONTEXT.md (domain terms named by the six tasks); CLAUDE.md project facts updated (fake engine gone)
 - [x] duplicate test_names.py::test_norm_binomial removed (test_naming.py has the same cases)
-- [ ] ci.yml + models.yml green on the pushed head; real-model numbers identical to the v1.2 run
-- [ ] final review of the diff against main
+- [x] final review of the diff against main (subagent): 1 blocker (CONTEXT.md claimed the fingerprint covers
+      the detail edge; it covers max edge), fixed in bbd6377 with engine-caller wording and models.yml paths
+- [x] ci.yml + models.yml green on bbd6377: 8 real-model tests passed; bird 97.6/95.2/88.1/92.9 and mammal
+      91.4/91.4/85.7/91.4 (gate/detect/top-1/top-5), coverage/precision 95.2/92.5 and 91.4/93.8, per-image rows
+      as in v1.2 -- identical. CPU identify 11.9 s bird / 12.8 s mammal per image (v1.2: 11.7 / 12.7).
 
 Intended behaviour changes (both in task 5):
 - `bioscan serve` no longer writes BIOSCAN_* into its own environment (nothing read them back).
