@@ -9,3 +9,4 @@ data/avilist/*.csv
 data/avilist/*.xlsx
 data/mdd/*.csv
 runs/
+uv.lock

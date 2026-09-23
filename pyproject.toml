@@ -1,0 +1,19 @@
+[project]
+name = "bioscan"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "torch>=2.6",
+    "open-clip-torch>=3.3,<4",
+    "huggingface-hub",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
