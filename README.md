@@ -1,130 +1,131 @@
 # bioscan
 
-**照片里有什么动物、在哪、是什么种。** 面向野生动物摄影的本地识别服务：输入一批 RAW 或 JPG，输出每张图的动物框、物种（鸟到种，哺乳到种）、置信度与定级。常驻 HTTP 服务 + 薄 CLI，Mac 上跑 MPS，不上传任何照片。
+**English** | [简体中文](README.zh-CN.md)
 
-*bioscan is a local, offline animal-identification service for wildlife photographers: give it a folder of RAW/JPG files and get back, per image, bounding boxes, species (birds via AviList 2025, mammals via the Mammal Diversity Database), confidence and a species/genus/family/unconfirmed grade. Zero-shot BioCLIP 2.5 Huge + OWLv2 + SigLIP2, with a BirdNET location prior. Runs on Apple Silicon (MPS) or CPU. Chinese documentation below.*
+**What animal is in the photo, where, and which species.** A local identification service for wildlife photography: give it a batch of RAW or JPG files and get back, per image, animal boxes, species (birds and mammals to species), confidence and a grade. A resident HTTP service plus a thin CLI; runs on MPS on a Mac; no photo ever leaves the machine.
 
-## 结果
+## Results
 
-### iNaturalist golden 集（加州，65 种 × 25 张 = 1625 张 research-grade 观察，真实 GPS 与日期）
+### iNaturalist golden set (California, 65 species × 25 = 1625 research-grade observations, real GPS and dates)
 
-| 类群 | n | 门准确率 | 检出率 | Top-1 | Top-5 | 覆盖率 | 精度 |
+| Group | n | Gate acc. | Detected | Top-1 | Top-5 | Coverage | Precision |
 |---|---|---|---|---|---|---|---|
-| 鸟（1050） | 1050 | 97.0% | 97.0% | **89.8%** | 95.0% | 95.6% | 93.4% |
-| 哺乳（575） | 575 | 89.7% | 84.9% | **74.1%** | 81.4% | 82.3% | 89.2% |
+| Birds (1050) | 1050 | 97.0% | 97.0% | **89.8%** | 95.0% | 95.6% | 93.4% |
+| Mammals (575) | 575 | 89.7% | 84.9% | **74.1%** | 81.4% | 82.3% | 89.2% |
 
-- 覆盖率 = 定级到"种"的比例；精度 = 定级到"种"时 Top-1 正确率。两者一起看，避免只提覆盖不提精度。
-- 地理先验的作用（鸟）：Top-1 83.3% → 89.8%，把北鹞从 1/25 提到 25/25。
-- 哺乳的失败集中在"没框"：黑熊、美洲狮、灰熊、短尾猫共 45 张检测词表没框到主体，是当前最大的已知短板。
-- 真值来自 iNaturalist 社区核验，CC0 / CC BY / CC BY-NC，仅用于评测，图片不随仓库分发；`data/inat/groundtruth-inat.csv` 保留了每张的观察链接与署名。
+- Coverage = share of images graded to species; precision = Top-1 accuracy among those. Read them together, so coverage is never quoted without precision.
+- Effect of the location prior (birds): Top-1 83.3% → 89.8%; Northern Harrier went from 1/25 to 25/25.
+- Mammal failures are mostly "no box": 45 images of black bear, mountain lion, grizzly and bobcat where the detector vocabulary did not box the animal. This is the largest known weakness.
+- Ground truth is iNaturalist community-verified, CC0 / CC BY / CC BY-NC, used for evaluation only; images are not distributed with the repo. `data/inat/groundtruth-inat.csv` keeps each observation's link and attribution.
 
-### 自有照片（长焦 RAW，404 张，3 种）
+### Own photos (telephoto RAW, 404 images, 3 species)
 
-| 地理先验 | Top-1 | Top-5 | 覆盖率 | 精度 |
+| Location prior | Top-1 | Top-5 | Coverage | Precision |
 |---|---|---|---|---|
-| 无（照片无 GPS） | 80.2% | 98.0% | 85.9% | 85.3% |
-| 有（整批给一个坐标） | **96.3%** | 98.0% | 97.8% | 97.7% |
+| Off (photos have no GPS) | 80.2% | 98.0% | 85.9% | 85.3% |
+| On (one coordinate for the batch) | **96.3%** | 98.0% | 97.8% | 97.7% |
 
-西美角鸮、东美角鸮、须角鸮外形几乎相同，靠分布区分；没有坐标时 72 次判错，有坐标后 7 次。
+Western, Eastern and Whiskered Screech-Owls look almost identical and are told apart by range: 72 errors without a coordinate, 7 with one.
 
-### 速度（M 系列 Mac，MPS）
+### Speed (M-series Mac, MPS)
 
-| 步骤 | 每张 |
+| Step | Per image |
 |---|---|
-| RAW 解码 + 旋正 + 缩放（USB 机械盘） | 约 650 ms |
-| 识别（门 + 检测 + 复判 + 物种） | 约 210 ms |
-| JPG 直读 | 约 1 ms |
+| RAW decode + rotate + resize (USB hard disk) | ~650 ms |
+| Identify (gate + detect + crop check + species) | ~210 ms |
+| JPG read | ~1 ms |
 
-冷启动加载三个模型约 11 s，之后常驻。
+Cold start loads the three models in about 11 s; they stay resident afterwards.
 
-完整数字与混淆榜：`docs/2026-09-23-baseline-results.md`。
+Full numbers and confusion tables: `docs/2026-09-23-baseline-results.md`.
 
-## 目标与边界
+## Goals and scope
 
-做的：
-- 单次扫描一个目录，一口气出结果，边跑边打。
-- 三个产物可以任意组合：`identify`（框 + 物种）、`embed`（整图 SigLIP2 向量）、`jpg`（RAW 转旋正 JPG）。
-- 名字以 **AviList 2025**（鸟，11131 种）和 **MDD v2.5**（哺乳，6904 种）为唯一标准；BirdNET、TreeOfLife/BioCLIP、iNaturalist 的名字都通过 `data/names/` 的映射表归一到它们。
-- 自带评测：`bioscan gt` 建真值集（文件夹名或 iNaturalist），`bioscan eval` 出报告。
+In scope:
+- Scan a directory in one pass and stream results as they are produced.
+- Three products, in any combination: `identify` (boxes + species), `embed` (whole-frame SigLIP2 vector), `jpg` (RAW to upright JPG).
+- **AviList 2025** (birds, 11131 species) and **MDD v2.5** (mammals, 6904 species) are the only naming standards; BirdNET, TreeOfLife/BioCLIP and iNaturalist names are mapped onto them through the tables in `data/names/`.
+- Built-in evaluation: `bioscan gt` builds a ground-truth set (from folder names or iNaturalist), `bioscan eval` writes a report.
 
-不做的（v1）：
-- 缓存与持久状态、人工纠正回写、照片管理、Web UI。
-- 个体识别（同一只动物跨照片）。
-- 相册软件集成（Immich 等，通过同一 HTTP API 后续接入）。
+Out of scope (v1):
+- Caching and persistent state, writing back human corrections, photo management, a web UI.
+- Individual re-identification (the same animal across photos).
+- Photo-library integration (Immich and others, later through the same HTTP API).
 
-## 流程
+## Pipeline
 
 ```
-RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256 （identify 时另出长边 ≤3072 的细节图）
+RAW/JPG ─ decode ─▶ upright 2048 px image + EXIF (GPS, time) + sha256 (plus a ≤3072 px detail copy for identify)
               │
-              ├─ SigLIP2 整图 ─▶ 门：bird / mammal / other_animal / person / none    ─▶ embed 产物
+              ├─ SigLIP2 whole frame ─▶ gate: bird / mammal / other_animal / person / none   ─▶ embed product
               │
-              ├─ OWLv2 开放词表检测（词表按门选；门判 none/person 但三类动物合计 ≥0.25 时
-              │   仍按最强动物类的词表查一遍）─▶ 每框 SigLIP2 裁切复判 ─▶ 画质
+              ├─ OWLv2 open-vocabulary detection (vocabulary chosen by the gate; if the gate says
+              │   none/person but the three animal classes total ≥ 0.25, detect anyway with the strongest
+              │   animal class's words) ─▶ SigLIP2 check of each box crop ─▶ image quality
               │
-              └─ BioCLIP 2.5 Huge 对细节图上同一取景的裁切编码 ─▶ 与该纲名单的文本向量做余弦
-                        × (0.02 + BirdNET 地理先验)  ─▶ 归一化 ─▶ top-k ─▶ 定级
+              └─ BioCLIP 2.5 Huge on the same framing cut from the detail copy ─▶ cosine against that
+                 class's name-list text vectors × (0.02 + BirdNET location prior) ─▶ normalise ─▶ top-k ─▶ grade
 ```
 
-定级规则：top-1 ≥ 0.5 且领先第二名 ≥ 0.3 定为种；否则 top-5 按属累加 ≥ 0.6 定为属，按科累加 ≥ 0.6 定为科；否则 `unconfirmed`。
+Grading: species when top-1 ≥ 0.5 and leads the runner-up by ≥ 0.3; otherwise genus when the top-5 summed by genus reaches ≥ 0.6, family when summed by family reaches ≥ 0.6; otherwise `unconfirmed`.
 
-模型与数据：
+Models and data:
 
-| 用途 | 来源 | 许可 |
+| Use | Source | License |
 |---|---|---|
-| 门、复判、embed | `google/siglip2-base-patch16-224` | Apache-2.0 |
-| 检测 | `google/owlv2-base-patch16-ensemble` | Apache-2.0 |
-| 物种 | `imageomics/bioclip-2.5-vith14`（BioCLIP 2.5 Huge） | MIT |
-| 物种名文本向量 | `imageomics/TreeOfLife-200M` 官方预计算向量，对不上的名字用文本塔自编 | CC0 |
-| 地理先验（仅鸟） | BirdNET geo 3.0（`birdnet` 包） | CC BY-NC-SA 4.0 |
-| 鸟名单 | AviList v2025 | CC BY 4.0 |
-| 哺乳名单 | Mammal Diversity Database v2.5 | CC BY 4.0 |
+| Gate, crop check, embed | `google/siglip2-base-patch16-224` | Apache-2.0 |
+| Detection | `google/owlv2-base-patch16-ensemble` | Apache-2.0 |
+| Species | `imageomics/bioclip-2.5-vith14` (BioCLIP 2.5 Huge) | MIT |
+| Species-name text vectors | official precomputed `imageomics/TreeOfLife-200M` vectors; unmatched names encoded with the text tower | CC0 |
+| Location prior (birds only) | BirdNET geo 3.0 (`birdnet` package) | CC BY-NC-SA 4.0 |
+| Bird list | AviList v2025 | CC BY 4.0 |
+| Mammal list | Mammal Diversity Database v2.5 | CC BY 4.0 |
 
-BirdNET 的先验模型是非商业许可，商业使用需去掉先验或换来源。
+The BirdNET prior model is licensed non-commercially; for commercial use, drop the prior or replace its source.
 
-## 安装
+## Install
 
 ```sh
 git clone https://github.com/lincleejun/bioscan && cd bioscan
 uv sync                                   # Python 3.12
 ```
 
-模型权重从 `~/.cache/huggingface` 读，服务本身离线（`HF_HUB_OFFLINE=1`）。三个模型和 TreeOfLife 向量都钉在固定的 HF 提交上（`siglip2.REVISION`、`bioclip.REVISION`、`owlv2.REVISION`、`names.TOL_REVISION`），`result.engine.models` 里带着这些版本。新机器（或升级到钉版本之后缓存里没有对应快照时）先联网拉一次：
+Model weights are read from `~/.cache/huggingface`, and the service itself runs offline (`HF_HUB_OFFLINE=1`). All three models and the TreeOfLife vectors are pinned to fixed HF commits (`siglip2.REVISION`, `bioclip.REVISION`, `owlv2.REVISION`, `names.TOL_REVISION`), and `result.engine.models` carries those versions. On a new machine, or when the cache lacks the pinned snapshot, fetch once with network access:
 ```sh
-uv run python tests/models/download.py      # 三个模型的钉定版本 + BirdNET geo 模型，打印各自版本
+uv run python tests/models/download.py      # pinned versions of the three models + BirdNET geo model; prints each version
 ```
-名单向量缓存会记录建它时的 BioCLIP / TreeOfLife 版本，版本变了自动重建；早于记录的旧缓存照常使用。
+The name-vector cache records the BioCLIP / TreeOfLife versions it was built with and is rebuilt when they change; older caches without that record are still used.
 
-名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，建完可删，约半分钟），之后秒开。
+The name-list CSVs are large and not in git: download them as described in `data/README.md` into `data/avilist/` and `data/mdd/`. The first start encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which can be deleted afterwards; about half a minute). Later starts take a second. Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once.
 
 ```sh
-uv run bioscan names stats                # 名单覆盖率
+uv run bioscan names stats                # name-list coverage
 ```
 
-## 使用
+## Usage
 
 ```sh
-uv run bioscan serve                                   # 127.0.0.1:8765，模型常驻
-uv run bioscan serve --launchd > ~/Library/LaunchAgents/cc.outman.bioscan.plist   # macOS 开机常驻
+uv run bioscan serve                                   # 127.0.0.1:8765, models stay resident
+uv run bioscan serve --launchd > ~/Library/LaunchAgents/cc.outman.bioscan.plist   # start at login on macOS
 uv run bioscan health
 ```
 
 ```sh
-bioscan run /path/to/photos                            # 目录按扩展名过滤、排序；-r 递归
+bioscan run /path/to/photos                            # filters and sorts by extension; -r recurses
 bioscan run a.ARW b.ARW --want identify,embed --json --out preds.ndjson
-bioscan run DIR --want jpg --jpg-out /tmp/jpg          # 旋正、长边 2048 的 JPG，文件名 <stem>-<sha256前8位>.jpg
-bioscan run DIR --lat 37.4 --lon -122.1                # EXIF 无坐标时整批默认坐标（地理先验很重要）
+bioscan run DIR --want jpg --jpg-out /tmp/jpg          # upright JPG, long edge 2048, named <stem>-<first 8 of sha256>.jpg
+bioscan run DIR --lat 37.4 --lon -122.1                # batch default coordinate for images without EXIF GPS (the location prior matters)
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
 
-终端输出一张一行，末尾汇总：
+Terminal output is one line per image, then a summary (the grade is printed as 种 / 属 / 科 = species / genus / family):
 ```
 DSC00364.ARW  bird    2 boxes  [1] Western Screech-Owl 0.91 种  [2] unconfirmed
 DSC00458.ARW  none
 DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 ```
 
-`--json` 时把服务返回的 NDJSON 原样写出，一张图一行，供下游程序读取：
+With `--json` the service's NDJSON is written as is, one line per image, for downstream programs:
 ```json
 {"type":"result","path":"/abs/a.ARW","sha256":"…","image":{"width":6000,"height":4000,"orientation":1},
  "engine":{"version":"0.1.0","models":{"species":"imageomics/bioclip-2.5-vith14","names":{"bird":"avilist-2025@…"}}},
@@ -138,16 +139,16 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
  "timing_ms":{"decode":650,"identify":210}}
 ```
 
-### 端口与环境变量
+### Ports and environment variables
 
-| 名称 | 作用 | 默认 |
+| Name | Purpose | Default |
 |---|---|---|
-| `--port` | 服务端口 | 8765 |
-| `BIOSCAN_URL` / `--url` | CLI 连哪个服务 | `http://127.0.0.1:8765` |
-| `--decode-workers` / `BIOSCAN_DECODE_WORKERS` | 解码进程数（USB 机械盘 4 左右最佳） | 4 |
-| `--chunk` / `BIOSCAN_CHUNK` | 流水 chunk 张数 | 32 |
-| `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | 物种裁切用细节图的长边；≤2048 关闭（回到 2048 图上裁） | 3072 |
-| `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | 只允许读写这些目录下的文件（可重复；环境变量用 `:` 分隔）；不设则不限制，监听非本机地址时会告警 | 不限 |
+| `--port` | service port | 8765 |
+| `BIOSCAN_URL` / `--url` | service the CLI talks to | `http://127.0.0.1:8765` |
+| `--decode-workers` / `BIOSCAN_DECODE_WORKERS` | decode processes (about 4 is best for a USB hard disk) | 4 |
+| `--chunk` / `BIOSCAN_CHUNK` | images per pipeline chunk | 32 |
+| `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | long edge of the species-crop detail copy; ≤ 2048 turns it off (crops come from the 2048 image) | 3072 |
+| `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | only read and write files under these directories (repeatable; `:`-separated in the variable); unset means no limit, with a warning when listening beyond localhost | no limit |
 
 ### HTTP API
 
@@ -157,79 +158,79 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
-响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`（`result`、`done` 带 `schema: 1`）。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+The response is an NDJSON stream of `progress` / `result` / `error` / `done` events, defined in `bioscan/contract.py` (`result` and `done` carry `schema: 1`). Concurrent requests take turns on the models one chunk at a time (a one-image request waits for at most one chunk); within a chunk every model stage is batched across images, and CPU decoding overlaps inference. `result.engine` holds the model versions, the name-list versions, `settings` (a fingerprint of rule thresholds, prompts and vocabularies: if it changes, results are not directly comparable) and `detail_edge`. The full contract is in section 4 of `docs/superpowers/specs/2026-09-22-bioscan-design.md`.
 
-CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。`run --json` 过去总是返回 0，现在也按这套退出码返回，脚本里若把非 0 当失败需留意。eval 的学名比较改用与 synonyms 查找相同的归一化（忽略连字符与大小写），旧报告的 Top-1/Top-5 可能因此有细微差别。
+CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.
 
-## 评测
+## Evaluation
 
 ```sh
 bioscan gt folders /path/to/photos --out data/groundtruth-own.csv \
   --names data/avilist/AviList-v2025-11Jun-extended.csv --names data/mdd/MDD_v2.5_6904species.csv
-bioscan gt inat --place california --taxa data/taxa.csv --per-species 25 --out data/inat   # --dry-run 只打印 URL
-bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>          # 调服务，写 preds.ndjson + report.md
+bioscan gt inat --place california --taxa data/taxa.csv --per-species 25 --out data/inat   # --dry-run only prints URLs
+bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>          # calls the service, writes preds.ndjson + report.md
 bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-nogeo --no-geo
-bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只重算指标
+bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # rescore only
 ```
-`preds.ndjson` 第一行是 meta（schema、请求参数、真值与 synonyms.csv 的 sha256），重算时按它报告当时是否开了地理先验；流中断时 eval 退出码为 3。
-报告里"没框"按整图门类拆开：`none/person` 是门漏判（检测器没跑），其余是检测器没框到。
-真值格式：`path, scientific, tier, lat, lon, taken_at, source, kind`。真值学名会先经 `data/names/synonyms.csv` 归一到 AviList/MDD 再比较。
+The first line of `preds.ndjson` is a meta line (schema, request options, sha256 of the ground truth and of synonyms.csv); rescoring reports whether the location prior was on from it. When the stream is cut short, eval exits with 3.
+The report splits "no box" by whole-frame gate class: `none/person` means the gate missed the animal (the detector never ran); anything else means the detector did not box it.
+Ground-truth columns: `path, scientific, tier, lat, lon, taken_at, source, kind`. Truth names are normalised to AviList/MDD through `data/names/synonyms.csv` before comparison.
 
-## 名字映射
+## Name mapping
 
-`data/names/avilist_map.csv`：每个 AviList 种对应的 TreeOfLife 名和 BirdNET 标签及匹配方式（exact / synonym / none）。`synonyms.csv` 是手工维护的别名表，每条带来源和说明；`candidates.csv` 是脚本列出的疑似拼写差异，只供人审，不自动采纳。重建：`uv run python scripts/build_name_map.py`。
+`data/names/avilist_map.csv`: for each AviList species, its TreeOfLife name and BirdNET label and how each was matched (exact / synonym / none). `synonyms.csv` is the hand-maintained alias table, each row with a source and a note; `candidates.csv` lists suspected spelling differences found by the script, for human review only, never adopted automatically. Rebuild with `uv run python scripts/build_name_map.py`.
 
-没有 BirdNET 标签的 748 个 AviList 种在地理先验里按 0 处理（多为灭绝种或被 BirdNET 并入姊妹种，如 *Tyto javanica*，应当被压低）。要找某地真正该补的缺口：
+The 748 AviList species without a BirdNET label get 0 in the location prior (mostly extinct species or species BirdNET lumps with a sister, such as *Tyto javanica*, which should stay suppressed). To find the gaps that actually matter at a place:
 ```sh
-bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在当地有分布、自己却没标签的种
+bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # unlabelled species whose genus occurs there
 ```
-确认后把对应行写进 `synonyms.csv`（source `birdnet`）再重建映射表。
+After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the map.
 
-| 名单 | 总数 | TreeOfLife 官方向量 | BirdNET 标签 |
+| List | Total | Official TreeOfLife vectors | BirdNET label |
 |---|---|---|---|
 | AviList 2025 | 11131 | 84.6% | 93.3% |
-| MDD v2.5 | 6904 | 55.5% | 不适用 |
+| MDD v2.5 | 6904 | 55.5% | n/a |
 
-## 已知局限与路线
+## Known limitations and roadmap
 
-- 哺乳 golden 集 45 张没框（熊、美洲狮、短尾猫为主）。已补检测词表并加了门漏判时的补查，效果待 `bioscan eval` 复测。
-- 哺乳没有地理先验。
-- 近期拆分的种（北鹞 / 白尾鹞、美洲仓鸮 / 西方仓鸮）在训练数据里用旧名，靠共用向量 + 地点先验区分；同义词目前不按地区生效。
-- 先验公式的底数 0.02 限制了地点对视觉的纠正幅度，尚未在 golden 集上调参。
-- 主体在画面里很小的图（远处猛禽）检测框会选错目标。
-- 只在 macOS + MPS 和 CPU 上跑过；没有 CUDA 配置和 Dockerfile。
+- 45 mammal images in the golden set got no box (mostly bears, mountain lions, bobcats). The detector vocabulary was extended and a gate-miss rescue added; the effect awaits a `bioscan eval` rerun.
+- Mammals have no location prior.
+- Recently split species (Northern / Hen Harrier, American / Western Barn Owl) carry old names in the training data and are separated by a shared vector plus the location prior; synonyms do not yet apply per region.
+- The 0.02 floor in the prior formula limits how far location can override vision; it has not been tuned on the golden set.
+- When the subject is tiny in the frame (distant raptors), the detector can box the wrong object.
+- Only run on macOS + MPS and on CPU; no CUDA setup or Dockerfile.
 
-## 测试
+## Tests
 
 ```sh
 uv run ruff check .
-uv run pytest                                     # 无模型，秒级；tests/models 默认跳过
-uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # 真模型冒烟，77 张 iNat 图
-uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
+uv run pytest                                     # no models, seconds; tests/models skipped by default
+uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # real-model smoke, 77 iNat photos
+uv run python tests/smoke/run_smoke.py --url ...  # needs a running service and your own tests/smoke/*.ARW
 ```
 
-CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 每次 push / PR 在 CPU 上跑真模型冒烟（权重与图片有缓存），指标写进 job summary。
+CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data or dependencies (weights and photos cached), and writes the metrics to the job summary.
 
-## 布局
+## Layout
 
 ```
-bioscan/contract.py              /run 事件与产物名的唯一定义（CLI 与服务共用，纯标准库）
-bioscan/naming.py                学名归一化、synonyms.csv、映射表过期检查（纯标准库）
-bioscan/service/app.py           路由、NDJSON 流、按 chunk 的模型锁、解码进程池自愈
-bioscan/service/engine.py        设备选择、模型加载注册表、每类先验、EngineProtocol
-bioscan/service/products.py      产物注册表：依赖、选项、校验、schema、执行器
-bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
-bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
-bioscan/service/taxa.py          门类提示词、检测词表、可提升的类别
-bioscan/service/settings.py      影响输出的设置指纹
-bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF + sha256
-bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
+bioscan/contract.py              single definition of /run events and product names (shared by CLI and service, stdlib only)
+bioscan/naming.py                scientific-name normalisation, synonyms.csv, stale-map check (stdlib only)
+bioscan/service/app.py           routes, NDJSON stream, per-chunk model lock, self-healing decode pool
+bioscan/service/engine.py        device choice, model loader registry, per-kind priors, EngineProtocol
+bioscan/service/products.py      product registry: dependencies, options, validation, schema, runner
+bioscan/service/pipeline.py      identify orchestration (batched across images) behind the Models protocol
+bioscan/service/rules.py         pure rules and thresholds: crop check, grading, quality, cropping
+bioscan/service/taxa.py          gate prompts, detector vocabularies, promotable class
+bioscan/service/settings.py      fingerprint of output-changing settings
+bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + EXIF + sha256
+bioscan/service/names.py         AviList / MDD lists, TreeOfLife mapping, text-vector cache
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/cli/                     main client render gt eval
-data/names/                      AviList 为准的名字映射表
-docs/                            设计 spec、实施计划、评测结果
+data/names/                      name mapping tables keyed on AviList
+docs/                            design spec, implementation plan, evaluation results
 ```
 
-## 许可
+## License
 
-代码 MIT（见 `LICENSE`）。模型与数据各有许可，见上表；BirdNET 先验为 CC BY-NC-SA 4.0，商业使用请自行评估。
+Code is MIT (see `LICENSE`). Models and data carry their own licenses, listed above; the BirdNET prior is CC BY-NC-SA 4.0, so evaluate commercial use yourself.
