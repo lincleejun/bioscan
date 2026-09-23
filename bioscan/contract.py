@@ -184,7 +184,7 @@ def top_of(sp: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 def _problems(obj: Any, cls: Any, where: str) -> list[str]:
     if not isinstance(obj, dict):
-        return [f"{where or 'identify'}: not an object"]
+        return [f"{where.rstrip('.') or 'identify'}: not an object"]
     return ([f"missing {where}{k}" for k in cls.__required_keys__ if k not in obj]
             + [f"unexpected {where}{k}" for k in obj if k not in cls.__annotations__])
 

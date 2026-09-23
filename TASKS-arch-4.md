@@ -28,7 +28,14 @@ conformance check. Output JSON, /products JSON, /run events, render and eval out
 - [x] tests: conformance over pipeline output, /run output, doc <-> fields, reader round-trip (+1 assert in tests/models)
 - [x] README (+ zh-CN): contract.py description
 - [x] Goldens regenerated and byte-identical
-- [ ] Mutation check: renaming a field in the contract, pipeline, fake or readers fails a test
-- [ ] ruff clean; pytest x3
-- [ ] Self-review vs 7c011d5; fix blockers
-- [ ] Commit; worktree clean
+- [x] Mutation check: 10 one-sided field renames (contract, pipeline, rules, render, eval, reader) all fail a test
+      (first run missed rules.quality's under-8 px return; added test_quality_has_the_contract_fields)
+- [x] BEFORE re-recorded from a pristine `git archive 7c011d5` export (the scratchpad is shared); equal to before and after
+- [x] ruff clean; pytest x3: 153 passed, 8 skipped
+- [x] Self-review vs 7c011d5: no blockers; fixed a stray "." in identify_problems messages
+- [x] Commit; worktree clean
+
+## Found along the way
+- Worktree was created at 78af566, not 7c011d5; branch started from 7c011d5.
+- Merge overlap to expect: pipeline candidate/species lines (sibling 2 edits p_geo/posterior there),
+  conftest FakeEngine.identify (sibling 1 replaces it); test_identify_contract imports test_batch.Models.

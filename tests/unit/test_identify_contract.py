@@ -56,7 +56,7 @@ def test_conformance_names_each_departure():
     assert sorted(contract.identify_problems(bad)) == sorted([
         "missing boxes[0].species.top[0].p_geo", "unexpected boxes[0].species.top[0].p_prior",
         "missing boxes[1].quality.exposure", "missing gate.class", "unexpected gate.label"])
-    assert contract.identify_problems({"gate": good["gate"], "boxes": [None]}) == ["boxes[0].: not an object"]
+    assert contract.identify_problems({"gate": good["gate"], "boxes": [None]}) == ["boxes[0]: not an object"]
     assert contract.identify_problems([]) == ["identify: not an object"]
 
 
