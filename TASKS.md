@@ -131,3 +131,7 @@ Verify: tests; real-model CI numbers identical; speed unverified until Mac bench
 - [x] self-review (subagent): 1 blocker (decode-pool rebuild race cancelled another request's decodes), fixed in af233c9
       and confirmed with the reviewer's own reproduction (3/3 runs: only the crashing file fails)
 - [x] batched pipeline == old per-image code: 300 random frames x 3 option sets identical (scratch comparison)
+- [x] real-model CI on f587283 (pinned revisions, BirdNET required): 7 passed; bird 97.6/95.2/88.1/92.9 and mammal
+      91.4/91.4/85.7/91.4 (gate/detect/top-1/top-5), coverage/precision and every per-image row identical to the
+      pre-refactor run. CPU identify ms/image 11.7 s bird / 12.7 s mammal vs 10.9 / 14.1 before: batching shows no
+      clear gain on a 4-core CPU runner; MPS speed unverified until a Mac benchmark.
