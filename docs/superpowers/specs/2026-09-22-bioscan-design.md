@@ -26,7 +26,7 @@
 ## 3. 背景与已知事实
 
 - PhotoOS 现有链路：SigLIP2 场景门 → OWLv2 开放词表检测（框再用 SigLIP2 复判）→ BioCLIP 2.5 Huge 对 11045 鸟种零样本打分 → BirdNET 地理先验重排 → 定级（种/属/科/unconfirmed）。哺乳和其他动物无物种头。
-- BioCLIP 2.5 的输入是裁切框像素，不使用 SigLIP2 的向量。两者向量空间互不通用。
+- BioCLIP 2.5 Huge 的输入是裁切框像素，不使用 SigLIP2 的向量。两者向量空间互不通用。
 - 三个模型 fp16 常驻 MPS 合计约 3.5 GB，24 GB 统一内存放得下。冷启动数十秒，所以做常驻服务。
 - 真值现状：`/Volumes/Media/bird/` 三个物种文件夹共 404 张；阿拉斯加 `ak_selected` 含驯鹿等哺乳；PhotoOS `review/` 有一组约 90 到 100 张的测试卡。哺乳动物真值几乎为零，需要用 iNaturalist 补广度集。
 - AviList 2025 是统一的全球鸟类清单（11131 种，含目/科/属层级），只是名单不含照片。哺乳用 Mammal Diversity Database（MDD）。BioCLIP 官方预计算的名字向量基于 TreeOfLife 分类，与 AviList 有拆并差异，需要映射表。
@@ -134,7 +134,7 @@
    - 门：SigLIP2 整图前向，与固定 prompt 集比对得五类 softmax，取最大为 `gate.class`。
    - 检测：OWLv2，词表按 `gate.class` 选（bird 词表 / mammal 词表 / other_animal 词表）。每个候选框用 SigLIP2 对裁切图复判，通过才保留。若门判有动物但检测为空，用 0.1 阈值再跑一次（沿用 PhotoOS 规则）。
    - 画质：对每个框的裁切计算清晰度（Laplacian 方差归一化）和曝光偏差，numpy 实现。
-   - 物种：BioCLIP 2.5 对裁切框（外扩 10%）编码，只与 `gate.class` 对应的名单向量矩阵打分做 softmax 得 `p_visual`。`geo=true`、`kind=bird` 且有经纬度时，`posterior = p_visual × (0.02 + p_geo)` 后归一化。定级规则沿用 PhotoOS：top-1 ≥ 0.5 且领先第二名 ≥ 0.3 定为种；否则 top-5 按属累加 ≥ 0.6 定为属，按科累加 ≥ 0.6 定为科；否则 unconfirmed。
+   - 物种：BioCLIP 2.5 Huge 对裁切框（外扩 10%）编码，只与 `gate.class` 对应的名单向量矩阵打分做 softmax 得 `p_visual`。`geo=true`、`kind=bird` 且有经纬度时，`posterior = p_visual × (0.02 + p_geo)` 后归一化。定级规则沿用 PhotoOS：top-1 ≥ 0.5 且领先第二名 ≥ 0.3 定为种；否则 top-5 按属累加 ≥ 0.6 定为属，按科累加 ≥ 0.6 定为科；否则 unconfirmed。
 3. **embed**：SigLIP2 整图向量。与门共用同一次前向，不重算。
 4. **jpg**：把第 1 步的旋正图写到 `out_dir`。
 
