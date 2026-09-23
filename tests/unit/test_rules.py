@@ -111,7 +111,7 @@ def test_location_prior_p_geo():
     assert prior.name == "birdnet-geo-3.0" and prior.floor == geo.GEO_FLOOR
 
 
-def test_priors_for_binds_lists_with_birdnet_labels(monkeypatch):
+def test_priors_for_binds_lists_with_birdnet_labels():
     from types import SimpleNamespace
 
     class Source:
@@ -121,11 +121,9 @@ def test_priors_for_binds_lists_with_birdnet_labels(monkeypatch):
             return np.array([0.5])
 
     lists = {"bird": SimpleNamespace(birdnet=["Buteo a_x", ""]), "mammal": SimpleNamespace(birdnet=[])}
-    monkeypatch.setattr(geo.GeoPrior, "load", classmethod(lambda cls: None))
-    assert geo.priors_for(lists) == {}                                  # birdnet cannot load: no prior
+    assert geo.priors_for(lists, None) == {}                            # birdnet cannot load: no prior
     src = Source()
-    monkeypatch.setattr(geo.GeoPrior, "load", classmethod(lambda cls: src))
-    priors = geo.priors_for(lists)
+    priors = geo.priors_for(lists, src)
     assert list(priors) == ["bird"] and priors["bird"].source is src
     np.testing.assert_allclose(priors["bird"].p_geo(1.0, 2.0, None), [0.5, 0.0])
 
@@ -151,7 +149,6 @@ def test_geo_prior_applies_to_whole_list_before_top_k():
             return np.array([probs[lab] for lab in self.labels])
 
     eng = SimpleNamespace(names={"bird": birds}, priors={"bird": geo.LocationPrior(Geo(), birds.birdnet)},
-                          BIOCLIP_BATCH=16, name_matrix=lambda k: None,
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims, probs=lambda f, m: np.array([visual])))
 
     def run(**opts):
@@ -222,7 +219,6 @@ def test_mammal_species_uses_mdd_without_geo():
 
     # a prior exists but is bound to birds only: mammals never ask it
     eng = SimpleNamespace(names={"mammal": mdd}, priors={"bird": geo.LocationPrior(Geo(), [])},
-                          BIOCLIP_BATCH=16, name_matrix=lambda k: None,
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims,
                                                   probs=lambda f, m: np.array([[0.9, 0.1]] * len(f))))
     boxes = [{"kind": "mammal"}]

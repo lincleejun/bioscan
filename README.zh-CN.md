@@ -217,7 +217,7 @@ bioscan/contract.py              /run 事件与产物名的唯一定义（CLI �
 bioscan/naming.py                名称归一化（学名；gt 文件夹名）、synonyms.csv、映射表过期检查（纯标准库）
 bioscan/serve_config.py          服务设置：参数 > BIOSCAN_* > 默认值，两个入口共用一次解析（纯标准库）
 bioscan/service/app.py           路由、NDJSON 流、按 chunk 的模型锁、解码进程池自愈
-bioscan/service/engine.py        设备选择、模型加载注册表、每类先验、EngineProtocol
+bioscan/service/engine.py        设备选择、经 Loaders 惰性加载模型（测试注入假适配器）、每类先验
 bioscan/service/products.py      产物注册表：依赖、选项、校验、schema、执行器
 bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
 bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值

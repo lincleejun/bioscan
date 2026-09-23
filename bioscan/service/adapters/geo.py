@@ -118,10 +118,9 @@ class LocationPrior:
         return sorted(out, key=lambda g: -g["congener_p_geo"])
 
 
-def priors_for(lists: dict[str, Any]) -> dict[str, LocationPrior]:
-    """kind -> LocationPrior for every name list that carries BirdNET labels (`NameList.birdnet`);
-    {} when birdnet cannot load."""
-    birdnet = GeoPrior.load()
-    if birdnet is None:
+def priors_for(lists: dict[str, Any], source: Any) -> dict[str, LocationPrior]:
+    """kind -> LocationPrior over `source` (`GeoPrior.load()` in production) for every name list
+    that carries BirdNET labels (`NameList.birdnet`); {} when there is no source."""
+    if source is None:
         return {}
-    return {kind: LocationPrior(birdnet, nl.birdnet) for kind, nl in lists.items() if nl.birdnet}
+    return {kind: LocationPrior(source, nl.birdnet) for kind, nl in lists.items() if nl.birdnet}

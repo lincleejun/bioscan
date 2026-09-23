@@ -26,8 +26,6 @@ def names(kind, cls, genus, n=4):
 class Models:
     """Answers depend only on the pixels, so batching cannot change them; calls are recorded."""
 
-    BIOCLIP_BATCH = 2
-
     def __init__(self, boom_colour=None):
         self.calls = {"detect": 0, "crop": 0, "bioclip": 0}
         self.boom = boom_colour
@@ -74,9 +72,6 @@ class Models:
 
         self.owlv2, self.siglip2, self.bioclip = Owl(), Sig(), Bio()
 
-    def name_matrix(self, kind):
-        return None
-
 
 def frame(rgb, gate, lat=None):
     im = Image.new("RGB", (400, 300), rgb)
@@ -94,7 +89,8 @@ FRAMES = [
 ]
 
 
-def test_batched_equals_one_by_one():
+def test_batched_equals_one_by_one(monkeypatch):
+    monkeypatch.setattr(pipeline, "SPECIES_BATCH", 2)      # small, to cross BioCLIP batch boundaries
     batched = pipeline.identify_many(Models(), FRAMES, OPTS)
     single = [pipeline.identify(Models(), f.image, f.gate, f.lat, f.lon, f.taken_at, OPTS) for f in FRAMES]
     assert batched == single
@@ -102,15 +98,14 @@ def test_batched_equals_one_by_one():
     assert batched[5]["boxes"] == [] and batched[4]["gate"]["class"] == "none" and batched[4]["boxes"]
 
 
-def test_stages_are_batched():
+def test_stages_are_batched(monkeypatch):
+    monkeypatch.setattr(pipeline, "SPECIES_BATCH", 16)     # the equivalence test uses 2 to cross batch boundaries
     m = Models()
-    m.BIOCLIP_BATCH = 16          # the equivalence test keeps 2 to cross batch boundaries
     pipeline.identify_many(m, FRAMES, OPTS)
     # first pass: one call per gate class present (bird, mammal, other_animal); second pass: one
     assert m.calls["detect"] <= 4
     assert m.calls["crop"] <= 2                  # all crops of a pass in one SigLIP2 call
     one = Models()
-    one.BIOCLIP_BATCH = 16
     for f in FRAMES:
         pipeline.identify(one, f.image, f.gate, f.lat, f.lon, f.taken_at, OPTS)
     assert one.calls["detect"] > m.calls["detect"] and one.calls["bioclip"] > m.calls["bioclip"] == 2   # 1 per list

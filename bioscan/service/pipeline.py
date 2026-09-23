@@ -26,20 +26,19 @@ from bioscan.service.rules import (
 from bioscan.service.taxa import VOCAB
 
 CROP_BATCH = 32          # crop-gate crops per SigLIP2 call
+SPECIES_BATCH = 16       # species crops per BioCLIP call
 
 
 class Models(Protocol):
-    """The seam between identify and the models: detector, crop gate, species encoder, name lists
-    and location priors per kind. Engine implements it; unit tests pass small stand-ins."""
+    """The seam between identify and the models: the three model adapters (detector, crop gate,
+    species encoder) and the data they need (name lists and location priors per kind). Engine
+    implements it; unit tests pass small stand-ins, the contract tests an Engine of fake adapters."""
 
     owlv2: Any                      # .detect(image, prompts, threshold=) -> list[Detection]
     siglip2: Any                    # .embed_images(images) -> vecs; .gate(vecs) -> [{class: p}]
-    bioclip: Any                    # .encode_images(crops) -> feats; .probs(feats, matrix) -> (n, N)
+    bioclip: Any                    # .encode_images(crops) -> feats; .probs(feats, NameList.matrix) -> (n, N)
     names: dict[str, Any]           # kind -> names.NameList
     priors: dict[str, Any]          # kind -> geo.LocationPrior (absent = no prior for that kind)
-    BIOCLIP_BATCH: int
-
-    def name_matrix(self, kind: str) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -93,7 +92,7 @@ def _judged_many(engine: Models, work: list[tuple[Image.Image, list[Detection], 
 def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], list[tuple[float, ...]]]],
                   opts: dict[str, Any]) -> None:
     """Fills every box's "species" in place: one BioCLIP pass per name list over all frames' boxes
-    (BIOCLIP_BATCH at a time), each frame's own location prior."""
+    (SPECIES_BATCH at a time), each frame's own location prior."""
     by_kind: dict[str, list[tuple[int, int]]] = defaultdict(list)
     for fi, (_f, boxes, _b) in enumerate(work):
         for bi, b in enumerate(boxes):
@@ -107,9 +106,9 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
         for fi in {fi for fi, _bi in refs}:
             f = work[fi][0]
             p_geo[fi] = prior.p_geo(f.lat, f.lon, f.taken_at) if opts["geo"] and prior is not None else None
-        for part in _batches(refs, engine.BIOCLIP_BATCH):
+        for part in _batches(refs, SPECIES_BATCH):
             crops = [species_crops(work[fi][0].image, [work[fi][2][bi]], work[fi][0].detail)[0] for fi, bi in part]
-            probs = engine.bioclip.probs(engine.bioclip.encode_images(crops), engine.name_matrix(kind))
+            probs = engine.bioclip.probs(engine.bioclip.encode_images(crops), names.matrix)
             for (fi, bi), row in zip(part, probs):
                 row = np.asarray(row, dtype=np.float64)
                 post = prior.posterior(row, p_geo[fi]) if prior is not None else row
