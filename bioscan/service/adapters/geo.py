@@ -71,3 +71,25 @@ def posterior(p_visual: np.ndarray, p_geo: np.ndarray | None) -> np.ndarray:
     post = p_visual * (GEO_FLOOR + p_geo)
     total = post.sum()
     return post / total if total > 0 else p_visual
+
+
+def gaps(scientific: list[str], common: list[str], index: np.ndarray, probs: np.ndarray,
+         min_p: float) -> list[dict[str, Any]]:
+    """Name-list rows with no BirdNET label whose genus *is* present here (a mapped congener has
+    p_geo >= min_p). Those rows get p_geo = 0 today; a reviewed `birdnet` synonym is the fix, not a
+    blanket rule (most unmapped rows are extinct or lumped sisters that should stay at 0).
+    Sorted by the congener's p_geo, strongest first."""
+    p_geo = align(probs, index)
+    best: dict[str, tuple[float, int]] = {}
+    for i, sci in enumerate(scientific):
+        if index[i] >= 0:
+            genus = sci.split(" ")[0]
+            if p_geo[i] > best.get(genus, (-1.0, -1))[0]:
+                best[genus] = (float(p_geo[i]), i)
+    out = []
+    for i, sci in enumerate(scientific):
+        hit = best.get(sci.split(" ")[0]) if index[i] < 0 else None
+        if hit and hit[0] >= min_p:
+            out.append({"scientific": sci, "common": common[i], "congener": scientific[hit[1]],
+                        "congener_p_geo": round(hit[0], 4)})
+    return sorted(out, key=lambda g: -g["congener_p_geo"])

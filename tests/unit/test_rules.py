@@ -8,7 +8,7 @@ from PIL import Image, ImageFilter
 from bioscan.service import products
 from bioscan.service.adapters import geo, siglip2
 from bioscan.service.adapters.owlv2 import Detection, clip_to_frame
-from bioscan.service.app import parse_run, tunables
+from bioscan.service.app import allow_roots_from, parse_run, tunables
 
 TAX = lambda g, f, s: ["Animalia", "Chordata", "Aves", "O", f, g, f"{g} {s}"]  # noqa: E731
 
@@ -188,3 +188,11 @@ def test_mammal_species_uses_mdd_without_geo():
     # MDD 7-level taxonomy: [5] is the genus, [4] the family -> two cervid genera roll up to family
     assert products.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}]) \
         == "family"
+
+
+def test_allow_roots_flag_env_default():
+    import os
+
+    assert allow_roots_from(None, env={}) == []
+    assert allow_roots_from(None, env={"BIOSCAN_ALLOW_ROOTS": f"/a{os.pathsep}/b{os.pathsep}"}) == ["/a", "/b"]
+    assert allow_roots_from(["/c"], env={"BIOSCAN_ALLOW_ROOTS": "/a"}) == ["/c"]

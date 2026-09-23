@@ -43,6 +43,8 @@ def cmd_serve(a):
         os.environ["BIOSCAN_CHUNK"] = str(a.chunk)
     if a.detail_edge is not None:
         os.environ["BIOSCAN_DETAIL_EDGE"] = str(a.detail_edge)
+    if a.allow_root:
+        os.environ["BIOSCAN_ALLOW_ROOTS"] = os.pathsep.join(os.path.abspath(r) for r in a.allow_root)
     from bioscan.service import app  # service deps live with bioscan.service; keep the CLI import-light
 
     app.main(["--port", str(a.port)])
@@ -150,6 +152,38 @@ def cmd_names_stats(a):
     return 0
 
 
+def cmd_names_geo_gaps(a, prior=None):
+    """Unlabelled AviList species whose genus lives at --lat/--lon: candidates for a `birdnet`
+    row in data/names/synonyms.csv. Needs only the birdnet package, not the models."""
+    import csv
+
+    import numpy as np
+
+    from bioscan.service.adapters import geo
+
+    with open(a.map, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    cands: dict[str, list[str]] = {}
+    cand_path = Path(a.map).with_name("candidates.csv")
+    if cand_path.is_file():
+        with open(cand_path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if r["side"] == "birdnet":
+                    cands.setdefault(r["scientific"], []).append(r["candidate"])
+    prior = prior or geo.GeoPrior.load()
+    if prior is None:
+        raise SystemExit("BirdNET geo model unavailable (pip package `birdnet`, model geo 3.0)")
+    index = prior.index([r["birdnet_label"] for r in rows])
+    probs = prior.probs(a.lat, a.lon, geo.week_of(a.date))
+    found = geo.gaps([r["scientific"] for r in rows], [r["common"] for r in rows], np.asarray(index), probs, a.min_p)
+    print(f"{len(found)} unlabelled species whose genus has p_geo >= {a.min_p} at {a.lat},{a.lon}"
+          f" (week {geo.week_of(a.date) or 'all'}):")
+    for g in found:
+        extra = f"  candidates: {', '.join(cands[g['scientific']])}" if g["scientific"] in cands else ""
+        print(f"  {g['scientific']} ({g['common']})  <- congener {g['congener']} p_geo {g['congener_p_geo']}{extra}")
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bioscan", description="Animal detection + species ID (thin client for the bioscan service).")
     p.add_argument("--url", default=client.DEFAULT_URL, help="service URL (env BIOSCAN_URL; default %(default)s)")
@@ -159,6 +193,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--decode-workers", type=int, help="env BIOSCAN_DECODE_WORKERS, default 4")
     s.add_argument("--chunk", type=int, help="env BIOSCAN_CHUNK, default 32")
+    s.add_argument("--allow-root", action="append", help="only serve files under DIR (repeatable); env BIOSCAN_ALLOW_ROOTS")
     s.add_argument("--detail-edge", type=int, help="species-crop image long edge, <=2048 = off; env BIOSCAN_DETAIL_EDGE, default 3072")
     s.add_argument("--launchd", action="store_true", help="print a launchd plist to stdout instead of serving")
     s.set_defaults(func=cmd_serve)
@@ -205,6 +240,13 @@ def parser() -> argparse.ArgumentParser:
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)
+    s = n.add_parser("geo-gaps", help="unlabelled AviList species whose genus lives at a place (review for synonyms.csv)")
+    s.add_argument("--lat", type=float, required=True)
+    s.add_argument("--lon", type=float, required=True)
+    s.add_argument("--date", help="YYYY-MM-DD for BirdNET's week; default: whole year")
+    s.add_argument("--min-p", type=float, default=0.05, help="congener p_geo threshold (default %(default)s)")
+    s.add_argument("--map", default=str(PROJECT_ROOT / "data" / "names" / "avilist_map.csv"))
+    s.set_defaults(func=cmd_names_geo_gaps)
     return p
 
 

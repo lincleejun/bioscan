@@ -228,3 +228,25 @@ def _wait(cond, timeout=10.0):
             return
         time.sleep(0.02)
     raise AssertionError("condition not reached")
+
+
+def test_allow_roots(tmp_path):
+    inside, outside = tmp_path / "photos", tmp_path / "private"
+    inside.mkdir()
+    outside.mkdir()
+    ok = make_jpg(inside / "a.jpg")
+    secret = make_jpg(outside / "b.jpg")
+    (inside / "link.jpg").symlink_to(secret)
+    engine = FakeEngine()
+    app = create_app(engine, decode_pool=ThreadPoolExecutor(2), allow_roots=[str(inside)])
+    with TestClient(app) as c:
+        assert events(c.post("/run", json={"inputs": [{"path": ok}]}))[-1]["ok"] == 1
+        for path in (secret, str(inside / "link.jpg"), str(inside / ".." / "private" / "b.jpg")):
+            r = c.post("/run", json={"inputs": [{"path": ok}, {"path": path}]})
+            assert r.status_code == 400 and "outside the allowed roots" in r.json()["error"], path
+        r = c.post("/run", json={"inputs": [{"path": ok}], "want": ["jpg"], "options": {"jpg": {"out_dir": str(outside)}}})
+        assert r.status_code == 400 and str(outside) in r.json()["error"]
+        r = c.post("/run", json={"inputs": [{"path": ok}], "want": ["jpg"],
+                                 "options": {"jpg": {"out_dir": str(inside / "jpg")}}})
+        assert events(r)[-1]["ok"] == 1
+    assert len(engine.calls) == 1        # rejected requests never reach the models

@@ -165,13 +165,25 @@ async def _run_chunk(engine: Any, items: list[dict[str, Any]], want: list[str], 
         yield {"type": "progress", "product": product, "done": done[product], "total": total}
 
 
+def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
+                  roots: list[Path]) -> list[str]:
+    """Paths the request would read or write that are not inside one of `roots` (symlinks and
+    `..` resolved first, so neither escapes). No roots = everything allowed."""
+    if not roots:
+        return []
+    paths = [inp["path"] for inp in inputs] + ([opts["jpg"]["out_dir"]] if "jpg" in want else [])
+    return [p for p in paths if not any(Path(p).resolve().is_relative_to(r) for r in roots)]
+
+
 def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int = 32,
-               decode_workers: int = 4, detail_edge: int | None = DETAIL_EDGE) -> FastAPI:
+               decode_workers: int = 4, detail_edge: int | None = DETAIL_EDGE,
+               allow_roots: list[str] | None = None) -> FastAPI:
     app = FastAPI(title="bioscan")
     state = State()
     pool = decode_pool or ProcessPoolExecutor(max_workers=decode_workers)
     gpu = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu")   # one GPU stream
     app.state.bioscan = state
+    roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -188,6 +200,11 @@ def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int =
             inputs, want, opts = parse_run(json.loads(await request.body()))
         except (ValueError, json.JSONDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
+        denied = outside_roots(inputs, want, opts, roots)
+        if denied:
+            return JSONResponse({"error": f"paths outside the allowed roots: {denied[:5]}"
+                                          + (f" (+{len(denied) - 5} more)" if len(denied) > 5 else "")},
+                                status_code=400)
         try:
             await asyncio.get_running_loop().run_in_executor(None, engine.ensure, want)
         except Exception as exc:  # noqa: BLE001
@@ -235,6 +252,13 @@ def detail_edge_from(given: int | None, env=os.environ) -> int | None:
     return value if value > MAX_EDGE else None
 
 
+def allow_roots_from(given: list[str] | None, env=os.environ) -> list[str]:
+    """--allow-root (repeatable) beats BIOSCAN_ALLOW_ROOTS (os.pathsep-separated); none = no limit."""
+    if given:
+        return given
+    return [r for r in (env.get("BIOSCAN_ALLOW_ROOTS") or "").split(os.pathsep) if r.strip()]
+
+
 def main(argv: list[str] | None = None) -> None:
     import uvicorn
 
@@ -248,12 +272,19 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--detail-edge", type=int,
                     help="long edge of the species-crop image; <= 2048 turns it off. "
                          "default: env BIOSCAN_DETAIL_EDGE, else 3072")
+    ap.add_argument("--allow-root", action="append",
+                    help="only read inputs / write jpg under this directory (repeatable). "
+                         "default: env BIOSCAN_ALLOW_ROOTS (os.pathsep-separated), else no limit")
     args = ap.parse_args(argv)
     workers, chunk = tunables(args.decode_workers, args.chunk)
     detail = detail_edge_from(args.detail_edge)
+    roots = allow_roots_from(args.allow_root)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    log.info("decode_workers=%d chunk=%d detail_edge=%s", workers, chunk, detail)
-    app = create_app(Engine(), chunk=chunk, decode_workers=workers, detail_edge=detail)
+    log.info("decode_workers=%d chunk=%d detail_edge=%s allow_roots=%s", workers, chunk, detail, roots or "any")
+    if not roots and args.host not in ("127.0.0.1", "localhost", "::1"):
+        log.warning("listening on %s with no --allow-root: any client can read any file this user can read "
+                    "and write JPEGs anywhere", args.host)
+    app = create_app(Engine(), chunk=chunk, decode_workers=workers, detail_edge=detail, allow_roots=roots)
     uvicorn.run(app, host=args.host, port=args.port, workers=1)
 
 
