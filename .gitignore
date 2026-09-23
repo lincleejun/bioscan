@@ -11,3 +11,4 @@ data/mdd/*.csv
 runs/
 uv.lock
 data/inat/*/
+.claude/worktrees/
