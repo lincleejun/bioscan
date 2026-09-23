@@ -26,9 +26,12 @@ ROOT = HERE.parents[1]
 PHOTOS = Path(os.environ.get("BIOSCAN_PHOTO_CACHE", "~/.cache/bioscan/model-test-photos")).expanduser()
 PHOTO_URL = "https://inaturalist-open-data.s3.amazonaws.com/photos/{pid}/medium.{ext}"
 
-# kind -> metric -> floor (the first CI run's numbers are in the PR / job summary)
-FLOORS = {"bird": {"gate_acc": 0.85, "detect_rate": 0.85, "top1": 0.60, "top5": 0.80},
-          "mammal": {"gate_acc": 0.60, "detect_rate": 0.60, "top1": 0.40, "top5": 0.55}}
+# kind -> metric -> floor. Measured on CPU, 2026-09-23 (models runs 3 and 5, identical):
+#   bird   (42): gate 97.6 %, detect 95.2 %, top-1 88.1 %, top-5 92.9 %
+#   mammal (35): gate 91.4 %, detect 91.4 %, top-1 85.7 %, top-5 91.4 %
+# Floors leave about four images of room per kind; a drop past them is a regression to explain.
+FLOORS = {"bird": {"gate_acc": 0.88, "detect_rate": 0.85, "top1": 0.78, "top5": 0.83},
+          "mammal": {"gate_acc": 0.80, "detect_rate": 0.80, "top1": 0.74, "top5": 0.80}}
 
 
 def sample() -> list[dict]:

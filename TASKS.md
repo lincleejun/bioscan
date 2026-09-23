@@ -55,7 +55,8 @@ Verify: contract tests (inside ok, outside 400, symlink/`..` escape rejected).
 - [x] `.github/workflows/ci.yml`: ruff + pytest on push/PR
 - [x] `tests/models/` real-model smoke (SigLIP2, OWLv2, BioCLIP 2.5 Huge on CPU, small in-memory name list, iNat open-data photos)
 - [x] `.github/workflows/models.yml`: every PR/push, HF cache
-Verify: workflows green on the pushed branch. ci green; models run 3 green on 7c1b99c (7 passed, 23.5 min on CPU, cold caches).
+Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 green (7 passed; 23.5 min cold, 20 min cached).
+- [x] FLOORS moved from placeholder values to ~4 images under the measured numbers (bird top-1 88.1 %, mammal top-1 85.7 %)
 
 ## 7. Wrap-up
 - [x] README updated (data/README unchanged: its facts still hold)
@@ -72,3 +73,9 @@ Verify: workflows green on the pushed branch. ci green; models run 3 green on 7c
   download.pytorch.org, blocked in the dev container; CI caches uv instead.
 - BirdNET geo model download is blocked in the dev container; geo-gaps verified with a fake prior
   locally and against the real model only in CI.
+- geo-gaps at 37.4,-122.1 (CI, real BirdNET): 77 species listed, nearly all island endemics or extinct
+  (confirms "no blanket rule"). One real Californian gap: Icterus bullockiorum (Bullock's Oriole),
+  presumably BirdNET's "Icterus bullockii"; needs a `birdnet` row in synonyms.csv (committed data: user's call).
+- Real-model smoke: 1 image rescued by the gate rescue (Marmota flaviventris, gate "none" -> boxed, correct species).
+- Real-model smoke: Megascops kennicottii photo gated "mammal", best box ranked against mammals (Spilogale);
+  the crop gate did not promote it to bird. Known owl/mammal gate confusion from the baseline doc; not addressed here.
