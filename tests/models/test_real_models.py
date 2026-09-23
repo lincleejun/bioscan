@@ -199,3 +199,46 @@ def test_geo_gaps_on_real_birdnet(run, capsys):
     if report and Path(report).is_file():
         with open(report, "a") as f:
             f.write("\n## geo-gaps at 37.4,-122.1 (2026-05-01)\n\n```\n" + out + "```\n")
+
+
+def test_detail_path_with_real_models(run, tmp_path):
+    """The golden photos are ~500 px, so the main run never builds a detail copy. Here six bird
+    photos are upscaled to 4000 px: the 3072 px detail copy must reach BioCLIP, and the result must
+    stay sane (same pipeline, no errors, a species answer for every photo that had one)."""
+    from fastapi.testclient import TestClient
+    from PIL import Image
+
+    from bioscan.service.app import create_app
+
+    gt, events, engine = run
+    base = {e["path"]: e for e in events if e["type"] == "result"}
+    birds = [r["path"] for r in gt if r["kind"] == "bird" and base[r["path"]]["products"]["identify"]["boxes"]][:6]
+    big = []
+    for p in birds:
+        with Image.open(p) as im:
+            scale = 4000 / max(im.size)
+            im.convert("RGB").resize((round(im.width * scale), round(im.height * scale)), Image.Resampling.LANCZOS) \
+                .save(tmp_path / Path(p).name, quality=95)
+        big.append(str(tmp_path / Path(p).name))
+    seen = []
+    real = engine.identify
+    mp = pytest.MonkeyPatch()
+    mp.setattr(engine, "identify", lambda *a, **kw: seen.append(kw["detail"].size) or real(*a, **kw))
+    try:
+        with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(2))) as c:
+            evs = [json.loads(line) for line in c.post("/run", json={"inputs": [{"path": p} for p in big]}).text.splitlines()]
+    finally:
+        mp.undo()
+    assert not [e for e in evs if e["type"] == "error"] and evs[-1]["ok"] == len(big)
+    assert len(seen) == len(big) and all(max(s) == 3072 for s in seen)
+    for e in (e for e in evs if e["type"] == "result"):
+        assert e["image"]["width"] <= 4000 and all(b["species"] for b in e["products"]["identify"]["boxes"])
+    same = sum(base[p]["products"]["identify"]["boxes"][0]["species"]["top"][0]["scientific"]
+               == next(e for e in evs if e.get("path") == q)["products"]["identify"]["boxes"][0]["species"]["top"][0]["scientific"]
+               for p, q in zip(birds, big) if next(e for e in evs if e.get("path") == q)["products"]["identify"]["boxes"])
+    report = os.environ.get("BIOSCAN_REPORT")
+    if report and Path(report).is_file():
+        with open(report, "a") as f:
+            f.write(f"\n## Detail path\n\n{len(big)} bird photos upscaled to 4000 px, detail copies {seen}; "
+                    f"top-1 same as the 500 px run on {same}/{len(big)} (upscaling adds no detail, so this is a "
+                    f"consistency check, not an accuracy one).\n")

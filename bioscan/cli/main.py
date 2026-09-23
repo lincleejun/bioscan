@@ -16,13 +16,17 @@ PRODUCTS = ("identify", "embed", "jpg")
 
 # ---- serve -------------------------------------------------------------------
 
-def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = None, root: Path = PROJECT_ROOT) -> bytes:
+def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = None, root: Path = PROJECT_ROOT,
+                  allow_roots: list[str] | None = None, detail_edge: int | None = None) -> bytes:
     uv = uv or shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
     log = os.path.expanduser("~/Library/Logs/bioscan.log")
+    extra = [a for r in allow_roots or [] for a in ("--allow-root", os.path.abspath(r))]
+    extra += ["--detail-edge", str(detail_edge)] if detail_edge is not None else []
     return plistlib.dumps({
         "Label": "cc.outman.bioscan",
         "ProgramArguments": [os.path.abspath(uv), "run", "--project", str(root), "bioscan", "serve",
-                             "--port", str(port), "--decode-workers", str(decode_workers), "--chunk", str(chunk)],
+                             "--port", str(port), "--decode-workers", str(decode_workers), "--chunk", str(chunk),
+                             *extra],
         "WorkingDirectory": str(root),
         "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"},
         "RunAtLoad": True,
@@ -34,7 +38,8 @@ def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = N
 
 def cmd_serve(a):
     if a.launchd:
-        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or 4, a.chunk or 32))
+        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or 4, a.chunk or 32,
+                                              allow_roots=a.allow_root, detail_edge=a.detail_edge))
         return 0
     # The service reads its tunables from the environment (flag > env > default 4/32).
     if a.decode_workers is not None:

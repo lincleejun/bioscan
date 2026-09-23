@@ -121,6 +121,18 @@ def test_launchd_plist():
     assert p["Label"] == "cc.outman.bioscan"
     assert p["ProgramArguments"][:3] == ["/opt/uv", "run", "--project"]
     assert p["ProgramArguments"][4:6] == ["bioscan", "serve"]
+    assert "--allow-root" not in p["ProgramArguments"] and "--detail-edge" not in p["ProgramArguments"]
+
+
+def test_launchd_plist_keeps_allow_roots_and_detail_edge():
+    a = parser().parse_args(["serve", "--launchd", "--allow-root", "/Users/me/Photos", "--allow-root", "/Volumes/card",
+                             "--detail-edge", "4096"])
+    p = plistlib.loads(launchd_plist(a.port, 4, 32, uv="/opt/uv", allow_roots=a.allow_root, detail_edge=a.detail_edge))
+    assert p["ProgramArguments"][-6:] == ["--allow-root", "/Users/me/Photos", "--allow-root", "/Volumes/card",
+                                          "--detail-edge", "4096"]
+    # the served command line parses back to the same settings
+    served = parser().parse_args(p["ProgramArguments"][5:])
+    assert served.allow_root == ["/Users/me/Photos", "/Volumes/card"] and served.detail_edge == 4096
 
 
 def test_run_payload(tmp_path):
