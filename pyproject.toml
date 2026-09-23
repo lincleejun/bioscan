@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 bioscan-serve = "bioscan.service.app:main"
+bioscan = "bioscan.cli.main:main"
 
 [dependency-groups]
 dev = [
