@@ -13,7 +13,7 @@ Base 7c011d5. Candidate 5 of the v1.3 plan (TASKS.md section "report candidates 
 - [x] README / README.zh-CN layout lists serve_config.py; settings table unchanged (behaviour unchanged)
 - [x] ruff clean; pytest 3x green (147 passed, 8 skipped; base 141 / 8); import-light test green
 - [x] Self-review vs 7c011d5: no blocking problems (one tidy-up: single import style in app.py)
-- [ ] Golden behaviour re-recorded in a private scratch dir (shared scratchpad was clobbered): base tree vs HEAD tree at the same path
+- [x] Golden behaviour re-recorded in a private scratch dir (shared scratchpad was clobbered): base tree vs HEAD tree at the same path; 0 differences outside env_after
 
 Found on the way:
 - `bioscan serve --allow-root /x:y` used to become two roots (`/x`, relative `y`) through the env hand-off; now one root.
