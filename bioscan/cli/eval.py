@@ -151,8 +151,8 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
         n = 0
         with open(preds_path, "wb") as f:
             for line in client.run(payload, url):
-                f.write(line + b"\n")
-                if json.loads(line).get("type") in ("result", "error"):
+                if json.loads(line).get("type") in ("result", "error"):  # predictions only, no progress/done
+                    f.write(line + b"\n")
                     n += 1
                     print(f"\r{n}/{len(rows)}", end="", file=sys.stderr, flush=True)
         print(file=sys.stderr)

@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
@@ -212,6 +213,16 @@ def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int =
     return app
 
 
+def tunables(decode_workers: int | None, chunk: int | None, env=os.environ) -> tuple[int, int]:
+    """Command line beats BIOSCAN_DECODE_WORKERS / BIOSCAN_CHUNK beats the defaults 4 / 32."""
+    def pick(given: int | None, var: str, default: int) -> int:
+        value = given if given is not None else int(env.get(var) or default)
+        if value < 1:
+            raise SystemExit(f"{var.removeprefix('BIOSCAN_').lower()} must be >= 1")
+        return value
+    return pick(decode_workers, "BIOSCAN_DECODE_WORKERS", 4), pick(chunk, "BIOSCAN_CHUNK", 32)
+
+
 def main(argv: list[str] | None = None) -> None:
     import uvicorn
 
@@ -220,11 +231,13 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="bioscan-serve")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--decode-workers", type=int, default=4)
-    ap.add_argument("--chunk", type=int, default=32)
+    ap.add_argument("--decode-workers", type=int, help="default: env BIOSCAN_DECODE_WORKERS, else 4")
+    ap.add_argument("--chunk", type=int, help="default: env BIOSCAN_CHUNK, else 32")
     args = ap.parse_args(argv)
+    workers, chunk = tunables(args.decode_workers, args.chunk)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    app = create_app(Engine(), chunk=args.chunk, decode_workers=args.decode_workers)
+    log.info("decode_workers=%d chunk=%d", workers, chunk)
+    app = create_app(Engine(), chunk=chunk, decode_workers=workers)
     uvicorn.run(app, host=args.host, port=args.port, workers=1)
 
 

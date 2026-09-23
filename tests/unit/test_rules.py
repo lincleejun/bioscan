@@ -5,10 +5,10 @@ import numpy as np
 import pytest
 from PIL import Image, ImageFilter
 
-from bioscan.service import names_legacy, products
+from bioscan.service import products
 from bioscan.service.adapters import geo, siglip2
 from bioscan.service.adapters.owlv2 import Detection, clip_to_frame
-from bioscan.service.app import parse_run
+from bioscan.service.app import parse_run, tunables
 
 TAX = lambda g, f, s: ["Animalia", "Chordata", "Aves", "O", f, g, f"{g} {s}"]  # noqa: E731
 
@@ -111,17 +111,39 @@ def test_parse_run():
             parse_run(bad)
 
 
-def test_names_legacy_filter_and_prompt():
-    raw = [
-        [["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", "kennicottii"], "Western Screech-Owl"],
-        [["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", "kennicottii"], "dup"],
-        [["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", ""], ""],        # genus only
-        [["Animalia", "Chordata", "Aves", "Passeriformes", "Corvidae", "Cyanocitta", "Stelleri"], ""],  # bad epithet
-        [["Animalia", "Chordata", "Mammalia", "Carnivora", "Ursidae", "Ursus", "arctos"], "Brown Bear"],
-        [["Animalia", "Chordata", "Aves", "Passeriformes", "Corvidae", "Cyanocitta", "stelleri"], ""],
-    ]
-    rows = names_legacy.birds_from_tol(raw)
-    assert [t[6] for t, _ in rows] == ["Cyanocitta stelleri", "Megascops kennicottii"]
-    assert rows[1][1] == "Western Screech-Owl" and len(rows[1][0]) == 7
-    assert names_legacy.prompt(*rows[0]) == \
-        "a photo of Cyanocitta stelleri, Cyanocitta stelleri, a bird in the taxonomic family Corvidae"
+def test_tunables_flag_env_default():
+    assert tunables(None, None, env={}) == (4, 32)
+    env = {"BIOSCAN_DECODE_WORKERS": "2", "BIOSCAN_CHUNK": "8"}
+    assert tunables(None, None, env=env) == (2, 8)
+    assert tunables(6, None, env=env) == (6, 8)
+    with pytest.raises(SystemExit):
+        tunables(0, None, env={})
+
+
+def test_mammal_species_uses_mdd_without_geo():
+    from types import SimpleNamespace
+
+    from bioscan.service.names import NameList
+
+    tax = ["Animalia", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Rangifer", "Rangifer tarandus"]
+    tax2 = ["Animalia", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Alces", "Alces alces"]
+    mdd = NameList("mdd-2025", "mammal", ["Rangifer tarandus", "Alces alces"], ["Reindeer", "Moose"],
+                   [tax, tax2], np.zeros((2, 4), np.float32), np.ones(2, bool))
+
+    class Geo:
+        def probs(self, *a):
+            raise AssertionError("mammals get no geo prior")
+
+    eng = SimpleNamespace(names={"mammal": mdd}, geo=Geo(), BIOCLIP_BATCH=16, name_matrix=lambda k: None,
+                          bioclip=SimpleNamespace(encode_images=lambda ims: ims,
+                                                  probs=lambda f, m: np.array([[0.9, 0.1]] * len(f))))
+    boxes = [{"kind": "mammal"}]
+    products._species(eng, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], 60.0, -150.0, None,
+                      {"geo": True, "top_k": 5})
+    sp = boxes[0]["species"]
+    assert sp["list"] == "mdd-2025" and sp["level"] == "species"
+    assert sp["top"][0]["scientific"] == "Rangifer tarandus" and sp["top"][0]["common"] == "Reindeer"
+    assert sp["top"][0]["p_geo"] is None and sp["top"][0]["posterior"] == sp["top"][0]["p_visual"]
+    # MDD 7-level taxonomy: [5] is the genus, [4] the family -> two cervid genera roll up to family
+    assert products.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}]) \
+        == "family"

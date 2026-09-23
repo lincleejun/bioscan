@@ -34,14 +34,16 @@ def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = N
 
 def cmd_serve(a):
     if a.launchd:
-        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers, a.chunk))
+        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or 4, a.chunk or 32))
         return 0
-    import uvicorn  # service deps live with bioscan.service; keep the CLI import-light
+    # The service reads its tunables from the environment (flag > env > default 4/32).
+    if a.decode_workers is not None:
+        os.environ["BIOSCAN_DECODE_WORKERS"] = str(a.decode_workers)
+    if a.chunk is not None:
+        os.environ["BIOSCAN_CHUNK"] = str(a.chunk)
+    from bioscan.service import app  # service deps live with bioscan.service; keep the CLI import-light
 
-    # The service reads its tunables from the environment (one uvicorn worker, spec section 5).
-    os.environ["BIOSCAN_DECODE_WORKERS"] = str(a.decode_workers)
-    os.environ["BIOSCAN_CHUNK"] = str(a.chunk)
-    uvicorn.run("bioscan.service.app:app", host="127.0.0.1", port=a.port, workers=1)
+    app.main(["--port", str(a.port)])
     return 0
 
 
@@ -136,16 +138,12 @@ def cmd_eval(a):
 
 def cmd_names_stats(a):
     # Heavy imports stay here so every other subcommand runs without torch installed.
-    import open_clip
-    import torch
+    import logging
 
-    from bioscan.service import names
+    from bioscan.service import engine, names
 
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-    hub = "hf-hub:imageomics/bioclip-2.5-vith14"
-    model, _, _ = open_clip.create_model_and_transforms(hub, device=device)
-    tokenizer = open_clip.get_tokenizer(hub)
-    lists = names.load_lists(model, tokenizer, device)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    _, lists = engine.load_species(engine.pick_device())
     print(json.dumps(names.stats(lists), indent=2, ensure_ascii=False, default=str))
     return 0
 
@@ -157,8 +155,8 @@ def parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("serve", help="run the service (uvicorn, one worker)")
     s.add_argument("--port", type=int, default=8765)
-    s.add_argument("--decode-workers", type=int, default=4)
-    s.add_argument("--chunk", type=int, default=32)
+    s.add_argument("--decode-workers", type=int, help="env BIOSCAN_DECODE_WORKERS, default 4")
+    s.add_argument("--chunk", type=int, help="env BIOSCAN_CHUNK, default 32")
     s.add_argument("--launchd", action="store_true", help="print a launchd plist to stdout instead of serving")
     s.set_defaults(func=cmd_serve)
 

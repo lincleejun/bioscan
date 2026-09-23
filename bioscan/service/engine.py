@@ -31,6 +31,17 @@ def pick_device() -> str:
     return "mps" if torch.backends.mps.is_available() else "cpu"
 
 
+def load_species(device: str) -> tuple[Any, dict[str, Any]]:
+    """BioCLIP 2.5 Huge plus the name lists (AviList birds, MDD mammals) in its text space."""
+    from bioscan.service import names
+    from bioscan.service.adapters.bioclip import BioCLIP
+
+    log.info("loading BioCLIP 2.5 Huge on %s", device)
+    bioclip = BioCLIP(device)
+    lists = names.load_lists(bioclip.model, bioclip.tokenizer, device)
+    return bioclip, lists
+
+
 class Engine:
     BIOCLIP_BATCH = BIOCLIP_BATCH
 
@@ -70,14 +81,9 @@ class Engine:
         self.owlv2 = OWLv2(self.device)
 
     def _load_bioclip(self) -> None:
-        from bioscan.service import names_legacy as names
-        from bioscan.service.adapters.bioclip import BioCLIP
         from bioscan.service.adapters.geo import GeoPrior
 
-        log.info("loading BioCLIP 2.5 Huge on %s", self.device)
-        bioclip = BioCLIP(self.device)
-        self.names = names.load_lists(bioclip.model, bioclip.tokenizer, self.device)
-        log.info("name lists: %s", names.stats(self.names))
+        bioclip, self.names = load_species(self.device)
         self._matrices = {k: bioclip.torch.from_numpy(nl.matrix).to(self.device) for k, nl in self.names.items()}
         self.geo = GeoPrior.load()
         log.info("geo prior: %s", "birdnet geo 3.0" if self.geo else "unavailable")

@@ -38,6 +38,7 @@ class NameList:
     taxonomy: list[list[str]]    # 7 levels: kingdom .. species (binomial)
     matrix: np.ndarray           # (N, 1024) float32, L2-normalised
     official: np.ndarray         # (N,) bool, True = TreeOfLife vector, False = self-encoded
+    sha: str = ""                # list hash (CSV + list_id + cache version), also the cache key
 
 
 def norm_binomial(name: str) -> str:
@@ -189,11 +190,12 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
         path = cache_dir / f"{MODEL_NAME}-{sha}.npz"
         if path.is_file():
             out[kind] = _load(path, kind)
-            continue
-        if tol is None:
-            tol = _read_tol(tol_files)
-        out[kind] = _build(kind, reader(src), tol, model, tokenizer, device)
-        _save(path, out[kind])
+        else:
+            if tol is None:
+                tol = _read_tol(tol_files)
+            out[kind] = _build(kind, reader(src), tol, model, tokenizer, device)
+            _save(path, out[kind])
+        out[kind].sha = sha
     for kind, s in stats(out).items():
         log.info("names %s: %d species, %d official TreeOfLife vectors (%.1f%%), %d self-encoded",
                  s["list_id"], s["total"], s["official"], 100 * s["coverage"], s["encoded"])
