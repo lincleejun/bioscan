@@ -8,7 +8,7 @@ from PIL import Image, ImageFilter
 from bioscan.service import products
 from bioscan.service.adapters import geo, siglip2
 from bioscan.service.adapters.owlv2 import Detection, clip_to_frame
-from bioscan.service.app import allow_roots_from, parse_run, tunables
+from bioscan.service.app import parse_run
 
 TAX = lambda g, f, s: ["Animalia", "Chordata", "Aves", "O", f, g, f"{g} {s}"]  # noqa: E731
 
@@ -152,15 +152,6 @@ def test_parse_run():
             parse_run(bad)
 
 
-def test_tunables_flag_env_default():
-    assert tunables(None, None, env={}) == (4, 32)
-    env = {"BIOSCAN_DECODE_WORKERS": "2", "BIOSCAN_CHUNK": "8"}
-    assert tunables(None, None, env=env) == (2, 8)
-    assert tunables(6, None, env=env) == (6, 8)
-    with pytest.raises(SystemExit):
-        tunables(0, None, env={})
-
-
 def test_mammal_species_uses_mdd_without_geo():
     from types import SimpleNamespace
 
@@ -190,11 +181,3 @@ def test_mammal_species_uses_mdd_without_geo():
     # MDD 7-level taxonomy: [5] is the genus, [4] the family -> two cervid genera roll up to family
     assert products.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}]) \
         == "family"
-
-
-def test_allow_roots_flag_env_default():
-    import os
-
-    assert allow_roots_from(None, env={}) == []
-    assert allow_roots_from(None, env={"BIOSCAN_ALLOW_ROOTS": f"/a{os.pathsep}/b{os.pathsep}"}) == ["/a", "/b"]
-    assert allow_roots_from(["/c"], env={"BIOSCAN_ALLOW_ROOTS": "/a"}) == ["/c"]

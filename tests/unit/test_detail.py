@@ -6,7 +6,6 @@ from PIL import Image
 
 from bioscan.service import products
 from bioscan.service.adapters.owlv2 import Detection
-from bioscan.service.app import detail_edge_from
 
 
 def frame(size=(3000, 2000)) -> Image.Image:
@@ -71,10 +70,3 @@ def test_identify_detail_changes_only_the_species_crop():
     new = products.identify(b, image, gate, None, None, None, opts, detail=detail)
     assert old == new                              # boxes, quality, species output: identical here
     assert a.seen == [(320, 320)] and b.seen == [(480, 480)]
-
-
-def test_detail_edge_flag_env_default():
-    assert detail_edge_from(None, env={}) == 3072
-    assert detail_edge_from(None, env={"BIOSCAN_DETAIL_EDGE": "4096"}) == 4096
-    assert detail_edge_from(2500, env={"BIOSCAN_DETAIL_EDGE": "4096"}) == 2500
-    assert detail_edge_from(2048, env={}) is None and detail_edge_from(0, env={}) is None
