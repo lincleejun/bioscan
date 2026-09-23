@@ -325,3 +325,24 @@ def test_decode_worker_crash_costs_one_file(tmp_path, monkeypatch):
     assert sorted(e["path"] for e in ev if e["type"] == "result") == sorted(good)
     assert again[-1]["ok"] == 1
     pool.executor.shutdown()
+
+
+def test_decode_pool_rebuild_only_replaces_the_broken_executor():
+    """Two requests that saw the same crash both call rebuild; the second must not shut down the
+    fresh executor the first created (that cancelled another request's queued decodes)."""
+    from bioscan.service import app as app_mod
+
+    made: list[ThreadPoolExecutor] = []
+
+    def factory():
+        made.append(ThreadPoolExecutor(1))
+        return made[-1]
+
+    pool = app_mod.DecodePool(factory)
+    broken = pool.executor
+    assert pool.rebuild(broken) and pool.executor is made[1]
+    fut = pool.executor.submit(time.sleep, 0.05)             # queued work on the healthy executor
+    assert pool.rebuild(broken) and pool.executor is made[1] and len(made) == 2   # late caller: no-op
+    fut.result(timeout=5)                                    # not cancelled
+    assert not app_mod.DecodePool(executor=broken).rebuild(broken)   # a caller's executor is never rebuilt
+    made[1].shutdown()

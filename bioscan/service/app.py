@@ -61,12 +61,16 @@ class DecodePool:
         self.factory = factory
         self.executor = executor if executor is not None else factory()  # type: ignore[misc]
 
-    def rebuild(self) -> bool:
+    def rebuild(self, broken: Executor) -> bool:
+        """Replace `broken` if it is still the current executor. Several requests can see the same
+        crash; only the first rebuilds, the others just move on to the new executor. Nothing is
+        cancelled: a broken pool has already failed its own futures."""
         if self.factory is None:
             return False
-        old, self.executor = self.executor, self.factory()
-        old.shutdown(wait=False, cancel_futures=True)
-        log.warning("decode pool rebuilt after a worker died")
+        if self.executor is broken:
+            self.executor = self.factory()
+            broken.shutdown(wait=False)
+            log.warning("decode pool rebuilt after a worker died")
         return True
 
 
@@ -116,30 +120,32 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
 
     pool = decode_pool if isinstance(decode_pool, DecodePool) else DecodePool(executor=decode_pool)
 
-    def submit(ch: list[dict[str, Any]]) -> list[asyncio.Future]:
-        return [loop.run_in_executor(pool.executor, timed_decode, inp["path"], edge) for inp in ch]
+    def submit(ch: list[dict[str, Any]]) -> tuple[Executor, list[asyncio.Future]]:
+        ex = pool.executor
+        return ex, [loop.run_in_executor(ex, timed_decode, inp["path"], edge) for inp in ch]
 
     async def one_by_one(ch: list[dict[str, Any]]) -> list[Any]:
         """After a worker died: decode files singly, rebuilding the pool after each crash, so the
         file that kills the decoder fails alone."""
         out: list[Any] = []
         for inp in ch:
+            ex, (fut,) = submit([inp])
             try:
-                out.append(await submit([inp])[0])
+                out.append(await fut)
             except BrokenProcessPool:
-                pool.rebuild()
+                pool.rebuild(ex)
                 out.append(RuntimeError("the decoder process crashed on this file"))
             except Exception as exc:  # noqa: BLE001
                 out.append(exc)
         return out
 
-    pending = submit(chunks[0])
+    ex, pending = submit(chunks[0])
     try:
         for ci, ch in enumerate(chunks):
             decoded = await asyncio.gather(*pending, return_exceptions=True)
-            if any(isinstance(d, BrokenProcessPool) for d in decoded) and pool.rebuild():
+            if any(isinstance(d, BrokenProcessPool) for d in decoded) and pool.rebuild(ex):
                 decoded = await one_by_one(ch)
-            pending = submit(chunks[ci + 1]) if ci + 1 < len(chunks) else []
+            ex, pending = submit(chunks[ci + 1]) if ci + 1 < len(chunks) else (ex, [])
             items = []
             for inp, d in zip(ch, decoded):
                 if isinstance(d, BaseException):
