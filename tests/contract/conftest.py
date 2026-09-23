@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from bioscan import contract
 from bioscan.service.app import create_app
 
 FAIL_SIZE = (17, 17)   # identify throws on images of this size
@@ -56,14 +57,13 @@ class FakeEngine:
             self.block.wait(10)
         if image.size == FAIL_SIZE:
             raise RuntimeError("detector exploded")
-        box = {"id": 0, "xyxy": [0.31, 0.22, 0.58, 0.71], "score": 0.84, "kind": "bird",
-               "quality": {"sharpness": 0.71, "exposure": 0.05}}
+        box = contract.box(0, [0.31, 0.22, 0.58, 0.71], 0.84, "bird", contract.quality(0.71, 0.05))
         if opts["species"]:
-            box["species"] = {"list": "fake", "level": "species", "top": [
-                {"scientific": "Megascops kennicottii", "common": "Western Screech-Owl",
-                 "taxonomy": ["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops",
-                              "Megascops kennicottii"], "p_visual": 0.81, "p_geo": None, "posterior": 0.81}][:opts["top_k"]]}
-        return {"gate": {"class": max(gate, key=gate.get), "probs": gate}, "boxes": [box]}
+            box["species"] = contract.species("fake", "species", [
+                contract.candidate("Megascops kennicottii", "Western Screech-Owl",
+                                   ["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops",
+                                    "Megascops kennicottii"], 0.81, None, 0.81)][:opts["top_k"]])
+        return contract.identify(contract.gate(max(gate, key=gate.get), gate), [box])
 
 
 def make_jpg(path, size=(64, 48)):

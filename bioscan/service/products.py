@@ -32,12 +32,7 @@ PRODUCTS: dict[str, Any] = {
         "options": {"top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
                     "geo": {"type": "boolean", "default": True},
                     "species": {"type": "boolean", "default": True}},
-        "output": {"gate": {"class": "bird|mammal|other_animal|person|none", "probs": "{class: float}"},
-                   "boxes": [{"id": "int", "xyxy": "[x0,y0,x1,y1] normalised 0-1, upright image",
-                              "score": "float", "kind": "bird|mammal|other_animal",
-                              "quality": {"sharpness": "float", "exposure": "float, mean luma - 0.5"},
-                              "species": "null | {list, level: species|genus|family|unconfirmed, "
-                                         "top: [{scientific, common, taxonomy[7], p_visual, p_geo, posterior}]}"}]},
+        "output": contract.IDENTIFY_OUTPUT,          # the payload's fields live in bioscan/contract.py
     },
     "embed": {
         "description": "SigLIP2 whole-frame image vector (same forward pass as the gate).",

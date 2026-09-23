@@ -82,17 +82,17 @@ def outcome(truth: dict, ev: dict | None) -> dict:
         return o
     t = ev.get("timing_ms") or {}
     o["decode_ms"], o["identify_ms"] = t.get("decode"), t.get("identify")
-    ident = (ev.get("products") or {}).get("identify") or {}
-    boxes = ident.get("boxes") or []
-    o["gate"] = (ident.get("gate") or {}).get("class") == kind
+    ident = contract.identify_of(ev)
+    boxes = contract.boxes_of(ident)
+    o["gate"] = contract.gate_class_of(ident) == kind
     o["detected"] = any(b.get("kind") == kind for b in boxes)
     if not boxes:
         o["pred"] = "(no box)"
-        o["no_box_gate"] = (ident.get("gate") or {}).get("class") or "?"
+        o["no_box_gate"] = contract.gate_class_of(ident) or "?"
         return o
     best = max(boxes, key=lambda b: b.get("score", 0))
-    sp = best.get("species")
-    top = (sp or {}).get("top") or []
+    sp = contract.species_of(best)
+    top = contract.top_of(sp)
     if not top:
         o["pred"] = "(no species)"
         return o
@@ -100,7 +100,7 @@ def outcome(truth: dict, ev: dict | None) -> dict:
     o["pred"] = top[0].get("scientific", "")
     o["top1"] = names[0] == sci
     o["top5"] = sci in names[:5]
-    o["species_level"] = sp.get("level") == "species"
+    o["species_level"] = contract.level_of(sp) == "species"
     return o
 
 

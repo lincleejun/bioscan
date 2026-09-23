@@ -11,6 +11,7 @@ from typing import Any, Protocol
 import numpy as np
 from PIL import Image
 
+from bioscan import contract
 from bioscan.service.adapters import geo as geo_mod
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
@@ -121,12 +122,12 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
                 row = np.asarray(row, dtype=np.float64)
                 post = geo_mod.posterior(row, p_geo[fi], floor)
                 top = [
-                    {"scientific": names.scientific[j], "common": names.common[j] or None,
-                     "taxonomy": list(names.taxonomy[j]), "p_visual": round(float(row[j]), 6),
-                     "p_geo": None if p_geo[fi] is None else round(float(p_geo[fi][j]), 6),
-                     "posterior": round(float(post[j]), 6)}
+                    contract.candidate(names.scientific[j], names.common[j] or None,
+                                       list(names.taxonomy[j]), round(float(row[j]), 6),
+                                       None if p_geo[fi] is None else round(float(p_geo[fi][j]), 6),
+                                       round(float(post[j]), 6))
                     for j in np.argsort(-post, kind="stable")[:opts["top_k"]]]
-                work[fi][1][bi]["species"] = {"list": names.list_id, "level": species_level(top), "top": top}
+                work[fi][1][bi]["species"] = contract.species(names.list_id, species_level(top), top)
 
 
 def _species(engine: Models, image: Image.Image, boxes: list[dict[str, Any]], bboxes: list[tuple[float, ...]],
@@ -141,7 +142,7 @@ def _identify_batch(engine: Models, frames: list[Frame], opts: dict[str, Any]) -
     plan: dict[int, tuple[dict[str, float], str, bool]] = {}      # frame -> (vocab, kind, rescued)
     for i, f in enumerate(frames):
         cls = max(f.gate, key=lambda k: f.gate[k])
-        outs.append({"gate": {"class": cls, "probs": {k: round(v, 4) for k, v in f.gate.items()}}, "boxes": []})
+        outs.append(contract.identify(contract.gate(cls, {k: round(v, 4) for k, v in f.gate.items()}), []))
         rescue = cls not in VOCAB
         if rescue:
             # A bear at night or a bobcat in brush can lose the whole-frame vote to "none" while the
@@ -169,8 +170,8 @@ def _identify_batch(engine: Models, frames: list[Frame], opts: dict[str, Any]) -
         boxes = []
         for n, (d, kind) in enumerate(k):
             x0, y0, x1, y1 = d.bbox
-            boxes.append({"id": n, "xyxy": [round(x0 / w, 5), round(y0 / h, 5), round(x1 / w, 5), round(y1 / h, 5)],
-                          "score": round(d.confidence, 4), "kind": kind, "quality": quality(image, d.bbox)})
+            boxes.append(contract.box(n, [round(x0 / w, 5), round(y0 / h, 5), round(x1 / w, 5), round(y1 / h, 5)],
+                                      round(d.confidence, 4), kind, quality(image, d.bbox)))
         outs[i]["boxes"] = boxes
         species_work.append((frames[i], boxes, [d.bbox for d, _ in k]))
     if opts["species"]:

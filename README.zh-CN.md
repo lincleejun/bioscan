@@ -157,7 +157,7 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
-响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`（`result`、`done` 带 `schema: 1`）。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`，`identify` 产物（gate、boxes、quality、species、候选）也定义在那里；`result`、`done` 带 `schema: 1`。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
 
 CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。`run --json` 过去总是返回 0，现在也按这套退出码返回，脚本里若把非 0 当失败需留意。eval 的学名比较改用与 synonyms 查找相同的归一化（忽略连字符与大小写），旧报告的 Top-1/Top-5 可能因此有细微差别。
 
@@ -213,7 +213,7 @@ CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.
 ## 布局
 
 ```
-bioscan/contract.py              /run 事件与产物名的唯一定义（CLI 与服务共用，纯标准库）
+bioscan/contract.py              /run 事件、产物名与 identify 输出的唯一定义（CLI 与服务共用，纯标准库）
 bioscan/naming.py                学名归一化、synonyms.csv、映射表过期检查（纯标准库）
 bioscan/service/app.py           路由、NDJSON 流、按 chunk 的模型锁、解码进程池自愈
 bioscan/service/engine.py        设备选择、模型加载注册表、每类先验、EngineProtocol
