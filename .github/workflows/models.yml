@@ -4,7 +4,21 @@ name: models
 # Report: the job summary and the `models-report` artifact.
 on:
   push:
+    paths:
+      - "bioscan/service/**"
+      - "tests/models/**"
+      - "data/names/**"
+      - "uv.lock"
+      - "pyproject.toml"
+      - ".github/workflows/models.yml"
   pull_request:
+    paths:
+      - "bioscan/service/**"
+      - "tests/models/**"
+      - "data/names/**"
+      - "uv.lock"
+      - "pyproject.toml"
+      - ".github/workflows/models.yml"
   workflow_dispatch:
 
 concurrency:
@@ -20,6 +34,7 @@ jobs:
       BIOSCAN_MODEL_TESTS: "1"
       BIOSCAN_REPORT: ${{ github.workspace }}/models-report.md
       BIOSCAN_PHOTO_CACHE: ${{ github.workspace }}/.photos
+      BIOSCAN_REQUIRE_GEO: "1"
     steps:
       - name: Free disk (torch + ~4 GB of weights)
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
@@ -35,7 +50,12 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-${{ hashFiles('tests/models/download.py', 'bioscan/service/adapters/*.py') }}
           restore-keys: hf-
-      - name: Download weights
+      - name: Cache BirdNET geo model
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/birdnet
+          key: birdnet-geo-3.0-${{ hashFiles('uv.lock') }}
+      - name: Download weights and BirdNET geo
         run: uv run python tests/models/download.py
       - name: Cache photos
         uses: actions/cache@v4

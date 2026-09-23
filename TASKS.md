@@ -91,7 +91,7 @@ accepted with the 3072 choice, and re-decoding RAW would double decode time.
 Invariant for C and D: real-model CI numbers unchanged (bird top-1 88.1 %, mammal 85.7 %; CPU is deterministic).
 
 ## E. CI cost
-- [ ] models.yml path filters (service, tests/models, data/names, uv.lock, pyproject, workflow)
+- [x] models.yml path filters (service, tests/models, data/names, uv.lock, pyproject, workflow)
 
 ## A. Versions and reproducibility
 - [ ] pin SigLIP2 / BioCLIP / TreeOfLife revisions (values read from a CI run), pass everywhere, in names cache key and info()

@@ -108,6 +108,8 @@ def run():
     engine = engine_mod.Engine(device)
     engine.ensure(["identify", "embed"])
     mp.undo()
+    if os.environ.get("BIOSCAN_REQUIRE_GEO") == "1":
+        assert engine.geo is not None, "BirdNET geo prior failed to load (BIOSCAN_REQUIRE_GEO=1)"
 
     inputs = [{"path": str(p), "lat": float(r["lat"]), "lon": float(r["lon"]), "taken_at": r["taken_at"]}
               for r, p in have]
