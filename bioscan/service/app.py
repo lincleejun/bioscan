@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from bioscan.service import products
-from bioscan.service.decode import timed_decode
+from bioscan.service.decode import DETAIL_EDGE, MAX_EDGE, timed_decode
 
 log = logging.getLogger("bioscan")
 ORDER = ("identify", "embed", "jpg")
@@ -59,18 +59,21 @@ def parse_run(body: Any) -> tuple[list[dict[str, Any]], list[str], dict[str, dic
 
 async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
                      *, decode_pool: Executor, gpu: Executor, chunk: int,
-                     is_disconnected: Callable[[], Awaitable[bool]]) -> AsyncIterator[dict[str, Any]]:
+                     is_disconnected: Callable[[], Awaitable[bool]],
+                     detail_edge: int | None = None) -> AsyncIterator[dict[str, Any]]:
     """The /run event stream. Decode of chunk k+1 overlaps the models on chunk k; a client that
-    went away is noticed between chunks, so the current chunk always finishes."""
+    went away is noticed between chunks, so the current chunk always finishes. The larger species
+    image (`detail_edge`) is decoded only when identify is wanted."""
     loop = asyncio.get_running_loop()
     t0 = time.perf_counter()
     total, ok, failed = len(inputs), 0, 0
     done = dict.fromkeys(want, 0)
     info = engine.info()
     chunks = [inputs[i:i + chunk] for i in range(0, total, chunk)]
+    edge = detail_edge if "identify" in want else None
 
     def submit(ch: list[dict[str, Any]]) -> list[asyncio.Future]:
-        return [loop.run_in_executor(decode_pool, timed_decode, inp["path"]) for inp in ch]
+        return [loop.run_in_executor(decode_pool, timed_decode, inp["path"], edge) for inp in ch]
 
     pending = submit(chunks[0])
     try:
@@ -145,7 +148,8 @@ async def _run_chunk(engine: Any, items: list[dict[str, Any]], want: list[str], 
                     lat = inp["lat"] if inp["lat"] is not None else dec.lat
                     lon = inp["lon"] if inp["lon"] is not None else dec.lon
                     it["products"]["identify"] = engine.identify(dec.image, gates[i], lat, lon,
-                                                                 inp["taken_at"] or dec.taken_at, opts["identify"])
+                                                                 inp["taken_at"] or dec.taken_at, opts["identify"],
+                                                                 detail=dec.detail)
                 elif product == "embed":
                     it["products"]["embed"] = products.embed(vecs[i], opts["embed"]["format"])
                 else:
@@ -162,7 +166,7 @@ async def _run_chunk(engine: Any, items: list[dict[str, Any]], want: list[str], 
 
 
 def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int = 32,
-               decode_workers: int = 4) -> FastAPI:
+               decode_workers: int = 4, detail_edge: int | None = DETAIL_EDGE) -> FastAPI:
     app = FastAPI(title="bioscan")
     state = State()
     pool = decode_pool or ProcessPoolExecutor(max_workers=decode_workers)
@@ -200,7 +204,8 @@ def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int =
                     state.running += 1
                     try:
                         async for ev in run_events(engine, inputs, want, opts, decode_pool=pool, gpu=gpu,
-                                                   chunk=chunk, is_disconnected=request.is_disconnected):
+                                                   chunk=chunk, is_disconnected=request.is_disconnected,
+                                                   detail_edge=detail_edge):
                             yield (json.dumps(ev, ensure_ascii=False) + "\n").encode()
                     finally:
                         state.running -= 1
@@ -223,6 +228,13 @@ def tunables(decode_workers: int | None, chunk: int | None, env=os.environ) -> t
     return pick(decode_workers, "BIOSCAN_DECODE_WORKERS", 4), pick(chunk, "BIOSCAN_CHUNK", 32)
 
 
+def detail_edge_from(given: int | None, env=os.environ) -> int | None:
+    """--detail-edge beats BIOSCAN_DETAIL_EDGE beats 3072; a value <= 2048 turns the larger
+    species image off (None)."""
+    value = given if given is not None else int(env.get("BIOSCAN_DETAIL_EDGE") or DETAIL_EDGE)
+    return value if value > MAX_EDGE else None
+
+
 def main(argv: list[str] | None = None) -> None:
     import uvicorn
 
@@ -233,11 +245,15 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--decode-workers", type=int, help="default: env BIOSCAN_DECODE_WORKERS, else 4")
     ap.add_argument("--chunk", type=int, help="default: env BIOSCAN_CHUNK, else 32")
+    ap.add_argument("--detail-edge", type=int,
+                    help="long edge of the species-crop image; <= 2048 turns it off. "
+                         "default: env BIOSCAN_DETAIL_EDGE, else 3072")
     args = ap.parse_args(argv)
     workers, chunk = tunables(args.decode_workers, args.chunk)
+    detail = detail_edge_from(args.detail_edge)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    log.info("decode_workers=%d chunk=%d", workers, chunk)
-    app = create_app(Engine(), chunk=chunk, decode_workers=workers)
+    log.info("decode_workers=%d chunk=%d detail_edge=%s", workers, chunk, detail)
+    app = create_app(Engine(), chunk=chunk, decode_workers=workers, detail_edge=detail)
     uvicorn.run(app, host=args.host, port=args.port, workers=1)
 
 

@@ -112,5 +112,5 @@ class Engine:
         return vecs, self.siglip2.gate(vecs)
 
     def identify(self, image: Any, gate: dict[str, float], lat: float | None, lon: float | None,
-                 taken_at: str | None, opts: dict[str, Any]) -> dict[str, Any]:
-        return products.identify(self, image, gate, lat, lon, taken_at, opts)
+                 taken_at: str | None, opts: dict[str, Any], detail: Any = None) -> dict[str, Any]:
+        return products.identify(self, image, gate, lat, lon, taken_at, opts, detail)

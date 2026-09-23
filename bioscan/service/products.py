@@ -205,8 +205,21 @@ def _judged(engine: Any, image: Image.Image, dets: list[Detection], kind: str) -
     return [(d, k) for d, g in zip(dets, gates) if (k := judge(kind, g)) is not None]
 
 
+def species_crops(image: Image.Image, bboxes: list[tuple[float, ...]],
+                  detail: Image.Image | None = None) -> list[Image.Image]:
+    """What BioCLIP sees per box: the same framing as crop_with_context on `image` (boxes are in its
+    pixels), cut from `detail` when there is one -- a larger copy of the same frame, so a distant
+    bird keeps the feather detail the 2048 px frame has already thrown away."""
+    if detail is None or detail.size == image.size:
+        return [crop_with_context(image, b) for b in bboxes]
+    sx, sy = detail.width / image.width, detail.height / image.height
+    return [crop_with_context(detail, (b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy), min_side=round(MIN_CROP * sx))
+            for b in bboxes]
+
+
 def _species(engine: Any, image: Image.Image, boxes: list[dict[str, Any]], bboxes: list[tuple[float, ...]],
-             lat: float | None, lon: float | None, taken_at: str | None, opts: dict[str, Any]) -> None:
+             lat: float | None, lon: float | None, taken_at: str | None, opts: dict[str, Any],
+             detail: Image.Image | None = None) -> None:
     """Fills boxes[i]["species"] in place; one BioCLIP batch per name list."""
     for b in boxes:
         b["species"] = None
@@ -225,7 +238,7 @@ def _species(engine: Any, image: Image.Image, boxes: list[dict[str, Any]], bboxe
                 p_geo = None
         for start in range(0, len(idx), engine.BIOCLIP_BATCH):
             part = idx[start:start + engine.BIOCLIP_BATCH]
-            feats = engine.bioclip.encode_images([crop_with_context(image, bboxes[i]) for i in part])
+            feats = engine.bioclip.encode_images(species_crops(image, [bboxes[i] for i in part], detail))
             probs = engine.bioclip.probs(feats, engine.name_matrix(kind))
             for i, row in zip(part, probs):
                 row = np.asarray(row, dtype=np.float64)
@@ -240,7 +253,8 @@ def _species(engine: Any, image: Image.Image, boxes: list[dict[str, Any]], bboxe
 
 
 def identify(engine: Any, image: Image.Image, gate: dict[str, float], lat: float | None, lon: float | None,
-             taken_at: str | None, opts: dict[str, Any]) -> dict[str, Any]:
+             taken_at: str | None, opts: dict[str, Any], detail: Image.Image | None = None) -> dict[str, Any]:
+    """Gate, boxes and quality on the 2048 px `image`; species crops from `detail` when given."""
     cls = max(gate, key=lambda k: gate[k])
     out = {"gate": {"class": cls, "probs": {k: round(v, 4) for k, v in gate.items()}}, "boxes": []}
     if cls not in VOCAB:
@@ -259,7 +273,7 @@ def identify(engine: Any, image: Image.Image, gate: dict[str, float], lat: float
         boxes.append({"id": i, "xyxy": [round(x0 / w, 5), round(y0 / h, 5), round(x1 / w, 5), round(y1 / h, 5)],
                       "score": round(d.confidence, 4), "kind": kind, "quality": quality(image, d.bbox)})
     if opts["species"]:
-        _species(engine, image, boxes, [d.bbox for d, _ in kept], lat, lon, taken_at, opts)
+        _species(engine, image, boxes, [d.bbox for d, _ in kept], lat, lon, taken_at, opts, detail)
     out["boxes"] = boxes
     return out
 

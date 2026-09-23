@@ -41,6 +41,8 @@ def cmd_serve(a):
         os.environ["BIOSCAN_DECODE_WORKERS"] = str(a.decode_workers)
     if a.chunk is not None:
         os.environ["BIOSCAN_CHUNK"] = str(a.chunk)
+    if a.detail_edge is not None:
+        os.environ["BIOSCAN_DETAIL_EDGE"] = str(a.detail_edge)
     from bioscan.service import app  # service deps live with bioscan.service; keep the CLI import-light
 
     app.main(["--port", str(a.port)])
@@ -157,6 +159,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--decode-workers", type=int, help="env BIOSCAN_DECODE_WORKERS, default 4")
     s.add_argument("--chunk", type=int, help="env BIOSCAN_CHUNK, default 32")
+    s.add_argument("--detail-edge", type=int, help="species-crop image long edge, <=2048 = off; env BIOSCAN_DETAIL_EDGE, default 3072")
     s.add_argument("--launchd", action="store_true", help="print a launchd plist to stdout instead of serving")
     s.set_defaults(func=cmd_serve)
 

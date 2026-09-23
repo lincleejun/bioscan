@@ -3,7 +3,7 @@ import json
 import plistlib
 
 from bioscan.cli import gt
-from bioscan.cli.main import launchd_plist, parser, build_payload
+from bioscan.cli.main import build_payload, launchd_plist, parser
 
 
 def test_norm_and_builtin_match():

@@ -7,11 +7,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
+from conftest import ALL_WANTS, FAIL_SIZE, FakeEngine, client_for, events, make_jpg
+from fastapi.testclient import TestClient
 from PIL import Image
 
 from bioscan.service import products
-from bioscan.service.app import run_events
-from conftest import ALL_WANTS, FAIL_SIZE, FakeEngine, client_for, events, make_jpg
+from bioscan.service.app import create_app, run_events
 
 
 def test_health(client):
@@ -50,7 +51,7 @@ def test_model_load_failure_503():
         assert r.status_code == 503 and "weights missing" in r.json()["error"]
 
 
-def test_full_run_all_products(client, tmp_path):
+def test_full_run_all_products(client, engine, tmp_path):
     paths = [make_jpg(tmp_path / f"{i}.jpg", (3000, 2000)) for i in range(3)]
     out = tmp_path / "out"
     r = client.post("/run", json={"inputs": [{"path": p} for p in paths], "want": ["identify", "embed", "jpg"],
@@ -77,6 +78,20 @@ def test_full_run_all_products(client, tmp_path):
             assert im.size == (2048, 1365)
     prog = [e for e in ev if e["type"] == "progress"]
     assert [(e["product"], e["done"], e["total"]) for e in prog] == [("identify", 3, 3), ("embed", 3, 3), ("jpg", 3, 3)]
+    assert engine.details == [(3000, 2000)] * 3      # species crops from the full 3000 px frame, not the 2048 one
+
+
+def test_detail_image_only_for_identify_and_can_be_off(tmp_path):
+    p = make_jpg(tmp_path / "a.jpg", (3000, 2000))
+    engine = FakeEngine()
+    with client_for(engine) as c:
+        events(c.post("/run", json={"inputs": [{"path": p}], "want": ["embed"]}))
+        events(c.post("/run", json={"inputs": [{"path": p}]}))
+    assert engine.details == [(3000, 2000)]
+    engine = FakeEngine()
+    with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(2), detail_edge=None)) as c:
+        events(c.post("/run", json={"inputs": [{"path": p}]}))
+    assert engine.details == [None] and engine.calls[0]["size"] == (2048, 1365)
 
 
 def test_embed_f16_and_species_off(client, tmp_path):

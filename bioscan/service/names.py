@@ -148,7 +148,7 @@ def match_tol(rows, tol_names, cls: str, keys: list[str] | None = None) -> list[
         if tax[2] == cls:
             index.setdefault(norm_binomial(f"{tax[5]} {tax[6]}"), []).append((i, tax[4].lower()))
     out = []
-    for (sci, _common, tax), key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
+    for (_sci, _common, tax), key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
         hits = index.get(norm_binomial(key)) if key else None
         if not hits:
             out.append(None)
@@ -267,7 +267,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
             out[kind].birdnet = [x.get("birdnet_label", "") for x in m]
             out[kind].birdnet_how = [x.get("birdnet_how") or "none" for x in m]
         out[kind].sha = sha
-    for kind, s in stats(out).items():
+    for s in stats(out).values():
         log.info("names %s: %d species, TreeOfLife %s, BirdNET %s", s["list_id"], s["total"], s["tol"], s["birdnet"])
     return out
 

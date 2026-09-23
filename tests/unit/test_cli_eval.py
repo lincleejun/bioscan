@@ -103,6 +103,7 @@ def test_run_eval_from_existing_preds(tmp_path):
 
 def test_eval_service_down_is_clear(tmp_path):
     import pytest
+
     from bioscan.cli import client
     gt_csv = tmp_path / "gt.csv"
     gt_csv.write_text("path,scientific,tier,kind\n/1,A b,own,bird\n")

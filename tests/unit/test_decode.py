@@ -31,3 +31,25 @@ def test_taken_at_offset():
 def test_small_image_not_upscaled():
     im = Image.new("RGB", (100, 50))
     assert decode.fit(im).size == (100, 50)
+
+
+def test_detail_copy_is_larger_upright_frame(tmp_path):
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    p = tmp_path / "a.jpg"
+    Image.new("RGB", (6000, 2000), (200, 10, 10)).save(p, exif=exif)
+    d = decode.decode(str(p), detail_edge=3072)
+    assert d.image.size == (683, 2048)
+    assert d.detail is not None and d.detail.size == (1024, 3072)   # same upright frame, 1.5x the pixels
+
+
+def test_detail_only_when_asked_and_larger(tmp_path):
+    big, mid = tmp_path / "big.jpg", tmp_path / "mid.jpg"
+    Image.new("RGB", (4000, 3000)).save(big)
+    Image.new("RGB", (1800, 1200)).save(mid)
+    assert decode.decode(str(big)).detail is None                      # not asked
+    assert decode.decode(str(big), detail_edge=2048).detail is None    # not larger than the 2048 image
+    assert decode.decode(str(mid), detail_edge=3072).detail is None    # source already fits in 2048
+    assert decode.decode(str(big), detail_edge=8000).detail.size == (4000, 3000)   # never upscaled
+    d, ms = decode.timed_decode(str(big), 3072)
+    assert d.detail.size == (3072, 2304) and ms >= 0
