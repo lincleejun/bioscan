@@ -226,9 +226,10 @@ def test_detail_path_with_real_models(run, tmp_path):
                 .save(tmp_path / Path(p).name, quality=95)
         big.append(str(tmp_path / Path(p).name))
     seen = []
-    real = engine.identify
+    real = engine.identify_many
     mp = pytest.MonkeyPatch()
-    mp.setattr(engine, "identify", lambda *a, **kw: seen.append(kw["detail"].size) or real(*a, **kw))
+    mp.setattr(engine, "identify_many", lambda frames, opts: seen.extend(f.detail.size for f in frames)
+               or real(frames, opts))
     try:
         with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(2))) as c:
             evs = [json.loads(line) for line in c.post("/run", json={"inputs": [{"path": p} for p in big]}).text.splitlines()]

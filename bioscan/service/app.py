@@ -1,4 +1,7 @@
-"""HTTP surface: /health, /products, /run (NDJSON stream), the request lock and queue."""
+"""HTTP surface: /health, /products, /run (NDJSON stream), the model lock and queue.
+
+Requests take turns on the models one chunk at a time (FIFO), so a one-image request waits for at
+most the chunk in progress, not for a whole field batch. Decoding runs outside the lock."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +12,8 @@ import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,8 +32,42 @@ ORDER = contract.PRODUCTS
 @dataclass
 class State:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    running: int = 0
-    queued: int = 0
+    running: int = 0            # requests on the models right now (0 or 1)
+    queued: int = 0             # requests waiting for their next chunk's turn
+
+
+@asynccontextmanager
+async def hold_models(state: State) -> AsyncIterator[None]:
+    """One chunk's turn on the models. asyncio.Lock is FIFO, so turns alternate between requests."""
+    state.queued += 1
+    try:
+        await state.lock.acquire()
+    finally:
+        state.queued -= 1
+    state.running += 1
+    try:
+        yield
+    finally:
+        state.running -= 1
+        state.lock.release()
+
+
+class DecodePool:
+    """The decode executor, rebuilt when a worker dies (a RAW that crashes LibRaw would otherwise
+    leave a BrokenProcessPool behind for every later request). A plain Executor handed in by a
+    caller is used as is and never rebuilt."""
+
+    def __init__(self, factory: Callable[[], Executor] | None = None, executor: Executor | None = None) -> None:
+        self.factory = factory
+        self.executor = executor if executor is not None else factory()  # type: ignore[misc]
+
+    def rebuild(self) -> bool:
+        if self.factory is None:
+            return False
+        old, self.executor = self.executor, self.factory()
+        old.shutdown(wait=False, cancel_futures=True)
+        log.warning("decode pool rebuilt after a worker died")
+        return True
 
 
 def parse_run(body: Any) -> tuple[list[dict[str, Any]], list[str], dict[str, dict[str, Any]]]:
@@ -59,9 +98,11 @@ def parse_run(body: Any) -> tuple[list[dict[str, Any]], list[str], dict[str, dic
 
 
 async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
-                     *, decode_pool: Executor, gpu: Executor, chunk: int,
+                     *, decode_pool: Executor | DecodePool, gpu: Executor, chunk: int,
                      is_disconnected: Callable[[], Awaitable[bool]],
-                     detail_edge: int | None = None, cpu: Executor | None = None) -> AsyncIterator[dict[str, Any]]:
+                     detail_edge: int | None = None, cpu: Executor | None = None,
+                     hold: Callable[[], AbstractAsyncContextManager[Any]] | None = None
+                     ) -> AsyncIterator[dict[str, Any]]:
     """The /run event stream. Decode of chunk k+1 overlaps the models on chunk k; a client that
     went away is noticed between chunks, so the current chunk always finishes. The larger species
     image (`detail_edge`) is decoded only when identify is wanted."""
@@ -73,13 +114,31 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
     chunks = [inputs[i:i + chunk] for i in range(0, total, chunk)]
     edge = detail_edge if "identify" in want else None
 
+    pool = decode_pool if isinstance(decode_pool, DecodePool) else DecodePool(executor=decode_pool)
+
     def submit(ch: list[dict[str, Any]]) -> list[asyncio.Future]:
-        return [loop.run_in_executor(decode_pool, timed_decode, inp["path"], edge) for inp in ch]
+        return [loop.run_in_executor(pool.executor, timed_decode, inp["path"], edge) for inp in ch]
+
+    async def one_by_one(ch: list[dict[str, Any]]) -> list[Any]:
+        """After a worker died: decode files singly, rebuilding the pool after each crash, so the
+        file that kills the decoder fails alone."""
+        out: list[Any] = []
+        for inp in ch:
+            try:
+                out.append(await submit([inp])[0])
+            except BrokenProcessPool:
+                pool.rebuild()
+                out.append(RuntimeError("the decoder process crashed on this file"))
+            except Exception as exc:  # noqa: BLE001
+                out.append(exc)
+        return out
 
     pending = submit(chunks[0])
     try:
         for ci, ch in enumerate(chunks):
             decoded = await asyncio.gather(*pending, return_exceptions=True)
+            if any(isinstance(d, BrokenProcessPool) for d in decoded) and pool.rebuild():
+                decoded = await one_by_one(ch)
             pending = submit(chunks[ci + 1]) if ci + 1 < len(chunks) else []
             items = []
             for inp, d in zip(ch, decoded):
@@ -91,7 +150,11 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
                 items.append({"inp": inp, "dec": dec, "products": {}, "errors": [],
                               "timing": {"decode": round(ms, 1)}})
             if items:
-                async for ev in _run_chunk(engine, items, want, opts, loop, gpu, len(ch), done, total, cpu):
+                async with hold() if hold is not None else nullcontext():
+                    # collected under the lock, sent after it: a slow reader never holds the models
+                    evs = [ev async for ev in _run_chunk(engine, items, want, opts, loop, gpu, len(ch), done,
+                                                         total, cpu)]
+                for ev in evs:
                     yield ev
             for it in items:
                 if it["errors"]:
@@ -172,12 +235,12 @@ def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str,
     return [p for p in paths if not any(Path(p).resolve().is_relative_to(r) for r in roots)]
 
 
-def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int = 32,
+def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None, chunk: int = 32,
                decode_workers: int = 4, detail_edge: int | None = DETAIL_EDGE,
                allow_roots: list[str] | None = None) -> FastAPI:
     app = FastAPI(title="bioscan")
     state = State()
-    pool = decode_pool or ProcessPoolExecutor(max_workers=decode_workers)
+    pool = decode_pool or DecodePool(lambda: ProcessPoolExecutor(max_workers=decode_workers))
     gpu = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu")   # one GPU stream
     cpu = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cpu")   # jpg writes, off the model thread
     app.state.bioscan = state
@@ -210,23 +273,10 @@ def create_app(engine: Any, *, decode_pool: Executor | None = None, chunk: int =
             return JSONResponse({"error": f"model load failed: {type(exc).__name__}: {exc}"}, status_code=503)
 
         async def stream() -> AsyncIterator[bytes]:
-            state.queued += 1
-            waiting = True
-            try:
-                async with state.lock:
-                    state.queued -= 1
-                    waiting = False
-                    state.running += 1
-                    try:
-                        async for ev in run_events(engine, inputs, want, opts, decode_pool=pool, gpu=gpu,
-                                                   chunk=chunk, is_disconnected=request.is_disconnected,
-                                                   detail_edge=detail_edge, cpu=cpu):
-                            yield (json.dumps(ev, ensure_ascii=False) + "\n").encode()
-                    finally:
-                        state.running -= 1
-            finally:
-                if waiting:
-                    state.queued -= 1
+            async for ev in run_events(engine, inputs, want, opts, decode_pool=pool, gpu=gpu, chunk=chunk,
+                                       is_disconnected=request.is_disconnected, detail_edge=detail_edge, cpu=cpu,
+                                       hold=lambda: hold_models(state)):
+                yield (json.dumps(ev, ensure_ascii=False) + "\n").encode()
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 

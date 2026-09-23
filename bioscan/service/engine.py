@@ -18,7 +18,6 @@ from bioscan.service import pipeline, products
 log = logging.getLogger("bioscan.engine")
 
 SIGLIP_BATCH = 32
-OWLV2_BATCH = 8      # ponytail: OWLv2 runs one frame at a time today; batch across frames if it dominates
 BIOCLIP_BATCH = 16
 
 # What each product needs loaded, from the product registry.
@@ -41,8 +40,7 @@ class EngineProtocol(Protocol):
 
     def frame(self, images: list[Any]) -> tuple[np.ndarray, list[dict[str, float]]]: ...
 
-    def identify(self, image: Any, gate: dict[str, float], lat: float | None, lon: float | None,
-                 taken_at: str | None, opts: dict[str, Any], detail: Any = None) -> dict[str, Any]: ...
+    def identify_many(self, frames: list[Any], opts: dict[str, Any]) -> list[Any]: ...
 
 
 def pick_device() -> str:
@@ -144,6 +142,11 @@ class Engine:
                                for i in range(0, len(images), SIGLIP_BATCH)])
         return vecs, self.siglip2.gate(vecs)
 
+    def identify_many(self, frames: list[Any], opts: dict[str, Any]) -> list[Any]:
+        """pipeline.Frame list -> identify output (or the Exception it raised) per frame."""
+        return pipeline.identify_many(self, frames, opts)
+
     def identify(self, image: Any, gate: dict[str, float], lat: float | None, lon: float | None,
                  taken_at: str | None, opts: dict[str, Any], detail: Any = None) -> dict[str, Any]:
+        """One frame (convenience; the service calls identify_many)."""
         return pipeline.identify(self, image, gate, lat, lon, taken_at, opts, detail)

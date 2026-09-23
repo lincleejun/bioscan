@@ -263,3 +263,65 @@ def test_process_pool_decode_path(tmp_path):
         ev = events(c.post("/run", json={"inputs": [{"path": p}, {"path": str(tmp_path / "missing.jpg")}]}))
     assert sorted(e["type"] for e in ev if e["type"] in ("result", "error")) == ["error", "result"]
     assert engine.details == [(3000, 2000)] and engine.calls[0]["size"] == (2048, 1365)
+
+
+def test_small_request_waits_one_chunk_not_the_whole_batch(tmp_path):
+    """A 3-chunk batch is running; a 1-image request arriving meanwhile goes after the chunk in
+    progress, before the batch's remaining chunks."""
+    first_chunk = threading.Event()
+    order: list[str] = []
+
+    class Engine(FakeEngine):
+        def identify_many(self, frames, opts):
+            order.append("small" if frames[0].image.size == (30, 20) else "big")
+            if len(order) == 1:
+                first_chunk.wait(10)
+            return super().identify_many(frames, opts)
+
+    engine = Engine()
+    big = [make_jpg(tmp_path / f"b{i}.jpg") for i in range(3)]
+    small = make_jpg(tmp_path / "s.jpg", (30, 20))
+    with client_for(engine, chunk=1) as c:
+        t = threading.Thread(target=lambda: events(c.post("/run", json={"inputs": [{"path": p} for p in big]})))
+        t.start()
+        _wait(lambda: len(order) == 1)
+        s = threading.Thread(target=lambda: events(c.post("/run", json={"inputs": [{"path": small}]})))
+        s.start()
+        _wait(lambda: c.get("/health").json()["queued"] == 1)
+        first_chunk.set()
+        t.join(10)
+        s.join(10)
+    assert order == ["big", "small", "big", "big"]
+
+
+def _crash_on(path, edge=None):
+    import os
+
+    from bioscan.service import decode
+
+    if path.endswith("crash.jpg"):
+        os._exit(1)              # a decoder that dies the way LibRaw can on a corrupt RAW
+    return decode.timed_decode(path, edge)
+
+
+def test_decode_worker_crash_costs_one_file(tmp_path, monkeypatch):
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    from bioscan.service import app as app_mod
+
+    monkeypatch.setattr(app_mod, "timed_decode", _crash_on)
+    ctx = multiprocessing.get_context("fork")        # the worker must see the patched function
+    pool = app_mod.DecodePool(lambda: ProcessPoolExecutor(1, mp_context=ctx))
+    good = [make_jpg(tmp_path / f"{i}.jpg") for i in range(3)]
+    bad = make_jpg(tmp_path / "crash.jpg")
+    engine = FakeEngine()
+    with TestClient(create_app(engine, decode_pool=pool, chunk=2)) as c:
+        ev = events(c.post("/run", json={"inputs": [{"path": good[0]}, {"path": bad}, {"path": good[1]},
+                                                    {"path": good[2]}]}))
+        again = events(c.post("/run", json={"inputs": [{"path": good[0]}]}))     # the pool works afterwards
+    errors = [e for e in ev if e["type"] == "error"]
+    assert [e["path"] for e in errors] == [bad] and "crashed" in errors[0]["message"]
+    assert sorted(e["path"] for e in ev if e["type"] == "result") == sorted(good)
+    assert again[-1]["ok"] == 1
+    pool.executor.shutdown()

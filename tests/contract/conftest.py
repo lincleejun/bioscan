@@ -40,6 +40,15 @@ class FakeEngine:
         gate = {"bird": 0.93, "mammal": 0.02, "other_animal": 0.01, "person": 0.0, "none": 0.04}
         return vecs, [dict(gate) for _ in images]
 
+    def identify_many(self, frames, opts):
+        out = []
+        for f in frames:
+            try:
+                out.append(self.identify(f.image, f.gate, f.lat, f.lon, f.taken_at, opts, detail=f.detail))
+            except Exception as exc:  # noqa: BLE001 - per-frame, like the real pipeline
+                out.append(exc)
+        return out
+
     def identify(self, image, gate, lat, lon, taken_at, opts, detail=None):
         self.calls.append({"size": image.size, "lat": lat, "lon": lon, "taken_at": taken_at})
         self.details.append(None if detail is None else detail.size)

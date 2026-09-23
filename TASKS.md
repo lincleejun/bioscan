@@ -111,17 +111,17 @@ Verify: unit tests; CI.
 Verify: tests.
 
 ## C. Pipeline restructure (no behaviour change)
-- [ ] `rules.py` (pure rules + thresholds), `pipeline.py` (identify orchestration behind a `Models` protocol)
-- [ ] product registry (needs, defaults, validation, runner); app dispatch and engine NEEDS derived from it
-- [ ] model loader registry in Engine
-- [ ] taxa registry (gate prompts, detector words, name list per kind)
-- [ ] priors per kind (`engine.priors`), floor per prior; names.py no longer imports geo private helpers
+- [x] `rules.py` (pure rules + thresholds), `pipeline.py` (identify orchestration behind a `Models` protocol)
+- [x] product registry (needs, defaults, validation, runner); app dispatch and engine NEEDS derived from it
+- [x] model loader registry in Engine
+- [x] taxa registry (gate prompts, detector words, name list per kind)
+- [x] priors per kind (`engine.priors`), floor per prior; names.py no longer imports geo private helpers
 Verify: all tests; real-model CI numbers identical.
 
 ## D. Throughput and scheduling
-- [ ] model lock per chunk (FIFO) instead of per request: a 1-image request waits at most one chunk
-- [ ] batch identify across the chunk (crop gate, BioCLIP, OWLv2 by vocab group) with per-image error isolation
-- [ ] rebuild a broken decode process pool and retry the chunk once
-- [ ] jpg writes off the GPU thread
-- [ ] spec: record fp32 (fp16 left for a Mac eval)
+- [x] model lock per chunk (FIFO) instead of per request: a 1-image request waits at most one chunk
+- [x] batch identify across the chunk (crop gate, BioCLIP, OWLv2 by vocab group) with per-image error isolation
+- [x] rebuild a broken decode process pool and retry the chunk once
+- [x] jpg writes off the GPU thread
+- [x] spec: record fp32 (fp16 left for a Mac eval)
 Verify: tests; real-model CI numbers identical; speed unverified until Mac benchmark.

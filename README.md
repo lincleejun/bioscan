@@ -156,7 +156,9 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
-响应是 NDJSON 流：`progress` / `result` / `error` / `done`。请求之间串行排队，一批之内 CPU 解码与 GPU 推理流水。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`（`result`、`done` 带 `schema: 1`）。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+
+CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。
 
 ## 评测
 
@@ -168,6 +170,7 @@ bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>          # 调服�
 bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-nogeo --no-geo
 bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只重算指标
 ```
+`preds.ndjson` 第一行是 meta（schema、请求参数、真值与 synonyms.csv 的 sha256），重算时按它报告当时是否开了地理先验；流中断时 eval 退出码为 3。
 报告里"没框"按整图门类拆开：`none/person` 是门漏判（检测器没跑），其余是检测器没框到。
 真值格式：`path, scientific, tier, lat, lon, taken_at, source, kind`。真值学名会先经 `data/names/synonyms.csv` 归一到 AviList/MDD 再比较。
 
@@ -209,10 +212,16 @@ CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.
 ## 布局
 
 ```
-bioscan/service/app.py           路由、NDJSON 流、请求锁与队列
-bioscan/service/engine.py        设备选择、懒加载、batch 常量
-bioscan/service/products.py      identify / embed / jpg，定级 / 复判 / 画质规则
-bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + EXIF + sha256
+bioscan/contract.py              /run 事件与产物名的唯一定义（CLI 与服务共用，纯标准库）
+bioscan/naming.py                学名归一化、synonyms.csv、映射表过期检查（纯标准库）
+bioscan/service/app.py           路由、NDJSON 流、按 chunk 的模型锁、解码进程池自愈
+bioscan/service/engine.py        设备选择、模型加载注册表、每类先验、EngineProtocol
+bioscan/service/products.py      产物注册表：依赖、选项、校验、schema、执行器
+bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
+bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
+bioscan/service/taxa.py          门类提示词、检测词表、可提升的类别
+bioscan/service/settings.py      影响输出的设置指纹
+bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF + sha256
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/cli/                     main client render gt eval

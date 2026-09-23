@@ -15,7 +15,7 @@ from PIL import Image
 
 from bioscan import contract
 from bioscan.service.adapters.siglip2 import MODEL_NAME
-from bioscan.service.pipeline import _detect, _judged, _species, identify  # noqa: F401 - re-exported
+from bioscan.service.pipeline import Frame, _species, identify  # noqa: F401 - re-exported
 from bioscan.service.rules import *  # noqa: F403 - rules and thresholds re-exported for callers of products.X
 from bioscan.service.rules import MIN_CROP, crop_with_context, dedupe, judge, quality, species_crops  # noqa: F401
 
@@ -168,8 +168,8 @@ REGISTRY: dict[str, Product] = {
     "identify": Product(
         "identify", ("siglip2", "owlv2", "bioclip"), True, True, DEFAULTS["identify"], _check_identify,
         PRODUCTS["identify"],
-        _each(lambda e, it, o: e.identify(it.dec.image, it.gate, it.lat, it.lon, it.taken_at, o,
-                                          detail=it.dec.detail))),
+        lambda e, items, o: e.identify_many([Frame(it.dec.image, it.gate, it.lat, it.lon, it.taken_at, it.dec.detail)
+                                             for it in items], o)),
     "embed": Product(
         "embed", ("siglip2",), True, True, DEFAULTS["embed"], _check_embed, PRODUCTS["embed"],
         _each(lambda e, it, o: embed(it.vec, o["format"]))),

@@ -15,7 +15,7 @@ METHODS = [n for n, v in vars(EngineProtocol).items() if callable(v) and not n.s
 
 
 def test_protocol_methods():
-    assert sorted(METHODS) == sorted(["loaded", "ensure", "info", "frame", "identify"])
+    assert sorted(METHODS) == sorted(["loaded", "ensure", "info", "frame", "identify_many"])
 
 
 @pytest.mark.parametrize("impl", [Engine, FakeEngine])

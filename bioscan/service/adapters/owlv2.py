@@ -13,6 +13,7 @@ from bioscan.service.taxa import VOCAB  # noqa: F401 - re-exported
 
 MODEL_ID = "google/owlv2-base-patch16-ensemble"
 REVISION = "cfd3195ba4ea9592eec887ded089f4c08eff231d"
+BATCH = 8               # frames per forward pass (960 x 960 each)
 
 
 @dataclass(frozen=True)
@@ -42,17 +43,27 @@ class OWLv2:
 
     def detect(self, image: Any, prompts: list[str], *, threshold: float) -> list[Detection]:
         """Boxes above `threshold`; each carries the prompt it scored highest on."""
+        return self.detect_batch([image], prompts, threshold=threshold)[0]
+
+    def detect_batch(self, images: list[Any], prompts: list[str], *, threshold: float,
+                     batch: int = BATCH) -> list[list[Detection]]:
+        """detect() over many images with the same prompts, `batch` images per forward pass."""
         torch = self.torch
-        inputs = self.processor(text=[list(prompts)], images=image, return_tensors="pt").to(self.device)
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-        # OWLv2 pads to a square of the long side, so boxes come back in that padded frame.
-        side = max(image.size)
-        result = self.processor.post_process_grounded_object_detection(
-            outputs, threshold=threshold, target_sizes=torch.tensor([[side, side]]))[0]
-        out = []
-        for score, label, box in zip(result["scores"], result["labels"], result["boxes"]):
-            clipped = clip_to_frame(tuple(float(v) for v in box), *image.size)
-            if clipped is not None:
-                out.append(Detection(prompts[int(label)], float(score), clipped))
+        out: list[list[Detection]] = []
+        for start in range(0, len(images), batch):
+            part = images[start:start + batch]
+            inputs = self.processor(text=[list(prompts)] * len(part), images=part, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            # OWLv2 pads each image to a square of its long side, so boxes come back in that frame.
+            sides = [[max(im.size)] * 2 for im in part]
+            results = self.processor.post_process_grounded_object_detection(
+                outputs, threshold=threshold, target_sizes=torch.tensor(sides))
+            for image, result in zip(part, results):
+                dets = []
+                for score, label, box in zip(result["scores"], result["labels"], result["boxes"]):
+                    clipped = clip_to_frame(tuple(float(v) for v in box), *image.size)
+                    if clipped is not None:
+                        dets.append(Detection(prompts[int(label)], float(score), clipped))
+                out.append(dets)
         return out
