@@ -4,12 +4,13 @@ import json
 import re
 
 import pytest
+from PIL import Image
 from test_batch import FRAMES, Models
 
 from bioscan import contract
 from bioscan.cli import eval as ev
 from bioscan.cli.render import Renderer
-from bioscan.service import pipeline
+from bioscan.service import pipeline, rules
 
 OPTION_SETS = [{"top_k": 3, "geo": True, "species": True}, {"top_k": 1, "geo": False, "species": True},
                {"top_k": 5, "geo": True, "species": False}]
@@ -26,6 +27,12 @@ def test_every_identify_output_conforms(opts):
         assert contract.identify_problems(o) == [], o
     if opts["species"]:   # both a species object and a null species were checked
         assert {b["species"] is None for b in boxes} == {True, False}
+
+
+@pytest.mark.parametrize("size", [(4, 4), (64, 64)])     # under 8 px quality takes its early return
+def test_quality_has_the_contract_fields(size):
+    q = rules.quality(Image.new("RGB", size, (90, 120, 30)), (0.0, 0.0, float(size[0]), float(size[1])))
+    assert list(q) == list(contract.Quality.__annotations__)
 
 
 def _payload():
