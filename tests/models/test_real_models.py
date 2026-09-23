@@ -103,11 +103,8 @@ def run():
     device = engine_mod.pick_device()
     bioclip = BioCLIP(device)
     lists = small_lists(bioclip)
-    mp = pytest.MonkeyPatch()
-    mp.setattr(engine_mod, "load_species", lambda device: (bioclip, lists))
-    engine = engine_mod.Engine(device)
+    engine = engine_mod.Engine(device, engine_mod.Loaders(species=lambda device: (bioclip, lists)))
     engine.ensure(["identify", "embed"])
-    mp.undo()
     if os.environ.get("BIOSCAN_REQUIRE_GEO") == "1":
         assert engine.geo is not None, "BirdNET geo prior failed to load (BIOSCAN_REQUIRE_GEO=1)"
 
@@ -213,6 +210,7 @@ def test_detail_path_with_real_models(run, tmp_path):
     from fastapi.testclient import TestClient
     from PIL import Image
 
+    from bioscan.service import pipeline
     from bioscan.service.app import create_app
 
     gt, events, engine = run
@@ -226,10 +224,10 @@ def test_detail_path_with_real_models(run, tmp_path):
                 .save(tmp_path / Path(p).name, quality=95)
         big.append(str(tmp_path / Path(p).name))
     seen = []
-    real = engine.identify_many
+    real = pipeline.identify_many
     mp = pytest.MonkeyPatch()
-    mp.setattr(engine, "identify_many", lambda frames, opts: seen.extend(f.detail.size for f in frames)
-               or real(frames, opts))
+    mp.setattr(pipeline, "identify_many", lambda models, frames, opts: seen.extend(f.detail.size for f in frames)
+               or real(models, frames, opts))
     try:
         with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(2))) as c:
             evs = [json.loads(line) for line in c.post("/run", json={"inputs": [{"path": p} for p in big]}).text.splitlines()]

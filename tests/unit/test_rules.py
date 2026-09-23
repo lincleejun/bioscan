@@ -99,7 +99,6 @@ def test_geo_prior_applies_to_whole_list_before_top_k():
 
     g = Geo()
     eng = SimpleNamespace(names={"bird": birds}, priors={"bird": geo.PriorBinding(g, geo.GeoPrior.index(g, birds.birdnet))},
-                          BIOCLIP_BATCH=16, name_matrix=lambda k: None,
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims, probs=lambda f, m: np.array([visual])))
 
     def run(**opts):
@@ -177,7 +176,6 @@ def test_mammal_species_uses_mdd_without_geo():
 
     # a prior exists but is bound to birds only: mammals never ask it
     eng = SimpleNamespace(names={"mammal": mdd}, priors={"bird": geo.PriorBinding(Geo(), np.zeros(0, np.int64))},
-                          BIOCLIP_BATCH=16, name_matrix=lambda k: None,
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims,
                                                   probs=lambda f, m: np.array([[0.9, 0.1]] * len(f))))
     boxes = [{"kind": "mammal"}]
