@@ -53,3 +53,36 @@ def test_detail_only_when_asked_and_larger(tmp_path):
     assert decode.decode(str(big), detail_edge=8000).detail.size == (4000, 3000)   # never upscaled
     d, ms = decode.timed_decode(str(big), 3072)
     assert d.detail.size == (3072, 2304) and ms >= 0
+
+
+def test_raw_orientation_from_libraw_flip(monkeypatch, tmp_path):
+    """LibRaw rotates the pixels itself; we only report the EXIF orientation and the upright size."""
+    import sys
+    import types
+
+    import numpy as np
+
+    class Raw:
+        def __init__(self, flip):
+            self.sizes = types.SimpleNamespace(flip=flip, width=60, height=40)
+            self.flip = flip
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def postprocess(self, **kw):
+            assert kw["half_size"] and kw["use_camera_wb"] and kw["output_bps"] == 8
+            h, w = (30, 20) if self.flip in (5, 6) else (20, 30)     # half size, already rotated
+            return np.zeros((h, w, 3), np.uint8)
+
+    for flip, orientation in ((0, 1), (3, 3), (5, 8), (6, 6)):
+        monkeypatch.setitem(sys.modules, "rawpy", types.SimpleNamespace(imread=lambda f, flip=flip: Raw(flip)))
+        p = tmp_path / f"x{flip}.ARW"
+        p.write_bytes(b"not really raw")
+        d = decode.decode(str(p))
+        upright = (40, 60) if flip in (5, 6) else (60, 40)
+        assert (d.width, d.height) == upright and d.orientation == orientation, flip
+        assert d.image.size == ((20, 30) if flip in (5, 6) else (30, 20))

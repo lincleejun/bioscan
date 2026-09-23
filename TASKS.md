@@ -95,19 +95,19 @@ Invariant for C and D: real-model CI numbers unchanged (bird top-1 88.1 %, mamma
 
 ## A. Versions and reproducibility
 - [ ] pin SigLIP2 / BioCLIP / TreeOfLife revisions (values read from a CI run), pass everywhere, in names cache key and info()
-- [ ] settings fingerprint (thresholds, prompts, vocab, geo floor, detail edge) in info()
-- [ ] eval: meta header line in preds.ndjson (schema, options, gt/synonyms sha); rescoring reads geo from it
-- [ ] one stdlib name normaliser (`bioscan/naming.py`) used by names, geo, eval
-- [ ] stale-map check: synonyms.csv rows not reflected in avilist_map.csv -> warning at load, test on committed data
-- [ ] BirdNET geo model fetched in download.py, cached in CI; CI fails if geo is missing
+- [x] settings fingerprint (thresholds, prompts, vocab, geo floor, detail edge) in info()
+- [x] eval: meta header line in preds.ndjson (schema, options, gt/synonyms sha); rescoring reads geo from it
+- [x] one stdlib name normaliser (`bioscan/naming.py`) used by names, geo, eval
+- [x] stale-map check: synonyms.csv rows not reflected in avilist_map.csv -> warning at load, test on committed data
+- [x] BirdNET geo model fetched in download.py, cached in CI; CI fails if geo is missing
 Verify: unit tests; CI.
 
 ## B. Contract hardening
-- [ ] `bioscan/contract.py` (stdlib): products, event types, schema version; used by app, CLI, render, eval
-- [ ] `EngineProtocol`; test that Engine and FakeEngine match it (incl. signatures)
-- [ ] import-light test for the CLI modules
-- [ ] exit codes: 0 ok / 1 some images failed / 2 service unreachable / 3 incomplete stream or upstream error
-- [ ] process-pool decode contract test; RAW orientation logic test (rawpy faked)
+- [x] `bioscan/contract.py` (stdlib): products, event types, schema version; used by app, CLI, render, eval
+- [x] `EngineProtocol`; test that Engine and FakeEngine match it (incl. signatures)
+- [x] import-light test for the CLI modules
+- [x] exit codes: 0 ok / 1 some images failed / 2 service unreachable / 3 incomplete stream or upstream error
+- [x] process-pool decode contract test; RAW orientation logic test (rawpy faked)
 Verify: tests.
 
 ## C. Pipeline restructure (no behaviour change)

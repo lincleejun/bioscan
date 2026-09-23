@@ -63,8 +63,14 @@ def make_jpg(path, size=(64, 48)):
 
 
 def events(resp):
+    """Parsed NDJSON events; every one must carry its contract fields (bioscan/contract.py)."""
+    from bioscan import contract
+
     assert resp.headers["content-type"].startswith("application/x-ndjson")
-    return [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    evs = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    for ev in evs:
+        assert not contract.missing_fields(ev), (ev.get("type"), contract.missing_fields(ev))
+    return evs
 
 
 def client_for(engine, chunk=32):

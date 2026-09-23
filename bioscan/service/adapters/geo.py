@@ -26,10 +26,6 @@ def week_of(taken_at: str | None) -> int | None:
     return (month - 1) * 4 + min(3, (day - 1) // 8) + 1
 
 
-def _norm(s: str | None) -> str:
-    return " ".join((s or "").lower().replace("-", " ").replace("'", "").split())
-
-
 class GeoPrior:
     def __init__(self, model: Any) -> None:
         self._model = model

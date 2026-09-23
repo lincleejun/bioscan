@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -23,6 +23,26 @@ BIOCLIP_BATCH = 16
 
 # What each product needs loaded.
 NEEDS = {"identify": ("siglip2", "owlv2", "bioclip"), "embed": ("siglip2",), "jpg": ()}
+
+
+@runtime_checkable
+class EngineProtocol(Protocol):
+    """What app.py needs from an engine. Engine implements it with real models; the contract
+    tests' FakeEngine implements it with fixed answers; tests/unit/test_engine_protocol.py keeps
+    both in step (names and signatures)."""
+
+    device: str
+
+    def loaded(self) -> list[str]: ...
+
+    def ensure(self, want: list[str]) -> None: ...
+
+    def info(self) -> dict[str, Any]: ...
+
+    def frame(self, images: list[Any]) -> tuple[np.ndarray, list[dict[str, float]]]: ...
+
+    def identify(self, image: Any, gate: dict[str, float], lat: float | None, lon: float | None,
+                 taken_at: str | None, opts: dict[str, Any], detail: Any = None) -> dict[str, Any]: ...
 
 
 def pick_device() -> str:
@@ -99,7 +119,9 @@ class Engine:
         from bioscan.service.adapters import bioclip, owlv2, siglip2
 
         lists = {k: f"{nl.list_id}@{nl.sha}" for k, nl in self.names.items()}
-        return {"version": bioscan.__version__,
+        from bioscan.service import settings
+
+        return {"version": bioscan.__version__, "settings": settings.fingerprint(),
                 "models": {"gate": siglip2.MODEL_ID, "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
                            "species": bioclip.MODEL_ID.removeprefix("hf-hub:"), "names": lists,
                            "geo": "birdnet-geo-3.0" if self.geo else None}}

@@ -5,13 +5,16 @@ import os
 import plistlib
 import shutil
 import sys
+import urllib.error
 from pathlib import Path
 
+from bioscan import contract
 from bioscan.cli import client, gt
 from bioscan.cli.render import Renderer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PRODUCTS = ("identify", "embed", "jpg")
+PRODUCTS = contract.PRODUCTS
+EXIT_OK, EXIT_PARTIAL, EXIT_SERVICE, EXIT_INCOMPLETE = 0, 1, 2, 3
 
 
 # ---- serve -------------------------------------------------------------------
@@ -92,16 +95,27 @@ def build_payload(a) -> dict:
     return {"inputs": inputs, "want": want, "options": options}
 
 
+def exit_code(errors: int, done: bool) -> int:
+    """0 every image ok, 1 some images failed, 3 the stream ended without `done` (service died)."""
+    if not done:
+        return EXIT_INCOMPLETE
+    return EXIT_PARTIAL if errors else EXIT_OK
+
+
 def cmd_run(a):
     payload = build_payload(a)
     out = open(a.out, "w" if not a.json else "wb") if a.out else None
     try:
-        if a.json:  # raw NDJSON passthrough, no reprocessing
+        if a.json:  # raw NDJSON passthrough; only the event type is looked at, for the exit code
             sink = out or sys.stdout.buffer
+            errors, done = 0, False
             for line in client.run(payload, a.url):
                 sink.write(line + b"\n")
                 sink.flush()
-            return 0
+                t = json.loads(line).get("type")
+                errors += t == contract.ERROR
+                done = done or t == contract.DONE
+            return exit_code(errors, done)
         sink = out or sys.stdout
         r = Renderer()
         for line in client.run(payload, a.url):
@@ -109,7 +123,7 @@ def cmd_run(a):
             if text is not None:
                 print(text, file=sink, flush=True)
         print(r.summary(), file=sink)
-        return 1 if r.errors else 0
+        return exit_code(len(r.errors), r.done is not None)
     finally:
         if out:
             out.close()
@@ -141,7 +155,12 @@ def cmd_gt_inat(a):
 
 def cmd_eval(a):
     from bioscan.cli import eval as ev
-    print(ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms))
+    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms)
+    print(report)
+    if not complete:
+        print("error: the prediction stream ended before the service's `done`; missing images count as misses",
+              file=sys.stderr)
+        return EXIT_INCOMPLETE
     return 0
 
 
@@ -190,7 +209,9 @@ def cmd_names_geo_gaps(a, prior=None):
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="bioscan", description="Animal detection + species ID (thin client for the bioscan service).")
+    p = argparse.ArgumentParser(prog="bioscan", description="Animal detection + species ID (thin client for the bioscan service).",
+                                epilog="exit codes: 0 ok, 1 some images failed, 2 service unreachable or refused, "
+                                       "3 incomplete stream or upstream error, 130 interrupted")
     p.add_argument("--url", default=client.DEFAULT_URL, help="service URL (env BIOSCAN_URL; default %(default)s)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -261,7 +282,10 @@ def main(argv=None) -> int:
         return a.func(a)
     except client.ServiceError as e:
         print(f"error: {e}", file=sys.stderr)
-        return 2
+        return EXIT_SERVICE
+    except urllib.error.URLError as e:   # upstream (iNaturalist, HF) during gt / names
+        print(f"error: upstream request failed: {getattr(e, 'reason', e)}", file=sys.stderr)
+        return EXIT_INCOMPLETE
     except KeyboardInterrupt:
         return 130
     except BrokenPipeError:  # e.g. `bioscan run ... --json | head`

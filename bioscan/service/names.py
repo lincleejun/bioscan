@@ -19,16 +19,14 @@ from pathlib import Path
 
 import numpy as np
 
-from bioscan.service.adapters.geo import _norm
+from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, map_problems, norm_binomial, read_synonyms  # noqa: F401
 
 log = logging.getLogger(__name__)
 
 MODEL_NAME = "bioclip-2.5-vith14"
 TOL_REPO = "imageomics/TreeOfLife-200M"
 TOL_FILES = ("embeddings/txt_emb_bioclip-2.5-vith14.json", "embeddings/txt_emb_bioclip-2.5-vith14.npy")
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 CACHE_DIR = Path("~/.cache/bioscan/names")
-NAMES_DIR = "names"                 # under data_dir: synonyms.csv, avilist_map.csv
 CACHE_VERSION = "2"  # bump when text format, matching or npz layout changes
 DIM = 1024
 
@@ -45,11 +43,6 @@ class NameList:
     sha: str = ""                # list hash (CSV + map + synonyms + list_id + cache version), the cache key
     birdnet: list[str] = field(default_factory=list)      # BirdNET label per row ("" = none); birds only
     birdnet_how: list[str] = field(default_factory=list)  # exact | synonym | none
-
-
-def norm_binomial(name: str) -> str:
-    """'Corvus_corax', ' corvus  Corax ' -> 'corvus corax' (match key, geo._norm after '_' -> ' ')."""
-    return _norm(name.replace("_", " "))
 
 
 def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> list[str]:
@@ -93,24 +86,6 @@ def tol_text(taxonomy: list[str], common: str) -> str:
     if common:
         name += " with common name " + common
     return f"an image of {name}."
-
-
-def read_synonyms(path: Path) -> list[dict[str, str]]:
-    """synonyms.csv rows (avilist_scientific, alias, source, note); [] when the file is absent."""
-    if not path.is_file():
-        return []
-    with open(path, newline="", encoding="utf-8") as f:
-        return [r for r in csv.DictReader(f) if r.get("avilist_scientific") and r.get("alias")]
-
-
-def aliases(synonyms: list[dict[str, str]], sources: tuple[str, ...]) -> dict[str, list[str]]:
-    """norm(list name) -> aliases usable on one side. tol/birdnet/inat apply only to that side;
-    spelling applies everywhere."""
-    out: dict[str, list[str]] = {}
-    for r in synonyms:
-        if r["source"].strip() in sources:
-            out.setdefault(norm_binomial(r["avilist_scientific"]), []).append(r["alias"].strip())
-    return out
 
 
 def match_names(scis: list[str], targets: dict[str, str], alias: dict[str, list[str]]) -> list[tuple[str, str]]:
@@ -244,6 +219,8 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
     amap = read_map(map_path)
     if not amap:
         log.warning("%s missing: birds matched to TreeOfLife here, no BirdNET labels (no geo prior)", map_path)
+    for problem in map_problems(amap, synonyms) if amap else []:
+        log.warning("stale name map: %s", problem)
     out, tol = {}, None
     for kind, (list_id, sub, _cls, reader) in LISTS.items():
         src = _list_file(data_dir, sub)

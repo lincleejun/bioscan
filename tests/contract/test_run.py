@@ -250,3 +250,16 @@ def test_allow_roots(tmp_path):
                                  "options": {"jpg": {"out_dir": str(inside / "jpg")}}})
         assert events(r)[-1]["ok"] == 1
     assert len(engine.calls) == 1        # rejected requests never reach the models
+
+
+def test_process_pool_decode_path(tmp_path):
+    """Production decodes in a ProcessPoolExecutor: Decoded (with its detail image) must survive
+    pickling back from the worker."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    p = make_jpg(tmp_path / "a.jpg", (3000, 2000))
+    engine = FakeEngine()
+    with ProcessPoolExecutor(1) as pool, TestClient(create_app(engine, decode_pool=pool)) as c:
+        ev = events(c.post("/run", json={"inputs": [{"path": p}, {"path": str(tmp_path / "missing.jpg")}]}))
+    assert sorted(e["type"] for e in ev if e["type"] in ("result", "error")) == ["error", "result"]
+    assert engine.details == [(3000, 2000)] and engine.calls[0]["size"] == (2048, 1365)

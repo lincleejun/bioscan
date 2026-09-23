@@ -46,3 +46,10 @@ def test_model_test_sample_is_covered_by_its_name_lists():
 def test_golden_set_rows():
     rows = read(ROOT / "data" / "inat" / "groundtruth-inat.csv")
     assert len(rows) == 1625 and {r["kind"] for r in rows} == {"bird", "mammal"}
+
+
+def test_committed_map_reflects_synonyms():
+    from bioscan import naming
+    from bioscan.service import names
+
+    assert naming.map_problems(names.read_map(naming.AVILIST_MAP_CSV), naming.read_synonyms()) == []

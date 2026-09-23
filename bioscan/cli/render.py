@@ -3,6 +3,8 @@ import os
 import time
 from collections import Counter
 
+from bioscan import contract
+
 LEVEL_ZH = {"species": "种", "genus": "属", "family": "科"}
 # taxonomy is 7 levels: kingdom phylum class order family genus species
 RANK_INDEX = {"genus": 5, "family": 4}
@@ -52,7 +54,7 @@ class Renderer:
     def feed(self, ev: dict) -> str | None:
         """Consume one event; return the line to print, if any."""
         t = ev.get("type")
-        if t == "result":
+        if t == contract.RESULT:
             self.results += 1
             self.paths.add(ev.get("path"))
             for b in ((ev.get("products") or {}).get("identify") or {}).get("boxes") or []:
@@ -65,12 +67,12 @@ class Renderer:
                 elif sp.get("level") == "unconfirmed":
                     self.unconfirmed += 1
             return result_line(ev)
-        if t == "error":
+        if t == contract.ERROR:
             self.errors.append(ev)
             self.paths.add(ev.get("path"))
             where = f" [{ev['product']}]" if ev.get("product") else " [decode]"
             return f"{os.path.basename(ev.get('path', '?'))}  ERROR{where} {ev.get('message', '')}"
-        if t == "done":
+        if t == contract.DONE:
             self.done = ev
         return None  # progress and unknown types are silent
 

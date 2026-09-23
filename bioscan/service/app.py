@@ -16,11 +16,12 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from bioscan import contract
 from bioscan.service import products
 from bioscan.service.decode import DETAIL_EDGE, MAX_EDGE, timed_decode
 
 log = logging.getLogger("bioscan")
-ORDER = ("identify", "embed", "jpg")
+ORDER = contract.PRODUCTS
 
 
 @dataclass
@@ -68,7 +69,7 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
     t0 = time.perf_counter()
     total, ok, failed = len(inputs), 0, 0
     done = dict.fromkeys(want, 0)
-    info = engine.info()
+    info = {**engine.info(), "detail_edge": detail_edge}
     chunks = [inputs[i:i + chunk] for i in range(0, total, chunk)]
     edge = detail_edge if "identify" in want else None
 
@@ -84,7 +85,7 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
             for inp, d in zip(ch, decoded):
                 if isinstance(d, BaseException):
                     failed += 1
-                    yield {"type": "error", "path": inp["path"], "product": None, "message": f"decode: {type(d).__name__}: {d}"}
+                    yield contract.error(inp["path"], None, f"decode: {type(d).__name__}: {d}")
                     continue
                 dec, ms = d
                 items.append({"inp": inp, "dec": dec, "products": {}, "errors": [],
@@ -96,22 +97,22 @@ async def run_events(engine: Any, inputs: list[dict[str, Any]], want: list[str],
                 if it["errors"]:
                     failed += 1
                     for product, message in it["errors"]:
-                        yield {"type": "error", "path": it["inp"]["path"], "product": product, "message": message}
+                        yield contract.error(it["inp"]["path"], product, message)
                     continue
                 ok += 1
                 dec = it["dec"]
                 log.info("%s %s", Path(dec.path).name, it["timing"])
-                yield {"type": "result", "path": dec.path, "sha256": dec.sha256,
-                       "image": {"width": dec.width, "height": dec.height, "orientation": dec.orientation},
-                       "engine": info, "products": it["products"], "timing_ms": it["timing"]}
+                yield contract.result(dec.path, dec.sha256,
+                                      {"width": dec.width, "height": dec.height, "orientation": dec.orientation},
+                                      info, it["products"], it["timing"])
             if not items:
                 for p in want:
                     done[p] += len(ch)
-                    yield {"type": "progress", "product": p, "done": done[p], "total": total}
+                    yield contract.progress(p, done[p], total)
             if ci + 1 < len(chunks) and await is_disconnected():
                 log.info("client disconnected; stopping after chunk %d/%d", ci + 1, len(chunks))
                 return
-        yield {"type": "done", "ok": ok, "failed": failed, "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1)}
+        yield contract.done(ok, failed, round((time.perf_counter() - t0) * 1000, 1))
     finally:
         for f in pending:
             f.cancel()
@@ -162,7 +163,7 @@ async def _run_chunk(engine: Any, items: list[dict[str, Any]], want: list[str], 
     for product in want:
         await loop.run_in_executor(gpu, step, product)
         done[product] += n_chunk
-        yield {"type": "progress", "product": product, "done": done[product], "total": total}
+        yield contract.progress(product, done[product], total)
 
 
 def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
