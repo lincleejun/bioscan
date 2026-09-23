@@ -202,3 +202,33 @@ def test_build_name_map_small_sample():
     assert cands == [{"side": "tol", "scientific": "Gyps rueppelli", "candidate": "Gyps rueppellii",
                       "distance": 1, "candidate_in_avilist": False}]
     assert bnm.edit_distance("kitten", "sitting") == 3
+
+
+def test_cache_rebuilt_when_model_revision_changes(tmp_path, monkeypatch):
+    from bioscan.service.adapters import bioclip
+
+    data, tol, _ = setup(tmp_path)
+    cache = tmp_path / "cache"
+    names.load_lists(FakeModel(), FakeTokenizer(), "cpu", cache, data_dir=data, tol_files=tol)
+    with np.load(next(cache.glob("*.npz"))) as z:
+        assert str(z["bioclip_revision"]) == bioclip.REVISION and str(z["tol_revision"]) == names.TOL_REVISION
+    calls = FakeModel.calls
+    names.load_lists(None, None, "cpu", cache, data_dir=data, tol_files=tol)          # same revisions: cached
+    assert FakeModel.calls == calls
+    monkeypatch.setattr(bioclip, "REVISION", "f" * 40)                                  # new weights pinned
+    names.load_lists(FakeModel(), FakeTokenizer(), "cpu", cache, data_dir=data, tol_files=tol)
+    assert FakeModel.calls > calls
+
+
+def test_cache_from_before_revisions_were_recorded_is_used(tmp_path):
+    data, tol, _ = setup(tmp_path)
+    cache = tmp_path / "cache"
+    names.load_lists(FakeModel(), FakeTokenizer(), "cpu", cache, data_dir=data, tol_files=tol)
+    for p in cache.glob("*.npz"):                       # rewrite without the revision fields
+        with np.load(p) as z:
+            kept = {k: z[k] for k in z.files if not k.endswith("_revision")}
+        with open(p, "wb") as f:
+            np.savez(f, **kept)
+    calls = FakeModel.calls
+    again = names.load_lists(None, None, "cpu", cache, data_dir=data, tol_files=(tmp_path / "x", tmp_path / "x"))
+    assert FakeModel.calls == calls and again["bird"].scientific == ["Corvus corax", "Megascops kennicottii"]

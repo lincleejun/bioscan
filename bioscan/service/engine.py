@@ -131,8 +131,10 @@ class Engine:
         lists = {k: f"{nl.list_id}@{nl.sha}" for k, nl in self.names.items()}
         priors = {k: b.name for k, b in self.priors.items()}
         return {"version": bioscan.__version__, "settings": settings.fingerprint(),
-                "models": {"gate": siglip2.MODEL_ID, "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
-                           "species": bioclip.MODEL_ID.removeprefix("hf-hub:"), "names": lists,
+                "models": {"gate": f"{siglip2.MODEL_ID}@{siglip2.REVISION[:12]}",
+                           "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
+                           "species": f"{bioclip.MODEL_ID.removeprefix('hf-hub:')}@{bioclip.REVISION[:12]}",
+                           "names": lists,
                            "geo": priors.get("bird"), "priors": priors}}
 
     # ---- inference ----

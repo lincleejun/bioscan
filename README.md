@@ -89,10 +89,11 @@ git clone https://github.com/lincleejun/bioscan && cd bioscan
 uv sync                                   # Python 3.12
 ```
 
-模型权重从 `~/.cache/huggingface` 读，服务本身离线（`HF_HUB_OFFLINE=1`）。新机器先联网拉一次：
+模型权重从 `~/.cache/huggingface` 读，服务本身离线（`HF_HUB_OFFLINE=1`）。三个模型和 TreeOfLife 向量都钉在固定的 HF 提交上（`siglip2.REVISION`、`bioclip.REVISION`、`owlv2.REVISION`、`names.TOL_REVISION`），`result.engine.models` 里带着这些版本。新机器（或升级到钉版本之后缓存里没有对应快照时）先联网拉一次：
 ```sh
-uv run python -c "from huggingface_hub import snapshot_download as s; s('google/siglip2-base-patch16-224'); s('google/owlv2-base-patch16-ensemble', revision='cfd3195ba4ea9592eec887ded089f4c08eff231d', ignore_patterns=['*.bin']); s('imageomics/bioclip-2.5-vith14', ignore_patterns=['*.bin'])"
+uv run python tests/models/download.py      # 三个模型的钉定版本 + BirdNET geo 模型，打印各自版本
 ```
+名单向量缓存会记录建它时的 BioCLIP / TreeOfLife 版本，版本变了自动重建；早于记录的旧缓存照常使用。
 
 名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，建完可删，约半分钟），之后秒开。
 

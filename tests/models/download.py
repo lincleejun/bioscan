@@ -7,6 +7,7 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, snapshot_download
 
+from bioscan.service import names
 from bioscan.service.adapters import bioclip, geo, owlv2, siglip2
 
 
@@ -15,14 +16,13 @@ def fetch(repo: str, **kw) -> None:
     print(f"{repo} @ {Path(path).name}")
 
 
-fetch(siglip2.MODEL_ID, revision=getattr(siglip2, "REVISION", None))
+fetch(siglip2.MODEL_ID, revision=siglip2.REVISION)
 fetch(owlv2.MODEL_ID, revision=owlv2.REVISION)
-fetch(bioclip.MODEL_ID.removeprefix("hf-hub:"), revision=getattr(bioclip, "REVISION", None))
-# TreeOfLife-200M text vectors (3.26 GB) are only needed to rebuild the name cache; report the
-# commit data/README.md names (snapshot 5f2dc493) so it can be pinned.
-commits = HfApi().list_repo_commits("imageomics/TreeOfLife-200M", repo_type="dataset")
-print("imageomics/TreeOfLife-200M 5f2dc493* ->", [c.commit_id for c in commits if c.commit_id.startswith("5f2dc493")],
-      "main ->", commits[0].commit_id)
+fetch(bioclip.MODEL_ID.removeprefix("hf-hub:"), revision=bioclip.REVISION)
+# TreeOfLife-200M text vectors (3.26 GB) are only needed to rebuild the name cache (names.py pins
+# TOL_REVISION); report whether upstream has moved since.
+main = HfApi().list_repo_commits(names.TOL_REPO, repo_type="dataset")[0].commit_id
+print(f"{names.TOL_REPO} pinned {names.TOL_REVISION[:12]}, upstream main {main[:12]}")
 prior = geo.GeoPrior.load()
 if prior is None:
     raise SystemExit("BirdNET geo model could not be loaded")

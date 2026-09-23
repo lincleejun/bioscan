@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 MODEL_NAME = "bioclip-2.5-vith14"
 TOL_REPO = "imageomics/TreeOfLife-200M"
+TOL_REVISION = "5f2dc493b3dc0e544438a04038ab15faa646b749"   # the snapshot data/README.md was measured on
 TOL_FILES = ("embeddings/txt_emb_bioclip-2.5-vith14.json", "embeddings/txt_emb_bioclip-2.5-vith14.npy")
 CACHE_DIR = Path("~/.cache/bioscan/names")
 CACHE_VERSION = "2"  # bump when text format, matching or npz layout changes
@@ -164,7 +165,14 @@ def _read_tol(tol_files):
 
 def _download_tol():
     from huggingface_hub import hf_hub_download
-    return tuple(hf_hub_download(TOL_REPO, f, repo_type="dataset") for f in TOL_FILES)
+    return tuple(hf_hub_download(TOL_REPO, f, repo_type="dataset", revision=TOL_REVISION) for f in TOL_FILES)
+
+
+def _built_with() -> dict[str, str]:
+    """What a cached matrix depends on besides the lists: the text tower and the official vectors."""
+    from bioscan.service.adapters import bioclip
+
+    return {"bioclip_revision": bioclip.REVISION, "tol_revision": TOL_REVISION}
 
 
 def _build(kind, rows, tol, model, tokenizer, device, keys: list[tuple[str, str]] | None,
@@ -199,8 +207,19 @@ def _save(path: Path, nl: NameList) -> None:
     tmp = path.with_suffix(".tmp")
     with open(tmp, "wb") as f:
         np.savez(f, scientific=np.array(nl.scientific), common=np.array(nl.common),
-                 taxonomy=np.array(nl.taxonomy), matrix=nl.matrix, tol_how=np.array(nl.tol_how))
+                 taxonomy=np.array(nl.taxonomy), matrix=nl.matrix, tol_how=np.array(nl.tol_how),
+                 **{k: np.array(v) for k, v in _built_with().items()})
     os.replace(tmp, path)
+
+
+def _stale(path: Path) -> bool:
+    """True when the cache was built with another BioCLIP or TreeOfLife revision. Caches written
+    before revisions were recorded are trusted (they were built with the revisions now pinned)."""
+    with np.load(path, allow_pickle=False) as z:
+        recorded = {k: str(z[k]) for k in _built_with() if k in z.files}
+    if not recorded:
+        log.info("%s predates recorded model revisions; using it", path.name)
+    return any(recorded[k] != v for k, v in _built_with().items() if k in recorded)
 
 
 def _load(path: Path, kind: str) -> NameList:
@@ -229,7 +248,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
         sha = hashlib.sha256(f"{CACHE_VERSION}\0{list_id}\0".encode() + src.read_bytes() + b"\0" + extra).hexdigest()[:16]
         path = cache_dir / f"{MODEL_NAME}-{sha}.npz"
         rows = reader(src)
-        if path.is_file():
+        if path.is_file() and not _stale(path):
             out[kind] = _load(path, kind)
         else:
             if tol is None:

@@ -94,12 +94,15 @@ Invariant for C and D: real-model CI numbers unchanged (bird top-1 88.1 %, mamma
 - [x] models.yml path filters (service, tests/models, data/names, uv.lock, pyproject, workflow)
 
 ## A. Versions and reproducibility
-- [ ] pin SigLIP2 / BioCLIP / TreeOfLife revisions (values read from a CI run), pass everywhere, in names cache key and info()
+- [x] pin SigLIP2 / BioCLIP / TreeOfLife revisions (values read from a CI run), pass everywhere, in names cache key and info()
 - [x] settings fingerprint (thresholds, prompts, vocab, geo floor, detail edge) in info()
 - [x] eval: meta header line in preds.ndjson (schema, options, gt/synonyms sha); rescoring reads geo from it
 - [x] one stdlib name normaliser (`bioscan/naming.py`) used by names, geo, eval
 - [x] stale-map check: synonyms.csv rows not reflected in avilist_map.csv -> warning at load, test on committed data
 - [x] BirdNET geo model fetched in download.py, cached in CI; CI fails if geo is missing
+Pins read from a CI run: siglip2 75de2d55, bioclip 6e3d04e3 (loaded via open_clip local-dir: of the pinned
+snapshot, since its hf-hub: path cannot take a revision), TreeOfLife 5f2dc493 (= data/README snapshot = main).
+Name cache key unchanged (no forced 3.26 GB re-download); new caches record revisions and rebuild on mismatch.
 Verify: unit tests; CI.
 
 ## B. Contract hardening
@@ -125,3 +128,6 @@ Verify: all tests; real-model CI numbers identical.
 - [x] jpg writes off the GPU thread
 - [x] spec: record fp32 (fp16 left for a Mac eval)
 Verify: tests; real-model CI numbers identical; speed unverified until Mac benchmark.
+- [x] self-review (subagent): 1 blocker (decode-pool rebuild race cancelled another request's decodes), fixed in af233c9
+      and confirmed with the reviewer's own reproduction (3/3 runs: only the crashing file fails)
+- [x] batched pipeline == old per-image code: 300 random frames x 3 option sets identical (scratch comparison)

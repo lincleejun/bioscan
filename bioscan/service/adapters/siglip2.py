@@ -15,6 +15,7 @@ from bioscan.service.taxa import GATE_CLASSES, GATE_PROMPTS  # noqa: F401 - re-e
 
 MODEL_ID = "google/siglip2-base-patch16-224"
 MODEL_NAME = "siglip2-base-patch16-224"
+REVISION = "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2"
 
 
 
@@ -41,8 +42,8 @@ class SigLIP2:
         from transformers import AutoModel, AutoProcessor
 
         self.torch, self.device = torch, device
-        self.processor = AutoProcessor.from_pretrained(MODEL_ID)
-        self.model = AutoModel.from_pretrained(MODEL_ID).to(device).eval()
+        self.processor = AutoProcessor.from_pretrained(MODEL_ID, revision=REVISION)
+        self.model = AutoModel.from_pretrained(MODEL_ID, revision=REVISION).to(device).eval()
         self.logit_scale = float(self.model.logit_scale.exp().item())
         rows = []
         for name in GATE_CLASSES:
