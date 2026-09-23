@@ -8,7 +8,6 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
@@ -21,9 +20,9 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from bioscan import contract
+from bioscan import contract, serve_config
 from bioscan.service import products
-from bioscan.service.decode import DETAIL_EDGE, MAX_EDGE, timed_decode
+from bioscan.service.decode import timed_decode
 
 log = logging.getLogger("bioscan")
 ORDER = contract.PRODUCTS
@@ -241,8 +240,8 @@ def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str,
     return [p for p in paths if not any(Path(p).resolve().is_relative_to(r) for r in roots)]
 
 
-def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None, chunk: int = 32,
-               decode_workers: int = 4, detail_edge: int | None = DETAIL_EDGE,
+def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None, chunk: int = serve_config.CHUNK,
+               decode_workers: int = serve_config.DECODE_WORKERS, detail_edge: int | None = serve_config.DETAIL_EDGE,
                allow_roots: list[str] | None = None) -> FastAPI:
     app = FastAPI(title="bioscan")
     state = State()
@@ -289,57 +288,39 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
     return app
 
 
-def tunables(decode_workers: int | None, chunk: int | None, env=os.environ) -> tuple[int, int]:
-    """Command line beats BIOSCAN_DECODE_WORKERS / BIOSCAN_CHUNK beats the defaults 4 / 32."""
-    def pick(given: int | None, var: str, default: int) -> int:
-        value = given if given is not None else int(env.get(var) or default)
-        if value < 1:
-            raise SystemExit(f"{var.removeprefix('BIOSCAN_').lower()} must be >= 1")
-        return value
-    return pick(decode_workers, "BIOSCAN_DECODE_WORKERS", 4), pick(chunk, "BIOSCAN_CHUNK", 32)
-
-
-def detail_edge_from(given: int | None, env=os.environ) -> int | None:
-    """--detail-edge beats BIOSCAN_DETAIL_EDGE beats 3072; a value <= 2048 turns the larger
-    species image off (None)."""
-    value = given if given is not None else int(env.get("BIOSCAN_DETAIL_EDGE") or DETAIL_EDGE)
-    return value if value > MAX_EDGE else None
-
-
-def allow_roots_from(given: list[str] | None, env=os.environ) -> list[str]:
-    """--allow-root (repeatable) beats BIOSCAN_ALLOW_ROOTS (os.pathsep-separated); none = no limit."""
-    if given:
-        return given
-    return [r for r in (env.get("BIOSCAN_ALLOW_ROOTS") or "").split(os.pathsep) if r.strip()]
-
-
-def main(argv: list[str] | None = None) -> None:
+def serve(config: serve_config.ServeConfig) -> None:
+    """Run the service with `config` until stopped (uvicorn, one worker)."""
     import uvicorn
 
     from bioscan.service.engine import Engine
 
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    log.info("decode_workers=%d chunk=%d detail_edge=%s allow_roots=%s", config.decode_workers, config.chunk,
+             config.detail_edge, config.allow_roots or "any")
+    if not config.allow_roots and config.host not in ("127.0.0.1", "localhost", "::1"):
+        log.warning("listening on %s with no --allow-root: any client can read any file this user can read "
+                    "and write JPEGs anywhere", config.host)
+    app = create_app(Engine(), chunk=config.chunk, decode_workers=config.decode_workers,
+                     detail_edge=config.detail_edge, allow_roots=config.allow_roots)
+    uvicorn.run(app, host=config.host, port=config.port, workers=1)
+
+
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="bioscan-serve")
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--decode-workers", type=int, help="default: env BIOSCAN_DECODE_WORKERS, else 4")
-    ap.add_argument("--chunk", type=int, help="default: env BIOSCAN_CHUNK, else 32")
+    ap.add_argument("--host", default=serve_config.HOST)
+    ap.add_argument("--port", type=int, default=serve_config.PORT)
+    ap.add_argument("--decode-workers", type=int,
+                    help=f"default: env BIOSCAN_DECODE_WORKERS, else {serve_config.DECODE_WORKERS}")
+    ap.add_argument("--chunk", type=int, help=f"default: env BIOSCAN_CHUNK, else {serve_config.CHUNK}")
     ap.add_argument("--detail-edge", type=int,
-                    help="long edge of the species-crop image; <= 2048 turns it off. "
-                         "default: env BIOSCAN_DETAIL_EDGE, else 3072")
+                    help=f"long edge of the species-crop image; <= {serve_config.MAX_EDGE} turns it off. "
+                         f"default: env BIOSCAN_DETAIL_EDGE, else {serve_config.DETAIL_EDGE}")
     ap.add_argument("--allow-root", action="append",
                     help="only read inputs / write jpg under this directory (repeatable). "
                          "default: env BIOSCAN_ALLOW_ROOTS (os.pathsep-separated), else no limit")
     args = ap.parse_args(argv)
-    workers, chunk = tunables(args.decode_workers, args.chunk)
-    detail = detail_edge_from(args.detail_edge)
-    roots = allow_roots_from(args.allow_root)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    log.info("decode_workers=%d chunk=%d detail_edge=%s allow_roots=%s", workers, chunk, detail, roots or "any")
-    if not roots and args.host not in ("127.0.0.1", "localhost", "::1"):
-        log.warning("listening on %s with no --allow-root: any client can read any file this user can read "
-                    "and write JPEGs anywhere", args.host)
-    app = create_app(Engine(), chunk=chunk, decode_workers=workers, detail_edge=detail, allow_roots=roots)
-    uvicorn.run(app, host=args.host, port=args.port, workers=1)
+    serve(serve_config.resolve(host=args.host, port=args.port, decode_workers=args.decode_workers, chunk=args.chunk,
+                               detail_edge=args.detail_edge, allow_roots=args.allow_root))
 
 
 if __name__ == "__main__":

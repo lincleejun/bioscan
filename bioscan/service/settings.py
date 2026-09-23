@@ -13,9 +13,9 @@ def snapshot() -> dict[str, Any]:
     from bioscan.service import decode, rules, taxa
     from bioscan.service.adapters import geo
 
-    thresholds = {k: getattr(rules, k) for k in ("VETO", "MAMMAL_SUPPORT", "BIRD_PROMOTE", "MIN_CROP", "SPECIES_P",
-                                               "SPECIES_MARGIN", "ROLLUP", "SECOND_PASS_FLOOR", "SECOND_PASS_TOP",
-                                               "IOU_SAME", "RESCUE")}
+    # every UPPER_CASE number in rules.py, so a threshold added there cannot be left out of the fingerprint
+    thresholds = {k: v for k, v in vars(rules).items()
+                  if k.isupper() and isinstance(v, (int, float)) and not isinstance(v, bool)}
     return {"rules": thresholds, "gate_prompts": taxa.GATE_PROMPTS, "vocab": taxa.VOCAB,
             "taxa": {"not_animal": list(taxa.NOT_ANIMAL), "promote_to": taxa.PROMOTE_TO},
             "geo": {"model": list(geo.GEO_MODEL), "floor": geo.GEO_FLOOR}, "max_edge": decode.MAX_EDGE}

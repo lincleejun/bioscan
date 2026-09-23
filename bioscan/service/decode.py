@@ -14,8 +14,8 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-MAX_EDGE = 2048
-DETAIL_EDGE = 3072   # default long edge of the species-crop image; <= MAX_EDGE turns it off
+from bioscan.serve_config import MAX_EDGE
+
 RAW_EXT = {".arw", ".cr2", ".cr3", ".nef", ".nrw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw"}
 # LibRaw `sizes.flip` -> EXIF orientation value
 _FLIP_TO_ORIENTATION = {0: 1, 3: 3, 5: 8, 6: 6}

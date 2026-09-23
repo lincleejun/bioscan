@@ -215,6 +215,7 @@ CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.
 ```
 bioscan/contract.py              /run 事件与产物名的唯一定义（CLI 与服务共用，纯标准库）
 bioscan/naming.py                学名归一化、synonyms.csv、映射表过期检查（纯标准库）
+bioscan/serve_config.py          服务设置：参数 > BIOSCAN_* > 默认值，两个入口共用一次解析（纯标准库）
 bioscan/service/app.py           路由、NDJSON 流、按 chunk 的模型锁、解码进程池自愈
 bioscan/service/engine.py        设备选择、模型加载注册表、每类先验、EngineProtocol
 bioscan/service/products.py      产物注册表：依赖、选项、校验、schema、执行器

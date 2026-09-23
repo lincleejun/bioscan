@@ -8,7 +8,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-from bioscan import contract
+from bioscan import contract, serve_config
 from bioscan.cli import client, gt
 from bioscan.cli.render import Renderer
 
@@ -41,21 +41,18 @@ def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = N
 
 def cmd_serve(a):
     if a.launchd:
-        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or 4, a.chunk or 32,
+        # launchd starts the job without this shell's environment: bake in the flags, else the
+        # defaults, and let the served command line resolve the rest.
+        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or serve_config.DECODE_WORKERS,
+                                              a.chunk or serve_config.CHUNK,
                                               allow_roots=a.allow_root, detail_edge=a.detail_edge))
         return 0
-    # The service reads its tunables from the environment (flag > env > default 4/32).
-    if a.decode_workers is not None:
-        os.environ["BIOSCAN_DECODE_WORKERS"] = str(a.decode_workers)
-    if a.chunk is not None:
-        os.environ["BIOSCAN_CHUNK"] = str(a.chunk)
-    if a.detail_edge is not None:
-        os.environ["BIOSCAN_DETAIL_EDGE"] = str(a.detail_edge)
-    if a.allow_root:
-        os.environ["BIOSCAN_ALLOW_ROOTS"] = os.pathsep.join(os.path.abspath(r) for r in a.allow_root)
+    config = serve_config.resolve(port=a.port, decode_workers=a.decode_workers, chunk=a.chunk,
+                                  detail_edge=a.detail_edge,
+                                  allow_roots=[os.path.abspath(r) for r in a.allow_root or []])
     from bioscan.service import app  # service deps live with bioscan.service; keep the CLI import-light
 
-    app.main(["--port", str(a.port)])
+    app.serve(config)
     return 0
 
 
@@ -216,11 +213,13 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("serve", help="run the service (uvicorn, one worker)")
-    s.add_argument("--port", type=int, default=8765)
-    s.add_argument("--decode-workers", type=int, help="env BIOSCAN_DECODE_WORKERS, default 4")
-    s.add_argument("--chunk", type=int, help="env BIOSCAN_CHUNK, default 32")
+    s.add_argument("--port", type=int, default=serve_config.PORT)
+    s.add_argument("--decode-workers", type=int,
+                   help=f"env BIOSCAN_DECODE_WORKERS, default {serve_config.DECODE_WORKERS}")
+    s.add_argument("--chunk", type=int, help=f"env BIOSCAN_CHUNK, default {serve_config.CHUNK}")
     s.add_argument("--allow-root", action="append", help="only serve files under DIR (repeatable); env BIOSCAN_ALLOW_ROOTS")
-    s.add_argument("--detail-edge", type=int, help="species-crop image long edge, <=2048 = off; env BIOSCAN_DETAIL_EDGE, default 3072")
+    s.add_argument("--detail-edge", type=int, help=f"species-crop image long edge, <={serve_config.MAX_EDGE} = off; "
+                                                   f"env BIOSCAN_DETAIL_EDGE, default {serve_config.DETAIL_EDGE}")
     s.add_argument("--launchd", action="store_true", help="print a launchd plist to stdout instead of serving")
     s.set_defaults(func=cmd_serve)
 
