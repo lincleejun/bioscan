@@ -1,7 +1,7 @@
 """Model registry: device choice, lazy loading, the whole-frame pass. One instance per process.
 
-app.py asks it for `frame`, `ensure`, `loaded`, `info` and `device`; identify (pipeline.py) reads its
-three model adapters and the data they need (`siglip2`, `owlv2`, `bioclip`, `names`, `priors`). The
+app.py asks it for `ensure`, `loaded` and `device`, the run module (run.py) for `frame` and `info`;
+identify (pipeline.py) reads its three model adapters and the data they need (`siglip2`, `owlv2`, `bioclip`, `names`, `priors`). The
 adapters are built by `Loaders`: the real models in production, fixed-answer fakes in the contract
 tests, so those tests run this class and the whole identify pipeline for real.
 """

@@ -126,4 +126,5 @@ Flag, else `BIOSCAN_*` variable, else default, done once per process (`serve_con
 Directories the service may read from and write to; empty means no limit.
 
 **Settings fingerprint**:
-Twelve hex characters over every output-changing constant (thresholds, prompts, vocabulary, prior floor, detail edge).
+Twelve hex characters over the output-changing constants (thresholds, prompts, vocabulary, prior floor, max edge);
+the configured detail edge is reported beside it as `engine.detail_edge`.

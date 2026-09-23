@@ -6,6 +6,9 @@ on:
   push:
     paths:
       - "bioscan/service/**"
+      - "bioscan/contract.py"
+      - "bioscan/naming.py"
+      - "bioscan/serve_config.py"
       - "tests/models/**"
       - "data/names/**"
       - "uv.lock"
@@ -14,6 +17,9 @@ on:
   pull_request:
     paths:
       - "bioscan/service/**"
+      - "bioscan/contract.py"
+      - "bioscan/naming.py"
+      - "bioscan/serve_config.py"
       - "tests/models/**"
       - "data/names/**"
       - "uv.lock"

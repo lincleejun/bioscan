@@ -211,7 +211,7 @@ def test_requests_are_serialised_and_queued(tmp_path):
 def test_disconnect_stops_after_current_chunk(tmp_path):
     fakes = Fakes()
     engine = fakes.engine()
-    engine.ensure(["identify"])          # what POST /run does before run_events
+    engine.ensure(["identify"])          # what POST /run does before RunQueue.events
     paths = [make_jpg(tmp_path / f"{i}.jpg") for i in range(6)]
     checks = []
 
