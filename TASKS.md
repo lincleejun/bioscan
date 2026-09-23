@@ -79,3 +79,49 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
 - Real-model smoke: 1 image rescued by the gate rescue (Marmota flaviventris, gate "none" -> boxed, correct species).
 - Real-model smoke: Megascops kennicottii photo gated "mammal", best box ranked against mammals (Spilogale);
   the crop gate did not promote it to bird. Known owl/mammal gate confusion from the baseline doc; not addressed here.
+
+---
+
+# TASKS — v1.2 architecture review follow-up (stacked on PR #1)
+
+Review: 4 subagents (service core, models/names, CLI, tests/CI); key evidence spot-checked.
+Decisions (2026-09-23): packages A+B+C+D; stack on PR #1; spec records fp32 (no fp16 now);
+models.yml every push with path filters. D4 (on-demand detail) dropped: the ~1.2 GB prefetch was
+accepted with the 3072 choice, and re-decoding RAW would double decode time.
+Invariant for C and D: real-model CI numbers unchanged (bird top-1 88.1 %, mammal 85.7 %; CPU is deterministic).
+
+## E. CI cost
+- [ ] models.yml path filters (service, tests/models, data/names, uv.lock, pyproject, workflow)
+
+## A. Versions and reproducibility
+- [ ] pin SigLIP2 / BioCLIP / TreeOfLife revisions (values read from a CI run), pass everywhere, in names cache key and info()
+- [ ] settings fingerprint (thresholds, prompts, vocab, geo floor, detail edge) in info()
+- [ ] eval: meta header line in preds.ndjson (schema, options, gt/synonyms sha); rescoring reads geo from it
+- [ ] one stdlib name normaliser (`bioscan/naming.py`) used by names, geo, eval
+- [ ] stale-map check: synonyms.csv rows not reflected in avilist_map.csv -> warning at load, test on committed data
+- [ ] BirdNET geo model fetched in download.py, cached in CI; CI fails if geo is missing
+Verify: unit tests; CI.
+
+## B. Contract hardening
+- [ ] `bioscan/contract.py` (stdlib): products, event types, schema version; used by app, CLI, render, eval
+- [ ] `EngineProtocol`; test that Engine and FakeEngine match it (incl. signatures)
+- [ ] import-light test for the CLI modules
+- [ ] exit codes: 0 ok / 1 some images failed / 2 service unreachable / 3 incomplete stream or upstream error
+- [ ] process-pool decode contract test; RAW orientation logic test (rawpy faked)
+Verify: tests.
+
+## C. Pipeline restructure (no behaviour change)
+- [ ] `rules.py` (pure rules + thresholds), `pipeline.py` (identify orchestration behind a `Models` protocol)
+- [ ] product registry (needs, defaults, validation, runner); app dispatch and engine NEEDS derived from it
+- [ ] model loader registry in Engine
+- [ ] taxa registry (gate prompts, detector words, name list per kind)
+- [ ] priors per kind (`engine.priors`), floor per prior; names.py no longer imports geo private helpers
+Verify: all tests; real-model CI numbers identical.
+
+## D. Throughput and scheduling
+- [ ] model lock per chunk (FIFO) instead of per request: a 1-image request waits at most one chunk
+- [ ] batch identify across the chunk (crop gate, BioCLIP, OWLv2 by vocab group) with per-image error isolation
+- [ ] rebuild a broken decode process pool and retry the chunk once
+- [ ] jpg writes off the GPU thread
+- [ ] spec: record fp32 (fp16 left for a Mac eval)
+Verify: tests; real-model CI numbers identical; speed unverified until Mac benchmark.
