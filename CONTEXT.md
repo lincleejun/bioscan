@@ -332,6 +332,32 @@ _Avoid_: rating, stars (those are the owner's, in XMP)
 when one is given; null with a note when no head scored it). `select` reads it when a run has it: it only reorders
 within a burst and a scene category; it never rejects.
 
+**Aesthetic golden set**:
+A frozen folder of the owner's labelled frames (`images.csv`, optional `pairs.csv`) that any aesthetic scorer is held to
+with `bioscan bench aesthetic` (docs/research/2026-09-24-aesthetic-golden-set.md). Its sha256 ties reports together;
+a changed set is a new version.
+_Avoid_: test set (alone), benchmark data
+
+**Shot group**:
+Frames of one shot that the owner chooses between (a group id in the golden set), with exactly one **winner** (`best`).
+Labelled by the owner; a burst from the `burst` reducer is only a draft of one.
+_Avoid_: burst (that is the reducer's output), series
+
+**Drop reason**:
+Why the owner dropped a golden-set frame: a reject reason, or a taste reason (`composition`, `cluttered_background`,
+`bad_light`, `eyes_closed`, `pose`, `duplicate`, `other`). A scorer's `reasons` are checked against it.
+_Avoid_: reject reason (rules only), flaw
+
+**Planted copy**:
+A golden-set frame made from another by `scripts/aes_plant.py` whose expected score is known: the same (rename, jpeg95,
+resize2048) or lower (blur, ev-2, ev+2, jpeg10).
+_Avoid_: augmentation, synthetic image
+
+**Residual**:
+For a scope of the golden set, the mean of (score percentile − stars percentile): how much more (above 0) or less a
+scorer likes those frames than the owner does. The bias check.
+_Avoid_: bias score, cultural preference
+
 ## Standards and releases
 
 **Standard**:

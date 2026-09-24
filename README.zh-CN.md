@@ -309,6 +309,7 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 
   评分取 Lightroom 1-5 星（`xmp:Rating`；按 XMP 规范，0 或缺失 = 未评分，跳过；拒绝标记 -1 保留为拒绝，等级低于 1 星），有色标和 `xmpDM:pick` 时一并读取；旁车文件优先于内嵌 XMP。Lightroom Classic 的旗标（pick）存在目录库里、不写进 XMP，需要的话用 CSV（`path,rating,pick,trip`）提供。CLI 从不加载模型：向量来自正在运行的服务的 `embed` 产物（`--embeddings FILE` 可缓存）。头文件路径要在服务的 allow-roots 之内。
 - **与你的一致程度**：`bioscan aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/bioscan/aesthetic-personal.json` 写出 report.json 和 report.md：与星级的 Spearman、Kendall；按行程对照你的 pick 的 NDCG@10 和 precision@k（k = 该行程里你的 pick 数，并列出随机顺序的期望值）；以及 50/100/200/500/1000 条评分下个人头、通用头、混合的**学习曲线**，始终按行程（文件夹）划分，连拍不会同时出现在训练和测试两侧。`bioscan bench scorecard runs/aes/report.json` 按 `aesthetic-own` 标准判定（docs/standards.md 第 13 节）。**美学相关数字都还没有实测，以上一律未验证。**
+- **在多个美学模型之间挑选**：美学 golden 集（docs/research/2026-09-24-aesthetic-golden-set.md）评测*任意*打分器的输出，不限于 bioscan 自己的头。先建一次：`bioscan bench aesthetic init ~/Pictures/Album --out ~/aes-golden` 按你的星级写出 images.csv；再补上同一拍摄组及其胜出帧、保留/淘汰及原因、类别和切片；然后 `uv run python scripts/aes_plant.py ~/aes-golden` 加入答案已知的预埋副本（改名、重编码、缩放 = 分数不变；模糊、±2 EV = 分数更低）。用 `bioscan bench aesthetic score ~/aes-golden SCORES --out runs/aes/<模型>` 评一个模型（SCORES = `bioscan run --json` 的输出，或任意模型写出的 NDJSON `{path, score}`），用 `bench aesthetic compare` 比较两个（对成对选择和拍摄组做 McNemar 检验；预算见 baselines/budget-aesthetic.toml）。核心指标是拍摄组胜出帧命中率、成对选择准确率，以及每个行程淘汰最低 20 % 时误删的保留帧比例。
 - **许可**：EVA 的标注是 **CC0 1.0**（见其仓库的 LICENSE）。图片是来自 dpchallenge.com 的 AVA 照片，版权属于原摄影师：bioscan 只用它们计算向量，从不再分发。头权重在本地或本仓库 CI 中训练，头文件记录数据、许可、样本数、日期、种子和交叉验证结果。**从不使用 AVA 评分，也不分发任何 AVA 训练的权重。**个人头用你自己对自己照片的评分拟合，只留在你的机器上。
 
 ### 相册挑片（cull）
@@ -365,6 +366,7 @@ bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json   
 bioscan bench analyze runs/<new>/report.json                                            # 失败分类，下一步修什么
 bioscan bench scorecard runs/<new>/report.json                                          # 对照 data/standards.toml
 bioscan bench geotag runs/geotag-synth                                                  # 在合成轨迹上评 GPX 定位
+bioscan bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva        # 任意美学打分器对照 golden 集
 ```
 - **基线流程**：今天跑一遍，用 `bench baseline` 存成基线并提交；之后换模型或改代码，再跑一遍，用 `bench compare` 对照基线。
 - **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行；`meta.profile`，以及 `plugin_metrics`：各插件自己的指标（album 层级按原因的淘汰精确率与召回率、keepers lost、连拍成对 F1、场景准确率），带 Wilson 区间，预算与标准都可以引用。
@@ -437,10 +439,11 @@ bioscan/aesthetic.py             美学头文件、XMP/CSV 评分、按行程分
 bioscan/aesthetic_fit.py         岭回归头、交叉验证、向先验收缩、学习曲线（numpy；只在训练或算曲线时导入）
 bioscan/cull.py                  burst、select reducer，挑片记录，album 层级的评测行函数（纯标准库）
 bioscan/cli/                     main client render gt eval bench config（profile）geotag_cli（geotag、run --gpx）geobench（bench geotag）
-                                 aesbench（bioscan aesthetic ratings|train|eval）
+                                 aesbench（bioscan aesthetic ratings|train|eval）aesgolden（bench aesthetic）
                                  cull（bioscan cull：reducer、CSV、符号链接、HTML 审阅页）
 scripts/geotag_synth.py          用 golden 集合成 GPX 场景，供 bench geotag 使用
 scripts/train_aesthetic_head.py  EVA 通用美学头，进程内用服务的 decode 与 SigLIP2
+scripts/aes_plant.py             美学 golden 集的预埋副本（答案已知）
 scripts/cull_synth.py            用带主体框的照片合成相册集（带标签的淘汰图、连拍）
 data/aesthetic/                  通用美学头（训练出来之前只有 README）及其来源说明
 data/names/                      AviList 为准的名字映射表

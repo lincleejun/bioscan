@@ -1,0 +1,29 @@
+# Regression budget for aesthetic golden-set reports
+# (`bioscan bench aesthetic compare BASE NEW --budget baselines/budget-aesthetic.toml`; the default when present).
+# Schema: [[rule]] metric (a key of report.json metrics), scopes (default ["all"]), one limit, optional min_n, note.
+# PROVISIONAL: no golden set has been scored yet. At the v1 target sizes (docs/research/2026-09-24-aesthetic-golden-set.md
+# §4.2) a pairwise accuracy is good to about ±4 pts and a group top-1 to about ±8 pts, so these limits allow about
+# half an interval of movement. Revisit after the first two real runs.
+
+[[rule]]
+metric = "keepers_lost_at_20"
+max_rise_pts = 2.0
+note = "dropping the weakest fifth of a trip must not cost more keepers"
+
+[[rule]]
+metric = "pair_acc"
+max_drop_pts = 2.0
+
+[[rule]]
+metric = "group_top1"
+max_drop_pts = 4.0
+min_n = 50
+
+[[rule]]
+metric = "invariance_rate"
+max_drop_pts = 2.0
+note = "a score must not depend on the file name, encoding or size"
+
+[[rule]]
+metric = "missing_rate"
+max_rise_pts = 0.0

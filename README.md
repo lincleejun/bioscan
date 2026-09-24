@@ -343,6 +343,7 @@ The `aesthetics` stage gives each frame an aesthetic score from a small linear *
 
   Ratings are Lightroom stars 1-5 (`xmp:Rating`; 0 or missing = unrated and skipped, as the XMP spec says; a reject, -1, is kept as a reject, graded below one star), with the colour label and `xmpDM:pick` where a tool writes them; a sidecar wins over embedded XMP. Lightroom Classic keeps pick flags in its catalogue, not in XMP, so give picks through a CSV (`path,rating,pick,trip`) if you want them. The CLI never loads a model: vectors come from the running service's `embed` product (`--embeddings FILE` keeps them). The head path is checked against the service's allow-roots.
 - **How well it agrees with you**: `bioscan aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/bioscan/aesthetic-personal.json` writes report.json and report.md: Spearman and Kendall against your stars, NDCG@10 and precision@k against your picks per trip (k = your picks in that trip, next to what a random order gets), and a **learning curve** at 50/100/200/500/1,000 ratings for personal vs general vs blended heads, always split by trip (folder) so a burst never sits on both sides. `bioscan bench scorecard runs/aes/report.json` holds it to the `aesthetic-own` standards (docs/standards.md §13). **No aesthetic number has been measured yet: every claim here is unverified.**
+- **Choosing between aesthetic models**: the aesthetic golden set (docs/research/2026-09-24-aesthetic-golden-set.md) scores *any* scorer's output, not only bioscan's head. Build it once: `bioscan bench aesthetic init ~/Pictures/Album --out ~/aes-golden` writes images.csv from your stars; add shot groups and their winners, keep/drop with a reason, categories and slices; then `uv run python scripts/aes_plant.py ~/aes-golden` adds planted copies whose answer is known (renamed, re-encoded or resized = same score; blurred or 2 EV off = lower). Score a model with `bioscan bench aesthetic score ~/aes-golden SCORES --out runs/aes/<model>` (SCORES = `bioscan run --json` output, or NDJSON `{path, score}` from any model), and compare two with `bench aesthetic compare` (McNemar on pairs and shot groups; budget baselines/budget-aesthetic.toml). The headline numbers are the winner of each shot group, pairwise accuracy, and keepers lost when the lowest 20 % of each trip is dropped.
 - **Licences.** EVA's annotations are **CC0 1.0** (its repository's LICENSE). Its images are AVA photos from dpchallenge.com whose copyright stays with the photographers: bioscan uses them only to compute vectors and never redistributes them. The head weights are trained locally or in this repository's CI, and the head file records its data, licence, n, date, seed and CV numbers. **AVA scores and AVA-trained weights are never used or distributed.** A personal head is fitted on your own ratings of your own photos and stays on your machine.
 
 ### Culling an album
@@ -422,6 +423,7 @@ bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json   
 bioscan bench analyze runs/<new>/report.json                                            # failure classes, what to fix next
 bioscan bench scorecard runs/<new>/report.json                                          # against data/standards.toml
 bioscan bench geotag runs/geotag-synth                                                  # GPX geotagging on synthetic tracks
+bioscan bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva        # any aesthetic scorer vs the golden set
 ```
 - **report.json** (`bioscan-report` v1) holds:
   - the run's git sha, engine, settings fingerprint and ground-truth sha;
@@ -505,10 +507,11 @@ bioscan/aesthetic_fit.py         ridge heads, CV, prior pull, learning curve (nu
 bioscan/cull.py                  the burst and select reducers, cull records, the album tier's metric rows (stdlib only)
 bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
                                  config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
-                                 aesbench (bioscan aesthetic ratings|train|eval)
+                                 aesbench (bioscan aesthetic ratings|train|eval) aesgolden (bench aesthetic)
                                  cull (bioscan cull: reducers, CSV, symlinks, HTML review)
 scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 scripts/train_aesthetic_head.py  the EVA general head, in-process with the service's decode and SigLIP2
+scripts/aes_plant.py             planted copies (known answers) for the aesthetic golden set
 scripts/cull_synth.py            synthetic album set (labelled rejects, bursts) from photos with a subject box
 data/aesthetic/                  the general aesthetic head (README until it is trained) and its provenance
 baselines/                       committed reports compared against, and the regression budget

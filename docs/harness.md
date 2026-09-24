@@ -15,6 +15,7 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
 | `aesthetic eval RATINGS --out DIR [--head H] [--personal P] [--blend B] [--k K] [--curve SIZES]` | Agreement of the aesthetic score with the owner's stars and picks, per trip, plus the learning curve; report.json read by `scorecard` (tier `aesthetic-own`) ([below](#aesthetic-agreement-with-the-owner-bioscan-aesthetic-eval)) |
+| `bench aesthetic init\|score\|compare\|table` | Any aesthetic scorer (a scores file) against the frozen aesthetic golden set: shot-group winners, pairwise accuracy, keepers lost when culling, planted checks, slice residuals; paired compare under baselines/budget-aesthetic.toml ([below](#aesthetic-golden-set-bench-aesthetic)) |
 | `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
 `--names KIND=CSV` sets the name list used to tell whether a truth is in the list (`not_in_list`) and
@@ -536,3 +537,56 @@ vectors, alpha by 5-fold CV over trips, pulled toward `--prior builtin|PATH|none
 normally made by `scripts/train_aesthetic_head.py` in CI or on the Mac (data/aesthetic/README.md). Every fit is
 deterministic from its inputs and `--seed`. The CV score in a head's provenance is the best alpha's mean over the
 same folds that chose it (not nested CV), so it reads slightly optimistic.
+
+## aesthetic golden set (`bench aesthetic`)
+
+`bioscan aesthetic eval` scores bioscan's own heads against stars. `bench aesthetic` is the model-agnostic
+counterpart: it reads a **scores file** from any scorer and holds it to a frozen **aesthetic golden set**. The design,
+the research behind it and the target sizes are in docs/research/2026-09-24-aesthetic-golden-set.md. Standard library
+only (bioscan/cli/aesgolden.py); no service, no model.
+
+```sh
+bioscan bench aesthetic init ~/Pictures/Album/golden-trips --out ~/aes-golden [--cull runs/cull/cull.csv]
+# fill images.csv: group, best, keep, reasons, category, slices, split, stars2; optional pairs.csv (a,b,winner)
+uv run python scripts/aes_plant.py ~/aes-golden --n 60          # planted copies; refuses to run twice
+bioscan run ~/aes-golden -r --profile album --json --out runs/aes/eva.ndjson
+bioscan bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva [--repeat runs/aes/eva-2.ndjson]
+bioscan bench aesthetic score ~/aes-golden runs/aes/qrealign-4b.ndjson --out runs/aes/qrealign-4b
+bioscan bench aesthetic table runs/aes/*/report.json
+bioscan bench aesthetic compare runs/aes/eva/report.json runs/aes/qrealign-4b/report.json --md runs/aes/compare.md
+```
+
+**Scores file.** NDJSON: bioscan events (a `result` gives `products.aesthetics.score`, an `error` a failed frame;
+`meta`, `progress`, `done` are skipped), or one line per frame `{"path", "score", "model"?, "dims"?: {name: value},
+"reasons"?: [drop reason], "ms"?}`. Or CSV `path,score`. Relative paths are taken from the golden folder. A frame
+without a finite score counts as the lowest score everywhere.
+
+**images.csv / pairs.csv.** Columns and the drop-reason vocabulary are in the design doc (§4.1); a file with an
+unknown column, variant or reason is refused. Rows default to split `test`; `--split dev|all` scores the others.
+
+**report.json** (schema `bioscan-aesthetic-golden`, version 1): `meta` (golden path and sha256 of images.csv +
+pairs.csv, split, model, scores path and sha, git, date, tolerances), `metrics` per scope (`all`, `category:<c>`,
+`slice:<s>`), `dims`, `repeat`, `owner_ceiling`, `reasons`, `missing`, `extra`, and per-item `images`, `pairs`,
+`groups` for paired comparison. Keys of `metrics.all`:
+
+| Key | Definition |
+|---|---|
+| `expected`, `scored`, `missing_rate`, `failed`, `nonfinite`, `extra`, `duplicates` | Frames of the split plus their planted copies; how many have a finite score; error events; non-numeric scores; frames not in the set; paths scored twice |
+| `pair_acc`, `pairs`, `pairs_tied_by_owner` | Share of owner choices (pairs.csv, plus each group winner over every other member) where the chosen frame scores strictly higher. Owner ties are left out |
+| `group_top1`, `groups`, `group_top1_random` | Share of shot groups whose highest-scoring frame is the owner's winner; random = mean 1/size |
+| `keepers_lost_at_{10,20,30}`, `reject_precision_at_{10,20,30}` | Per trip, frames with a keep label sorted by score, the lowest q dropped: kept frames among the dropped / kept frames; dropped frames the owner dropped / dropped frames (pooled over trips) |
+| `drop_auc` | P(a frame the owner dropped scores below one they kept), ties half |
+| `spearman`(`_ci`), `kendall`, `plcc`, `spearman_trip_mean`, `ndcg_at_k`, `precision_at_k`(`_ci`, `_random`), `rated` | As `aesthetic eval` (same code, `aesbench.set_metrics`), with keep = 1 as the picks |
+| `degrade_acc`(`_ci`, `_n`, `_by_kind`) | Planted blur / ev-2 / ev+2 / jpeg10 copies scoring strictly below their original |
+| `invariance_rate`(`_ci`, `_n`, `_by_kind`), `invariance_max_shift` | Planted rename / jpeg95 / resize2048 copies within 5 percentile points of their original (percentiles of the split's scores) |
+| `residual`(`_ci`, `_n`) | Mean of (score percentile − stars percentile): above 0, the scorer likes the scope more than the owner does (every scope) |
+| `ms_median` | Median `ms` of the scores file, when given |
+
+**compare** refuses reports of different golden sets or splits (exit 2). It prints deltas for every shared metric,
+McNemar on the pairs and on the shot groups both reports scored, and a 95 % bootstrap interval of the Spearman change
+that resamples shot groups (`--boot`, default 1000, seed 0). `--budget` (default `baselines/budget-aesthetic.toml`
+when present) takes `[[rule]]` tables as in budget.toml, with any numeric key of `metrics` and `scopes` defaulting to
+`["all"]`. Exit 1 when over budget. `table` lists several reports side by side and warns when their golden sets
+differ. Reports of this tier list the owner's frame paths: they stay on the owner's machine unless the owner decides
+otherwise.
+

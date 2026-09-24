@@ -1302,6 +1302,7 @@ def add_parser(sub) -> None:
     s.add_argument("--md", help="also write the markdown here")
     s.set_defaults(func=cmd_scorecard)
 
-    from bioscan.cli import geobench  # imports this module; registered last to avoid a cycle
+    from bioscan.cli import aesgolden, geobench  # import this module; registered last to avoid a cycle
 
     geobench.add_parser(b)
+    aesgolden.add_parser(b)

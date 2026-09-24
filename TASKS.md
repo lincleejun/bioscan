@@ -205,3 +205,21 @@ Next:
 - [ ] choose the default `blend` from the learning curve (0.5 is a guess)
 - [x] C1 merge: `select` reads `products.aesthetics.score`; resolve the album line in profiles.toml and BUILTIN order
 - [ ] per-category heads or a small MLP only if the learning curve shows the linear head saturating
+
+## Aesthetic golden set (model-agnostic aesthetic bench, 2026-09-24)
+Goal: choose and upgrade aesthetic scorers (bioscan's head, external models, VLM judges) on the decisions the owner
+makes: the winner of a shot group, which frames can go, the order of keepers. Independent of the service: a scorer is
+one scores file. Design and research: docs/research/2026-09-24-aesthetic-golden-set.md.
+Decisions (owner): build on the C1/C2 branch; deliver design + runnable scorer (no labelling UI yet).
+- [x] research check of the claims behind the design (5 of 11 verified on a primary page; SILVA not found)
+- [x] `bioscan bench aesthetic init|score|compare|table` (bioscan/cli/aesgolden.py, stdlib), reusing aesbench metrics
+- [x] `scripts/aes_plant.py`: planted copies (rename/jpeg95/resize2048 same; blur/ev±2/jpeg10 lower)
+- [x] `baselines/budget-aesthetic.toml` (provisional limits)
+- [x] tests/unit/test_aes_golden.py (perfect vs inverted scorer, missing = miss, name-dependent score, slice lean,
+      reasons/dims, bioscan run output, validation, compare + budget exit 1, planting)
+- [x] docs: harness.md, README (EN + zh-CN), CONTEXT (aesthetic golden set, shot group, drop reason, planted copy, residual)
+Next:
+- [ ] owner: build aes-golden-v1 (targets in the design doc §4.2), freeze it, run the EVA head as the first baseline
+- [ ] adapters writing scores files for Q-ReAlign 0.8B/4B and a Qwen3-VL (mlx-vlm) judge; local evaluation only
+- [ ] standards bars for the golden set after the first real run (group top-1 vs random, keepers lost @20 %)
+- [ ] a review/labelling page if filling images.csv by hand is slow
