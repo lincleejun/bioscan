@@ -45,7 +45,8 @@ _Avoid_: hook, step, node
 **Manifest**:
 What a stage declares without loading anything heavy (`plugin.Manifest`, in the plugin's `__init__.py`): name,
 version, the facts it reads and provides, the models it needs under its options, its thread, its options with
-defaults and its output. The service code (`Stage`) is imported from `impl` only when a plan contains the stage.
+defaults, the check of their values, and its output. The service code (`Stage`) is imported from `impl` only when
+a plan contains the stage.
 _Avoid_: registry entry, spec
 
 **Fact**:

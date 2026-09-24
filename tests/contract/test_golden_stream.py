@@ -133,6 +133,17 @@ def test_run_stream_matches_golden(recorded, name):
     check(f"run-{name}.ndjson", recorded[name])
 
 
+def test_species_off_on_a_fresh_engine_matches_golden(tmp_path):
+    """Recorded after A2 (not at b02f189): species off on a fresh engine never loads BioCLIP, so
+    the stream reports no name lists and /health no bioclip."""
+    photos = _photos(tmp_path)
+    with client_for(Fakes().engine(), chunk=2) as c:
+        r = c.post("/run", json={"inputs": [{"path": photos["a"]}, {"path": photos["big"]}],
+                                 "options": {"identify": {"species": False}}})
+        health = json.dumps(c.get("/health").json()) + "\n"
+    check("run-fresh-species-off.ndjson", normalise_stream(r.text, tmp_path) + health)
+
+
 def test_refusals_match_golden(recorded):
     check("refused.ndjson", recorded["refused"])
 

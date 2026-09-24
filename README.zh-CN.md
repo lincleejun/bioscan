@@ -242,7 +242,8 @@ candidates = ["Strigidae", "Accipitridae"]
 - **用哪个 profile**：`--profile`，否则 `$BIOSCAN_PROFILE`，否则 `default_profile`，否则 `full`。都没有时 CLI 发出的请求与引入 profile 之前完全相同。CLI 自己展开 profile，只发普通的 `want` 和 `options`，服务端不需要你的配置文件。
 - **服务端**用它自己的文件（启动时读一次）展开请求里的 `"profile"`。不带 `"profile"` 的请求永远是 `full`：`default_profile` 和 `$BIOSCAN_PROFILE` 只作用于 CLI，HTTP 客户端看不到变化。
 - **错误**：未知的键、profile、stage 或选项都会报错并指出是哪个文件（请求里则是 400）。用户文件里写 `[profile.full]` 会被拒绝。选项的取值由服务检查。`bioscan serve --launchd` 把命令行参数、否则文件里 `[serve]` 的值写进 plist，并通过 `BIOSCAN_CONFIG` 让服务读当前目录的 `bioscan.toml`。
-- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项；服务端代码在 `stage.py`，只有运行需要时才导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果仍按 `identify, embed, jpg` 的顺序列出。
+- **信任**：运行目录下的 `./bioscan.toml` 会被自动读取，只在你信任其文件的目录里运行 bioscan：它可以设 `serve.host = "0.0.0.0"`、`allow_roots`，或让 jpg 写到某个 `out_dir`；`bioscan config show` 会列出读到的每个文件及其设置的每个值。
+- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果仍按 `identify, embed, jpg` 的顺序列出。
 
 ### HTTP API
 
@@ -252,6 +253,7 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
+`want` 可以省略：这时运行其 profile 的 stage（默认 `full`：identify）。`"want": null` 返回 400，除非请求体同时给了 `"profile"`，那时等同于省略。
 响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`，`identify` 产物（gate、boxes、quality、species、候选）也定义在那里；`result`、`done` 带 `schema: 1`。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
 
 CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。`run --json` 过去总是返回 0，现在也按这套退出码返回，脚本里若把非 0 当失败需留意。eval 的学名比较改用与 synonyms 查找相同的归一化（忽略连字符与大小写），旧报告的 Top-1/Top-5 可能因此有细微差别。

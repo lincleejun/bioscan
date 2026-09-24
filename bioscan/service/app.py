@@ -45,14 +45,15 @@ def parse_run(body: Any, registry: Sequence[plugin.Manifest] = BUILTIN,
             raise ValueError(f"inputs[{i}].taken_at must be a string")
         clean.append({"path": inp["path"], "lat": inp.get("lat"), "lon": inp.get("lon"), "taken_at": inp.get("taken_at")})
     want = body.get("want")
-    if want is not None:
+    # absent: the profile's stages (full: identify); null only means that next to a "profile"
+    if want is not None or ("want" in body and body.get("profile") is None):
         if not isinstance(want, list) or not want or not all(isinstance(w, str) for w in want):
             raise ValueError("want must be a non-empty list of product names")
         unknown = sorted(set(want) - {m.name for m in registry})
         if unknown:
             raise ValueError(f"unknown products: {unknown}")
     resolved = profile.resolve(config or profile.builtin(registry), _profile_of(body), want,
-                               body.get("options"), check=lambda m, o: plugin.load(m).check(o), registry=registry)
+                               body.get("options"), check=lambda m, o: m.check(o), registry=registry)
     return clean, resolved.plan
 
 

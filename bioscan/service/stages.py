@@ -20,11 +20,11 @@ PRODUCTS: dict[str, Any] = products()
 
 
 def resolve_options(options: Any, registry: Sequence[plugin.Manifest] = BUILTIN) -> dict[str, dict[str, Any]]:
-    """Defaults merged with the request, for every stage, each checked by its Stage; raises
-    ValueError on a bad value."""
+    """Defaults merged with the request, for every stage, each checked by its manifest (no stage
+    code is imported); raises ValueError on a bad value."""
     out = plugin.merge_options(options, registry)
     for m in registry:
-        plugin.load(m).check(out[m.name])
+        m.check(out[m.name])
     return out
 
 

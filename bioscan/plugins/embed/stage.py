@@ -18,10 +18,6 @@ def embed(vec: np.ndarray, fmt: str) -> dict[str, Any]:
 
 
 class Embed(StageBase):
-    def check(self, o: dict[str, Any]) -> None:
-        if o["format"] not in ("list", "f16_base64"):
-            raise ValueError("options.embed.format must be list or f16_base64")
-
     def settings(self) -> dict[str, Any]:
         return {"model": MODEL_NAME}
 

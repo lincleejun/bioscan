@@ -2,6 +2,8 @@
 stage.py, whose body is pipeline.identify_many."""
 from __future__ import annotations
 
+from typing import Any
+
 from bioscan import contract
 from bioscan.plugin import Manifest
 
@@ -15,6 +17,23 @@ SWITCHES = {
     "kind_check": True,      # species evidence may move a box between KIND_CHECK kinds
     "mammal_geo": True,      # the mammal list's location prior (MDD rows, genus back-off)
 }
+
+
+
+def check(o: dict[str, Any]) -> None:
+    top_k = o["top_k"]
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 50:
+        raise ValueError("options.identify.top_k must be an integer 1-50")
+    for key in ("geo", "species", *SWITCHES):
+        if not isinstance(o[key], bool):
+            raise ValueError(f"options.identify.{key} must be a boolean")
+    c = o["candidates"]
+    if (not isinstance(c, list) or len(c) > MAX_CANDIDATES
+            or not all(isinstance(x, str) and x.strip() for x in c)):
+        raise ValueError(f"options.identify.candidates must be a list of at most {MAX_CANDIDATES} "
+                         "non-empty names")
+    o["candidates"] = [x.strip() for x in c]
+
 
 MANIFEST = Manifest(
     name="identify",
@@ -44,4 +63,5 @@ MANIFEST = Manifest(
                                            "evidence). Empty = all taxa. Names no list knows are a 400."}},
     output=contract.IDENTIFY_OUTPUT,          # the payload's fields live in bioscan/contract.py
     impl="bioscan.plugins.identify.stage:STAGE",
+    check=check,
 )

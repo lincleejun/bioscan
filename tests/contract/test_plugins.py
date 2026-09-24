@@ -19,11 +19,12 @@ class Counter:
         return len(boxes)
 
 
-class Count(StageBase):
-    def check(self, o):
-        if not isinstance(o["min_score"], (int, float)):
-            raise ValueError("options.count.min_score must be a number")
+def check_count(o):
+    if not isinstance(o["min_score"], (int, float)):
+        raise ValueError("options.count.min_score must be a number")
 
+
+class Count(StageBase):
     def run(self, engine, items, o):
         model = engine.model("counter")
         return each(items, lambda it: {"boxes": model.count([b for b in it.facts["boxes"]
@@ -35,7 +36,7 @@ NOTHING = StageBase()
 COUNT = Manifest("count", 1, "boxes per image", reads=("boxes",), provides=("tally",),
                  models=lambda o: ("counter",), thread="model",
                  options={"min_score": {"type": "number", "default": 0.5}}, output={"boxes": "int"},
-                 impl=f"{__name__}:STAGE")
+                 impl=f"{__name__}:STAGE", check=check_count)
 LOOP_A = Manifest("loop_a", 1, "", reads=("y",), provides=("x",), impl=f"{__name__}:NOTHING")
 LOOP_B = Manifest("loop_b", 1, "", reads=("x",), provides=("y",), impl=f"{__name__}:NOTHING")
 PLUGINS = (*BUILTIN, COUNT, LOOP_A, LOOP_B)

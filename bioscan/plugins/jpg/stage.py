@@ -21,10 +21,6 @@ def jpg(image: Image.Image, src_path: str, out_dir: str, sha256: str) -> dict[st
 
 
 class Jpg(StageBase):
-    def check(self, o: dict[str, Any]) -> None:
-        if not isinstance(o["out_dir"], str) or not Path(o["out_dir"]).is_absolute():
-            raise ValueError("options.jpg.out_dir must be an absolute path")
-
     def writes(self, o: dict[str, Any]) -> list[str]:
         return [o["out_dir"]]
 

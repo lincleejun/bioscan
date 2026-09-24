@@ -37,6 +37,9 @@ class Manifest:
     output: dict[str, Any] | None = None        # description of the output, served by /products
     impl: str = ""                              # "package.module:ATTR", the Stage, imported lazily
     loaders: dict[str, str] | None = None       # model name -> "package.module:FUNC" (device -> adapter), lazily
+    # checks (and may normalise) the merged options, stdlib only: ValueError -> 400. Lives in the
+    # manifest so a request is validated without importing any stage's service code.
+    check: Callable[[dict[str, Any]], None] = lambda opts: None
 
     @property
     def defaults(self) -> dict[str, Any]:
@@ -89,9 +92,9 @@ class Item:
 
 
 class Stage(Protocol):
-    """The service side of a plugin. May import numpy / torch at module level."""
+    """The service side of a plugin. May import numpy / torch at module level. Imported only for
+    stages in a run's plan (option values are checked by Manifest.check)."""
 
-    def check(self, opts: dict[str, Any]) -> None: ...                      # ValueError -> 400
     def check_loaded(self, engine: Any, opts: dict[str, Any]) -> None: ...  # after the models load; ValueError -> 400
     def writes(self, opts: dict[str, Any]) -> list[str]: ...                # paths checked against allow-roots
     def reads_paths(self, opts: dict[str, Any]) -> list[str]: ...           # files it reads besides the inputs
@@ -101,9 +104,6 @@ class Stage(Protocol):
 
 class StageBase:
     """Defaults for the optional Stage methods; a stage overrides what it needs."""
-
-    def check(self, opts: dict[str, Any]) -> None:
-        return None
 
     def check_loaded(self, engine: Any, opts: dict[str, Any]) -> None:
         return None

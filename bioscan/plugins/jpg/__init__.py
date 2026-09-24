@@ -1,9 +1,18 @@
 """jpg: an upright JPEG of the decoded image. Manifest only (stdlib)."""
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from bioscan.plugin import Manifest
 
 OUT_DIR = "/tmp/bioscan-jpg"
+
+
+def check(o: dict[str, Any]) -> None:
+    if not isinstance(o["out_dir"], str) or not Path(o["out_dir"]).is_absolute():
+        raise ValueError("options.jpg.out_dir must be an absolute path")
+
 
 MANIFEST = Manifest(
     name="jpg",
@@ -15,4 +24,5 @@ MANIFEST = Manifest(
     options={"out_dir": {"type": "string", "format": "absolute path", "default": OUT_DIR}},
     output={"path": "string", "width": "int", "height": "int"},
     impl="bioscan.plugins.jpg.stage:STAGE",
+    check=check,
 )

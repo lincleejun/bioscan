@@ -176,7 +176,8 @@ class RunQueue:
     async def _run_products(self, images: list[_Image], plan: plugin.Plan) -> None:
         """Stage-first over one chunk, in plan.stages order; every stage sees the same Items, so what
         one provides (Item.facts) reaches the stages after it. A stage that throws on one image costs
-        that image only. Model work runs on the single model thread, the rest on the CPU pool. The
+        that image only; one that throws, or returns other than one result per image, is an error
+        for every image of the chunk (the stream goes on and ends with `done`). Model work runs on the single model thread, the rest on the CPU pool. The
         shared whole-frame pass is timed under the first product (plan.want order) that uses it."""
         loop = asyncio.get_running_loop()
         vecs: Any = None
@@ -204,8 +205,14 @@ class RunQueue:
                 outs: list[Any] = [None] * len(images)          # frame failed: already reported per image
             else:
                 t = time.perf_counter()
-                outs = await loop.run_in_executor(self._model if manifest.thread == "model" else self._cpu,
-                                                  plugin.load(manifest).run, self.engine, items, plan.opts[name])
+                try:
+                    outs = await loop.run_in_executor(self._model if manifest.thread == "model" else self._cpu,
+                                                      plugin.load(manifest).run, self.engine, items, plan.opts[name])
+                    if not isinstance(outs, list) or len(outs) != len(images):
+                        got = len(outs) if isinstance(outs, list) else type(outs).__name__
+                        outs = [RuntimeError(f"stage returned {got} results for {len(images)} images")] * len(images)
+                except Exception as exc:  # noqa: BLE001 - a stage that throws costs its chunk, not the stream
+                    outs = [exc] * len(images)
                 per = (time.perf_counter() - t) * 1000 / len(images)
                 for im in images:
                     im.timing[name] = round(im.timing.get(name, 0.0) + per, 1)
