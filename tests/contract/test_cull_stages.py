@@ -57,6 +57,36 @@ def scene_defaults():
     return MANIFEST.defaults
 
 
+def test_album_profile_end_to_end_then_the_reducers(client, engine, tmp_path):
+    """/run with "profile": "album" on the fake Engine (chunks of 32: every stage for real but the
+    models), then burst and select over the stream as `bioscan cull` runs them."""
+    from bioscan import cull, profile
+
+    d = tmp_path / "album"
+    d.mkdir()
+    paths = [make_jpg(d / f"{i}.jpg") for i in range(4)]
+    Image.new("RGB", (64, 48), (15, 15, 15)).save(d / "dark.jpg")
+    paths.append(str(d / "dark.jpg"))
+    times = ["2026-05-01T08:00:00.10", "2026-05-01T08:00:00.40", "2026-05-01T08:00:00.70",
+             "2026-05-01T08:05:00", "2026-05-01T08:10:00"]
+    evs = events(client.post("/run", json={"inputs": [{"path": p, "taken_at": t} for p, t in zip(paths, times)],
+                                           "profile": "album"}))
+    results = [e for e in evs if e["type"] == "result"]
+    assert len(results) == 5 and evs[-1]["type"] == "done" and engine.loaded() == ["siglip2", "owlv2"]
+    assert list(results[0]["products"]) == ["identify", "embed", "quality", "scene"]
+    assert set(results[0]["engine"]["plugins"]) == {"quality", "scene"}
+    assert "species" not in results[0]["products"]["identify"]["boxes"][0]
+    res = profile.resolve(profile.builtin(), "album")
+    records = {r["path"]: r for r in cull.records(cull.apply(evs, res.reducer_run()))}
+    # the fake frame vectors are all alike, so time decides: 0-2 are one burst, 3 and dark stand alone
+    assert [records[p]["burst"] for p in paths] == ["b0001"] * 3 + [None, None]
+    assert records[paths[4]]["status"] == "reject" and records[paths[4]]["reasons"] == ["underexposed"]
+    assert sorted(r["burst_rank"] for r in records.values() if r["burst"]) == [1, 2, 3]
+    # one wildlife category: the burst's best and 3.jpg are alike (the same fake vector): one pick
+    assert [r["status"] for r in records.values()].count("pick") == 1
+    assert {r["category"] for r in records.values()} == {"wildlife"}
+
+
 def test_quality_without_identify_is_a_400(client, tmp_path):
     r = client.post("/run", json={"inputs": [{"path": make_jpg(tmp_path / "a.jpg")}], "want": ["quality"]})
     assert r.status_code == 400 and "stage quality reads 'boxes'" in r.json()["error"]

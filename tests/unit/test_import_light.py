@@ -32,7 +32,7 @@ def test_cli_modules_do_not_import_heavy_deps(tmp_path):
     env = {"HOME": str(tmp_path), "PATH": os.environ.get("PATH", "")}       # no developer bioscan.toml
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=tmp_path,
                          env=env).stdout.strip()
-    assert "run order embed, identify" in out and out.splitlines()[-1] == "[]", out
+    assert "run order embed, identify, quality, scene" in out and out.splitlines()[-1] == "[]", out
 
 
 def test_products_come_from_the_plugin_manifests():
