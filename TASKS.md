@@ -223,3 +223,22 @@ Found:
 - README says the location prior is CC BY-NC-SA; the loaded artifact (geomodel v3.0.4) is Apache-2.0 per
   its LICENSE-MODELS.md. README left as is until the BirdNET team confirms in writing.
 - README (89.8% bird Top-1) and docs/2026-09-23-baseline-results.md (85.7 -> 91.1%) disagree; a Mac eval decides.
+
+---
+
+# TASKS — v1.5 harness, standards, all-taxa, accuracy (2026-09-24)
+
+Decisions: see docs/strategy/2026-09-24-opportunities.md "Owner decisions". One PR; owner reviews, then runs
+local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; orchestrator accepts each
+(ruff, pytest, golden equivalence where behaviour must not change, independent reviewer), then integrates.
+
+- [x] CLAUDE.md: common rules for every model (no model pin); product decisions recorded
+- [ ] W1 harness: `bioscan bench run | baseline | compare | analyze | scorecard`; report.json schema;
+      regression budgets; CI smoke compares against a committed baseline; tag runs publish a report
+- [ ] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured)
+- [ ] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
+      (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off
+- [ ] W4 all-taxa: other animals get species from the TreeOfLife-wide list by default; `candidates` option
+- [ ] W5 RAW robustness: EXIF/GPS/time for CR3/RAF/ORF/RW2/PEF; SubSecTimeOriginal; one shared scan-extension list
+- [ ] integration: behaviour-preserving parts first -> CI -> commit baseline from that run; then W3/W4 ->
+      CI compare vs baseline (no regression beyond budget); final review; PR

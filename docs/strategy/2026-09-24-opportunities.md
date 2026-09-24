@@ -2,6 +2,19 @@
 
 Shareable page: https://claude.ai/artifact/7Lv4jooPmTSyXUUGMSYKTV (private until shared).
 
+## Owner decisions (2026-09-24, after reading this)
+1. No commercial goal for now: open source, aiming to lead the field. Licence questions are no longer blocking.
+2. The service stays stateless; no observation store for now.
+3. Default is **all taxa**. Candidate taxa ("A, B or C") are an optional speed/accuracy aid, never required.
+4. Genus back-off where a row has no location label; a box may switch kind (bird <-> mammal) on species evidence.
+5. CLAUDE.md becomes common rules for every model.
+6. The harness gets baselines (today, per tag/release), compare with regression budgets, and failure analysis
+   that tells us what to fix next.
+7. Industry standards across several dimensions, with our current status, become the target
+   (`docs/standards.md`); release to the community once the bars are met.
+
+The sections below are the research as delivered; where they assume a commercial product, read decision 1.
+
 ## How this was produced
 
 - **Round 1: five research agents**, run in parallel, each with sources:
