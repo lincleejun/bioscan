@@ -23,6 +23,20 @@ One decoded image as identify sees it: the upright ≤2048 px image, its gate, p
 **Detail copy**:
 A larger (≤ detail edge) decode of the same photo used only for species crops; off when the detail edge is ≤ 2048.
 
+**Scan extensions**:
+The file extensions a folder scan picks up, in any case: every RAW extension the decoder routes to rawpy plus JPEG
+(`formats.SCAN_EXT`); one list for the decoder, `bioscan run` and `bioscan gt folders`.
+
+**Container**:
+Where a file keeps its EXIF: `tiff` (ARW, NEF, DNG, CR2, …), `orf`, `rw2` (TIFF with their own magic), `cr3`
+(CMT boxes), `raf` (embedded JPEG) or `image` (read by Pillow) (`decode.container`).
+_Avoid_: format (that is the extension)
+
+**Capture time**:
+`taken_at`: DateTimeOriginal as ISO 8601 with the sub-seconds and UTC offset when the file has them
+(`2026-05-01T08:00:00.37-07:00`); what orders burst frames and picks the location prior's week.
+_Avoid_: timestamp, date
+
 **Product**:
 A named result a run can ask for per image (`identify`, `embed`, `jpg`), declared in the product registry.
 

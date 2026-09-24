@@ -138,6 +138,31 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
  "timing_ms":{"decode":650,"identify":210}}
 ```
 
+### 支持的文件
+
+`bioscan run` 与 `bioscan gt folders` 扫描下表所有扩展名，大小写不限（扫描与解码共用 `bioscan/formats.py` 这一份清单）；`--ext` 可缩小或扩大范围。GPS 与拍摄时间取自文件 EXIF，用于地理先验；请求里的 `lat`/`lon`/`taken_at` 优先。
+
+| 格式 | 扩展名 | 解码 | GPS + 拍摄时间 | `jpg` 预览 | 真实相机文件验证 |
+|---|---|---|---|---|---|
+| Sony | `.arw` | rawpy（LibRaw） | TIFF IFD | 是 | 解码：是（自有照片）；EXIF：无记录 |
+| Nikon | `.nef` `.nrw` | rawpy | TIFF IFD | 是 | 否 |
+| Canon（旧机型） | `.cr2` | rawpy | TIFF IFD | 是 | 否 |
+| Canon（R 系列、M50 等） | `.cr3` | rawpy | CR3 的 `CMT1`/`CMT2`/`CMT4` box | 是 | 否 |
+| Fujifilm | `.raf` | rawpy | 内嵌 JPEG 的 EXIF | 是 | 否 |
+| OM System / Olympus | `.orf` | rawpy | TIFF IFD（ORF 文件头） | 是 | 否 |
+| Panasonic | `.rw2` | rawpy | TIFF IFD（RW2 文件头）；没有时读内嵌 JpgFromRaw | 是 | 否 |
+| Pentax、Samsung | `.pef` `.srw` | rawpy | TIFF IFD | 是 | 否 |
+| DNG | `.dng` | rawpy | TIFF IFD | 是 | 否 |
+| JPEG | `.jpg` `.jpeg` | Pillow | EXIF | 是 | 是（iNat golden 集） |
+| PNG、TIFF、WebP | 仅 `--ext` 或直接给文件路径 | Pillow | 有 EXIF 时读取 | 是 | 否 |
+| HEIC / HEIF | 不支持 | 否：Pillow 需要 `pillow-heif` 插件；该图返回 `error` 事件 | 否 | 否 | — |
+
+每种格式的元数据读取都用合成的小文件测试过（`tests/unit/test_raw_exif.py`）；新增的 CR3、RAF、ORF、RW2 还没有在真实相机文件上跑过。不启动服务即可检查自己的文件（只读元数据）：
+```sh
+uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩展名、容器、lat、lon、taken_at；最后按扩展名计数
+```
+相机写了亚秒（`SubSecTimeOriginal`）时，`taken_at` 保留小数部分，连拍各帧时间不同且有序：`2026-05-01T08:00:00.37-07:00`。`bioscan gt folders` 用 `exiftool` 读 DateTimeOriginal、SubSecTimeOriginal 与 OffsetTimeOriginal（CLI 不加载 Pillow），写成同样的格式。
+
 ### 端口与环境变量
 
 | 名称 | 作用 | 默认 |
@@ -215,6 +240,7 @@ CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.
 ```
 bioscan/contract.py              /run 事件、产物名与 identify 输出的唯一定义（CLI 与服务共用，纯标准库）
 bioscan/naming.py                名称归一化（学名；gt 文件夹名）、synonyms.csv、映射表过期检查（纯标准库）
+bioscan/formats.py               支持的照片扩展名（解码与目录扫描共用）、目录扫描（纯标准库）
 bioscan/serve_config.py          服务设置：参数 > BIOSCAN_* > 默认值，两个入口共用一次解析（纯标准库）
 bioscan/service/app.py           路由、请求校验、允许目录、NDJSON 流
 bioscan/service/run.py           一次 /run 的事件流：分 chunk、按 chunk 的模型轮次、解码进程池自愈
@@ -224,7 +250,7 @@ bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Mode
 bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
 bioscan/service/taxa.py          门类提示词、检测词表、可提升的类别
 bioscan/service/settings.py      影响输出的设置指纹
-bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF + sha256
+bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF（各 RAW 容器）+ sha256
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/cli/                     main client render gt eval
