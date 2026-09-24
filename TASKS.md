@@ -248,6 +248,20 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
 - [x] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
       (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off. Checklist: TASKS-w3.md
 - [ ] W4 all-taxa: other animals get species from the TreeOfLife-wide list by default; `candidates` option
+  (branch v15/w4-alltaxa)
+  - [x] all-taxa list `tol200m-animalia` from TreeOfLife rows (Animalia, species level, minus Aves/Mammalia,
+        deduped), float16, cached like the others; optional at load (warning, species null without it)
+  - [x] `candidates` option (API, `run --candidates`, `eval --candidates`, preds meta), 400 on unknown names
+  - [x] tests on fakes + golden (300 frames, before side from `git archive 0a66f72`)
+  - [x] models.yml: 18 CC0/CC-BY other-animal photos ranked against the real all-taxa list, loose floors
+  - [x] docs: README, README.zh-CN, data/README, CONTEXT
+  - [x] review fixes: eval report unchanged without candidates; all-taxa OOM on the device drops only that
+        list; candidates reweight through LocationPrior.posterior; fp16 error stated; --preds + --candidates refused
+  - [x] merged the integration branch (W1 W2 W3 W5); candidates path honours range veto, mammal prior and
+        kind check; kind check per list (no stacked matrix) with the all-taxa list as a kind
+  - [ ] first models.yml run: record real row count, memory, top-1; tighten other_animal floors; check that
+        the all-taxa kind check does not cost birds or mammals (on/off table)
+  - [ ] plants/fungi: only with a gate class (owner decision), as a second AllTaxaSource
 - [x] W5 RAW robustness: EXIF/GPS/time for CR3/RAF/ORF/RW2/PEF; SubSecTimeOriginal; one shared scan-extension list
       (+ broken GPS -> None instead of NaN/out of range; per-CMT CR3 reads; details in TASKS-w5 below)
 - [ ] integration: behaviour-preserving parts first -> CI -> commit baseline from that run; then W3/W4 ->
@@ -348,3 +362,5 @@ Scratch: `$SCRATCH/v15-w3/` (golden recordings, label rebuild, map build inputs,
 - Unlabelled AviList rows (zero policy) count as direct evidence of absence and can be vetoed; no golden or own-tier
   bird species is unlabelled.
 - The kind check keeps a stacked bird+mammal matrix (18,035 x 1024 float32, ~74 MB) plus its device copy.
+  (Superseded at the W4 merge: each list is scored with its own matmul and `rules.kind_evidence_logits`; no
+  stacked matrix is kept.)

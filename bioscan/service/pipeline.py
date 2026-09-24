@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image
 
 from bioscan import contract
+from bioscan.service import candidates
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
     RESCUE,
@@ -21,7 +22,7 @@ from bioscan.service.rules import (
     crop_with_context,
     dedupe,
     judge,
-    kind_evidence,
+    kind_evidence_logits,
     kind_of,
     quality,
     range_veto,
@@ -56,7 +57,8 @@ class Models(Protocol):
 
     owlv2: Any                      # .detect(image, prompts, threshold=) -> list[Detection]
     siglip2: Any                    # .embed_images(images) -> vecs; .gate(vecs) -> [{class: p}]
-    bioclip: Any                    # .encode_images(crops) -> feats; .probs(feats, NameList.matrix) -> (n, N)
+    bioclip: Any                    # .encode_images(crops) -> feats; .probs / .logits(feats, NameList.matrix) -> (n, N)
+                                    # (logits: the kind check and candidates compare lists with them)
     names: dict[str, Any]           # kind -> names.NameList
     priors: dict[str, Any]          # kind -> geo.LocationPrior (absent = no prior for that kind)
 
@@ -117,36 +119,29 @@ def _prior(engine: Models, kind: str, opts: dict[str, Any]) -> Any:
     return engine.priors.get(kind)
 
 
-def _union(lists: dict[str, Any], kinds: list[str]) -> tuple[np.ndarray, dict[str, slice]]:
-    """The kind-check lists' matrices stacked, and each list's rows in it. Built once per set of
-    lists and kept (with the lists' own matrices, so their ids stay unique) for BioCLIP's device copy."""
-    key = tuple(id(lists[k].matrix) for k in kinds)
-    if key not in _UNIONS:
-        while len(_UNIONS) >= 4:                      # one per engine in the service; tests make many
-            _UNIONS.pop(next(iter(_UNIONS)))
-        mats = [lists[k].matrix for k in kinds]
-        ends = [int(e) for e in np.cumsum([len(m) for m in mats])]
-        _UNIONS[key] = (mats, np.concatenate(mats), {k: slice(e - len(m), e) for k, m, e in zip(kinds, mats, ends)})
-    return _UNIONS[key][1], _UNIONS[key][2]
-
-
-_UNIONS: dict[tuple[int, ...], tuple[list[np.ndarray], np.ndarray, dict[str, slice]]] = {}
+def _logits(engine: Models, feats: Any, kind: str, rows: np.ndarray | None) -> np.ndarray:
+    """(boxes, rows) scaled similarities of one list, its own matmul (never stacked with another
+    list); `rows` = the rows candidates leave it, None = all."""
+    z = np.asarray(engine.bioclip.logits(feats, engine.names[kind].matrix), dtype=np.float64)
+    return z if rows is None else z[:, rows]
 
 
 def _named(names: Any, prior: Any, row: np.ndarray, p_geo: np.ndarray | None, opts: dict[str, Any],
-           kind_unsure: bool) -> dict[str, Any]:
-    """One box's species from its visual scores over one list: posterior, top-k, range veto, level."""
+           kind_unsure: bool, rows: np.ndarray | None = None) -> dict[str, Any]:
+    """One box's species from its visual scores over one list: posterior, top-k, range veto, level.
+    With `rows` (candidates), `row` and `p_geo` cover only those rows of the list."""
     post = prior.posterior(row, p_geo) if prior is not None else row
     order = np.argsort(-post, kind="stable")[:opts["top_k"]]
+    at = order if rows is None else rows[order]                # list rows
     top = [
-        contract.candidate(names.scientific[j], names.common[j] or None, list(names.taxonomy[j]),
+        contract.candidate(names.scientific[r], names.common[r] or None, list(names.taxonomy[r]),
                            round(float(row[j]), 6), None if p_geo is None else round(float(p_geo[j]), 6),
                            round(float(post[j]), 6))
-        for j in order]
+        for j, r in zip(order, at)]
     vetoed = False
     if switch(opts, "range_veto") and prior is not None:
         direct = getattr(prior, "direct", None)          # a stand-in prior without it: all direct
-        top, vetoed = range_veto(top, None if direct is None else [bool(direct[j]) for j in order])
+        top, vetoed = range_veto(top, None if direct is None else [bool(direct[r]) for r in at])
     level = "unconfirmed" if kind_unsure else species_level(top, species_ok=not vetoed)
     return contract.species(names.list_id, level, top)
 
@@ -156,18 +151,30 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
     """Fills every box's "species" in place: one BioCLIP pass per name list over all frames' boxes
     (SPECIES_BATCH at a time), each frame's own location prior.
 
-    Kind check (switch "kind_check"): a box of a KIND_CHECK kind is also scored against all those
-    lists stacked into one (one extra matmul on the features already computed) and takes the kind
-    whose best KIND_TOP rows hold most of that visual probability (rules.kind_evidence: list size
-    does not count); a box that moves on less than KIND_SURE of it is graded unconfirmed. Visual
-    evidence decides, not the posterior: the lists differ in prior coverage and unlabelled policy,
-    so their posteriors do not compare across lists."""
+    Kind check (switch "kind_check"): a box of a KIND_CHECK kind is also scored against every
+    loaded KIND_CHECK list, each with its own matmul on the features already computed (no stacked
+    matrix), and takes the kind whose best KIND_TOP rows hold most of that visual evidence
+    (rules.kind_evidence_logits: list size does not count); a box that moves on less than
+    KIND_SURE of it is graded unconfirmed. Visual evidence decides, not the posterior: the lists
+    differ in prior coverage and unlabelled policy, so their posteriors do not compare across
+    lists. The all-taxa list (other_animal) takes part only when it is loaded.
+
+    Candidates (option "candidates"): only lists with a matching row compete, and only their
+    matching rows; every box is named, whatever its kind. Kind check on: the kind check above over
+    those lists and rows. Off: the box keeps its kind when its list has a matching row, else it goes
+    to the competing list with the most evidence (the caller said the answer is there; not graded
+    unconfirmed for it). p_visual is the softmax over the matching rows; the prior, range veto and
+    level then work within them as they do on a whole list."""
+    allowed = candidates.allowed(engine.names, opts.get("candidates") or [])
     by_kind: dict[str, list[tuple[int, int]]] = defaultdict(list)
     for fi, (_f, boxes, _b) in enumerate(work):
         for bi, b in enumerate(boxes):
             b["species"] = None
-            if b["kind"] in engine.names:
+            if (b["kind"] in engine.names) if allowed is None else bool(allowed):
                 by_kind[b["kind"]].append((fi, bi))
+    if allowed is not None:
+        _species_among(engine, work, opts, allowed, by_kind)
+        return
     rivals = [k for k in KIND_CHECK if k in engine.names] if switch(opts, "kind_check") else []
     p_geo: dict[tuple[str, int], np.ndarray | None] = {}
 
@@ -184,9 +191,8 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
             probs = {kind: engine.bioclip.probs(feats, engine.names[kind].matrix)}
             final = [(kind, True)] * len(part)
             if kind in rivals and len(rivals) > 1:
-                union, rows_of = _union(engine.names, rivals)
-                joint = np.asarray(engine.bioclip.probs(feats, union), dtype=np.float64)
-                final = [kind_of(kind_evidence(j, rows_of)) for j in joint]
+                logits = {k: _logits(engine, feats, k, None) for k in rivals}
+                final = [kind_of(kind_evidence_logits({k: z[n] for k, z in logits.items()})) for n in range(len(part))]
                 for other in dict.fromkeys(k for k, _sure in final if k != kind):
                     probs[other] = engine.bioclip.probs(feats, engine.names[other].matrix)
             for n, ((fi, bi), (k, sure)) in enumerate(zip(part, final)):
@@ -195,6 +201,40 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
                 box["species"] = _named(engine.names[k], _prior(engine, k, opts),
                                         np.asarray(probs[k][n], dtype=np.float64), geo_at(k, fi), opts,
                                         kind_unsure=k != kind and not sure)
+
+
+def _species_among(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], list[tuple[float, ...]]]],
+                   opts: dict[str, Any], allowed: dict[str, np.ndarray],
+                   by_kind: dict[str, list[tuple[int, int]]]) -> None:
+    """_species_many with candidates: `allowed` = the matching rows of each competing list."""
+    check = switch(opts, "kind_check")
+    p_geo: dict[tuple[str, int], np.ndarray | None] = {}
+
+    def geo_at(kind: str, fi: int) -> np.ndarray | None:
+        if (kind, fi) not in p_geo:
+            f, prior = work[fi][0], _prior(engine, kind, opts)
+            g = prior.p_geo(f.lat, f.lon, f.taken_at) if prior is not None else None
+            p_geo[kind, fi] = None if g is None else np.asarray(g)[allowed[kind]]
+        return p_geo[kind, fi]
+
+    for kind, refs in by_kind.items():
+        for part in _batches(refs, SPECIES_BATCH):
+            crops = [species_crops(work[fi][0].image, [work[fi][2][bi]], work[fi][0].detail)[0] for fi, bi in part]
+            feats = engine.bioclip.encode_images(crops)
+            logits = {k: _logits(engine, feats, k, rows) for k, rows in allowed.items()}
+            for n, (fi, bi) in enumerate(part):
+                mass = kind_evidence_logits({k: z[n] for k, z in logits.items()})
+                if check:
+                    k, sure = kind_of(mass)
+                    unsure = k != kind and not sure
+                else:
+                    k, unsure = (kind if kind in allowed else kind_of(mass)[0]), False
+                z = logits[k][n]
+                row = np.exp(z - z.max())
+                box = work[fi][1][bi]
+                box["kind"] = k
+                box["species"] = _named(engine.names[k], _prior(engine, k, opts), row / row.sum(), geo_at(k, fi),
+                                        opts, kind_unsure=unsure, rows=allowed[k])
 
 
 def _species(engine: Models, image: Image.Image, boxes: list[dict[str, Any]], bboxes: list[tuple[float, ...]],

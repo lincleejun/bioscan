@@ -48,7 +48,8 @@
 做的：
 - 单次扫描一个目录，一口气出结果，边跑边打。
 - 三个产物可以任意组合：`identify`（框 + 物种）、`embed`（整图 SigLIP2 向量）、`jpg`（RAW 转旋正 JPG）。
-- 名字以 **AviList 2025**（鸟，11131 种）和 **MDD v2.5**（哺乳，6904 种）为唯一标准；BirdNET、TreeOfLife/BioCLIP、iNaturalist 的名字都通过 `data/names/` 的映射表归一到它们。
+- 鸟和哺乳的名字以 **AviList 2025**（鸟，11131 种）和 **MDD v2.5**（哺乳，6904 种）为标准；BirdNET、TreeOfLife/BioCLIP、iNaturalist 的名字都通过 `data/names/` 的映射表归一到它们。
+- 默认全类群：其他动物（爬行、两栖、鱼、昆虫、蜘蛛……）用 TreeOfLife-200M 全类群名单（`tol200m-animalia`）命名，不用先指定类群。可选的 `candidates`（候选类群）只在你已知答案范围时缩小排序：`bioscan run DIR --candidates "Megascops kennicottii,Strigidae,Bubo"`，或请求里 `options.identify.candidates`。学名或任意上级类群（属、科、目、纲）都行，跨所有已加载名单匹配；只有含匹配行的名单参与，且只用匹配的行；类别核对开着时只在这些名单间比较，关着时框在自己名单有匹配行时保留原类别，否则去证据最强的那张；不认识的名字返回 400 并列出。细节见英文 README 的 "All taxa and candidates" 和 `data/README.md`。
 - 自带评测：`bioscan gt` 建真值集（文件夹名或 iNaturalist），`bioscan eval` 出报告。
 
 不做的（v1）：
@@ -80,7 +81,7 @@ RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256 （identi
 | 选项 | 作用 | 常量 |
 |---|---|---|
 | `range_veto` | **分布否决**（range veto）：地点已知且名单有地理先验时，top-1 自身的 p_geo < ε 就不能定到种；若返回的候选里有同属且 p_geo ≥ τ 的种，把它排到第一（`top` 唯一不按后验排序的情况），级别按属/科累加定。解决加州渡鸦被认成菲律宾乌鸦。借自同属的 p_geo（见下）不触发否决。 | `rules.RANGE_EPS` ε = 0.01，`rules.RANGE_TAU` τ = 0.05 |
-| `kind_check` | **类别核对**（kind check）：每个框已算好的 BioCLIP 特征再与鸟+哺乳合并名单打一次分，框的类别取最好 5 个名字视觉概率之和更高的那张名单（每张名单取同样个数，名单长不占便宜），可以推翻门和裁切复判（门判哺乳的猫头鹰不再被叫成臭鼬）。改了类别但优势不足 0.75 的定为 `unconfirmed`。按视觉质量而不是后验比较，因为两张名单的先验覆盖不同。`other_animal` 框不参与。 | `rules.KIND_TOP` = 5，`rules.KIND_SURE` = 0.75；参与的名单见 `taxa.KIND_CHECK` |
+| `kind_check` | **类别核对**（kind check）：每个框已算好的 BioCLIP 特征再与鸟+哺乳合并名单打一次分，框的类别取最好 5 个名字视觉概率之和更高的那张名单（每张名单取同样个数，名单长不占便宜），可以推翻门和裁切复判（门判哺乳的猫头鹰不再被叫成臭鼬）。改了类别但优势不足 0.75 的定为 `unconfirmed`。按视觉质量而不是后验比较，因为两张名单的先验覆盖不同。参与的名单：鸟、哺乳，以及加载了的全类群名单（其他动物），每张名单各做一次矩阵乘法、不合并；所以框可以在鸟、哺乳、其他动物之间移动。没有全类群名单时 `other_animal` 框不参与。全类群名单的代价：每个框对约 47 万行多一次乘法（4 核 CPU 约 30 ms/框；MPS 估计 1–2 ms）。 | `rules.KIND_TOP` = 5，`rules.KIND_SURE` = 0.75；参与的名单见 `taxa.KIND_CHECK` |
 | `mammal_geo` | **哺乳地理先验**：服务已加载的 BirdNET geo 模型也给 1,048 种哺乳打分，`data/names/mdd_map.csv` 把它们对到 MDD 行。没有标签的 MDD 行取同属有标签种里最高的 p_geo（**属回退**，unlabelled policy `genus`），同属都没标签时取 0.05。鸟保持原规则：无标签为 0（policy `zero`）。 | `geo.UNLABELLED_NEUTRAL` = 0.05；每张名单的 `names.LISTS[...].unlabelled` |
 
 所有阈值、无标签策略、标签映射表内容和选项默认值都在 settings 指纹里；`result.engine.models.label_maps` 给出每张映射表及其 sha。三项全关时 identify 输出与 v1.4 相同（在 300 帧替身模型录制、5 组选项上逐字节比对过）。测某一项：同一份真值跑两遍对比报告，例如 `bioscan eval GT.csv --out runs/x-no-veto --identify-opt range_veto=false`；HTTP 里传 `"options":{"identify":{"kind_check":false}}`。CI 的真模型冒烟把样本照片开、关各跑一遍，报告（`models-report`）里附开/关对照表和每张变了答案的图；任一类别丢了一张以上 Top-1 命中、或多了一张以上定到种的错误才失败：每类约 38 张，这只是绊线，真正的关卡是 `bioscan bench compare` 对照已提交基线的回退预算。
@@ -112,7 +113,7 @@ uv run python tests/models/download.py      # 三个模型的钉定版本 + Bird
 ```
 名单向量缓存会记录建它时的 BioCLIP / TreeOfLife 版本，版本变了自动重建；早于记录的旧缓存照常使用。
 
-名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，建完可删，约半分钟），之后秒开。改动 `data/names/synonyms.csv` 或 `avilist_map.csv` 会让鸟类缓存重建一次；`mdd_map.csv` 只有标签，不影响哺乳缓存。
+名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，约半分钟）；同时用这个文件建全类群名单（不编码，float16 缓存约 1 GB）。两者都建好后才可删它；删了且全类群缓存缺失时服务照常启动，其他动物 `species: null`，跑 `uv run python tests/models/download.py` 可重建。之后启动要几秒（主要是全类群名单）。改动 `data/names/synonyms.csv` 或 `avilist_map.csv` 会让鸟类缓存重建一次；`mdd_map.csv` 只有标签，不影响哺乳缓存。
 
 ```sh
 uv run bioscan names stats                # 名单覆盖率
@@ -249,7 +250,7 @@ bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在�
 ```sh
 uv run ruff check .
 uv run pytest                                     # 无模型，秒级；tests/models 默认跳过
-uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # 真模型冒烟，77 张 iNat 图
+uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # 真模型冒烟，95 张 iNat 图（含 18 张其他动物）
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
 

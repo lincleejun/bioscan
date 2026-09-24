@@ -39,10 +39,24 @@ class BioCLIP:
             return f / f.norm(dim=-1, keepdim=True)
 
     def probs(self, features: Any, matrix: np.ndarray) -> np.ndarray:
-        """softmax over a name list; `matrix` is its (N, 1024) float32 array (NameList.matrix),
-        copied to the device on first use and kept."""
+        """softmax over a name list; `matrix` is its (N, 1024) float32 or float16 array
+        (NameList.matrix), copied to the device on first use and kept."""
         with self.torch.no_grad():
-            return (self.logit_scale * features @ self.place(matrix).T).softmax(dim=-1).float().cpu().numpy()
+            return self._logits(features, matrix).softmax(dim=-1).float().cpu().numpy()
+
+    def logits(self, features: Any, matrix: np.ndarray) -> np.ndarray:
+        """The scaled similarities `probs` takes the softmax of: comparable across name lists."""
+        with self.torch.no_grad():
+            return self._logits(features, matrix).float().cpu().numpy()
+
+    def _logits(self, features: Any, matrix: np.ndarray) -> Any:
+        m = self.place(matrix)
+        if m.dtype == features.dtype:
+            return self.logit_scale * features @ m.T
+        # float16 list (all-taxa): upcast a slice at a time, so no float32 copy of it is ever kept
+        step = 65536
+        return self.torch.cat([self.logit_scale * features @ m[i:i + step].to(features.dtype).T
+                               for i in range(0, m.shape[0], step)], dim=-1)
 
     def place(self, matrix: np.ndarray) -> Any:
         """The device copy of a name list's matrix, made on the first call and kept."""

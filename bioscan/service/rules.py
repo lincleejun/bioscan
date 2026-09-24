@@ -135,6 +135,23 @@ def kind_evidence(probs: np.ndarray, rows_of: dict[str, slice]) -> dict[str, flo
     return {k: v / total if total > 0 else 1.0 / len(top) for k, v in top.items()}
 
 
+def kind_evidence_logits(logits: dict[str, np.ndarray]) -> dict[str, float]:
+    """kind_evidence from each list's own scaled similarities (BioCLIP logits over its rows, or the
+    rows candidates leave it): exp of its KIND_TOP highest, summed, normalised over kinds. The joint
+    softmax's denominator cancels in that normalisation, so this equals kind_evidence over the
+    stacked lists without ever stacking them (the all-taxa list would make that ~1.9 GB)."""
+    top = {k: _top(np.asarray(z, dtype=np.float64)) for k, z in logits.items()}
+    peak = max(float(t.max()) for t in top.values() if len(t))
+    mass = {k: float(np.exp(t - peak).sum()) for k, t in top.items()}
+    total = sum(mass.values())
+    return {k: v / total if total > 0 else 1.0 / len(mass) for k, v in mass.items()}
+
+
+def _top(z: np.ndarray) -> np.ndarray:
+    """The KIND_TOP highest values, ascending (a partition first: the all-taxa list has ~470k rows)."""
+    return np.sort(np.partition(z, -KIND_TOP)[-KIND_TOP:] if len(z) > KIND_TOP else z)
+
+
 def kind_of(mass: dict[str, float]) -> tuple[str, bool]:
     """(kind, sure) from the share of species evidence each kind-check list holds (kind_evidence):
     the list with the most, and whether that is at least KIND_SURE."""

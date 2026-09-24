@@ -141,7 +141,8 @@ class Engine3:
         self.priors = geo.priors_for(self.names, GeoSource())
         self.bioclip = SimpleNamespace(
             encode_images=lambda crops: np.array([feature(c.getpixel((c.width // 2, c.height // 2))) for c in crops]),
-            probs=lambda feats, m: self._softmax(np.asarray(feats) @ np.asarray(m).T))
+            probs=lambda feats, m: self._softmax(np.asarray(feats) @ np.asarray(m).T),
+            logits=lambda feats, m: 8.0 * (np.asarray(feats, dtype=np.float64) @ np.asarray(m, dtype=np.float64).T))
 
     @staticmethod
     def _softmax(z):

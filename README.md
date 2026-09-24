@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-**What animal is in the photo, where, and which species.** A local identification service for wildlife photography: give it a batch of RAW or JPG files and get back, per image, animal boxes, species (birds and mammals to species), confidence and a grade. A resident HTTP service plus a thin CLI; runs on MPS on a Mac; no photo ever leaves the machine.
+**What animal is in the photo, where, and which species.** A local identification service for wildlife photography: give it a batch of RAW or JPG files and get back, per image, animal boxes, species (birds and mammals against curated lists, every other animal against the TreeOfLife all-taxa list), confidence and a grade. A resident HTTP service plus a thin CLI; runs on MPS on a Mac; no photo ever leaves the machine.
 
 ## Results
 
@@ -54,7 +54,8 @@ when we invite the community; the v0.x gates are not met yet. `data/standards.to
 In scope:
 - Scan a directory in one pass and stream results as they are produced.
 - Three products, in any combination: `identify` (boxes + species), `embed` (whole-frame SigLIP2 vector), `jpg` (RAW to upright JPG).
-- **AviList 2025** (birds, 11131 species) and **MDD v2.5** (mammals, 6904 species) are the only naming standards; BirdNET, TreeOfLife/BioCLIP and iNaturalist names are mapped onto them through the tables in `data/names/`.
+- **AviList 2025** (birds, 11131 species) and **MDD v2.5** (mammals, 6904 species) are the naming standards for birds and mammals; BirdNET, TreeOfLife/BioCLIP and iNaturalist names are mapped onto them through the tables in `data/names/`.
+- All taxa by default: every other animal (reptiles, amphibians, fish, insects, spiders, …) is named from the TreeOfLife-200M all-taxa list. Naming candidate taxa first is optional (see [All taxa and candidates](#all-taxa-and-candidates)).
 - Built-in evaluation: `bioscan gt` builds a ground-truth set (from folder names or iNaturalist), `bioscan eval` writes a report.
 
 Out of scope (v1):
@@ -74,8 +75,9 @@ RAW/JPG ─ decode ─▶ upright 2048 px image + EXIF (GPS, time) + sha256 (plu
               │   animal class's words) ─▶ SigLIP2 check of each box crop ─▶ image quality
               │
               └─ BioCLIP 2.5 Huge on the same framing cut from the detail copy ─▶ kind check against the
-                 bird and mammal lists together ─▶ cosine against that kind's name-list text vectors
-                 × (0.02 + BirdNET location prior) ─▶ normalise ─▶ top-k ─▶ range veto ─▶ grade
+                 bird, mammal and all-taxa lists (each list's best five names) ─▶ cosine against that kind's
+                 name-list text vectors (other animals: the all-taxa list) × (0.02 + BirdNET location prior)
+                 ─▶ normalise ─▶ top-k ─▶ range veto ─▶ grade
 ```
 
 Grading: species when top-1 ≥ 0.5 and leads the runner-up by ≥ 0.3; otherwise genus when the top-5 summed by genus reaches ≥ 0.6, family when summed by family reaches ≥ 0.6; otherwise `unconfirmed`. The range veto and the kind check (next section) can lower that grade.
@@ -87,7 +89,7 @@ Three fixes for confident species-level mistakes. Each is an `identify` option, 
 | Option | What it does | Constants |
 |---|---|---|
 | `range_veto` | **Range veto.** Where the place is known and the list has a location prior, a top candidate whose own p_geo is below ε cannot be graded species. If a congener among the returned candidates has p_geo ≥ τ, it is listed first (the only case where `top` is not in posterior order); the grade then comes from the genus/family roll-up. Fixes a Raven named as a Philippine crow in California. A p_geo borrowed from the genus (below) never vetoes. | `rules.RANGE_EPS` ε = 0.01, `rules.RANGE_TAU` τ = 0.05 |
-| `kind_check` | **Kind check.** Each box's BioCLIP features (already computed) are also scored against the bird and mammal lists stacked into one, and the box takes the kind whose 5 best names hold most of that visual probability (the same number of names per list, so a longer list does not win by size). So a box can move bird ↔ mammal against the gate and crop check (an owl gated mammal is no longer named as a skunk). A box that moved on less than 0.75 of the mass is graded `unconfirmed`: any name above that would assert a kind the evidence cannot. The visual mass decides, not the posterior, because the two lists differ in prior coverage. `other_animal` boxes are left alone. | `rules.KIND_TOP` = 5, `rules.KIND_SURE` = 0.75; lists in `taxa.KIND_CHECK` |
+| `kind_check` | **Kind check.** Each box's BioCLIP features (already computed) are also scored against every loaded kind-check list, each with its own matmul (no stacked matrix), and the box takes the kind whose 5 best names hold most of that visual evidence (the same number of names per list, so a longer list does not win by size). The lists are birds, mammals and, when it is loaded, the all-taxa list for other animals. So a box can move bird ↔ mammal ↔ other animal against the gate and crop check (an owl gated mammal is no longer named as a skunk; a lizard gated bird is named as a lizard). A box that moved on less than 0.75 of the evidence is graded `unconfirmed`: any name above that would assert a kind the evidence cannot. The visual evidence decides, not the posterior, because the lists differ in prior coverage. Without the all-taxa list, `other_animal` boxes are left alone. Cost of the all-taxa list here: one extra matmul per box against its ~470k rows (about 30 ms a box on a 4-core CPU; on MPS an estimated 1–2 ms). | `rules.KIND_TOP` = 5, `rules.KIND_SURE` = 0.75; lists in `taxa.KIND_CHECK` |
 | `mammal_geo` | **Mammal location prior.** The BirdNET geo model the service already loads also scores 1,048 mammals; `data/names/mdd_map.csv` gives them to MDD rows. An MDD row with no label gets the highest p_geo among labelled species of its genus (**genus back-off**), or 0.05 when its genus has none. Birds keep their rule: unlabelled rows get 0. | `geo.UNLABELLED_NEUTRAL` = 0.05; per-list policy `names.LISTS[...].unlabelled` |
 
 All thresholds, the unlabelled policies, the label maps' contents and the option defaults are in the settings fingerprint; `result.engine.models.label_maps` names each label map with its sha. With all three options off, identify output is the same as v1.4 (checked byte for byte on a 300-frame stand-in recording, 5 option sets). To measure one fix, run the same ground truth twice and compare the reports:
@@ -108,6 +110,7 @@ Models and data:
 | Location prior (birds, mammals) | BirdNET geo 3.0 (`birdnet` package) | CC BY-NC-SA 4.0 |
 | Bird list | AviList v2025 | CC BY 4.0 |
 | Mammal list | Mammal Diversity Database v2.5 | CC BY 4.0 |
+| All-taxa list (other animals) | species-level Animalia rows of `imageomics/TreeOfLife-200M`, birds and mammals excluded, official vectors | CC0 |
 
 The BirdNET prior model is licensed non-commercially; for commercial use, drop the prior or replace its source.
 
@@ -124,7 +127,7 @@ uv run python tests/models/download.py      # pinned versions of the three model
 ```
 The name-vector cache records the BioCLIP / TreeOfLife versions it was built with and is rebuilt when they change; older caches without that record are still used.
 
-The name-list CSVs are large and not in git: download them as described in `data/README.md` into `data/avilist/` and `data/mdd/`. The first start encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which can be deleted afterwards; about half a minute). Later starts take a second. Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
+The name-list CSVs are large and not in git: download them as described in `data/README.md` into `data/avilist/` and `data/mdd/`. The first start encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file; about half a minute). The same first start also builds the all-taxa list from that file (no encoding; a float16 cache of about 1 GB). Delete the TreeOfLife file only after both are cached: if it is gone and the all-taxa cache is missing, the service still starts, logs a warning and gives other animals `species: null`, as before; `uv run python tests/models/download.py` or `uv run bioscan names stats` builds it again. Later starts take a few seconds (the all-taxa list is most of that). Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
 
 ```sh
 uv run bioscan names stats                # name-list coverage
@@ -203,6 +206,24 @@ uv run python -m bioscan.service.decode /path/to/card -r    # per file: ext, con
 | `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | long edge of the species-crop detail copy; ≤ 2048 turns it off (crops come from the 2048 image) | 3072 |
 | `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | only read and write files under these directories (repeatable; `:`-separated in the variable); unset means no limit, with a warning when listening beyond localhost | no limit |
 
+### All taxa and candidates
+
+By default every box is named against all taxa bioscan has: birds against AviList, mammals against MDD, and every other animal (`other_animal` boxes) against the **all-taxa list** `tol200m-animalia`, which holds every species-level TreeOfLife-200M row of the animal kingdom outside Aves and Mammalia (hundreds of thousands of species, each with its official BioCLIP vector). There is nothing to choose first. The output shape does not change: `species.list` names the list used, and `engine.models.taxonomy` says which taxonomy each list follows. Other animals have no location prior yet (`p_geo` is null).
+
+Plants and fungi are not in the default: the gate has no plant class, so no box could reach them, and they would cost memory for nothing. They become a second list together with a gate class, as a separate change.
+
+When you already know the answer is one of a few taxa, `candidates` narrows the ranking to them, which is faster to read and harder to get wrong:
+```sh
+bioscan run DIR --candidates "Megascops kennicottii,Strigidae,Bubo"
+curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
+  -d '{"inputs":[{"path":"/abs/a.ARW"}],"options":{"identify":{"candidates":["Megascops kennicottii","Strigidae","Bubo"]}}}'
+```
+- A candidate is a scientific name or any higher taxon (genus, family, order, class, even phylum), compared case- and spacing-insensitively. It matches every row of every loaded list whose taxonomy holds it.
+- Only lists with a matching row compete, and only their matching rows. Every box is named, whatever its kind. Candidates that are all mammals turn a bird-gated box into a mammal box ranked among those mammals.
+- With `kind_check` on (the default) the kind check runs over the competing lists only, on their matching rows: a kind with no candidate cannot win. With it off, a box keeps its kind when its own list has a matching row, and otherwise goes to the competing list with the most evidence (you said the answer is there, so that move is not graded `unconfirmed`).
+- Within the chosen list, `p_visual` is the softmax over its matching rows; the location prior (birds, and mammals with `mammal_geo`), the range veto and the grade then work on those rows as they do on a whole list. `species.list` names the list, and every candidate in `top` comes from it.
+- Empty or absent means all taxa. A name no loaded list knows is a 400 that lists the unknown names. `bioscan eval --candidates …` passes the option through and records it in the preds meta line and the report (with `--preds`, which rescores a finished run, it is refused).
+
 ### HTTP API
 
 ```sh
@@ -269,7 +290,9 @@ After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the m
 ## Known limitations and roadmap
 
 - 45 mammal images in the golden set got no box (mostly bears, mountain lions, bobcats). The detector vocabulary was extended and a gate-miss rescue added; the effect awaits a `bioscan eval` rerun.
-- The mammal location prior, the range veto and the kind check are unverified on real photos until a `bioscan eval` on the Mac (CI's on/off table covers 77 photos only). ε, τ, the kind-check margin and the neutral constant are first guesses.
+- Other animals have no location prior.
+- Other animals use TreeOfLife's own names and taxonomy; `data/names/synonyms.csv` only maps AviList/MDD names, so an iNaturalist truth label spelled differently from TreeOfLife (a genus move, say) scores as a miss. Their accuracy is measured on 18 photos in CI only (see Tests).
+- The mammal location prior, the range veto and the kind check are unverified on real photos until a `bioscan eval` on the Mac (CI's on/off table covers 95 photos only). ε, τ, the kind-check margin and the neutral constant are first guesses. With the all-taxa list loaded, the kind check also weighs it against birds and mammals; its effect on bird and mammal accuracy is measured only by CI's on/off table.
 - The range veto can rename a genuine vagrant to a local congener (graded genus, never species).
 - Recently split species (Northern / Hen Harrier, American / Western Barn Owl) carry old names in the training data and are separated by a shared vector plus the location prior; synonyms do not yet apply per region.
 - The 0.02 floor in the prior formula limits how far location can override vision; it has not been tuned on the golden set.
@@ -281,11 +304,11 @@ After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the m
 ```sh
 uv run ruff check .
 uv run pytest                                     # no models, seconds; tests/models skipped by default
-uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # real-model smoke, 77 iNat photos
+uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # real-model smoke, 95 iNat photos
 uv run python tests/smoke/run_smoke.py --url ...  # needs a running service and your own tests/smoke/*.ARW
 ```
 
-CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights and photos cached), and on every `v*` tag. It writes the metrics to the job summary, and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job.
+CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job.
 
 ## Layout
 
@@ -303,7 +326,8 @@ bioscan/service/rules.py         pure rules and thresholds: crop check, grading,
 bioscan/service/taxa.py          gate prompts, detector vocabularies, promotable class
 bioscan/service/settings.py      fingerprint of output-changing settings
 bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + EXIF (every RAW container) + sha256
-bioscan/service/names.py         AviList / MDD lists, TreeOfLife mapping, text-vector cache
+bioscan/service/names.py         AviList / MDD lists, the TreeOfLife all-taxa list, TreeOfLife mapping, text-vector cache
+bioscan/service/candidates.py    the candidates option: taxon index, the rows each list keeps
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
 baselines/                       committed reports compared against, and the regression budget

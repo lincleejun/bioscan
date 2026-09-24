@@ -6,7 +6,8 @@ from conftest import events, make_jpg
 from bioscan import contract
 
 
-@pytest.mark.parametrize("identify_opts", [{}, {"species": False}, {"top_k": 1, "geo": False}])
+@pytest.mark.parametrize("identify_opts", [{}, {"species": False}, {"top_k": 1, "geo": False},
+                                           {"candidates": ["Megascops kennicottii"]}])
 def test_identify_payloads_conform(client, tmp_path, identify_opts):
     paths = [make_jpg(tmp_path / f"{i}.jpg") for i in range(3)]
     r = client.post("/run", json={"inputs": [{"path": p} for p in paths], "want": ["identify"],

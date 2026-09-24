@@ -186,8 +186,8 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
              synonyms: bool = True, identify_opts: dict | None = None) -> tuple[str, bool]:
     """(report markdown, complete). complete is False when the prediction stream ended without
     the service's `done` (service died mid-run): the missing images score as misses.
-    `identify_opts` adds identify options (e.g. {"kind_check": False} to measure that fix); they
-    are sent with the run and recorded in the preds meta line."""
+    `identify_opts` adds identify options (e.g. {"kind_check": False} to measure that fix, or
+    {"candidates": [...]}); they are sent with the run and recorded in the preds meta line."""
     rows = read_gt(gt_csv)
     if synonyms:
         rows = normalise_truth(rows, naming.read_synonyms(SYNONYMS_CSV))
@@ -225,7 +225,8 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
     with open(preds_path, "rb") as f:
         preds = load_preds(f)
     metrics = compute(rows, preds)
-    geo = (preds_meta.get("options") or {}).get("identify", {}).get("geo")
+    ident_opts = (preds_meta.get("options") or {}).get("identify", {})
+    geo = ident_opts.get("geo")
     meta = {"groundtruth": gt_csv, "preds": str(preds_path), "images": len(rows),
             "geo": geo if geo is not None else f"{not no_geo} (from the command line; preds file has no meta line)",
             "preds schema": preds_meta.get("schema", "none (pre-schema file)"), "complete": complete,

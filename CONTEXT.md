@@ -1,7 +1,7 @@
 # bioscan
 
-Local service and CLI that find birds and mammals in photos and name the species, for one photographer's
-archive. Terms below are the ones code, tests and docs use.
+Local service and CLI that find animals in photos and name the species (all taxa by default), for one
+photographer's archive. Terms below are the ones code, tests and docs use.
 
 ## Photos and runs
 
@@ -74,14 +74,22 @@ among the candidates is listed first. Identify option `range_veto`.
 _Avoid_: geo filter, out-of-range filter
 
 **Kind check**:
-Scoring a box's species features against every kind-check list at once (`taxa.KIND_CHECK`) and giving
-the box the kind whose best `rules.KIND_TOP` names hold most of the visual probability (list size does
-not count), whatever the gate and crop check said;
+Scoring a box's species features against every loaded kind-check list (`taxa.KIND_CHECK`: bird, mammal
+and the all-taxa list when loaded; each list its own matmul) and giving the box the kind whose best
+`rules.KIND_TOP` names hold most of the visual evidence (list size does not count), whatever the gate
+and crop check said;
 a box that moved on a thin margin (`rules.KIND_SURE`) gets level unconfirmed. Identify option `kind_check`.
 _Avoid_: second crop check, reclassify
 
 **Candidate**:
 One ranked name for a box: scientific, common, taxonomy, p_visual, p_geo, posterior.
+_Avoid_: confusing it with candidate taxa (the option)
+
+**Candidate taxa**:
+The optional `candidates` identify option: scientific names or higher taxa species ranking is restricted
+to, across every loaded name list. Only lists with a matching row compete; the kind check picks among
+them (off: the box keeps its kind while its list has a match). Empty = all taxa.
+_Avoid_: filter, whitelist; "candidates" alone when a Candidate could be meant
 
 **Conformance**:
 How a payload departs from the contract's fields (`contract.identify_problems`).
@@ -104,8 +112,14 @@ _Avoid_: backend, wrapper
 ## Names
 
 **Name list**:
-One species list in the species encoder's text space, loaded finished and frozen: AviList for birds, MDD for mammals.
+One species list in the species encoder's text space, loaded finished and frozen: AviList for birds, MDD for
+mammals, the all-taxa list for other animals.
 _Avoid_: vocabulary (that is the detector's words), taxonomy
+
+**All-taxa list**:
+The name list for other_animal boxes (`tol200m-animalia`): every species-level TreeOfLife-200M animal row
+outside the classes a curated list covers, with its official vector, float16 (`names.ALL_TAXA`).
+_Avoid_: ToL list, fallback list
 
 **List source**:
 Where a name list comes from: id, data folder, taxonomic class, reader and label map (`names.ListSource`).

@@ -26,7 +26,8 @@ PROMOTE_TO = "bird"                      # the crop gate may turn any other anim
 # Kinds whose name lists compete in the kind check (pipeline): a box of one of these kinds moves to
 # whichever of their lists holds the strongest species evidence (rules.kind_evidence: each list's
 # best rows, so list size does not count). A list joins by adding its kind here.
-KIND_CHECK = ("bird", "mammal")
+# other_animal is the all-taxa list: it only takes part when that list is loaded.
+KIND_CHECK = ("bird", "mammal", "other_animal")
 
 # gate class -> {prompt: first-pass floor}
 VOCAB: dict[str, dict[str, float]] = {

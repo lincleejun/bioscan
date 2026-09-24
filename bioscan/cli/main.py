@@ -15,6 +15,8 @@ from bioscan.cli.render import Renderer
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PRODUCTS = contract.PRODUCTS
 EXIT_OK, EXIT_PARTIAL, EXIT_SERVICE, EXIT_INCOMPLETE = 0, 1, 2, 3
+CANDIDATES_HELP = ('comma list of taxa to rank species among, e.g. "Megascops kennicottii,Strigidae,Bubo" '
+                   "(scientific names or genus/family/order/class); default: all taxa")
 
 
 # ---- serve -------------------------------------------------------------------
@@ -87,9 +89,16 @@ def build_payload(a) -> dict:
     options: dict = {}
     if "identify" in want:
         options["identify"] = {"top_k": a.top_k, "geo": not a.no_geo, "species": not a.no_species}
+        if a.candidates:
+            options["identify"]["candidates"] = split_candidates(a.candidates)
     if "jpg" in want:
         options["jpg"] = {"out_dir": os.path.abspath(a.jpg_out)}
     return {"inputs": inputs, "want": want, "options": options}
+
+
+def split_candidates(text: str | None) -> list[str]:
+    """--candidates "Megascops kennicottii, Strigidae,Bubo" -> the names, blanks dropped."""
+    return [c.strip() for c in (text or "").split(",") if c.strip()]
 
 
 def exit_code(errors: int, done: bool) -> int:
@@ -166,8 +175,13 @@ def identify_opts(pairs: list[str] | None) -> dict:
 
 def cmd_eval(a):
     from bioscan.cli import eval as ev
-    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms,
-                                   identify_opts(a.identify_opt))
+    if a.preds and (a.candidates or a.identify_opt):
+        raise SystemExit("--candidates and --identify-opt only apply when eval calls the service; a --preds file "
+                         "was made with the options in its meta line")
+    opts = identify_opts(a.identify_opt)
+    if a.candidates:
+        opts["candidates"] = split_candidates(a.candidates)
+    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms, opts)
     print(report)
     if not complete:
         print("error: the prediction stream ended before the service's `done`; missing images count as misses",
@@ -248,6 +262,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--top-k", type=int, default=5)
     s.add_argument("--no-species", action="store_true")
+    s.add_argument("--candidates", help=CANDIDATES_HELP)
     s.add_argument("--jpg-out")
     s.add_argument("-r", "--recursive", action="store_true")
     s.add_argument("--ext", default=formats.DEFAULT_EXT)
@@ -276,6 +291,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--no-synonyms", action="store_true", help="compare raw truth labels (skip data/names/synonyms.csv)")
     s.add_argument("--identify-opt", action="append", metavar="NAME=VALUE",
                    help="extra identify option, repeatable; e.g. range_veto=false to measure that fix (README)")
+    s.add_argument("--candidates", help=CANDIDATES_HELP)
     s.set_defaults(func=cmd_eval)
 
     bench.add_parser(sub)

@@ -94,6 +94,10 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
         except Exception as exc:  # noqa: BLE001
             log.exception("model load failed")
             return JSONResponse({"error": f"model load failed: {type(exc).__name__}: {exc}"}, status_code=503)
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, products.check_loaded, engine, want, opts)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
 
         async def stream() -> AsyncIterator[bytes]:
             async for ev in runs.events(inputs, want, opts, request.is_disconnected):

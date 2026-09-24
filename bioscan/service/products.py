@@ -14,14 +14,15 @@ import numpy as np
 from PIL import Image
 
 from bioscan import contract
-from bioscan.service import pipeline
+from bioscan.service import candidates, pipeline
 from bioscan.service.adapters.siglip2 import MODEL_NAME
 from bioscan.service.pipeline import Frame, _species, identify  # noqa: F401 - re-exported
 from bioscan.service.rules import *  # noqa: F403 - rules and thresholds re-exported for callers of products.X
 from bioscan.service.rules import MIN_CROP, crop_with_context, dedupe, judge, quality, species_crops  # noqa: F401
 
+MAX_CANDIDATES = 1000
 DEFAULTS: dict[str, dict[str, Any]] = {
-    "identify": {"top_k": 5, "geo": True, "species": True, **pipeline.SWITCHES},
+    "identify": {"top_k": 5, "geo": True, "species": True, **pipeline.SWITCHES, "candidates": []},
     "embed": {"format": "list"},
     "jpg": {"out_dir": "/tmp/bioscan-jpg"},
 }
@@ -29,13 +30,22 @@ DEFAULTS: dict[str, dict[str, Any]] = {
 PRODUCTS: dict[str, Any] = {
     "identify": {
         "description": "Scene gate (SigLIP2), animal boxes (OWLv2 + crop gate), per-box quality and species "
-                       "(BioCLIP 2.5 Huge zero-shot, optional BirdNET geo prior for birds and mammals, "
-                       "range veto, kind check).",
+                       "(BioCLIP 2.5 Huge zero-shot against AviList for birds, MDD for mammals and the "
+                       "TreeOfLife-200M all-taxa list for other animals; optional BirdNET geo prior for birds "
+                       "and mammals, range veto, kind check).",
         "options": {"top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
                     "geo": {"type": "boolean", "default": True},
                     "species": {"type": "boolean", "default": True},
                     # accuracy fixes, on by default; false switches one off to measure it (README)
-                    **{k: {"type": "boolean", "default": v} for k, v in pipeline.SWITCHES.items()}},
+                    **{k: {"type": "boolean", "default": v} for k, v in pipeline.SWITCHES.items()},
+                    "candidates": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_CANDIDATES,
+                                   "default": [],
+                                   "description": "Optional. Rank species only among these taxa: scientific names "
+                                                  "or any higher taxon (genus, family, order, class), matched "
+                                                  "across every loaded name list. Only lists with a matching row "
+                                                  "compete: the kind check picks among them (off: the box keeps "
+                                                  "its kind if its list has one, else the list with the most "
+                                                  "evidence). Empty = all taxa. Names no list knows are a 400."}},
         "output": contract.IDENTIFY_OUTPUT,          # the payload's fields live in bioscan/contract.py
     },
     "embed": {
@@ -59,6 +69,19 @@ def _check_identify(o: dict[str, Any]) -> None:
     for key in ("geo", "species", *pipeline.SWITCHES):
         if not isinstance(o[key], bool):
             raise ValueError(f"options.identify.{key} must be a boolean")
+    c = o["candidates"]
+    if (not isinstance(c, list) or len(c) > MAX_CANDIDATES
+            or not all(isinstance(x, str) and x.strip() for x in c)):
+        raise ValueError(f"options.identify.candidates must be a list of at most {MAX_CANDIDATES} non-empty names")
+    o["candidates"] = [x.strip() for x in c]
+
+
+def _check_identify_loaded(engine: Any, o: dict[str, Any]) -> None:
+    """Candidates every loaded name list is blind to are a request error, named in the message."""
+    unknown = candidates.unknown(engine.names, o["candidates"]) if o["candidates"] else []
+    if unknown:
+        raise ValueError(f"options.identify.candidates: no loaded name list ({', '.join(sorted(engine.names))}) "
+                         f"has {unknown}")
 
 
 def _check_embed(o: dict[str, Any]) -> None:
@@ -91,6 +114,12 @@ def resolve_options(options: dict[str, Any] | None) -> dict[str, dict[str, Any]]
     for name, product in REGISTRY.items():
         product.check(out[name])
     return out
+
+
+def check_loaded(engine: Any, want: list[str], opts: dict[str, dict[str, Any]]) -> None:
+    """The checks that need the loaded models or name lists (after Engine.ensure); ValueError -> 400."""
+    for name in want:
+        REGISTRY[name].check_loaded(engine, opts[name])
 
 
 # ---- embed / jpg -------------------------------------------------------------------------
@@ -161,6 +190,7 @@ class Product:
     schema: dict[str, Any]           # served by GET /products
     run: Runner
     writes: Callable[[dict[str, Any]], list[str]] = lambda opts: []   # paths checked against allow-roots
+    check_loaded: Callable[[Any, dict[str, Any]], None] = lambda engine, opts: None   # (engine, opts), after load
 
 
 REGISTRY: dict[str, Product] = {
@@ -168,7 +198,8 @@ REGISTRY: dict[str, Product] = {
         "identify", ("siglip2", "owlv2", "bioclip"), True, True, DEFAULTS["identify"], _check_identify,
         PRODUCTS["identify"],
         lambda e, items, o: pipeline.identify_many(
-            e, [Frame(it.dec.image, it.gate, it.lat, it.lon, it.taken_at, it.dec.detail) for it in items], o)),
+            e, [Frame(it.dec.image, it.gate, it.lat, it.lon, it.taken_at, it.dec.detail) for it in items], o),
+        check_loaded=_check_identify_loaded),
     "embed": Product(
         "embed", ("siglip2",), True, True, DEFAULTS["embed"], _check_embed, PRODUCTS["embed"],
         _each(lambda e, it, o: embed(it.vec, o["format"]))),

@@ -149,7 +149,7 @@ bioscan bench scorecard runs/<tag>-golden                                       
 | Mammals top-1 | 88.7%, iNat CV 2.20 average over all taxa (vendor claim) [^inat220] | **85%** | 92% | 74.1% (README golden, before the v1.1 mammal fixes); smoke 85.7% | phase-1 gate of the strategy doc; mammals still have no location prior, so we sit just under iNat's all-taxa average |
 | Mammals top-5 | none | **93%** | 97% | 81.4% (README golden); smoke 91.4% | top-5 misses are mostly no-box, which detection fixes |
 | Mammals genus | none | **92%** | 97% | unmeasured | bear and cat confusions stay within a genus, so genus should run 5–7 points above top-1 |
-| Other animals top-1 | 88.7%, iNat (all taxa, vendor claim) [^inat220] | **60%** | 80% | unmeasured (no list and no test folder yet; W4) | zero-shot over about 10⁵ names with no location prior; below 60%, the default output would mislead more often than help |
+| Other animals top-1 | 88.7%, iNat (all taxa, vendor claim) [^inat220] | **60%** | 80% | unmeasured (W4 built the list; CI smoke ranks 18 photos against it, golden slice still to build) | zero-shot over about 10⁵ names with no location prior; below 60%, the default output would mislead more often than help |
 | Other animals top-5 | none | **80%** | 92% | unmeasured | enough for "help identify": the right answer is usually on the short list |
 | Other animals genus | none | **75%** | 90% | unmeasured | the level most other-animal answers should stop at |
 
@@ -250,7 +250,7 @@ Report the machine, the disk and the settings fingerprint with it.
 |---|---|---|---|---|---|
 | Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,131** (all of AviList 2025) | — | 11,131 (`bioscan names stats`; data/README) | the whole world list, extinct species included |
 | Mammal species in the name list | ~2,000 categories, SpeciesNet, all taxa (vendor claim) [^speciesnet] | **6,904** (all of MDD v2.5) | — | 6,904 | the whole world list |
-| Other animal species with a name | 100,000+ taxa, iNat CV 2.20, all kingdoms (vendor claim) [^inat220] | **100,000** | 300,000 | unmeasured (W4 builds the TreeOfLife-wide list) | all taxa by default has to mean most animals people photograph |
+| Other animal species with a name | 100,000+ taxa, iNat CV 2.20, all kingdoms (vendor claim) [^inat220] | **100,000** | 300,000 | unmeasured until the first build on real data (W4 list `tol200m-animalia`; estimated ~470k species) | all taxa by default has to mean most animals people photograph |
 | Share of truth species in the lists | none | **100%** | 100% | golden birds 42/42 (checked against `avilist_map.csv` + synonyms, 2026-09-24); golden mammals 23/23 as scored by `bioscan eval` (MDD CSV not in the repo, not re-checked); own 3/3 | a species missing from the list can never be named, so it would make the accuracy numbers meaningless |
 
 Name-list coverage by TreeOfLife vectors and BirdNET labels (84.6% / 93.3% of AviList; 55.5% of MDD

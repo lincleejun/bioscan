@@ -1,6 +1,6 @@
 name: models
 
-# Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo) on CPU over 77 iNaturalist photos.
+# Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo, + the all-taxa list) on CPU over 95 iNaturalist photos.
 # Report: the job summary, the job log and the `models-report` artifact. The harness step compares the
 # run's report.json with baselines/ci-smoke.json under baselines/budget.toml (docs/harness.md).
 # Branch pushes and PRs run when a listed path changes; a `v*` tag push always runs (GitHub does not
@@ -52,6 +52,7 @@ jobs:
       BIOSCAN_REPORT: ${{ github.workspace }}/models-report.md
       BIOSCAN_PHOTO_CACHE: ${{ github.workspace }}/.photos
       BIOSCAN_REQUIRE_GEO: "1"
+      BIOSCAN_REQUIRE_ALLTAXA: "1"
     steps:
       - name: Free disk (torch + ~4 GB of weights)
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
@@ -72,13 +73,22 @@ jobs:
         with:
           path: ~/.local/share/birdnet
           key: birdnet-geo-3.0-${{ hashFiles('uv.lock') }}
-      - name: Download weights and BirdNET geo
+      - name: All-taxa list cache key (its list sha and the BioCLIP revision it is checked against)
+        id: alltaxa
+        run: echo "key=$(uv run python -c 'from bioscan.service import names; from bioscan.service.adapters import bioclip; print(names.all_taxa_sha() + "-" + bioclip.REVISION[:12])')" >> "$GITHUB_OUTPUT"
+      - name: Cache the all-taxa name list (built from 3.26 GB of TreeOfLife vectors on a miss)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bioscan/names
+          key: names-alltaxa-${{ steps.alltaxa.outputs.key }}
+      - name: Download weights, BirdNET geo and the all-taxa list
         run: uv run python tests/models/download.py
       - name: Cache photos
         uses: actions/cache@v4
         with:
           path: .photos
           key: photos-${{ hashFiles('tests/models/sample.csv') }}
+          restore-keys: photos-
       - name: Real-model smoke
         run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs
       - name: Job summary

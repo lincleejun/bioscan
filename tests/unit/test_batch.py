@@ -74,15 +74,22 @@ class Models:
                 models.calls["bioclip"] += 1
                 return [c.getpixel((c.width // 2, c.height // 2)) for c in crops]
 
-            def probs(self, feats, matrix):
-                """softmax over the given rows (a list or the kind check's stacked lists) of a
-                feature that leans to row b % 8 and a little to row r % 8"""
+            @staticmethod
+            def _vecs(feats):
                 vecs = np.zeros((len(feats), 8))
                 for i, (r, _g, b) in enumerate(feats):
                     vecs[i, b % 8] += 1.0
                     vecs[i, r % 8] += 0.6
-                z = np.exp(4.0 * vecs @ np.asarray(matrix, dtype=np.float64).T)
+                return vecs
+
+            def probs(self, feats, matrix):
+                """softmax over the given rows of a feature that leans to row b % 8 and a little to row r % 8"""
+                z = np.exp(4.0 * self._vecs(feats) @ np.asarray(matrix, dtype=np.float64).T)
                 return z / z.sum(axis=1, keepdims=True)
+
+            def logits(self, feats, matrix):
+                """what probs takes the softmax of"""
+                return 4.0 * self._vecs(feats) @ np.asarray(matrix, dtype=np.float64).T
 
         self.owlv2, self.siglip2, self.bioclip = Owl(), Sig(), Bio()
 
