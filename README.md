@@ -39,6 +39,16 @@ Cold start loads the three models in about 11 s; they stay resident afterwards.
 
 Full numbers and confusion tables: `docs/2026-09-23-baseline-results.md`.
 
+### Standards and targets
+
+[`docs/standards.md`](docs/standards.md) sets the bars bioscan is measured against, in 11 dimensions
+(accuracy per kind, trust, detection, location, a directory-level acceptance test, speed, coverage,
+robustness, onboarding, privacy, reproducibility). For each it gives the industry bar with its
+source, our community bar, a stretch bar, the current status and how it is measured. It also sets
+the release stages: v0.x "try it and help identify", then v1.0 "bundle and release". The bars say
+when we invite the community; the v0.x gates are not met yet. `data/standards.toml` holds the same bars for
+`bioscan bench scorecard`.
+
 ## Goals and scope
 
 In scope:

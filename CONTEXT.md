@@ -142,3 +142,27 @@ Directories the service may read from and write to; empty means no limit.
 **Settings fingerprint**:
 Twelve hex characters over the output-changing constants (thresholds, prompts, vocabulary, prior floor, max edge);
 the configured detail edge is reported beside it as `engine.detail_edge`.
+
+## Standards and releases
+
+**Standard**:
+One measurable bar in `docs/standards.md` / `data/standards.toml`: a definition, the industry bar with its source,
+our community and stretch bars, the current status and the tier and command that measure it.
+_Avoid_: KPI, target (alone)
+
+**Tier**:
+One test folder a standard is judged on: `smoke` (CI, 77 photos, reduced lists), `golden` (1,625 iNat California),
+`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed).
+_Avoid_: dataset (alone), split
+
+**Community bar**:
+A standard's level that must be met, at the Wilson 95% bound, before the v0.x community call.
+_Avoid_: threshold (that is a rule constant), floor (that is a smoke-test guard)
+
+**Confident error**:
+An image whose best box is graded species-level and named wrong; the confident-error rate divides by all images.
+
+**Release stage**:
+v0.x "try it and help identify" (community call) or v1.0 "bundle and release"; each is gated by a named set of
+standards at their community bars.
+_Avoid_: milestone, phase (the strategy doc's roadmap phases)
