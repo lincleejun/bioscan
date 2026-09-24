@@ -5,7 +5,9 @@ import numpy as np
 import pytest
 from PIL import Image, ImageFilter
 
-from bioscan.service import products
+from bioscan.plugins import BY_NAME
+from bioscan.plugins.embed.stage import embed
+from bioscan.service import pipeline, rules, stages
 from bioscan.service.adapters import geo, siglip2
 from bioscan.service.adapters.owlv2 import Detection, clip_to_frame
 from bioscan.service.app import parse_run
@@ -25,33 +27,33 @@ def cand(p, g="G", f="F", s="x"):
     ([], "unconfirmed"),
 ])
 def test_species_level(cands, level):
-    assert products.species_level(cands) == level
+    assert rules.species_level(cands) == level
 
 
 def test_judge():
     g = lambda **kw: {**dict.fromkeys(siglip2.GATE_CLASSES, 0.0), **kw}  # noqa: E731
-    assert products.judge("bird", g(none=0.9)) is None
-    assert products.judge("bird", g(person=0.85)) is None
-    assert products.judge("mammal", g(bird=0.6, mammal=0.4)) == "bird"
-    assert products.judge("mammal", g(mammal=0.1, none=0.7)) is None
-    assert products.judge("mammal", g(mammal=0.5)) == "mammal"
-    assert products.judge("bird", g(bird=0.2, none=0.7)) == "bird"
+    assert rules.judge("bird", g(none=0.9)) is None
+    assert rules.judge("bird", g(person=0.85)) is None
+    assert rules.judge("mammal", g(bird=0.6, mammal=0.4)) == "bird"
+    assert rules.judge("mammal", g(mammal=0.1, none=0.7)) is None
+    assert rules.judge("mammal", g(mammal=0.5)) == "mammal"
+    assert rules.judge("bird", g(bird=0.2, none=0.7)) == "bird"
 
 
 def test_dedupe_keeps_stronger():
     a = Detection("a bird", 0.9, (0, 0, 10, 10))
     b = Detection("a mammal", 0.5, (1, 1, 10, 10))
     c = Detection("a bird", 0.4, (50, 50, 60, 60))
-    assert products.dedupe([b, a, c]) == [a, c]
+    assert rules.dedupe([b, a, c]) == [a, c]
     assert clip_to_frame((-5, 2, 20, 30), 10, 10) == (0.0, 2, 10.0, 10.0)
     assert clip_to_frame((5, 5, 5, 9), 10, 10) is None
 
 
 def test_crop_with_context_stays_in_frame():
     im = Image.new("RGB", (1000, 600))
-    crop = products.crop_with_context(im, (0, 0, 20, 20))
+    crop = rules.crop_with_context(im, (0, 0, 20, 20))
     assert crop.size == (320, 320)
-    crop = products.crop_with_context(im, (900, 500, 1000, 600))
+    crop = rules.crop_with_context(im, (900, 500, 1000, 600))
     assert crop.size == (320, 320)
 
 
@@ -59,8 +61,8 @@ def test_quality_prefers_sharp():
     rng = np.random.default_rng(0)
     im = Image.fromarray((rng.random((200, 200)) > 0.5).astype(np.uint8) * 255).convert("RGB")
     im = im.resize((400, 400), Image.Resampling.NEAREST)
-    sharp = products.quality(im, (50, 50, 350, 350))
-    blurred = products.quality(im.filter(ImageFilter.GaussianBlur(4)), (50, 50, 350, 350))
+    sharp = rules.quality(im, (50, 50, 350, 350))
+    blurred = rules.quality(im.filter(ImageFilter.GaussianBlur(4)), (50, 50, 350, 350))
     assert sharp["sharpness"] > blurred["sharpness"]
     assert -0.5 <= sharp["exposure"] <= 0.5
 
@@ -153,7 +155,7 @@ def test_geo_prior_applies_to_whole_list_before_top_k():
 
     def run(**opts):
         boxes = [{"kind": "bird"}]
-        products._species(eng, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], 37.4, -122.1, None,
+        pipeline._species(eng, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], 37.4, -122.1, None,
                           {"geo": True, "top_k": 5} | opts)
         return boxes[0]["species"]
 
@@ -176,28 +178,28 @@ def test_softmax_gate():
 
 
 def test_resolve_options():
-    o = products.resolve_options(None)
+    o = stages.resolve_options(None)
     # the three v1.5 accuracy switches are identify options, on by default; candidates empty = all taxa
     assert o["identify"] == {"top_k": 5, "geo": True, "species": True, "range_veto": True, "kind_check": True,
                              "mammal_geo": True, "candidates": []} and o["embed"]["format"] == "list"
-    assert products.resolve_options({"identify": {"top_k": 3}})["identify"]["top_k"] == 3
-    assert products.resolve_options({"identify": {"kind_check": False}})["identify"]["kind_check"] is False
-    assert set(products.PRODUCTS["identify"]["options"]) == set(products.DEFAULTS["identify"])
-    got = products.resolve_options({"identify": {"candidates": [" Bubo ", "Strigidae"]}})["identify"]["candidates"]
-    assert got == ["Bubo", "Strigidae"] and products.DEFAULTS["identify"]["candidates"] == []
+    assert stages.resolve_options({"identify": {"top_k": 3}})["identify"]["top_k"] == 3
+    assert stages.resolve_options({"identify": {"kind_check": False}})["identify"]["kind_check"] is False
+    assert set(stages.PRODUCTS["identify"]["options"]) == set(BY_NAME["identify"].defaults)
+    got = stages.resolve_options({"identify": {"candidates": [" Bubo ", "Strigidae"]}})["identify"]["candidates"]
+    assert got == ["Bubo", "Strigidae"] and BY_NAME["identify"].defaults["candidates"] == []
     for bad in ({"identify": {"top_k": 0}}, {"identify": {"nope": 1}}, {"embed": {"format": "npy"}},
                 {"jpg": {"out_dir": "rel/dir"}}, {"video": {}}, {"identify": {"geo": "yes"}},
                 {"identify": {"range_veto": 0}}, {"identify": {"mammal_geo": "false"}},
                 {"identify": {"candidates": "Bubo"}}, {"identify": {"candidates": ["Bubo", " "]}},
                 {"identify": {"candidates": [3]}}, {"identify": {"candidates": ["x"] * 1001}}):
         with pytest.raises(ValueError):
-            products.resolve_options(bad)
+            stages.resolve_options(bad)
 
 
 def test_embed_formats():
     v = np.linspace(-1, 1, 768, dtype=np.float32)
-    assert products.embed(v, "list")["dim"] == 768
-    raw = base64.b64decode(products.embed(v, "f16_base64")["vector"])
+    assert embed(v, "list")["dim"] == 768
+    raw = base64.b64decode(embed(v, "f16_base64")["vector"])
     assert np.allclose(np.frombuffer(raw, "<f2"), v, atol=1e-3)
 
 
@@ -231,12 +233,12 @@ def test_mammal_species_uses_mdd_without_geo():
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims,
                                                   probs=lambda f, m: np.array([[0.9, 0.1]] * len(f))))
     boxes = [{"kind": "mammal"}]
-    products._species(eng, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], 60.0, -150.0, None,
+    pipeline._species(eng, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], 60.0, -150.0, None,
                       {"geo": True, "top_k": 5})
     sp = boxes[0]["species"]
     assert sp["list"] == "mdd-2025" and sp["level"] == "species"
     assert sp["top"][0]["scientific"] == "Rangifer tarandus" and sp["top"][0]["common"] == "Reindeer"
     assert sp["top"][0]["p_geo"] is None and sp["top"][0]["posterior"] == sp["top"][0]["p_visual"]
     # MDD 7-level taxonomy: [5] is the genus, [4] the family -> two cervid genera roll up to family
-    assert products.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}]) \
+    assert rules.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}]) \
         == "family"

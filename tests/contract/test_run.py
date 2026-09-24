@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import bioscan
-from bioscan.service import products
 from bioscan.service import run as run_mod
+from bioscan.service import stages
 from bioscan.service.app import create_app
 
 
@@ -237,7 +237,7 @@ def test_disconnect_stops_after_current_chunk(tmp_path):
         with ThreadPoolExecutor(2) as pool:
             runs = run_mod.RunQueue(engine, decode_pool=pool, chunk=2)
             return [e async for e in runs.events([{"path": q, "lat": None, "lon": None, "taken_at": None} for q in paths],
-                                                 ["identify"], products.resolve_options(None), gone)]
+                                                 ["identify"], stages.resolve_options(None), gone)]
 
     ev = asyncio.run(collect())
     assert len([e for e in ev if e["type"] == "result"]) == 2

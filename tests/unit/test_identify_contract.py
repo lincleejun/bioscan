@@ -90,5 +90,5 @@ def test_products_describes_the_contract_fields():
     assert list(box["quality"]) == list(contract.Quality.__annotations__)
     words = set(re.findall(r"\w+", box["species"]))
     assert set(contract.Species.__annotations__) <= words and set(contract.Candidate.__annotations__) <= words
-    from bioscan.service import products
-    assert products.PRODUCTS["identify"]["output"] is doc
+    from bioscan.service import stages
+    assert stages.PRODUCTS["identify"]["output"] is doc

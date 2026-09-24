@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from bioscan import contract
-from bioscan.service import products
+from bioscan import contract, plugin
+from bioscan.plugins import BY_NAME
+from bioscan.service import stages
 from bioscan.service.decode import Decoded, timed_decode
 
 log = logging.getLogger("bioscan")
@@ -172,13 +173,13 @@ class RunQueue:
         return out
 
     async def _run_products(self, images: list[_Image], want: list[str], opts: dict[str, dict[str, Any]]) -> None:
-        """Product-first over one chunk (products.REGISTRY order); a product that throws on one image
+        """Product-first over one chunk (plugins.BUILTIN order); a product that throws on one image
         costs that image only. Model work runs on the single model thread, the rest on the CPU pool.
         The shared whole-frame pass is timed under the first product that uses it."""
         loop = asyncio.get_running_loop()
         vecs: Any = None
         gates: list[Any] = [None] * len(images)
-        framed = [p for p in want if products.REGISTRY[p].uses_frame]
+        framed = [p for p in want if BY_NAME[p].uses_frame]
         if framed:
             def frame() -> Any:
                 t = time.perf_counter()
@@ -194,15 +195,15 @@ class RunQueue:
                         im.errors.append((p, f"{type(exc).__name__}: {exc}"))
 
         for name in want:
-            product = products.REGISTRY[name]
-            if product.uses_frame and vecs is None:
+            manifest = BY_NAME[name]
+            if manifest.uses_frame and vecs is None:
                 outs: list[Any] = [None] * len(images)          # frame failed: already reported per image
             else:
-                batch = [products.Item(im.dec, im.inp, None if vecs is None else vecs[i], gates[i])
+                batch = [plugin.Item(im.dec, im.inp, None if vecs is None else vecs[i], gates[i])
                          for i, im in enumerate(images)]
                 t = time.perf_counter()
-                outs = await loop.run_in_executor(self._model if product.on_model_thread else self._cpu,
-                                                  product.run, self.engine, batch, opts[name])
+                outs = await loop.run_in_executor(self._model if manifest.thread == "model" else self._cpu,
+                                                  stages.stage(name).run, self.engine, batch, opts[name])
                 per = (time.perf_counter() - t) * 1000 / len(images)
                 for im in images:
                     im.timing[name] = round(im.timing.get(name, 0.0) + per, 1)

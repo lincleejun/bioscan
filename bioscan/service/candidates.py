@@ -5,7 +5,7 @@ A candidate is a scientific name or any higher taxon (genus, family, order, clas
 and matches every row of every loaded name list whose taxonomy holds it at some rank, compared by
 `naming.norm_binomial`. This module only says which rows those are (`allowed`); how a box is ranked
 among them (kind check, prior, range veto) is pipeline._species_many's. Unknown names are rejected
-before the run (`unknown`, used by products.py).
+before the run (`unknown`, used by the identify stage).
 """
 from __future__ import annotations
 

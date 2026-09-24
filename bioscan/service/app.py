@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from bioscan import contract, serve_config
-from bioscan.service import products
+from bioscan.service import stages
 from bioscan.service.run import DecodePool, RunQueue
 
 log = logging.getLogger("bioscan")
@@ -47,7 +47,7 @@ def parse_run(body: Any) -> tuple[list[dict[str, Any]], list[str], dict[str, dic
     unknown = sorted(set(want) - set(ORDER))
     if unknown:
         raise ValueError(f"unknown products: {unknown}")
-    return clean, [p for p in ORDER if p in want], products.resolve_options(body.get("options"))
+    return clean, [p for p in ORDER if p in want], stages.resolve_options(body.get("options"))
 
 
 def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
@@ -56,7 +56,7 @@ def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str,
     `..` resolved first, so neither escapes). No roots = everything allowed."""
     if not roots:
         return []
-    paths = [inp["path"] for inp in inputs] + [w for p in want for w in products.REGISTRY[p].writes(opts[p])]
+    paths = [inp["path"] for inp in inputs] + stages.paths(want, opts)
     return [p for p in paths if not any(Path(p).resolve().is_relative_to(r) for r in roots)]
 
 
@@ -76,7 +76,7 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
 
     @app.get("/products")
     async def list_products() -> dict[str, Any]:
-        return products.PRODUCTS
+        return stages.PRODUCTS
 
     @app.post("/run")
     async def run(request: Request) -> Any:
@@ -95,7 +95,7 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
             log.exception("model load failed")
             return JSONResponse({"error": f"model load failed: {type(exc).__name__}: {exc}"}, status_code=503)
         try:
-            await asyncio.get_running_loop().run_in_executor(None, products.check_loaded, engine, want, opts)
+            await asyncio.get_running_loop().run_in_executor(None, stages.check_loaded, engine, want, opts)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
 

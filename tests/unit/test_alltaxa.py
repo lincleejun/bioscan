@@ -11,7 +11,7 @@ from test_accuracy import Engine3, species, unit
 from test_batch import OPTS, SWITCHES_OFF, Models, frame, g
 from test_names import FakeModel, FakeTokenizer, setup
 
-from bioscan.service import candidates, pipeline, products
+from bioscan.service import candidates, pipeline, stages
 from bioscan.service import names as names_mod
 
 ANIMAL = ["Animalia", "Chordata"]
@@ -380,12 +380,12 @@ class Loaded:
 
 
 def test_unknown_candidates_are_named():
-    opts = products.resolve_options({"identify": {"candidates": ["Buteo s1", "Nonexistus", "Anolis s9", "Reptilia"]}})
+    opts = stages.resolve_options({"identify": {"candidates": ["Buteo s1", "Nonexistus", "Anolis s9", "Reptilia"]}})
     with pytest.raises(ValueError) as e:
-        products.check_loaded(Loaded(), ["identify"], opts)
+        stages.check_loaded(Loaded(), ["identify"], opts)
     assert "['Nonexistus', 'Anolis s9']" in str(e.value)
-    products.check_loaded(Loaded(), ["identify"], products.resolve_options({"identify": {"candidates": ["O", "Lynx s0"]}}))
-    products.check_loaded(Loaded(), ["embed"], opts)                     # identify not wanted: not checked
+    stages.check_loaded(Loaded(), ["identify"], stages.resolve_options({"identify": {"candidates": ["O", "Lynx s0"]}}))
+    stages.check_loaded(Loaded(), ["embed"], opts)                     # identify not wanted: not checked
     assert candidates.unknown(Loaded().names, ["reptilia", "LYNX"]) == []
     assert candidates.allowed(Loaded().names, []) is None
     assert {k: v.tolist() for k, v in candidates.allowed(Loaded().names, ["Lynx s2", "Squamata"]).items()} == \
@@ -393,7 +393,7 @@ def test_unknown_candidates_are_named():
 
 
 def test_products_describes_the_option():
-    o = products.PRODUCTS["identify"]["options"]["candidates"]
+    o = stages.PRODUCTS["identify"]["options"]["candidates"]
     assert o["type"] == "array" and o["default"] == [] and "all taxa" in o["description"]
 
 

@@ -17,14 +17,14 @@ from typing import Any
 import numpy as np
 
 import bioscan
-from bioscan.service import products
+from bioscan.plugins import BY_NAME
 
 log = logging.getLogger("bioscan.engine")
 
 SIGLIP_BATCH = 32
 
-# What each product needs loaded, from the product registry.
-NEEDS = {name: p.needs for name, p in products.REGISTRY.items()}
+# What each product needs loaded under its default options, from the plugin manifests.
+NEEDS = {name: m.models(m.defaults) for name, m in BY_NAME.items()}
 
 
 def pick_device() -> str:

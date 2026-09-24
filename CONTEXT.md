@@ -38,7 +38,8 @@ _Avoid_: format (that is the extension)
 _Avoid_: timestamp, date
 
 **Product**:
-A named result a run can ask for per image (`identify`, `embed`, `jpg`), declared in the product registry.
+A named result a run can ask for per image (`identify`, `embed`, `jpg`): the output of the stage of that name
+(`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.
 
 ## Identify
 

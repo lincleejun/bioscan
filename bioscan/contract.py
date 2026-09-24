@@ -1,4 +1,4 @@
-"""The /run wire format, in one place: product names, event types, required fields, schema version,
+"""The /run wire format, in one place: product names (from the plugin manifests), event types, required fields, schema version,
 and the identify payload (gate, boxes, quality, species, candidates).
 
 Standard library only. The service builds its events and its identify output with the constructors
@@ -11,7 +11,8 @@ from __future__ import annotations
 from typing import Any, Literal, TypedDict
 
 SCHEMA = 1
-PRODUCTS = ("identify", "embed", "jpg")            # also the order products run in
+# PRODUCTS: the product names, in the order they are reported, derived from bioscan.plugins.BUILTIN
+# (module __getattr__ below: the plugin manifests import this module).
 
 PROGRESS, RESULT, ERROR, DONE = "progress", "result", "error", "done"
 EventType = Literal["progress", "result", "error", "done"]
@@ -48,6 +49,14 @@ class DoneEvent(TypedDict):
     ok: int
     failed: int
     elapsed_ms: float
+
+
+def __getattr__(name: str) -> Any:
+    if name == "PRODUCTS":
+        from bioscan.plugins import BUILTIN
+
+        return tuple(m.name for m in BUILTIN)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 REQUIRED: dict[str, tuple[str, ...]] = {
