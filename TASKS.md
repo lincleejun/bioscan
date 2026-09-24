@@ -87,3 +87,23 @@ Found（已记录）：
 - [x] 新 worktree 缺 gitignore 的名单 CSV，服务 503 "expected exactly one CSV"；复制 data/avilist、data/mdd 后正常
 - [x] 服务 SIGTERM 后解码进程池子进程不退出，累积孤儿进程；已手动清理，修复留待 v1.6
 - [x] golden compare 唯一超预算项是吞吐 −53%（全品类名表）；准确率无回归
+
+---
+
+# TASKS — v1.6 profiles and plugins, geotag, culling (2026-09-24)
+
+Research: docs/research/2026-09-24-plugin-architecture.md, docs/research/2026-09-24-culling-aesthetics.md.
+Decisions (owner, 2026-09-24): profiles expand in CLI and service; reducers in CLI/offline; aesthetic head
+on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before culling.
+
+- [ ] A0 golden-stream recording test (fake engine, 5 option sets; /products JSON; fingerprint) — the safety net
+- [ ] A1 Product -> Manifest + Stage; contract.PRODUCTS derived from plugins.BUILTIN
+- [ ] A2 models(opts): identify with species=false skips BioCLIP; detail decode keyed on `reads`
+- [ ] A3 Item.facts + topological plan from reads/provides; Loaders.extra
+- [ ] A4 profiles: bioscan/profile.py (stdlib), bioscan.toml, serve_config file layer, --profile / "profile"; full = today
+- [ ] W6 geotag from GPX (in progress, v16/w6-geotag) -> becomes the step-5 `geotag` stage after A4
+- [ ] A6 harness: meta.profile, plugin_metrics, standards `profile` field
+- [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
+- [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
+- [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
+      synthetic reject set (blur / cut-off / exposure degradations of iNat photos) for the rule stages
