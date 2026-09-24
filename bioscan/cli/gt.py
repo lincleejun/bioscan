@@ -11,9 +11,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from bioscan.formats import list_images, subsec
 from bioscan.naming import norm_label
 
-DEFAULT_EXT = "arw,dng,jpg,jpeg,raf,nef,cr3"
 # spec 8 columns + `kind` (bird|mammal): eval groups by kind and the truth row is the only
 # place that knows it. The inat extras (license, attribution) are from spec 7.
 OWN_FIELDS = ["path", "scientific", "tier", "lat", "lon", "taken_at", "source", "kind"]
@@ -27,19 +27,6 @@ BUILTIN = {
 }
 
 
-def list_images(root: str, exts: set[str], recursive: bool) -> list[str]:
-    """Absolute paths of image files under root (or root itself), sorted, dotfiles skipped."""
-    root = os.path.abspath(root)
-    if os.path.isfile(root):
-        return [root]
-    out = []
-    for dirpath, dirnames, files in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".")) if recursive else []
-        out += [os.path.join(dirpath, f) for f in files
-                if not f.startswith(".") and f.rsplit(".", 1)[-1].lower() in exts]
-    return sorted(out)
-
-
 def read_exif(paths: list[str]) -> dict[str, dict]:
     """path -> {lat, lon, taken_at} ('' when absent). Uses exiftool; all blank if it is missing."""
     blank = {p: {"lat": "", "lon": "", "taken_at": ""} for p in paths}
@@ -47,7 +34,7 @@ def read_exif(paths: list[str]) -> dict[str, dict]:
         if paths:
             print("warning: exiftool not found, lat/lon/taken_at left blank", file=sys.stderr)
         return blank
-    tags = ["-GPSLatitude", "-GPSLongitude", "-DateTimeOriginal", "-OffsetTimeOriginal"]
+    tags = ["-GPSLatitude", "-GPSLongitude", "-DateTimeOriginal", "-SubSecTimeOriginal", "-OffsetTimeOriginal"]
     out = dict(blank)
     for i in range(0, len(paths), 500):  # keep argv bounded
         chunk = paths[i:i + 500]
@@ -56,16 +43,18 @@ def read_exif(paths: list[str]) -> dict[str, dict]:
             out[rec["SourceFile"]] = {
                 "lat": rec.get("GPSLatitude", ""),
                 "lon": rec.get("GPSLongitude", ""),
-                "taken_at": exif_time(rec.get("DateTimeOriginal"), rec.get("OffsetTimeOriginal")),
+                "taken_at": exif_time(rec.get("DateTimeOriginal"), rec.get("OffsetTimeOriginal"),
+                                      rec.get("SubSecTimeOriginal")),
             }
     return out
 
 
-def exif_time(dt, offset) -> str:
-    """'2025:12:24 16:41:44' + '-07:00' -> '2025-12-24T16:41:44-07:00'."""
+def exif_time(dt, offset, sub=None) -> str:
+    """'2025:12:24 16:41:44' + '-07:00' (+ sub-seconds '37') -> '2025-12-24T16:41:44(.37)-07:00',
+    the same string the service's decode builds."""
     if not isinstance(dt, str) or not re.match(r"\d{4}:\d\d:\d\d \d\d:\d\d:\d\d", dt):
         return ""
-    s = dt[:10].replace(":", "-") + "T" + dt[11:19]
+    s = dt[:10].replace(":", "-") + "T" + dt[11:19] + subsec(sub)
     return s + offset if isinstance(offset, str) and re.fullmatch(r"[+-]\d\d:\d\d", offset) else s
 
 
