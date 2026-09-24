@@ -22,6 +22,16 @@ BASE_FACTS = ("image", "detail", "time", "place", *FRAME_FACTS)
 
 
 @dataclass(frozen=True)
+class Metric:
+    """A rate the harness reports per plugin (report.json `plugin_metrics[plugin][scope]`, with a
+    Wilson interval). `row` sees one image: the plugin's output in the result (None when the result
+    has none) and its ground-truth row; True is a hit, False a miss, None leaves the image out."""
+    name: str
+    description: str
+    row: Callable[[Any, dict[str, str]], bool | None]
+
+
+@dataclass(frozen=True)
 class Manifest:
     """What a plugin declares, importable without its dependencies."""
     name: str                                   # also the product key in result.products
@@ -40,6 +50,7 @@ class Manifest:
     # checks (and may normalise) the merged options, stdlib only: ValueError -> 400. Lives in the
     # manifest so a request is validated without importing any stage's service code.
     check: Callable[[dict[str, Any]], None] = lambda opts: None
+    metrics: tuple[Metric, ...] = ()            # rates for `bioscan bench` (stdlib, from the output alone)
 
     @property
     def defaults(self) -> dict[str, Any]:

@@ -576,3 +576,127 @@ def test_standards_tier_from_field_or_id():
     assert bench.standard_tier({"id": "coverage.names"}) is None
 
 
+
+
+# ---- profiles and plugin metrics (A6) ----------------------------------------------------------
+
+GEOTAG = {"/a.jpg": {"place_source": "gpx", "lat": 37.4, "lon": -122.1}, "/b.jpg": {"place_source": "exif"},
+          "/c.jpg": {"place_source": "none"}, "/e.jpg": {"place_source": "gpx", "lat": 37.4, "lon": -122.1}}
+
+
+def profiled_events(profile="wildlife", geotag=True):
+    """events() as a profile's run: the meta line names the profile, and results carry geotag outputs."""
+    evs = copy.deepcopy(events())
+    evs[0]["profile"] = profile
+    for e in evs:
+        if geotag and e["type"] == "result" and e["path"] in GEOTAG:
+            e["products"]["geotag"] = GEOTAG[e["path"]]
+    return evs
+
+
+def test_report_meta_names_the_profile(tmp_path):
+    """A report must say which profile ran: an album run (species off) and a wildlife run score differently."""
+    preds, gt = write_case(tmp_path, profiled_events("album", geotag=False))
+    assert bench.report_from_preds(preds, gt, lists={})["meta"]["profile"] == "album"
+    preds, gt = write_case(tmp_path)                    # a preds file from before profiles
+    rep = bench.report_from_preds(preds, gt, lists={})
+    assert rep["meta"]["profile"] is None and bench.report_profile(rep) == "full"
+
+
+def test_plugin_outputs_leave_the_core_metrics_unchanged(tmp_path):
+    """Plugin metrics are additive: the same identify results give the same core report whatever else ran."""
+    preds, gt = write_case(tmp_path)
+    plain = bench.report_from_preds(preds, gt, lists=lists(tmp_path))
+    preds, gt = write_case(tmp_path, profiled_events(), name="wild.ndjson")
+    wild = bench.report_from_preds(preds, gt, lists=lists(tmp_path))
+    for key in ("metrics", "per_species", "per_family", "images"):
+        assert wild[key] == plain[key], key
+    assert plain["plugin_metrics"] == {}                # identify only: no plugin declares metrics for it
+
+
+def test_plugin_metrics_per_scope_from_the_manifest(tmp_path):
+    """geotag's rates count only images whose result carries a geotag output, per scope, with Wilson intervals."""
+    preds, gt = write_case(tmp_path, profiled_events())
+    pm = bench.report_from_preds(preds, gt, lists={})["plugin_metrics"]
+    assert set(pm) == {"geotag"} and set(pm["geotag"]) == set(bench.SCOPES)
+    everything = pm["geotag"]["all"]                    # a, b, c, e have outputs; 2 of 4 from the track
+    assert everything["n"] == 4 and everything["gpx_rate"] == 0.5 and everything["no_place_rate"] == 0.25
+    assert everything["gpx_rate_ci"] == bench.wilson(2, 4)
+    assert pm["geotag"]["bird"]["n"] == 3 and pm["geotag"]["bird"]["gpx_rate"] == pytest.approx(1 / 3, abs=1e-6)
+    assert pm["geotag"]["mammal"]["gpx_rate"] == 1.0
+    assert pm["geotag"]["other"] == {"n": 0, "gpx_rate": None, "gpx_rate_ci": None,
+                                     "no_place_rate": None, "no_place_rate_ci": None}
+
+
+PROFILE_STANDARDS = '''
+[[standard]]
+id = "location.golden.all.geotag.gpx_rate"
+dimension = "location"
+title = "Placed from the track"
+profile = "wildlife"
+scope = "all"
+metric = "geotag.gpx_rate"
+op = ">="
+community = 0.4
+unit = "fraction"
+how = "plugin_metrics.geotag.all.gpx_rate"
+source = "example"
+
+[[standard]]
+id = "accuracy.golden.all.detect_rate.album"
+tier = "golden"
+dimension = "accuracy"
+title = "Boxes for culling"
+profile = "album"
+scope = "all"
+metric = "detect_rate"
+op = ">="
+community = 0.1
+unit = "fraction"
+how = "metrics.all.detect_rate"
+source = "example"
+'''
+
+
+def test_scorecard_holds_a_report_to_its_profiles_standards(tmp_path):
+    """An album run (species off) must not fail the species bars, and a wildlife bar must not judge it;
+    standards without `profile` keep judging reports from before profiles (full) and wildlife runs."""
+    standards = bench.read_standards(_write(tmp_path / "s.toml", STANDARDS.read_text() + PROFILE_STANDARDS))
+    preds, gt = write_case(tmp_path, profiled_events())
+    wild = bench.scorecard(bench.report_from_preds(preds, gt, lists={}), standards, "golden")
+    ids = {r["id"]: r for r in wild["rows"]}
+    assert wild["profile"] == "wildlife" and "accuracy.golden.bird.top1" in ids
+    assert "accuracy.golden.all.detect_rate.album" not in ids
+    gpx = ids["location.golden.all.geotag.gpx_rate"]    # read from plugin_metrics, judged on the Wilson bound
+    assert gpx["value"] == 0.5 and gpx["judged"] == bench.wilson(2, 4)[0] and gpx["status"] == "fail"
+
+    preds, gt = write_case(tmp_path, profiled_events("album", geotag=False), name="album.ndjson")
+    album = bench.scorecard(bench.report_from_preds(preds, gt, lists={}), standards, "golden")
+    assert [r["id"] for r in album["rows"]] == ["accuracy.golden.all.detect_rate.album"]
+
+    preds, gt = write_case(tmp_path, name="full.ndjson")
+    full = bench.scorecard(bench.report_from_preds(preds, gt, lists={}), standards, "golden")
+    assert full["profile"] == "full" and "accuracy.golden.bird.top1" in {r["id"] for r in full["rows"]}
+    assert not {r["id"] for r in full["rows"]} & {"location.golden.all.geotag.gpx_rate",
+                                                   "accuracy.golden.all.detect_rate.album"}
+
+
+@pytest.mark.parametrize("change,msg", [
+    (('metric = "geotag.gpx_rate"', 'metric = "geotag.nope"'), "metric must be"),
+    (('metric = "geotag.gpx_rate"', 'metric = "jpg.gpx_rate"'), "metric must be"),
+    (('unit = "fraction"\nhow = "plugin', 'unit = "images"\nhow = "plugin'), "rate metrics take unit"),
+    (('profile = "wildlife"', "profile = 3"), "profile must be"),
+])
+def test_standards_profile_and_plugin_metric_errors(tmp_path, change, msg):
+    text = STANDARDS.read_text() + PROFILE_STANDARDS
+    assert change[0] in text
+    with pytest.raises(bench.BenchError, match=msg):
+        bench.read_standards(_write(tmp_path / "s.toml", text.replace(*change, 1)))
+
+
+def test_compare_warns_when_profiles_differ(tmp_path, report):
+    """Comparing a full baseline with a wildlife run is allowed but must be visible."""
+    preds, gt = write_case(tmp_path, profiled_events(), name="wild.ndjson")
+    wild = bench.report_from_preds(preds, gt, lists=lists(tmp_path))
+    assert "profiles differ: full -> wildlife (different stages or options)" in bench.compare(report, wild)["warnings"]
+    assert not any("profiles differ" in w for w in bench.compare(report, report)["warnings"])
