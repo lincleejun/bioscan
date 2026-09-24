@@ -206,7 +206,7 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 |---|---|---|---|---|
 | `full` | identify（`want` 要时加 embed、jpg） | 默认 | SigLIP2、OWLv2、BioCLIP | 不加：不带 profile 的请求就是它，任何文件都改不了 |
 | `wildlife` | geotag、identify | 物种、位置先验与各项准确率修正全开（`top_k` 5，`geo` true）；`geotag.gpx`（或 `run --gpx`）给出轨迹前 geotag 什么都不做 | SigLIP2、OWLv2、BioCLIP | 暂无 |
-| `album` | identify、embed | identify `species: false` | SigLIP2、OWLv2（从不加载 BioCLIP） | `quality`、`scene`、`aesthetics` stage；`burst`、`select` reducer（在 CLI 端跑） |
+| `album` | identify、embed、aesthetics | identify `species: false`；aesthetics `head: builtin` | SigLIP2、OWLv2（从不加载 BioCLIP） | `quality`、`scene` stage；`burst`、`select` reducer（在 CLI 端跑） |
 
 ```sh
 bioscan run DIR --profile album                  # 用 profile 的 stage 与选项；命令行参数仍优先
@@ -243,7 +243,7 @@ candidates = ["Strigidae", "Accipitridae"]
 - **服务端**用它自己的文件（启动时读一次）展开请求里的 `"profile"`。不带 `"profile"` 的请求永远是 `full`：`default_profile` 和 `$BIOSCAN_PROFILE` 只作用于 CLI，HTTP 客户端看不到变化。
 - **错误**：未知的键、profile、stage 或选项都会报错并指出是哪个文件（请求里则是 400）。用户文件里写 `[profile.full]` 会被拒绝。选项的取值由服务检查。`bioscan serve --launchd` 把命令行参数、否则文件里 `[serve]` 的值写进 plist，并通过 `BIOSCAN_CONFIG` 让服务读当前目录的 `bioscan.toml`。
 - **信任**：运行目录下的 `./bioscan.toml` 会被自动读取，只在你信任其文件的目录里运行 bioscan：它可以设 `serve.host = "0.0.0.0"`、`allow_roots`，或让 jpg 写到某个 `out_dir`；`bioscan config show` 会列出读到的每个文件及其设置的每个值。
-- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag` 的顺序列出。
+- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag, aesthetics` 的顺序列出。
 
 ### 用 GPX 轨迹补 GPS
 
@@ -285,6 +285,31 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 
   各场景明细见 docs/2026-09-24-geotag-synthetic.md。
 
+### 美学评分（album）
+
+`aesthetics` stage 用一个小的线性**头**（head）给每帧打美学分，输入是整帧 pass 已经算好的 SigLIP2 向量：不加新模型，权重只有几 kB，每个 chunk 在 CPU 线程池上做一次矩阵乘。它在 `album` profile 里（`full`、`wildlife` 都不含），而且**只用来排序，从不剔除或删除任何一帧**；计划中的 `select` reducer 会读 `products.aesthetics.score`，在连拍组或类别内排序。
+
+- **输出** `products.aesthetics`：`score`（0-1，即下面的混合分，不截断）、`general`、`personal`（没有个人头时为 null）、`head_id`（`name:sha12`，混合时为 `+name:sha12~blend`）。缺少通用头文件时 score 为 null，并有一条 `note` 说明原因；运行不会因此失败。
+- **通用头**：`data/aesthetic/eva-head-v1.json`，在 **EVA** 上拟合的岭回归头（4070 张照片，每张 30 票以上，平均分 0-10）。**尚未提交**：由 `aesthetic` workflow 或在 Mac 上训练（命令见 `data/aesthetic/README.md`）；在那之前 album 运行报告 `score: null`。
+- **个人头**：用你自己的评分拟合，向通用头收缩，再按 `blend`（个人头权重，默认 0.5）与通用头混合：
+
+  ```sh
+  bioscan aesthetic ratings ~/Pictures/Album                     # 按行程列出 XMP（旁车或内嵌）里的星级/色标
+  bioscan aesthetic train --ratings ~/Pictures/Album --embeddings ~/.cache/bioscan/album-vec.ndjson
+  #   -> ~/.config/bioscan/aesthetic-personal.json（岭回归，alpha 由按行程分折的 5 折交叉验证选出）
+  bioscan run ~/Pictures/Album --profile album                   # 只用通用头，除非 profile 指定你的头：
+  ```
+
+  ```toml
+  [profile.album.options.aesthetics]
+  head = "/Users/me/.config/bioscan/aesthetic-personal.json"   # builtin | 绝对路径 | off
+  blend = 0.5
+  ```
+
+  评分取 Lightroom 1-5 星（`xmp:Rating`；按 XMP 规范，0 或缺失 = 未评分，跳过；拒绝标记 -1 保留为拒绝，等级低于 1 星），有色标和 `xmpDM:pick` 时一并读取；旁车文件优先于内嵌 XMP。Lightroom Classic 的旗标（pick）存在目录库里、不写进 XMP，需要的话用 CSV（`path,rating,pick,trip`）提供。CLI 从不加载模型：向量来自正在运行的服务的 `embed` 产物（`--embeddings FILE` 可缓存）。头文件路径要在服务的 allow-roots 之内。
+- **与你的一致程度**：`bioscan aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/bioscan/aesthetic-personal.json` 写出 report.json 和 report.md：与星级的 Spearman、Kendall；按行程对照你的 pick 的 NDCG@10 和 precision@k（k = 该行程里你的 pick 数，并列出随机顺序的期望值）；以及 50/100/200/500/1000 条评分下个人头、通用头、混合的**学习曲线**，始终按行程（文件夹）划分，连拍不会同时出现在训练和测试两侧。`bioscan bench scorecard runs/aes/report.json` 按 `aesthetic-own` 标准判定（docs/standards.md 第 13 节）。**美学相关数字都还没有实测，以上一律未验证。**
+- **许可**：EVA 的标注是 **CC0 1.0**（见其仓库的 LICENSE）。图片是来自 dpchallenge.com 的 AVA 照片，版权属于原摄影师：bioscan 只用它们计算向量，从不再分发。头权重在本地或本仓库 CI 中训练，头文件记录数据、许可、样本数、日期、种子和交叉验证结果。**从不使用 AVA 评分，也不分发任何 AVA 训练的权重。**个人头用你自己对自己照片的评分拟合，只留在你的机器上。
+
 ### HTTP API
 
 ```sh
@@ -294,7 +319,7 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
 `want` 可以省略：这时运行其 profile 的 stage（默认 `full`：identify）。`"want": null` 返回 400，除非请求体同时给了 `"profile"`，那时等同于省略。
-响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`，`identify` 产物（gate、boxes、quality、species、候选）也定义在那里；`result`、`done` 带 `schema: 1`。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`，`identify` 产物（gate、boxes、quality、species、候选）也定义在那里；`result`、`done` 带 `schema: 1`。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`；运行里有依赖训练文件的 stage 时，`engine.plugins` 写明用的是哪个文件（`{"aesthetics": "v1@eva-head-v1:<sha12>+…"}`）。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
 
 CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。`run --json` 过去总是返回 0，现在也按这套退出码返回，脚本里若把非 0 当失败需留意。eval 的学名比较改用与 synonyms 查找相同的归一化（忽略连字符与大小写），旧报告的 Top-1/Top-5 可能因此有细微差别。
 
@@ -365,7 +390,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
 
-CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。
+CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。`aesthetic.yml` 只按需运行（Actions 页面，或推送 `aesthetic-head-*` tag）：用 CPU 训练 EVA 通用头，并把头文件以 base64 打印到日志（见 data/aesthetic/README.md）。
 
 ## 布局
 
@@ -380,7 +405,7 @@ bioscan/service/app.py           路由、请求校验、允许目录、NDJSON �
 bioscan/service/run.py           一次 /run 的事件流：分 chunk、按 chunk 的模型轮次、解码进程池自愈
 bioscan/service/engine.py        设备选择、经 Loaders 惰性加载模型（测试注入假适配器）、每类先验
 bioscan/plugin.py                stage 插件的声明（Manifest）与实现接口（Stage）；运行计划（仅标准库）
-bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag；__init__.py 是标准库 manifest，stage.py 是服务端代码
+bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag、aesthetics；__init__.py 是标准库 manifest，stage.py 是服务端代码
 bioscan/service/stages.py        服务端的 stage：选项合并与校验、/products、allow-roots 路径
 bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
 bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
@@ -390,8 +415,13 @@ bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF�
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/geotag.py                GPX 解析、拍摄时间转 UTC、时钟偏差、轨迹插值、XMP 旁车文件（纯标准库）
+bioscan/aesthetic.py             美学头文件、XMP/CSV 评分、按行程分折、排序指标（纯标准库）
+bioscan/aesthetic_fit.py         岭回归头、交叉验证、向先验收缩、学习曲线（numpy；只在训练或算曲线时导入）
 bioscan/cli/                     main client render gt eval bench config（profile）geotag_cli（geotag、run --gpx）geobench（bench geotag）
+                                 aesbench（bioscan aesthetic ratings|train|eval）
 scripts/geotag_synth.py          用 golden 集合成 GPX 场景，供 bench geotag 使用
+scripts/train_aesthetic_head.py  EVA 通用美学头，进程内用服务的 decode 与 SigLIP2
+data/aesthetic/                  通用美学头（训练出来之前只有 README）及其来源说明
 data/names/                      AviList 为准的名字映射表
 docs/                            设计 spec、实施计划、评测结果
 ```

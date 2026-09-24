@@ -136,6 +136,41 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
       CLI geotags locally as in W6. The clock offset is always decided in the CLI for the whole folder.
 - [ ] A6 harness: meta.profile (eval already writes "profile" in the preds meta line), plugin_metrics, standards `profile` field
 - [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
-- [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
+- [x] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
+      (branch v17/c2-aesthetic; details and next steps in "v1.7 C2" below)
 - [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
       synthetic reject set (blur / cut-off / exposure degradations of iNat photos) for the rule stages
+
+## v1.7 C2: aesthetic head on SigLIP2 (branch v17/c2-aesthetic, 2026-09-24)
+Goal: rank album frames by an aesthetic score from the SigLIP2 frame vector bioscan already computes; general head
+from EVA (CC0 annotations), personalised with the owner's Lightroom stars. Reorders only, never deletes.
+Decisions (owner): EVA general head + owner ratings; AVA-trained weights never distributed; aesthetics only reorders.
+Assumptions taken: the head file is JSON (stdlib-readable by the CLI, diffable, base64-able from a CI log) with
+provenance inside it, not .npz + a separate JSON; ridge on centred vectors with one global scale (keeps the
+embedding's geometry); `head` = builtin | absolute path to a personal head (blended with the builtin) | off;
+`engine.plugins` appears only when a stage names a trained file (existing goldens stay byte-identical).
+- [x] `bioscan/aesthetic.py` (stdlib): head format + sha check, scoring/blend, XMP (sidecar, darktable sidecar,
+      embedded) and CSV ratings, trip folds, Spearman / Kendall tau-b / NDCG@k / precision@k, EVA reader (pinned commit)
+- [x] `bioscan/aesthetic_fit.py` (numpy, lazy): ridge + K-fold CV over alphas, pull toward a prior head, learning curve
+- [x] `bioscan/plugins/aesthetics`: reads vec, provides aesthetic, CPU thread, siglip2 only; `{score, general,
+      personal, head_id[, note]}`; missing/damaged builtin -> score null + note; appended to BUILTIN and to `album`
+- [x] `Stage.plugin_id` + `result.engine.plugins` (additive; only stages that report one); `settings()` has the builtin sha
+- [x] `bioscan aesthetic ratings|train|eval` (bioscan/cli/aesbench.py; vectors through the service's embed, cache file)
+- [x] report `bioscan-aesthetic-report` v1 read by `bench scorecard`; standards tier `aesthetic-own` (profile album, 4 bars)
+- [x] `scripts/train_aesthetic_head.py` (EVA download at the pinned commit, service decode + Engine.frame, fit, base64)
+- [x] `.github/workflows/aesthetic.yml` (workflow_dispatch or tag `aesthetic-head-*`; CPU; base64 head in the log)
+- [x] tests: stage on fake vectors, head load/validate/sha, planted-signal fit, XMP parsing, trip folds, learning curve,
+      CLI train/eval on a fake service, script end to end on a fake engine and a fake download; tests/models check that
+      training vectors == served vectors; A0 goldens byte-identical (only products-added.json gained the entry)
+- [x] docs: README (EN + zh-CN), CONTEXT (aesthetic head, general/personal head, rating, trip, learning curve),
+      docs/standards.md §13, docs/harness.md, data/aesthetic/README.md, data/README.md
+Next:
+- [ ] run `aesthetic.yml` (or the Mac command in data/aesthetic/README.md), review the EVA CV SRCC, commit
+      data/aesthetic/eva-head-v1.json; runtime in CI to be recorded (estimate 15-25 min)
+- [ ] owner: `bioscan aesthetic ratings` on 2-3 rated trips; if Lightroom picks matter, export them as a CSV
+      (Lightroom Classic does not write pick flags to XMP)
+- [ ] owner's Mac: `bioscan aesthetic eval` with the learning curve on those trips; set the aesthetic-own bars from
+      the first real numbers (NDCG@10 against its random-order value) and commit an `aesthetic-own` report
+- [ ] choose the default `blend` from the learning curve (0.5 is a guess)
+- [ ] C1 merge: `select` reads `products.aesthetics.score`; resolve the album line in profiles.toml and BUILTIN order
+- [ ] per-category heads or a small MLP only if the learning curve shows the linear head saturating

@@ -54,6 +54,10 @@ EXIT_OK, EXIT_OVER, EXIT_INCOMPARABLE = 0, 1, 2
 GEOTAG_SCHEMA = "bioscan-geotag-report"
 GEOTAG_RATES = ("within_100m_rate", "within_1km_rate", "no_fix_rate", "false_fix_rate", "cell_change_rate")
 GEOTAG_METRICS = ("n", "n_expected", "median_error_m", "p90_error_m", *GEOTAG_RATES, "offset_error_s")
+# `aesthetic eval` (bioscan.cli.aesbench): agreement of an aesthetic head with the owner's ratings.
+AESTHETIC_SCHEMA = "bioscan-aesthetic-report"
+AESTHETIC_RATES = ("precision_at_k",)
+AESTHETIC_METRICS = ("n", "spearman", "kendall", "plcc", "spearman_trip_mean", "ndcg_at_k", *AESTHETIC_RATES)
 
 
 class BenchError(Exception):
@@ -773,9 +777,9 @@ def analyze_md(a: dict) -> str:
 
 # ---- scorecard -------------------------------------------------------------------------------
 
-STANDARD_FIELDS = ("id", "dimension", "title", "tier", "scope", "metric", "op", "industry", "community", "stretch",
-                   "unit", "how", "source")
-OPTIONAL_FIELDS = ("tier", "industry", "stretch")      # TOML has no null: an absent key means null
+STANDARD_FIELDS = ("id", "dimension", "title", "tier", "profile", "scope", "metric", "op", "industry", "community",
+                   "stretch", "unit", "how", "source")
+OPTIONAL_FIELDS = ("tier", "profile", "industry", "stretch")   # TOML has no null: an absent key means null
 MANUAL = "manual"                                      # a standard checked by hand, not read from a report
 POINT_TIERS = ("smoke",)                               # regression guards: judged on the observed value
 
@@ -821,10 +825,12 @@ def read_standards(path: str | Path) -> list[dict]:
             raise BenchError(f"{where}: op must be >= or <=")
         if s["metric"] == MANUAL:
             continue
-        if s["metric"] not in METRICS and s["metric"] not in GEOTAG_METRICS:
+        if s["metric"] not in METRICS and s["metric"] not in GEOTAG_METRICS and s["metric"] not in AESTHETIC_METRICS:
             raise BenchError(f"{where}: metric must be one of {', '.join(METRICS)}, a geotag metric "
-                             f"({', '.join(GEOTAG_METRICS[1:])}) or {MANUAL}")
-        if (s["metric"] in FRACTIONS or s["metric"] in GEOTAG_RATES) != (s["unit"] == "fraction"):
+                             f"({', '.join(GEOTAG_METRICS[1:])}), an aesthetic metric "
+                             f"({', '.join(AESTHETIC_METRICS[1:])}) or {MANUAL}")
+        rate = s["metric"] in FRACTIONS or s["metric"] in GEOTAG_RATES or s["metric"] in AESTHETIC_RATES
+        if rate != (s["unit"] == "fraction"):
             raise BenchError(f"{where}: rate metrics take unit \"fraction\" (0-1), other metrics may not")
         if standard_tier(s) is None:
             raise BenchError(f"{where}: no tier (add `tier`, or use an id <dimension>.<tier>.<scope>.<metric>)")
@@ -993,7 +999,7 @@ def cmd_analyze(a) -> int:
 
 
 def cmd_scorecard(a) -> int:
-    rep = load_report(a.report, (REPORT_SCHEMA, GEOTAG_SCHEMA))
+    rep = load_report(a.report, (REPORT_SCHEMA, GEOTAG_SCHEMA, AESTHETIC_SCHEMA))
     standards = read_standards(a.standards or STANDARDS_TOML)
     tier = a.tier or report_tier(rep)
     if not tier:

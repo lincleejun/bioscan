@@ -92,6 +92,9 @@ class RunQueue:
         want = plan.want
         done = dict.fromkeys(want, 0)
         info = {**self.engine.info(), "detail_edge": self.detail_edge}
+        plugins = self._plugin_ids(plan)
+        if plugins:                     # only stages that name what they ran on (a trained head): additive
+            info["plugins"] = plugins
         chunks = [inputs[i:i + self.chunk] for i in range(0, total, self.chunk)]
         edge = self.detail_edge if plan.detail else None
 
@@ -136,6 +139,16 @@ class RunQueue:
         finally:
             for f in pending:
                 f.cancel()
+
+    @staticmethod
+    def _plugin_ids(plan: plugin.Plan) -> dict[str, str]:
+        """result.engine.plugins: {stage: id} for the stages of the plan that report one."""
+        out = {}
+        for name in plan.want:
+            pid = getattr(plugin.load(plan.manifests[name]), "plugin_id", lambda o: None)(plan.opts[name])
+            if pid is not None:
+                out[name] = pid
+        return out
 
     @asynccontextmanager
     async def _turn(self) -> AsyncIterator[None]:

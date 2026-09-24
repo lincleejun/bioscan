@@ -258,6 +258,42 @@ When the track gives a position: linear between neighbouring points up to the ma
 whose ends are within the max span and at most the max still time apart (the device stood still, 3 h at most); none
 outside the track unless extrapolation holds an end.
 
+## Aesthetics
+
+**Aesthetic head**:
+A linear map from the whole-frame SigLIP2 vector to a score (`bioscan.aesthetic.Head`): weights, bias, the
+vectors' mean and scale, the rating range that maps to 0-1, and its provenance, in one sha-checked JSON file.
+The `aesthetics` stage scores every frame with it; the score only reorders frames, it never rejects one.
+_Avoid_: aesthetic model (there is no second backbone), predictor, quality (that is identify's per-box sharpness and exposure)
+
+**General head**:
+The aesthetic head shipped with bioscan (`data/aesthetic/eva-head-v1.json`, option `head: builtin`), fitted on EVA's
+mean scores (CC0 annotations). Never fitted on AVA.
+_Avoid_: default model, base model
+
+**Personal head**:
+An aesthetic head fitted on the owner's own ratings (`bioscan aesthetic train --ratings`), pulled toward the
+general head; the stage blends the two by `blend`, the personal head's weight. Stays on the owner's machine.
+_Avoid_: user model, fine-tune (the backbone is never trained)
+
+**Rating**:
+The owner's judgement of one frame: Lightroom stars 1-5 from `xmp:Rating` or a CSV, with a pick flag and colour
+label where known. As the XMP spec says, Rating 0 or missing means **unrated**: the frame is skipped. Rating -1
+(or a reject pick flag without stars) is a **reject**: kept, with grade 0 (below one star) and pick -1, apart
+from unrated frames. A pick flag without stars gives no grade. Pick = explicit pick flag, else stars >= 4.
+_Avoid_: label (that is Lightroom's colour label), score (that is the head's output)
+
+**Trip**:
+The split group of the owner's ratings: the first folder under the ratings root (or a CSV's `trip` column).
+Cross-validation, the learning curve and precision@k split by trip, never by frame, so a burst never sits on
+both sides of a split.
+_Avoid_: outing (geotag's term: one camera, one track), session, burst
+
+**Learning curve**:
+Agreement (Spearman on held-out trips) of freshly fitted personal heads against the number of the owner's ratings
+they were fitted on (50, 100, 200, 500, 1,000), next to the general head and the blend on the same frames
+(`bioscan aesthetic eval`).
+
 ## Standards and releases
 
 **Standard**:
@@ -267,7 +303,8 @@ _Avoid_: KPI, target (alone)
 
 **Tier**:
 One test folder a standard is judged on: `smoke` (CI, 95 photos: 42 birds, 35 mammals, 18 other animals; reduced lists), `golden` (1,625 iNat California),
-`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed), `geotag` (synthetic GPX scenarios built from golden).
+`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed), `geotag` (synthetic GPX scenarios built from golden),
+`aesthetic-own` (the owner's rated album frames, profile `album`).
 _Avoid_: dataset (alone), split
 
 **Community bar**:
