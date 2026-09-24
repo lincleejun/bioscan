@@ -10,7 +10,8 @@ HEAVY = ("numpy", "torch", "transformers", "open_clip", "PIL", "bioscan.service"
 
 def test_cli_modules_do_not_import_heavy_deps(tmp_path):
     code = ("import sys; import bioscan.cli.main, bioscan.cli.client, bioscan.cli.render, bioscan.cli.gt, "
-            "bioscan.cli.eval, bioscan.cli.bench, bioscan.contract, bioscan.naming, bioscan.formats, "
+            "bioscan.cli.eval, bioscan.cli.bench, bioscan.cli.geobench, bioscan.cli.geotag_cli, bioscan.geotag, "
+            "bioscan.contract, bioscan.naming, bioscan.formats, "
             "bioscan.plugin, bioscan.plugins, bioscan.profile, bioscan.cli.config; bioscan.contract.PRODUCTS; "
             "bioscan.profile.resolve(bioscan.profile.builtin(), 'album'); "
             # what `bioscan run --profile` and `bioscan config show` do before any request is sent

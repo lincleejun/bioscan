@@ -14,13 +14,15 @@ METRICS = {"n", "gate_acc", "detect_rate", "top1", "top5", "genus_acc", "coverag
            "confident_error_rate", "no_box_rate", "failed_rate", "ece", "decode_ms_median",
            "identify_ms_median", "images_per_s"}
 RATES = METRICS - {"n", "decode_ms_median", "identify_ms_median", "images_per_s"}
+GEOTAG_RATES = {"within_100m_rate", "within_1km_rate", "no_fix_rate", "false_fix_rate", "cell_change_rate"}
+GEOTAG_METRICS = GEOTAG_RATES | {"n", "n_expected", "median_error_m", "p90_error_m", "offset_error_s"}
 DIMENSIONS = {"accuracy", "trust", "detection", "location", "directory", "speed", "coverage", "robustness",
               "onboarding", "privacy", "reproducibility"}
 SCOPES = {"all", "bird", "mammal", "other"}
 OPS = {">=", "<="}
-TIERS = {"smoke", "golden", "own", "public", "mac"}
+TIERS = {"smoke", "golden", "own", "public", "mac", "geotag"}
 VARIANTS = {"nogeo"}
-UNITS = {"fraction", "ms", "images/s", "images", "species", "formats", "minutes", "requests", "bool"}
+UNITS = {"fraction", "ms", "images/s", "images", "species", "formats", "minutes", "requests", "bool", "m", "s"}
 
 
 def standards() -> list[dict]:
@@ -54,7 +56,8 @@ def test_fields(s):
     assert s["scope"] in SCOPES
     assert s["op"] in OPS
     assert s["unit"] in UNITS
-    assert s["metric"] in METRICS or s["metric"] == "manual"
+    assert s["metric"] in METRICS or s["metric"] == "manual" or (s["id"].split(".")[1] == "geotag"
+                                                                  and s["metric"] in GEOTAG_METRICS)
     assert is_number(s["community"])
     for k in OPTIONAL & keys:
         assert is_number(s[k]), k
@@ -90,7 +93,7 @@ def test_bars_are_ordered(s):
 
 @pytest.mark.parametrize("s", standards(), ids=lambda s: s.get("id", "?"))
 def test_rates_are_fractions(s):
-    if s["metric"] in RATES:
+    if s["metric"] in RATES | GEOTAG_RATES:
         assert s["unit"] == "fraction"
     if s["unit"] == "fraction":
         for k in ("industry", "community", "stretch"):

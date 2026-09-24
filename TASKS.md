@@ -75,6 +75,28 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
 
 - [ ] `bioscan report <preds.ndjson>`: reviewable HTML (thumbnails with boxes, grouped by top-1, species table, review.csv with a verdict column); prototype in runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW at Coyote Hills, owner reviewed: OK)
 
+## v1.6 W6: geotag from GPX (branch v16/w6-geotag, 2026-09-24)
+Goal: photos without GPS get a position from the photographer's GPX track, for the location prior and captions.
+Decisions: `--offset` is camera minus true time; tz precedence OffsetTimeOriginal > `--tz` > system zone; default fix
+rule max gap 1800 s / max span 200 m / no extrapolation (measured trade-off in docs/2026-09-24-geotag-synthetic.md);
+harness is a separate `bench geotag` (its own report, the shared scorecard), not `bench compare`.
+- [x] `bioscan/geotag.py` (stdlib): GPX 1.0/1.1 parse (trk/trkseg/trkpt, ele, several files), capture time -> UTC,
+      fix rule, clock offset (given / clock photo / GPS reference photos), per-photo lat, lon, source, dt_s, err_m; XMP sidecars
+- [x] `bioscan geotag DIR --gpx ... [--offset] [--tz] [--clock] [--csv] [--xmp]`; `bioscan run --gpx` per-file lat/lon (EXIF first)
+- [x] `scripts/geotag_synth.py`: outings from the golden CSV, 7 scenarios, seeded; minute/date-only times completed and recorded
+- [x] `bioscan bench geotag` + `geotag` tier in data/standards.toml / docs/standards.md §12 (8 standards, all pass on seed 7 and 11)
+- [x] `--gt-out`: golden CSV with GPX-derived lat/lon; Mac commands in docs/harness.md ("Downstream")
+- [x] docs: README (EN + zh-CN), CONTEXT.md (track, outing, clock offset, reference/clock photo, fix, fix rule), data/README
+- [x] no-GPX behaviour byte-identical: eval report.md, bench report.json and run payloads vs c38dec2 (scratch golden check)
+Verify: tests/unit/test_geotag.py, test_geotag_bench.py, test_standards.py; `bioscan bench geotag` scorecard 8/8.
+- [x] review fixes (2026-09-24): offset tie-break (drift under 5 min first, then hours, half, quarter; g0283 test);
+      stood-still rule capped at 3 h (`--max-still`); no estimate when every photo has GPS, at most 25 references
+      (300 photos x 50k points: 19.7 s -> 0.01 s / 0.2 s); `run --gpx` uses the Pillow-read GPS (no exiftool);
+      format_offset rounding; failed estimates count in offset_error_s; warning for --offset/--tz/--clock without --gpx
+- [ ] Mac: `bench run` on runs/geotag-synth/gt/perfect.csv vs golden and golden-nogeo (docs/harness.md "Downstream"); until then the species-ID gain from GPX is unverified
+- [ ] a real GPX + camera folder from the owner, to check the synthetic numbers (watch auto-pause, canyons, cold start)
+- [ ] mixed cameras in one folder: one clock offset per camera model (EXIF Model) instead of one per run
+
 ## 7. Mac 本地跑 v1.4 / v1.5 数据（2026-09-24，owner 的操作清单）
 - [x] git pull（875dc7a）+ uv sync
 - [x] tests/models/download.py：all-taxa 366,460 种，float16 716 MiB，缓存 763 MiB

@@ -9,7 +9,7 @@ import urllib.error
 from pathlib import Path
 
 from bioscan import contract, formats, profile, serve_config
-from bioscan.cli import bench, client, gt
+from bioscan.cli import bench, client, geotag_cli, gt
 from bioscan.cli.config import PROFILE_HELP, eval_request, expand, load_config, request_options
 from bioscan.cli.config import add_parser as add_config_parser
 from bioscan.cli.render import Renderer
@@ -111,12 +111,24 @@ def build_payload(a, config: profile.Config | None = None) -> dict:
     if not paths:
         raise SystemExit("no images found")
     inputs = [{"path": p} for p in paths]
+    geotag_cli.warn_unused(a)
+    gpx = bool(getattr(a, "gpx", None))
+    if gpx:
+        # Per-file coordinates from the track, only for images without EXIF GPS (EXIF wins).
+        placed, exif_gps = geotag_cli.run_coordinates(paths, a)
+        for inp in inputs:
+            if inp["path"] in placed:
+                inp["lat"], inp["lon"] = placed[inp["path"]]
     if a.lat is not None:
         # Request coordinates override EXIF on the service side, so only fill images whose
         # EXIF has none -- that keeps "EXIF wins" semantics for the batch default.
-        exif = gt.read_exif(paths)  # all blank without exiftool -> every image gets the default
+        if gpx:   # the EXIF was already read (Pillow) for the track: no exiftool needed
+            has_gps = exif_gps.__contains__
+        else:
+            exif = gt.read_exif(paths)  # all blank without exiftool -> every image gets the default
+            has_gps = lambda p: exif.get(p, {}).get("lat", "") != ""  # noqa: E731
         for inp in inputs:
-            if exif.get(inp["path"], {}).get("lat", "") == "":
+            if not has_gps(inp["path"]) and "lat" not in inp:
                 inp["lat"], inp["lon"] = a.lat, a.lon
     always = {m: {k: res.options[m][k] for k in keys} for m, keys in ALWAYS_SENT.items()}
     return {"inputs": inputs, "want": want, "options": request_options(res, always)}
@@ -288,8 +300,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--profile", help=PROFILE_HELP)
     s.add_argument("--json", action="store_true", help="write raw NDJSON")
     s.add_argument("--out", help="write to FILE instead of stdout")
-    s.add_argument("--lat", type=float)
+    s.add_argument("--lat", type=float, help="batch coordinate for images with no EXIF GPS and no --gpx fix")
     s.add_argument("--lon", type=float)
+    s.add_argument("--gpx", action="append", help="GPX track (repeatable): per-image coordinates for images "
+                                                  "without EXIF GPS, as `bioscan geotag` places them")
+    geotag_cli.add_track_options(s)
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--top-k", type=int, help="default: the profile's, else 5")
     s.add_argument("--no-species", action="store_true")
@@ -328,6 +343,7 @@ def parser() -> argparse.ArgumentParser:
 
     bench.add_parser(sub)
     add_config_parser(sub)
+    geotag_cli.add_parser(sub)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)
