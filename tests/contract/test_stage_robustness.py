@@ -58,7 +58,8 @@ def test_builtin_stage_threads(client, tmp_path, monkeypatch):
     and observed at run time."""
     from bioscan import plugin
 
-    assert {m.name: m.thread for m in BUILTIN} == {"identify": "model", "embed": "model", "jpg": "cpu"}
+    assert {m.name: m.thread for m in BUILTIN} == {"identify": "model", "embed": "model", "jpg": "cpu",
+                                                    "geotag": "cpu"}
     seen = {}
     for m in BUILTIN:
         stage = plugin.load(m)

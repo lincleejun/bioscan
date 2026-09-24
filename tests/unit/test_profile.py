@@ -39,7 +39,9 @@ def test_builtin_profiles():
     album = profile.resolve(BUILTIN, "album")
     assert album.want == ["identify", "embed"] and album.options["identify"]["species"] is False
     assert album.sources["identify"]["species"] == "profiles.toml" and album.plan.models == ("owlv2", "siglip2")
-    assert profile.resolve(BUILTIN, "wildlife").want == ["identify"]
+    wild = profile.resolve(BUILTIN, "wildlife")
+    assert wild.want == ["geotag", "identify"] and wild.plan.stages == ("geotag", "identify")
+    assert wild.options["geotag"]["gpx"] == [] and "geotag" not in profile.resolve(BUILTIN, "full").want
 
 
 def test_no_profile_resolves_as_before(tmp_path):

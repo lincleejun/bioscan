@@ -126,7 +126,9 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
       project < BIOSCAN_CONFIG), serve_config file layer, --profile on run/eval/bench run, "profile" in /run,
       `bioscan config show`; full = today (payload test, goldens); unit tests never read a developer's files
       (tests/bioscan_test_env.py)
-- [ ] W6 geotag from GPX (in progress, v16/w6-geotag) -> becomes the step-5 `geotag` stage after A4. How it plugs in:
+- [x] W6 merged (e66c0ac) and the step-5 `geotag` stage built (bioscan/plugins/geotag; wildlife = geotag + identify;
+      `run --gpx` maps onto it with a geotag profile, else the CLI-side path as before; tests/unit/test_geotag_stage.py).
+      The design as planned:
       `bioscan/plugins/geotag/__init__.py` MANIFEST (reads `time`, provides `place`, thread `cpu`, models none,
       options gpx / max_gap_s / camera_utc_offset with defaults); `stage.py` Stage: `check` (types, offset format),
       `reads_paths(opts)` = the GPX files (app.outside_roots checks them against allow-roots), `settings()` = its

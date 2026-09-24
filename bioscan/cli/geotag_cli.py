@@ -143,6 +143,42 @@ def run_coordinates(paths: list[str], a) -> tuple[dict[str, tuple[float, float]]
             {f.path for f in res.fixes if f.source == "exif"})
 
 
+def stage_options(paths: list[str], a) -> tuple[dict, set[str] | None, set[str] | None]:
+    """`bioscan run --gpx` when the profile runs the geotag stage (wildlife): the service places the
+    photos, so the request carries options.geotag instead of per-file coordinates. The clock offset
+    is decided here, once for the whole folder (--offset, else --clock / GPS photos, as `bioscan
+    geotag` does), because the stage sees one chunk at a time. Returns (options, the paths the track
+    places, the paths with EXIF GPS); the two sets are None when no photo had to be read (--offset
+    given, no --clock, no --lat)."""
+    opts: dict = {"gpx": [os.path.abspath(g) for g in a.gpx]}
+    for key, value, default in (("max_gap_s", a.max_gap, gt.MAX_GAP_S), ("max_span_m", a.max_span, gt.MAX_SPAN_M),
+                                ("max_still_s", a.max_still, gt.MAX_STILL_S),
+                                ("extrapolate_s", a.extrapolate, gt.EXTRAPOLATE_S)):
+        if value != default:                       # a default flag must not hide a profile's value
+            opts[key] = value
+    if a.tz:
+        opts["camera_utc_offset"] = a.tz
+    placed = exif_gps = None
+    if a.offset and not a.clock and a.lat is None:
+        try:
+            gt.parse_offset(a.offset)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        opts["offset"] = a.offset
+        how = "given (--offset)"
+    else:
+        res = run_geotag(paths, a.gpx, a.offset, a.tz, a.clock, a.max_gap, a.max_span, a.extrapolate,
+                         max_still_s=a.max_still)
+        opts["offset"] = repr(float(res.offset.offset_s))
+        placed = {f.path for f in res.fixes if f.source == "gpx"}
+        exif_gps = {f.path for f in res.fixes if f.source == "exif"}
+        how = describe_offset(res.offset)
+        for msg in res.warnings:
+            print(f"warning: {msg}", file=sys.stderr)
+    print(f"gpx: the service's geotag stage places the photos without GPS; {how}", file=sys.stderr)
+    return opts, placed, exif_gps
+
+
 def add_track_options(s, xmp: bool = False) -> None:
     """The options `geotag` and `run --gpx` share."""
     s.add_argument("--offset", help="camera clock minus true time, e.g. +00:01:23 (camera 83 s fast) or --offset=-3600; "

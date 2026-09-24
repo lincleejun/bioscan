@@ -39,7 +39,7 @@ _Avoid_: timestamp, date
 
 **Stage**:
 One unit of per-image work in a run, batched per chunk: a plugin in `bioscan/plugins/<name>/` (today `identify`,
-`embed`, `jpg`). It reads facts and may provide facts for later stages; its output is the product of the same name.
+`embed`, `jpg`, `geotag`). It reads facts and may provide facts for later stages; its output is the product of the same name.
 _Avoid_: hook, step, node
 
 **Manifest**:
@@ -48,6 +48,12 @@ version, the facts it reads and provides, the models it needs under its options,
 defaults, the check of their values, and its output. The service code (`Stage`) is imported from `impl` only when
 a plan contains the stage.
 _Avoid_: registry entry, spec
+
+**Geotag stage**:
+The `geotag` stage (`bioscan/plugins/geotag`): reads `time`, provides `place` from GPX tracks for photos whose
+request and EXIF have none, on the CPU pool, no models; in `wildlife`, never in `full`. `bioscan geotag` and
+`run --gpx` without such a profile do the same work in the CLI.
+_Avoid_: GPS stage
 
 **Fact**:
 A named value a stage can read: `image`, `detail`, `time`, `place`, `vec`, `gate` from the host, or one a stage
@@ -76,7 +82,7 @@ file, never inside the service stream. None exists yet.
 _Avoid_: stage (a stage sees one chunk)
 
 **Product**:
-A named result a run can ask for per image (`identify`, `embed`, `jpg`): the output of the stage of that name
+A named result a run can ask for per image (`identify`, `embed`, `jpg`, `geotag`): the output of the stage of that name
 (`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.
 
 ## Identify

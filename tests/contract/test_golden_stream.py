@@ -153,8 +153,13 @@ def test_health_matches_golden(recorded):
 
 
 def test_products_json_matches_golden(recorded):
-    """GET /products byte for byte (the response body, not a re-serialisation)."""
-    check("products.json", recorded["products"])
+    """GET /products byte for byte (the response body, not a re-serialisation). The A0 recording
+    (identify, embed, jpg) is the unchanged start of today's body; stages added since (geotag) are
+    appended after it and recorded in products-added.json."""
+    a0 = (GOLDEN / "products.json").read_text(encoding="utf-8")
+    body = recorded["products"]
+    assert a0.endswith("}\n") and body.startswith(a0[:-2] + ","), "the A0 part of /products changed"
+    check("products-added.json", "{" + body[len(a0) - 1:])
 
 
 def test_settings_fingerprint_matches_golden():

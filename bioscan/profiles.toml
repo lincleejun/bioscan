@@ -10,12 +10,12 @@
 [profile.full]
 description = "The contract as before profiles: identify by default; embed and jpg when want asks for them."
 stages = ["identify"]
-# will gain: nothing. New stages are off here, so a request without a profile never changes.
+# will gain: nothing. New stages (geotag, ...) stay out of it, so a request without a profile never changes.
 
 [profile.wildlife]
-description = "Names first: identify with species, the location prior and every accuracy fix on."
-stages = ["identify"]
-# will gain: geotag (GPX track -> place for photos without GPS), run before identify.
+description = "Names first: identify with species, the location prior and every accuracy fix on; a GPX track (geotag.gpx, or run --gpx) places photos without GPS."
+stages = ["geotag", "identify"]
+# geotag does nothing until options.geotag.gpx names a track; the plan runs it before identify.
 
 [profile.wildlife.options.identify]
 top_k = 5

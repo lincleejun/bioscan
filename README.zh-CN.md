@@ -205,7 +205,7 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 | Profile | 现在的 stage | 选项 | 加载的模型 | 以后会加 |
 |---|---|---|---|---|
 | `full` | identify（`want` 要时加 embed、jpg） | 默认 | SigLIP2、OWLv2、BioCLIP | 不加：不带 profile 的请求就是它，任何文件都改不了 |
-| `wildlife` | identify | 物种、位置先验与各项准确率修正全开（`top_k` 5，`geo` true） | SigLIP2、OWLv2、BioCLIP | `geotag`（GPX 轨迹 -> 地点），在 identify 之前跑 |
+| `wildlife` | geotag、identify | 物种、位置先验与各项准确率修正全开（`top_k` 5，`geo` true）；`geotag.gpx`（或 `run --gpx`）给出轨迹前 geotag 什么都不做 | SigLIP2、OWLv2、BioCLIP | 暂无 |
 | `album` | identify、embed | identify `species: false` | SigLIP2、OWLv2（从不加载 BioCLIP） | `quality`、`scene`、`aesthetics` stage；`burst`、`select` reducer（在 CLI 端跑） |
 
 ```sh
@@ -243,7 +243,7 @@ candidates = ["Strigidae", "Accipitridae"]
 - **服务端**用它自己的文件（启动时读一次）展开请求里的 `"profile"`。不带 `"profile"` 的请求永远是 `full`：`default_profile` 和 `$BIOSCAN_PROFILE` 只作用于 CLI，HTTP 客户端看不到变化。
 - **错误**：未知的键、profile、stage 或选项都会报错并指出是哪个文件（请求里则是 400）。用户文件里写 `[profile.full]` 会被拒绝。选项的取值由服务检查。`bioscan serve --launchd` 把命令行参数、否则文件里 `[serve]` 的值写进 plist，并通过 `BIOSCAN_CONFIG` 让服务读当前目录的 `bioscan.toml`。
 - **信任**：运行目录下的 `./bioscan.toml` 会被自动读取，只在你信任其文件的目录里运行 bioscan：它可以设 `serve.host = "0.0.0.0"`、`allow_roots`，或让 jpg 写到某个 `out_dir`；`bioscan config show` 会列出读到的每个文件及其设置的每个值。
-- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果仍按 `identify, embed, jpg` 的顺序列出。
+- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag` 的顺序列出。
 
 ### 用 GPX 轨迹补 GPS
 
@@ -271,6 +271,7 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 - **定位规则**：相邻轨迹点相隔不超过 `--max-gap` 秒（默认 1800）时，按时间线性插值。间隔更长时，只有两端相距不超过 `--max-span` 米（默认 200，即站着不动、手表自动暂停）且间隔不超过 `--max-still` 秒（默认 3 小时：在观鸟棚里等候可以，营地过夜不行）才插值。轨迹外不定位；加 `--extrapolate N` 时，在 N 秒内沿用首/末点。
 - **XMP**：`--xmp` 写 `<stem>.xmp`，内含 XMP 的 `exif:GPSLatitude`/`GPSLongitude`。Lightroom、Capture One、Bridge 对 RAW 读这个旁车文件；Lightroom 不读 JPEG 的旁车文件。已有旁车文件（`<stem>.xmp`，或 darktable 的 `<name>.<ext>.xmp`）的照片一律跳过：bioscan 从不修改或合并已有旁车文件，也从不写照片文件本身。需要改已有文件时，请用 CSV 配合 exiftool。
 - **多条轨迹**：多个 `--gpx` 文件、多个分段会合并成一条按时间排序的轨迹。第二台设备同时记录，只是多了点。
+- **`run --gpx` 在哪里定位**：profile 含 `geotag` stage 时（`--profile wildlife`），CLI 发送 `options.geotag`（轨迹路径、`--tz` 作为 `camera_utc_offset`、你改过的限值，以及时钟偏差：由 CLI 用 `--offset`、`--clock` 或带 GPS 的照片为整个目录定一次）；服务读取轨迹，给请求和 EXIF 都没有位置的照片定位，并在 `products.geotag` 报告（`place_source` 为 request / exif / gpx / none，以及定位结果）。轨迹必须在服务的 allow-roots 之内。没有这样的 profile 时（不指定、`full`、`album`），`run --gpx` 在本机读轨迹、发送每张图的坐标，与以前完全相同；`bioscan geotag` 始终在本机运行。两条路径给 identify 的坐标相同。该 stage 也接受来自 /run 请求体或 `bioscan.toml`（`[profile.wildlife.options.geotag] gpx = [...]`）的同名选项；它自己从不估计时钟偏差，因为一次只看到一个 chunk（`offset` 为空即 0）。
 - **精度**：在用 golden 集合成的轨迹上测得（`bioscan bench geotag`，见 docs/harness.md）：
 
   | 指标 | 汇总结果 |

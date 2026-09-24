@@ -100,7 +100,8 @@ def build_payload(a, config: profile.Config | None = None) -> dict:
         flags["identify"]["candidates"] = split_candidates(a.candidates)
     if a.jpg_out:
         flags["jpg"] = {"out_dir": os.path.abspath(a.jpg_out)}
-    res = expand(config or load_config(), a.profile, flag_want, flags)
+    config = config or load_config()
+    res = expand(config, a.profile, flag_want, flags)
     want = res.want
     if "jpg" in want and res.sources["jpg"]["out_dir"] == profile.DEFAULT:
         raise SystemExit("--want jpg needs --jpg-out DIR")
@@ -113,6 +114,18 @@ def build_payload(a, config: profile.Config | None = None) -> dict:
     inputs = [{"path": p} for p in paths]
     geotag_cli.warn_unused(a)
     gpx = bool(getattr(a, "gpx", None))
+    staged = gpx and "geotag" in want
+    if staged:
+        # The profile runs the geotag stage (wildlife): the service places the photos from the track
+        # (options.geotag); without it (full, album) the track is read here as before (below).
+        flags["geotag"], placed_here, exif_here = geotag_cli.stage_options(paths, a)
+        res = expand(config, a.profile, flag_want, flags)
+        if a.lat is not None:
+            for inp in inputs:
+                if inp["path"] not in placed_here and inp["path"] not in exif_here:
+                    inp["lat"], inp["lon"] = a.lat, a.lon
+        always = {m: {k: res.options[m][k] for k in keys} for m, keys in ALWAYS_SENT.items()}
+        return {"inputs": inputs, "want": want, "options": request_options(res, always)}
     if gpx:
         # Per-file coordinates from the track, only for images without EXIF GPS (EXIF wins).
         placed, exif_gps = geotag_cli.run_coordinates(paths, a)
@@ -296,14 +309,16 @@ def parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("run", help="identify/embed/jpg over files or directories")
     s.add_argument("paths", nargs="+")
-    s.add_argument("--want", help="comma list of identify,embed,jpg; default: the profile's stages (full: identify)")
+    s.add_argument("--want", help="comma list of identify,embed,jpg,geotag; default: the profile's stages (full: identify)")
     s.add_argument("--profile", help=PROFILE_HELP)
     s.add_argument("--json", action="store_true", help="write raw NDJSON")
     s.add_argument("--out", help="write to FILE instead of stdout")
     s.add_argument("--lat", type=float, help="batch coordinate for images with no EXIF GPS and no --gpx fix")
     s.add_argument("--lon", type=float)
-    s.add_argument("--gpx", action="append", help="GPX track (repeatable): per-image coordinates for images "
-                                                  "without EXIF GPS, as `bioscan geotag` places them")
+    s.add_argument("--gpx", action="append", help="GPX track (repeatable): places images without EXIF GPS, as "
+                                                  "`bioscan geotag` does. With a profile that runs the geotag stage "
+                                                  "(wildlife) the service places them; otherwise this command "
+                                                  "sends per-image coordinates")
     geotag_cli.add_track_options(s)
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--top-k", type=int, help="default: the profile's, else 5")

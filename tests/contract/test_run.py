@@ -26,7 +26,7 @@ def test_health(client):
 
 def test_products(client):
     p = client.get("/products").json()
-    assert set(p) == {"identify", "embed", "jpg"}
+    assert set(p) == {"identify", "embed", "jpg", "geotag"}
     for spec in p.values():
         assert {"description", "options", "output"} <= set(spec)
     assert p["identify"]["options"]["top_k"]["default"] == 5

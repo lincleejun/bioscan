@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from bioscan.plugin import Manifest
 from bioscan.plugins.embed import MANIFEST as EMBED
+from bioscan.plugins.geotag import MANIFEST as GEOTAG
 from bioscan.plugins.identify import MANIFEST as IDENTIFY
 from bioscan.plugins.jpg import MANIFEST as JPG
 
-BUILTIN: tuple[Manifest, ...] = (IDENTIFY, EMBED, JPG)
+# report order; new stages go last, so existing outputs keep their key order
+BUILTIN: tuple[Manifest, ...] = (IDENTIFY, EMBED, JPG, GEOTAG)
 BY_NAME: dict[str, Manifest] = {m.name: m for m in BUILTIN}
