@@ -5,7 +5,8 @@
 
 1. `--download`: the EVA files at the pinned commit (bioscan.aesthetic.EVA_COMMIT) from
    raw.githubusercontent.com: LICENSE, readme.md, data/votes_filtered.csv and the seven parts of
-   images/EVA_together.zip (~695 MB), joined and unzipped into EVA_DIR/images/EVA_together/.
+   images/EVA_together.zip (~695 MB), joined and unzipped into EVA_DIR/images/EVA_together/ (5,101
+   images, 4,070 of them with filtered votes); the parts are deleted after unzipping.
 2. Vectors: every EVA image goes through the service's own code: bioscan.service.decode.decode (the
    same 2048 px image the service embeds) and Engine.frame with the pinned SigLIP2 revision (weights
    from ~/.cache/huggingface, as the service loads them). `--embeddings` caches them (the format of
@@ -41,8 +42,11 @@ BATCH = 32
 
 
 def download(root: Path) -> None:
-    """The pinned EVA files into `root` (skipping files already there), then the images unzipped."""
-    for rel in ("LICENSE", "readme.md", aes.EVA_VOTES, *aes.EVA_PARTS):
+    """The pinned EVA files into `root` (skipping files already there), then the images unzipped
+    and the zip parts deleted (once the images are there, the parts are not fetched again)."""
+    images = root / aes.EVA_IMAGES
+    have_images = images.is_dir() and any(images.glob("*.jpg"))
+    for rel in ("LICENSE", "readme.md", aes.EVA_VOTES, *(() if have_images else aes.EVA_PARTS)):
         dest = root / rel
         if dest.is_file() and dest.stat().st_size:
             continue
@@ -54,8 +58,7 @@ def download(root: Path) -> None:
                 f.write(chunk)
         part.rename(dest)
         print(f"{rel}: {dest.stat().st_size / 2**20:.0f} MiB in {time.monotonic() - t:.0f} s", flush=True)
-    images = root / aes.EVA_IMAGES
-    if images.is_dir() and any(images.iterdir()):
+    if have_images:
         return
     joined = root / "images" / "EVA_together.zip"
     with open(joined, "wb") as out:
@@ -64,6 +67,8 @@ def download(root: Path) -> None:
     with zipfile.ZipFile(joined) as z:
         z.extractall(root / "images")
     joined.unlink()
+    for rel in aes.EVA_PARTS:
+        (root / rel).unlink()
     print(f"unzipped {sum(1 for _ in images.glob('*.jpg'))} images into {images}", flush=True)
 
 
@@ -122,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--eva-dir", default=str(Path("~/.cache/bioscan/eva").expanduser()),
                     help="EVA checkout or download folder (default %(default)s)")
     ap.add_argument("--download", action="store_true", help="fetch the pinned EVA files into --eva-dir first")
+    ap.add_argument("--download-only", action="store_true", help="fetch the EVA files, then stop (no model, no fit)")
     ap.add_argument("--embeddings", help="NDJSON vector cache (default EVA_DIR/embeddings.ndjson)")
     ap.add_argument("--out", default=str(aes.BUILTIN_HEAD), help="head file (default %(default)s)")
     ap.add_argument("--name", default="eva-head-v1")
@@ -133,8 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     root = Path(a.eva_dir).expanduser()
-    if a.download:
+    if a.download or a.download_only:
         download(root)
+    if a.download_only:
+        print(f"EVA in {root}: {len(aes.read_eva(root))} images with votes")
+        return 0
     eva = aes.read_eva(root)
     if not eva:
         raise SystemExit(f"no EVA images with votes under {root} (use --download)")

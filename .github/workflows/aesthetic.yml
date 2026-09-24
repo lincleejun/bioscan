@@ -1,0 +1,76 @@
+name: aesthetic
+
+# On demand: trains the general aesthetic head (data/aesthetic/eva-head-v1.json) on EVA with the
+# pinned SigLIP2 on CPU (scripts/train_aesthetic_head.py). The head file is printed base64 between
+# `===== BEGIN/END eva-head-v1.json base64 =====` in the log (whoever commits it may not be able to
+# download artifacts), with its sha256 and the 5-fold CV SRCC/PLCC; it is also uploaded as an artifact.
+# Estimated runtime (unmeasured): 3-5 min setup + 1-3 min EVA download (~700 MB, cached after the first
+# run) + 7-14 min for 4,070 images through SigLIP2 on the runner's CPU + seconds to fit; ~15-25 min.
+# Start it from the Actions tab (the file must be on the default branch for the button to show), or
+# push a tag `aesthetic-head-*` on any commit (then the defaults below apply: all images, seed 0).
+on:
+  push:
+    tags: ["aesthetic-head-*"]
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "train on a seeded subset of this many EVA images (empty = all 4,070)"
+        required: false
+        default: ""
+      seed:
+        description: "seed for the CV folds (and the subset)"
+        required: false
+        default: "0"
+
+jobs:
+  eva-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Free disk (torch + weights + EVA)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Restore model weights (models.yml's cache)
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('tests/models/download.py', 'bioscan/service/adapters/*.py') }}
+          restore-keys: hf-
+      - name: SigLIP2 at the pinned revision (a no-op when the cache has it)
+        run: |
+          uv run python -c "
+          from huggingface_hub import snapshot_download
+          from bioscan.service.adapters import siglip2
+          p = snapshot_download(siglip2.MODEL_ID, revision=siglip2.REVISION, ignore_patterns=['*.bin'])
+          print(siglip2.MODEL_ID, '@', p.rsplit('/', 1)[-1])"
+      - name: Cache EVA (pinned commit) and its vectors
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bioscan/eva
+          key: eva-${{ hashFiles('bioscan/aesthetic.py') }}-${{ hashFiles('bioscan/service/adapters/siglip2.py', 'bioscan/service/decode.py') }}
+          restore-keys: eva-${{ hashFiles('bioscan/aesthetic.py') }}-
+      - name: Train the EVA head
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: |
+          extra=""
+          if [ -n "${{ inputs.limit }}" ]; then extra="--limit ${{ inputs.limit }}"; fi
+          # vectors depend on the model and the decode: a restore-key hit with other sources re-embeds
+          key="$(sha256sum bioscan/service/adapters/siglip2.py bioscan/service/decode.py | sha256sum | cut -c1-16)"
+          uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva \
+            --embeddings ~/.cache/bioscan/eva/embeddings-$key.ndjson --device cpu --seed "${{ inputs.seed || '0' }}" \
+            --out eva-head-v1.json --print-base64 $extra | tee train.log
+          grep -E "CV SRCC|^head " train.log >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eva-head
+          path: |
+            eva-head-v1.json
+            train.log
+          if-no-files-found: ignore

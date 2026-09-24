@@ -14,6 +14,7 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 | `bench compare BASE NEW [--budget FILE] [--md OUT] [--json OUT]` | Deltas, paired images, McNemar, species changes, broken images, budget check. Exit 0 within budget, 1 over budget, 2 not comparable |
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
+| `aesthetic eval RATINGS --out DIR [--head H] [--personal P] [--blend B] [--k K] [--curve SIZES]` | Agreement of the aesthetic score with the owner's stars and picks, per trip, plus the learning curve; report.json read by `scorecard` (tier `aesthetic-own`) ([below](#aesthetic-agreement-with-the-owner-bioscan-aesthetic-eval)) |
 | `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
 `--names KIND=CSV` sets the name list used to tell whether a truth is in the list (`not_in_list`) and
@@ -390,3 +391,56 @@ bioscan bench compare runs/$D-golden/report.json runs/$D-golden-gpx/report.json 
 `vs-nogeo` is what a GPX track buys a folder without GPS. `vs-truth` should show almost no change, because 99% of
 the fixes share the truth's prior cell. Compare warns that the ground-truth sha and the options differ, which is
 expected. Until these runs exist, the effect of GPX positions on species ID is **unverified**.
+
+## aesthetic: agreement with the owner (`bioscan aesthetic eval`)
+
+The `aesthetics` stage (README, "Aesthetics (album)") ranks frames by a linear head on the SigLIP2 frame
+vector. `bioscan aesthetic eval` measures how its ranking agrees with the owner's own ratings. Like
+`bench geotag`, it has its own report (schema `bioscan-aesthetic-report`, version 1) and feeds the shared
+scorecard, not `bench compare`: compare is built around species answers per image. It lives in
+`bioscan/cli/aesbench.py`, so it does not touch the species report's code.
+
+```sh
+# service running (bioscan serve): vectors come from its embed product, cached in --embeddings
+bioscan aesthetic ratings ~/Pictures/Album                               # what the XMP holds, per trip
+bioscan aesthetic eval ~/Pictures/Album --out runs/$D-aesthetic --embeddings runs/aes-vec.ndjson \
+    [--head builtin|PATH|none] [--personal PATH] [--blend 0.5] [--k 10] [--curve 50,100,200,500,1000] [--no-curve]
+bioscan bench scorecard runs/$D-aesthetic/report.json                    # tier aesthetic-own (docs/standards.md §13)
+```
+
+**Ground truth.** A folder of rated images (`xmp:Rating` in `<stem>.xmp`, `<name>.<ext>.xmp` or embedded;
+unrated files are skipped; a reject, -1, is 0 stars) or a CSV `path,rating[,pick,label,trip]`. The **trip** of
+an image is its first folder under the root (the CSV's `trip`, else its parent folder). Picks are the explicit
+pick flags when any row has one (`xmpDM:pick`, or the CSV), else stars >= `--pick-min` (4).
+
+**Heads scored.** `general` (the builtin head, or `--head PATH`), `personal` (`--personal`) and `blended`
+(`(1 - blend) * general + blend * personal`) when both exist. The **served** score, the one the stage would
+return with these options, is what `metrics.all` holds and what the scorecard judges.
+
+**Metrics** (per head in `by_head`, per trip in `per_trip`):
+
+| Key | Definition |
+|---|---|
+| `spearman` (`spearman_ci`) | Spearman ρ between score and stars over every rated frame; 95% interval by Fisher z with SE 1.06/√(n−3) |
+| `kendall` | Kendall τ-b, ties corrected |
+| `plcc` | Pearson r (a scale check; rankings use the two above) |
+| `spearman_trip_mean` | mean of the per-trip ρ (the pooled ρ also rewards telling trips apart) |
+| `ndcg_at_k` | NDCG@k (k 10) per trip with gain 2^stars − 1, averaged over trips |
+| `precision_at_k` (`_ci`, `_random`) | per trip, k = the owner's picks there: how many of the top-k frames by score are picks; pooled over trips (hits / picks, Wilson interval), next to what a random order gets (Σ k²/n / Σ k) |
+
+**Learning curve** (`curve`, needs numpy, so it is skipped with `--no-curve`). Trips are split into `--folds`
+folds (default 5); a trip is never split. For each fold and each size N (50, 100, 200, 500, 1,000), N ratings are
+drawn from the other folds' trips (3 seeded draws), a personal head is fitted (ridge, `--alpha`, pulled toward the
+general head when there is one) and scored on the held-out trips; the general head and the blend are scored on the
+same frames. A size larger than a fold's training set is skipped (`runs` 0). Each point is the mean ± sd of the
+held-out Spearman over folds and draws.
+
+**In-sample warning.** A personal head records the sha of the ratings it was fitted on (`ratings_sha256`). When it
+equals the evaluated set's, `meta.personal_in_sample` is true and report.md says the personal rows are optimistic.
+Fit on some trips, evaluate on others, or read the learning curve, which always holds trips out.
+
+**Training** (`bioscan aesthetic train`) shares the code: `--ratings SRC` fits a personal head (ridge on centred
+vectors, alpha by 5-fold CV over trips, pulled toward `--prior builtin|PATH|none`; default output
+`~/.config/bioscan/aesthetic-personal.json`), `--eva DIR` the general head from an EVA checkout. The EVA head is
+normally made by `scripts/train_aesthetic_head.py` in CI or on the Mac (data/aesthetic/README.md). Every fit is
+deterministic from its inputs and `--seed`.

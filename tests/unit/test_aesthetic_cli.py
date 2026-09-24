@@ -249,3 +249,48 @@ def test_train_script_end_to_end_on_a_fake_engine(tmp_path, monkeypatch, capsys)
     assert script.main(["--eva-dir", str(eva), "--out", str(out)]) == 0
     assert len(FakeFrameEngine.instances) == n
     assert math.isfinite(head.bias)
+
+
+def test_train_script_download_joins_and_unzips_the_parts(tmp_path, monkeypatch):
+    """--download: every file from the pinned commit, the seven parts joined, unzipped, deleted."""
+    import io
+    import urllib.request
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("EVA_together/", "")
+        for i in range(5):
+            z.writestr(f"EVA_together/{i}.jpg", b"jpeg bytes %d" % i)
+    blob = buf.getvalue()
+    cut = [len(blob) * i // 7 for i in range(8)]
+    files = {f"{aes.EVA_RAW}/{rel}": blob[cut[i]:cut[i + 1]] for i, rel in enumerate(aes.EVA_PARTS)}
+    files |= {f"{aes.EVA_RAW}/LICENSE": b"CC0", f"{aes.EVA_RAW}/readme.md": b"EVA",
+              f"{aes.EVA_RAW}/{aes.EVA_VOTES}": b"image_id=user_id=score\n1=U=5.0\n"}
+    fetched = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def urlopen(url, timeout=None):
+        fetched.append(url)
+        return Resp(files[url])
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import train_aesthetic_head as script
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+    root = tmp_path / "eva"
+    script.download(root)
+    assert sorted(fetched) == sorted(files) and all(aes.EVA_COMMIT in u for u in fetched)
+    assert sorted(p.name for p in (root / aes.EVA_IMAGES).iterdir()) == [f"{i}.jpg" for i in range(5)]
+    assert not any((root / "images").glob("EVA_together.zip*"))                  # parts deleted
+    fetched.clear()
+    script.download(root)
+    assert fetched == []                                                         # nothing fetched again

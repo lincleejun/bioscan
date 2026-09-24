@@ -110,3 +110,7 @@
 - 只有日期的，补一个 07:00–17:00 之间的时间，时区取 round(lon/15) 小时。
 
 轨迹按补好的时间生成，所以评测是自洽的。每行的精度记在合成结果的 `truth.csv`（`precision` 列）。这个文件本身不改。
+
+## aesthetic/ — 通用美学头（`eva-head-v1.json`）
+
+`aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。**头文件尚未提交**（目前只有 README），在 CI（`aesthetic.yml`）或 Mac 上训练后再提交；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`bioscan aesthetic train --ratings`）只留在本机，不进仓库。
