@@ -229,9 +229,10 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
     geo = ident_opts.get("geo")
     meta = {"groundtruth": gt_csv, "preds": str(preds_path), "images": len(rows),
             "geo": geo if geo is not None else f"{not no_geo} (from the command line; preds file has no meta line)",
-            "candidates": ", ".join(ident_opts.get("candidates") or []) or "all taxa",
             "preds schema": preds_meta.get("schema", "none (pre-schema file)"), "complete": complete,
             "synonyms": str(SYNONYMS_CSV) if synonyms else "off", "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "wall_s": f"{time.monotonic() - t0:.1f}"}
+    if ident_opts.get("candidates"):        # only then: a default run's report stays as it was
+        meta["candidates"] = ", ".join(ident_opts["candidates"])
     engines = {json.dumps(e.get("engine"), sort_keys=True) for e in preds.values() if e.get("engine")}
     if engines:
         meta["engine"] = " | ".join(sorted(engines))

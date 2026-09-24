@@ -116,10 +116,10 @@ def species_among(engine: Any, work: list[tuple[Any, list[dict[str, Any]], list[
             post = p.copy()
             for n, (kind, _nl, _rows) in enumerate(lists):
                 g, prior, sl = p_geo[kind, fi], engine.priors.get(kind), slice(offset[n], offset[n + 1])
-                w = p[sl] * (prior.floor + g) if g is not None and prior is not None else None
-                if w is not None and w.sum() > 0:
-                    # the list keeps its visual share of the mass; its prior reweights rows inside it
-                    post[sl] = p[sl].sum() * w / w.sum()
+                mass = p[sl].sum()
+                if prior is not None and mass > 0:
+                    # the list keeps its visual share of the mass; its own prior reweights rows inside it
+                    post[sl] = mass * prior.posterior(p[sl] / mass, g)
             order = np.argsort(-post, kind="stable")[:opts["top_k"]]
             top = []
             for i in order:

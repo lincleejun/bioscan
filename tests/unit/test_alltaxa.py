@@ -224,5 +224,36 @@ def test_run_and_eval_pass_candidates(tmp_path, monkeypatch):
     report, _ = ev.run_eval(_gt(tmp_path), str(tmp_path / "e"), False, "http://x", candidates=["Buteo", "Canis"])
     meta = json.loads((tmp_path / "e" / "preds.ndjson").read_text().splitlines()[0])
     assert meta["options"]["identify"]["candidates"] == ["Buteo", "Canis"] and "- candidates: Buteo, Canis" in report
+    # without candidates the report is the base one: the same meta keys, in the same order, and no candidates line
     report, _ = ev.run_eval(_gt(tmp_path), str(tmp_path / "f"), False, "http://x")
-    assert "- candidates: all taxa" in report
+    keys = [line[2:].split(":")[0] for line in report.split("## ")[0].splitlines() if line.startswith("- ")]
+    assert keys == ["groundtruth", "preds", "images", "geo", "preds schema", "complete", "synonyms", "generated",
+                    "wall_s"] and "candidates" not in report
+    with pytest.raises(SystemExit, match="--preds"):
+        cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "g"), "--preds", str(tmp_path / "f" / "preds.ndjson"),
+                  "--candidates", "Buteo"])
+
+
+def test_all_taxa_list_that_does_not_fit_on_the_device_is_dropped(caplog):
+    from bioscan.service import engine
+
+    lists = with_other().names
+
+    class Device:
+        placed = []
+
+        def place(self, matrix):
+            if matrix is lists["other_animal"].matrix:
+                raise RuntimeError("MPS backend out of memory")
+            self.placed.append(matrix)
+
+    with caplog.at_level(logging.WARNING):
+        dev, kept = engine.place_lists(Device(), lists)
+    assert set(kept) == {"bird", "mammal"} and len(dev.placed) == 2 and "out of memory" in caplog.text
+
+    class Full(Device):
+        def place(self, matrix):
+            raise RuntimeError("MPS backend out of memory")
+
+    with pytest.raises(RuntimeError):                    # a curated list that does not fit still fails the load
+        engine.place_lists(Full(), lists)

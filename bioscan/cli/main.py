@@ -161,6 +161,9 @@ def cmd_gt_inat(a):
 
 def cmd_eval(a):
     from bioscan.cli import eval as ev
+    if a.preds and a.candidates:
+        raise SystemExit("--candidates only applies when eval calls the service; a --preds file was made with "
+                         "the options in its meta line")
     report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms,
                                    split_candidates(a.candidates))
     print(report)

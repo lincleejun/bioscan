@@ -167,7 +167,7 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
 - A candidate is a scientific name or any higher taxon (genus, family, order, class, even phylum), compared case- and spacing-insensitively. It matches every row of every loaded list whose taxonomy holds it.
 - A box is ranked among the matching rows of all lists together, whatever its kind; its `kind` and `species.list` follow the list of its top-1 name. Candidates that are all mammals turn a bird-gated box into a mammal box ranked among those mammals.
 - Within that set, each list's location prior reweights its own rows; how much of the probability each list gets is decided by the image alone.
-- Empty or absent means all taxa. A name no loaded list knows is a 400 that lists the unknown names. `bioscan eval --candidates …` passes the option through and records it in the preds meta line.
+- Empty or absent means all taxa. A name no loaded list knows is a 400 that lists the unknown names. `bioscan eval --candidates …` passes the option through and records it in the preds meta line and the report (with `--preds`, which rescores a finished run, it is refused).
 
 ### HTTP API
 
