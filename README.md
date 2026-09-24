@@ -405,7 +405,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # needs a running service and your own tests/smoke/*.ARW
 ```
 
-CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job.
+CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job. Model outputs are cached between runs (keyed on the adapters and `uv.lock`), so a run computes only what reaches a model differently; a `v*` tag or a `cold` dispatch runs every model.
 
 ## Layout
 

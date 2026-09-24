@@ -5,6 +5,9 @@ name: models
 # run's report.json with baselines/ci-smoke.json under baselines/budget.toml (docs/harness.md).
 # Branch pushes and PRs run when a listed path changes; a `v*` tag push always runs (GitHub does not
 # evaluate path filters for tags) and publishes its report as the `bench-report-<tag>` artifact.
+# Model outputs are cached between runs (the inference cache, tests/models/test_real_models.py), keyed on
+# the adapters (model revisions) and uv.lock: a run computes only what reaches a model differently. A `v*`
+# tag and a dispatch with `cold` run every model; commit baselines from such a run (its speed is real).
 on:
   push:
     branches: ["**"]
@@ -47,6 +50,11 @@ on:
       - "pyproject.toml"
       - ".github/workflows/models.yml"
   workflow_dispatch:
+    inputs:
+      cold:
+        description: "Run every model (no inference cache), e.g. for a new baseline"
+        type: boolean
+        default: false
 
 concurrency:
   group: models-${{ github.ref }}
@@ -59,13 +67,14 @@ jobs:
     timeout-minutes: 75
     env:
       BIOSCAN_MODEL_TESTS: "1"
+      # empty (off) on a tag or a cold dispatch
+      BIOSCAN_INFER_CACHE: ${{ !startsWith(github.ref, 'refs/tags/v') && !inputs.cold && format('{0}/.infer-cache/replay.pkl', github.workspace) || '' }}
       BIOSCAN_REPORT: ${{ github.workspace }}/models-report.md
       BIOSCAN_PHOTO_CACHE: ${{ github.workspace }}/.photos
       BIOSCAN_REQUIRE_GEO: "1"
       BIOSCAN_REQUIRE_ALLTAXA: "1"
     steps:
-      - name: Free disk (torch + ~4 GB of weights)
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      # No "free disk" step: the 145 GB runner disk has room for the ~20 GB this job needs, and deleting took 2-3 minutes
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
@@ -99,8 +108,21 @@ jobs:
           path: .photos
           key: photos-${{ hashFiles('tests/models/sample.csv') }}
           restore-keys: photos-
+      - name: Restore the inference cache
+        if: env.BIOSCAN_INFER_CACHE != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .infer-cache
+          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-
       - name: Real-model smoke
-        run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs
+        run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs --durations=0
+      - name: Save the inference cache (also after a failure, so the next run replays what this one computed)
+        if: always() && env.BIOSCAN_INFER_CACHE != '' && hashFiles('.infer-cache/replay.pkl') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .infer-cache
+          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Job summary
         if: always()
         # also printed to the log so the numbers are readable wherever the summary is not
