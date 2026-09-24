@@ -236,8 +236,9 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
 - [x] W1 harness: `bioscan bench run | baseline | compare | analyze | scorecard`; report.json schema;
       regression budgets; CI smoke compares against a committed baseline; tag runs publish a report
       (branch v15/w1-harness; docs/harness.md)
-  - [ ] after the first green models.yml run: commit its printed report as `baselines/ci-smoke.json`
-  - [ ] models.yml on a real push (tags + branches + paths, the compare step) is unverified until CI runs it
+  - [x] baselines/ci-smoke.json from models.yml run 35948293984 on 91b6bd6 (W1+W2+W5, behaviour-preserving):
+        bird 97.6/95.2/88.1/92.9, mammal 91.4/91.4/85.7/91.4 = identical to v1.4; fingerprint 1dd3f33ab9c7
+  - [x] models.yml on a real push: compare step ran (no baseline -> candidate printed, job green)
 - [x] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured);
       tests/unit/test_standards.py (schema, mutation-checked: 7/7 broken copies fail); README links; CONTEXT terms
       Found: most industry pages blocked by egress (numbers rest on search snippets, marked); Merlin does publish a
