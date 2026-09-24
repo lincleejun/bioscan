@@ -73,6 +73,8 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
 - [ ] service shutdown leaves decode-pool workers alive after SIGTERM (found 2026-09-24 on the Mac); terminate the pool in the lifespan handler
 - [ ] Phase 0 speed benchmark (docs/strategy): 2,000 files, ARW/CR3/NEF at 24 and 45 MP, USB vs SSD; CR3/NEF need sample files the owner does not have yet
 
+- [ ] `bioscan report <preds.ndjson>`: reviewable HTML (thumbnails with boxes, grouped by top-1, species table, review.csv with a verdict column); prototype in runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW at Coyote Hills, owner reviewed: OK)
+
 ## 7. Mac 本地跑 v1.4 / v1.5 数据（2026-09-24，owner 的操作清单）
 - [x] git pull（875dc7a）+ uv sync
 - [x] tests/models/download.py：all-taxa 366,460 种，float16 716 MiB，缓存 763 MiB
