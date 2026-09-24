@@ -1,0 +1,92 @@
+# Minimal example of the data/standards.toml schema (read by `bioscan bench scorecard`; docs/harness.md).
+# Numbers are made up for the tests; the real bars live in data/standards.toml.
+# id = <dimension>.<tier>.<scope>.<metric>[.nogeo]; `tier` may also be given explicitly.
+# Rate metrics take unit "fraction" (0-1, as in the report); a missing industry/stretch means none.
+
+[[standard]]
+id = "accuracy.golden.bird.top1"
+dimension = "accuracy"
+title = "Bird species Top-1"
+scope = "bird"
+metric = "top1"
+op = ">="
+industry = 0.90
+community = 0.10
+stretch = 0.95
+unit = "fraction"
+how = "bioscan bench run on the golden set; metrics.bird.top1"
+source = "example"
+
+[[standard]]
+id = "trust.golden.all.confident_error_rate"
+dimension = "trust"
+title = "Species-level wrong answers, share of all images"
+scope = "all"
+metric = "confident_error_rate"
+op = "<="
+community = 0.03
+unit = "fraction"
+how = "metrics.all.confident_error_rate"
+source = "example"
+
+[[standard]]
+id = "trust.golden.all.ece"
+dimension = "trust"
+title = "Expected calibration error"
+scope = "all"
+metric = "ece"
+op = "<="
+industry = 0.05
+community = 0.05
+unit = "fraction"
+how = "needs species.p_correct"
+source = "example"
+
+[[standard]]
+id = "speed.golden.all.images_per_s"
+dimension = "speed"
+title = "Images per second, whole run"
+scope = "all"
+metric = "images_per_s"
+op = ">="
+community = 2.0
+unit = "images/s"
+how = "done.ok / done.elapsed_ms"
+source = "example"
+
+[[standard]]
+id = "location.golden.bird.top1.nogeo"
+dimension = "location"
+title = "Bird Top-1 without coordinates"
+scope = "bird"
+metric = "top1"
+op = ">="
+community = 0.05
+unit = "fraction"
+how = "bioscan bench run ... --no-geo"
+source = "example"
+
+[[standard]]
+id = "directory.all-top1"
+tier = "smoke"
+dimension = "directory"
+title = "Smoke Top-1 (regression guard, judged on the value)"
+scope = "all"
+metric = "top1"
+op = ">="
+community = 0.10
+unit = "fraction"
+how = "models.yml"
+source = "example"
+
+[[standard]]
+id = "coverage.names.bird"
+dimension = "coverage"
+title = "Bird species in the name list"
+scope = "bird"
+metric = "manual"
+op = ">="
+community = 11131
+unit = "species"
+how = "uv run bioscan names stats"
+source = "example"

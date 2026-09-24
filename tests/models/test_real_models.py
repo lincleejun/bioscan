@@ -116,9 +116,28 @@ def run():
         resp = c.post("/run", json={"inputs": inputs, "want": ["identify", "embed"]})
         assert resp.status_code == 200, resp.text
         events = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
-    gt = ev.normalise_truth([{"path": str(p), "scientific": r["scientific"], "tier": "inat-sample", "kind": r["kind"]}
+    gt = ev.normalise_truth([{"path": str(p), "scientific": r["scientific"], "tier": "inat-sample", "kind": r["kind"],
+                              "lat": r["lat"], "lon": r["lon"]}
                              for r, p in have], names.read_synonyms(ev.SYNONYMS_CSV))
     return gt, events, engine
+
+
+def write_bench_report(path: Path, gt: list[dict], preds: dict, events: list[dict], engine) -> None:
+    """report.json (`bioscan bench`) of this run, which models.yml compares with baselines/ci-smoke.json.
+    Name-list membership and families come from the small in-memory lists this test built."""
+    from bioscan import naming
+    from bioscan.cli import bench
+    from bioscan.cli import eval as ev
+
+    lists = {kind: {naming.norm_binomial(s): t[4] for s, t in zip(nl.scientific, nl.taxonomy)}
+             for kind, nl in engine.names.items()}
+    done = next((e for e in reversed(events) if e["type"] == contract.DONE), None)
+    rep = bench.build_report(gt, preds, groundtruth=str(HERE / "sample.csv"),
+                             synonyms_sha256=bench.sha256_of(ev.SYNONYMS_CSV), done=done, lists=lists,
+                             complete=done is not None,
+                             tier="smoke", options={"want": ["identify", "embed"], "identify": "service defaults",
+                                      "synonyms": True, "device": engine.device})
+    bench.write_json(rep, path)
 
 
 @pytest.fixture(scope="module")
@@ -148,6 +167,7 @@ def metrics(run):
     if out:
         Path(out).write_text(report + "\n".join(per_image) + "\n")
         Path(out).with_suffix(".ndjson").write_text("".join(json.dumps(e) + "\n" for e in events))
+        write_bench_report(Path(out).with_suffix(".json"), gt, preds, events, engine)
     return {kind: v for (_tier, kind), v in m.items()}
 
 
