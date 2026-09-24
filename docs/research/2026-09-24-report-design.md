@@ -47,7 +47,8 @@ For unattended runs, `bioscan summarize` also prints one line (`1,424 photos · 
      "taxonomy": ["Animalia", …, "Megascops kennicottii"], "list": "avilist-2025",
      "images": 12, "boxes": 12, "posterior": {"max": 0.97, "median": 0.91},
      "best": {"sha256": "…", "path": "…", "box": 0},       // highest posterior × sharpness until C1 picks it
-     "members": [{"sha256": "…", "path": "…", "box": 0, "posterior": 0.97}],  // every box, so any one can be corrected
+     "members": [{"sha256": "…", "path": "…", "box": 0, "posterior": 0.97,   // every box, so any one can be corrected
+                  "top": [/* first 3 candidates, as in the payload */]}],
      "first_taken_at": "…", "last_taken_at": "…"}],
   "review": [                           // boxes (or frames) that need a person, grouped so one decision covers many
     {"sha256": "…", "path": "…", "box": 1, "kind": "bird", "level": "genus",
@@ -79,6 +80,8 @@ Choices, each derivable from today's payload (bioscan/contract.py) with no new m
   `soft` (subject not sharp) waits for C1's quality thresholds; it will be one more code, not a new mechanism.
 - **Grouping**: review items sort by `suggested` taxon, then capture time, so "these 5 frames are all *Calidris*"
   is one decision on the page.
+- **Recommendations are recorded, not only shown**: every member and review item keeps its first candidates
+  (`top`), so what the page offered first is in the JSON and a later review can be scored against it.
 - **No embeddings, no thumbnails** in the JSON. Paths and sha256 are enough; `bioscan report` makes the
   thumbnails (from the `jpg` product when present, else the embedded preview).
 
@@ -97,12 +100,23 @@ and those are the most valuable corrections: the pipeline did not know it was un
     `bioscan gt review`, not by the page), **Not an animal**, **Skip**. A review group has "Confirm all".
   - **Keep** (per photo): **Mark for deletion**. It is not a name verdict: a correct name on a blurry frame is
     still a correct name, and an uncertain name is no reason to delete a photo.
+- **The name picker searches the full index, recommendations first.** A fixed short list would make the owner's
+  answer depend on our guess. `bioscan report` writes `names.json` next to the summary: every row of the loaded
+  lists plus their genera and families (AviList 2025 + MDD 2.5 today: 18,035 species, 3,739 genera, 421
+  families, about 1.2 MB). The picker shows three sections: this box's candidates (with posterior), taxa already
+  seen in this run (same kind), then the whole index searched by scientific or English name. A name in no list
+  is still accepted, marked `typed`, and checked by `bioscan gt review`. The all-taxa TreeOfLife list is not in
+  `names.json` (too large, and it lives in the model cache, not the repo); other animals get the typed path until
+  a reptile/fish list lands (TASKS "not_in_list").
 - Correcting outside the queue: open a taxon to see its members, then either correct one frame or pick frames
   and "Move to…" another name. Moving all of a taxon is the same action with every frame picked.
 - Nothing is ever deleted by bioscan. `bioscan gt review` writes the deletion marks as a rejected label in XMP
   sidecars (the culling research's "mark, never delete"); the owner deletes in Lightroom or Finder.
 - `review.json`: `{"schema": 1, "kind": "bioscan.review", "summary_sha256": "…", "verdicts": [{"sha256", "box",
-  "verdict": "confirm|correct|not_animal|skip", "name", "note"}], "reject": [{"sha256", "path"}]}`. Keyed by
+  "verdict": "confirm|correct|not_animal|skip", "name", "level", "list", "picked_from": "candidates|seen|list|typed",
+  "picked_rank", "was", "was_level", "note"}], "reject": [{"sha256", "path"}]}`. `picked_from` and `picked_rank`
+  say where the right name was: when it was already the box's second candidate, that is a ranking miss; when it
+  came from the full list, the model never offered it. Both are harness numbers. Keyed by
   sha256 and box id, so renamed or moved files still match.
 - The page keeps a draft in the browser's local storage and saves `review.json` next to the report with a
   button (a Blob download, which works for a local file). `bioscan gt review report/review.json` turns it into
