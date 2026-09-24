@@ -7,11 +7,20 @@ in stage.py, in Stage.settings() and so in result.engine.plugins["quality"]. Rej
 a photo is never rejected for taste (aesthetics only reorders, in the select reducer)."""
 from __future__ import annotations
 
-from bioscan.plugin import Manifest
+from bioscan import cull
+from bioscan.plugin import Manifest, Metric
 
 # every reason quality can give, in the order it reports them (CONTEXT.md "reject reason")
-REASONS = ("soft_subject", "motion_or_defocus", "overexposed", "underexposed", "subject_cut", "subject_too_small",
-           "no_subject")
+REASONS = cull.REJECT_REASONS
+# `bioscan bench` (album tier): scopes all, soft (soft_subject or motion_or_defocus) and each reason
+METRICS = (
+    Metric("reject_precision", "rate", "bioscan.cull:row_reject_precision",
+           description="images rejected for the scope's reason(s) whose truth has it"),
+    Metric("reject_recall", "rate", "bioscan.cull:row_reject_recall",
+           description="images whose truth has the scope's reason(s) that were rejected for it"),
+    Metric("keepers_lost", "rate", "bioscan.cull:row_keepers_lost", lower_is_better=True,
+           description="keep-labelled images a rule rejected"),
+)
 
 _REGION = {"sharpness": "float, rules.quality (ranks, does not judge)", "exposure": "float, mean luma - 0.5",
            "blur": "float 0 sharp - 1 soft (re-blur measure) | null: too little detail to tell",
@@ -35,5 +44,6 @@ MANIFEST = Manifest(
             "reject_reasons": f"[{'|'.join(REASONS)}], empty = no rule rejects it",
             "capture": {"taken_at": "ISO 8601 | null (request, else EXIF)", "camera": "EXIF Make Model | null"}},
     impl="bioscan.plugins.quality.stage:STAGE",
+    metrics=METRICS,
     fingerprinted=True,
 )

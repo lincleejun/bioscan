@@ -8,10 +8,12 @@ Crete et al. (2007), which blurs a region again with a 9-tap box filter and asks
 pixel-to-pixel variation that removes. A sharp region loses most of it (blur near 0.1-0.3), an
 already soft one little (0.5 and up); a region with almost no variation (sky, a wall) has no value.
 
-soft_subject vs motion_or_defocus: a soft subject in a frame that is sharp somewhere else (focus
-landed on the background) is soft_subject; when the sharpest detailed tile outside the subject is
-soft too, the whole frame is (camera shake, subject motion blur over everything, or nothing in
-focus): motion_or_defocus. A frame without a subject can only be motion_or_defocus."""
+soft_subject vs motion_or_defocus: a soft subject (blur >= SOFT_BLUR) in a frame with a tile in
+focus elsewhere (blur <= SHARP_ELSEWHERE: focus landed on the background), or with no detail
+elsewhere to judge, is soft_subject; when no detailed tile outside the subject is in focus, the
+whole frame is soft (camera shake, motion over everything, or focus missed everything, which
+includes a soft subject against smooth bokeh): motion_or_defocus. A frame without a subject can
+only be motion_or_defocus, when none of its tiles is in focus."""
 from __future__ import annotations
 
 import math
@@ -26,7 +28,8 @@ from bioscan.service.taxa import ANIMALS
 
 SUBJECT_CORE = 0.7      # blur is measured on the box's central 70 % (per side), away from background at its corners
 BLUR_TAPS = 9           # re-blur kernel length (Crete et al.)
-SOFT_BLUR = 0.45        # blur at or above this: soft (subject, or the sharpest tile of the frame)
+SOFT_BLUR = 0.45        # subject blur at or above this: the subject is soft
+SHARP_ELSEWHERE = 0.38  # a frame tile at or below this blur is in focus; none is: the whole frame is soft
 MIN_DETAIL = 0.004      # a region whose mean step between neighbours (luma 0-1) is below this has no blur value
 TILES = 4               # the frame's sharpest part: the best of TILES x TILES tiles
 TILE_SUBJECT = 0.5      # tiles at least this much inside the subject box do not count as "elsewhere"
@@ -37,8 +40,8 @@ CLIP_LOW = 8            # luma at or below: a clipped shadow
 # Underexposed reads the frame, and the subject must be dark too: a black bird is often correctly
 # dark, so a dark subject alone never rejects. (A -2 EV frame keeps few pixels at pure black, so
 # underexposure needs no clipped share; the shares are reported for review.)
-OVER_EXPOSURE = 0.22    # overexposed: exposure (mean luma - 0.5) at least this ...
-OVER_CLIP = 0.05        # ... and at least this share of clipped highlights
+OVER_CLIP = 0.08        # overexposed: at least this share of blown highlights, or ...
+OVER_EXPOSURE = 0.22    # ... exposure (mean luma - 0.5) at least this with half that share blown
 UNDER_EXPOSURE = -0.26  # underexposed: the frame's exposure at most this ...
 UNDER_SUBJECT = -0.25   # ... and the subject's (when there is one) at most this
 CUT_MARGIN = 0.01       # a box edge this close to the frame edge (fraction of the side) touches it
@@ -116,7 +119,7 @@ def exposure_reasons(frame: dict[str, Any], subject: dict[str, Any] | None) -> l
     (when there is one) dark as well."""
     out = []
     bright = subject or frame
-    if bright["exposure"] >= OVER_EXPOSURE and bright["clip_high"] >= OVER_CLIP:
+    if bright["clip_high"] >= OVER_CLIP or (bright["exposure"] >= OVER_EXPOSURE and bright["clip_high"] >= OVER_CLIP / 2):
         out.append("overexposed")
     if frame["exposure"] <= UNDER_EXPOSURE and (subject is None or subject["exposure"] <= UNDER_SUBJECT):
         out.append("underexposed")
@@ -174,7 +177,8 @@ def assess(image: Image.Image, boxes: list[dict[str, Any]], gate: dict[str, floa
                    "area": _r(area, 6), "edges": edges, "cut": cut, "placement": where, "thirds_dist": _r(thirds),
                    "centre_dist": _r(centre)}
         if sb is not None and sb >= SOFT_BLUR:
-            reasons.append("motion_or_defocus" if elsewhere is not None and elsewhere >= SOFT_BLUR else "soft_subject")
+            nothing_sharp = elsewhere is not None and elsewhere > SHARP_ELSEWHERE
+            reasons.append("motion_or_defocus" if nothing_sharp else "soft_subject")
         reasons += exposure_reasons(frame, subject)
         if cut:
             reasons.append("subject_cut")
@@ -183,7 +187,7 @@ def assess(image: Image.Image, boxes: list[dict[str, Any]], gate: dict[str, floa
     else:
         sharpest = sharpest_tile(gray, None)
         frame["blur"] = _r(sharpest)
-        if sharpest is not None and sharpest >= SOFT_BLUR:
+        if sharpest is not None and sharpest > SHARP_ELSEWHERE:
             reasons.append("motion_or_defocus")
         reasons += exposure_reasons(frame, None)
         if gate and sum(gate.get(k, 0.0) for k in ANIMALS) >= NO_SUBJECT_GATE:

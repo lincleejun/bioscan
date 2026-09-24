@@ -287,6 +287,90 @@ def records(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+# ---- harness rows (plugin.Metric.row; docs/harness.md "Album tier") -------------------------------
+# Ground truth (scripts/cull_synth.py, or an owner's labels): keep (1/0), reject_reasons (";"-joined),
+# burst_id (blank = in no burst), scene (blank = unlabelled). A column the CSV lacks measures nothing.
+
+REJECT_REASONS = ("soft_subject", "motion_or_defocus", "overexposed", "underexposed", "subject_cut",
+                  "subject_too_small", "no_subject")      # = bioscan.plugins.quality.REASONS
+SOFT = ("soft_subject", "motion_or_defocus")              # scope "soft": either (they differ only in the background)
+
+
+def split_reasons(text: str | None) -> list[str]:
+    return [r.strip() for r in (text or "").replace("|", ";").split(";") if r.strip()]
+
+
+def _truth_reasons(truth: dict[str, Any]) -> set[str] | None:
+    if "reject_reasons" not in truth and "keep" not in truth:
+        return None
+    return set(split_reasons(truth.get("reject_reasons")))
+
+
+def final_reasons(pred: dict[str, Any] | None) -> set[str] | None:
+    """The reasons a result was rejected for: select's (after its waivers) when the run had it,
+    else quality's; None when neither ran (a result) or the image failed (not a result)."""
+    p = products(pred or {})
+    if "select" in p:
+        return set(p["select"].get("reasons") or [])
+    if "quality" in p:
+        return set(p["quality"].get("reject_reasons") or [])
+    return None
+
+
+def _measured(pred: dict[str, Any] | None) -> bool:
+    """False when the image has a result without the cull products: the run did not measure it."""
+    return not (pred and pred.get("type") == "result" and final_reasons(pred) is None)
+
+
+def row_reject_precision(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, Any]:
+    """Per scope (all, soft, each reason): among images rejected for it, whether the truth has it."""
+    t, p = _truth_reasons(truth), final_reasons(pred)
+    if t is None or not p:
+        return {}
+    out: dict[str, Any] = {"all": bool(t), "soft": bool(t & set(SOFT)) if p & set(SOFT) else None}
+    out |= {r: (r in t) if r in p else None for r in REJECT_REASONS}
+    return out
+
+
+def row_reject_recall(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, Any]:
+    """Per scope (all, soft, each reason): among images whose truth has it, whether they were
+    rejected for it. A failed image counts as not rejected, as failures count as misses elsewhere."""
+    t = _truth_reasons(truth)
+    if not t or not _measured(pred):
+        return {}
+    p = final_reasons(pred) or set()
+    out: dict[str, Any] = {"all": bool(p), "soft": bool(p & set(SOFT)) if t & set(SOFT) else None}
+    out |= {r: (r in p) if r in t else None for r in REJECT_REASONS}
+    return out
+
+
+def row_keepers_lost(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, Any]:
+    """Among images the truth keeps (keep = 1), whether a rule rejected them. Failed images do not count."""
+    p = final_reasons(pred)
+    if str(truth.get("keep", "")).strip() != "1" or p is None:
+        return {}
+    return {"all": bool(p)}
+
+
+def row_burst(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, Any]:
+    """(truth burst, predicted burst) for pairwise precision / recall / F1; a frame in no burst is its own group."""
+    b = products(pred or {}).get("burst")
+    if "burst_id" not in truth or b is None:
+        return {}
+    solo = f"solo:{truth['path']}"
+    return {"all": ((truth.get("burst_id") or "").strip() or solo, b.get("id") or solo)}
+
+
+def row_scene(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, Any]:
+    """Whether the top scene label is the truth's, in `all` and in the truth label's own scope."""
+    label = (truth.get("scene") or "").strip()
+    s = products(pred or {}).get("scene")
+    if not label or not s:
+        return {}
+    hit = s.get("label") == label
+    return {"all": hit, label: hit}
+
+
 class _Reducer:
     def __init__(self, fn) -> None:
         self.reduce = fn

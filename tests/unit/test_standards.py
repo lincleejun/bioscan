@@ -10,6 +10,7 @@ PATH = Path(__file__).resolve().parents[2] / "data" / "standards.toml"
 
 REQUIRED = {"id", "dimension", "title", "scope", "metric", "op", "community", "unit", "how", "source"}
 OPTIONAL = {"industry", "stretch"}          # TOML has no null: a missing key means null
+NAMES = {"tier", "profile", "plugin"}       # optional strings
 METRICS = {"n", "gate_acc", "detect_rate", "top1", "top5", "genus_acc", "coverage", "precision",
            "confident_error_rate", "no_box_rate", "failed_rate", "ece", "decode_ms_median",
            "identify_ms_median", "images_per_s"}
@@ -17,10 +18,18 @@ RATES = METRICS - {"n", "decode_ms_median", "identify_ms_median", "images_per_s"
 GEOTAG_RATES = {"within_100m_rate", "within_1km_rate", "no_fix_rate", "false_fix_rate", "cell_change_rate"}
 GEOTAG_METRICS = GEOTAG_RATES | {"n", "n_expected", "median_error_m", "p90_error_m", "offset_error_s"}
 DIMENSIONS = {"accuracy", "trust", "detection", "location", "directory", "speed", "coverage", "robustness",
-              "onboarding", "privacy", "reproducibility"}
+              "onboarding", "privacy", "reproducibility", "culling"}
 SCOPES = {"all", "bird", "mammal", "other"}
 OPS = {">=", "<="}
-TIERS = {"smoke", "golden", "own", "public", "mac", "geotag"}
+TIERS = {"smoke", "golden", "own", "public", "mac", "geotag", "album"}
+PROFILES = {"wildlife", "album"}
+
+
+def plugin_metrics() -> dict:
+    """plugin -> {metric name: Metric} of the built-in plugins (stages and reducers)."""
+    from bioscan.plugins import BUILTIN, REDUCERS
+
+    return {m.name: {x.name: x for x in m.metrics} for m in (*BUILTIN, *REDUCERS) if m.metrics}
 VARIANTS = {"nogeo"}
 UNITS = {"fraction", "ms", "images/s", "images", "species", "formats", "minutes", "requests", "bool", "m", "s"}
 
@@ -49,15 +58,21 @@ def test_ids_are_unique():
 def test_fields(s):
     keys = set(s)
     assert REQUIRED <= keys, f"missing {REQUIRED - keys}"
-    assert keys <= REQUIRED | OPTIONAL, f"unknown {keys - REQUIRED - OPTIONAL}"
+    assert keys <= REQUIRED | OPTIONAL | NAMES, f"unknown {keys - REQUIRED - OPTIONAL - NAMES}"
     for k in ("id", "dimension", "title", "unit", "how", "source"):
         assert isinstance(s[k], str) and s[k].strip(), k
     assert s["dimension"] in DIMENSIONS
-    assert s["scope"] in SCOPES
     assert s["op"] in OPS
     assert s["unit"] in UNITS
-    assert s["metric"] in METRICS or s["metric"] == "manual" or (s["id"].split(".")[1] == "geotag"
-                                                                  and s["metric"] in GEOTAG_METRICS)
+    assert s.get("profile", "wildlife") in PROFILES
+    if "plugin" in s:                   # a plugin metric: report.json plugin_metrics[plugin][scope]
+        metric = plugin_metrics()[s["plugin"]][s["metric"]]
+        assert s["unit"] == ("fraction" if metric.fraction else s["unit"]) and s.get("profile") == "album"
+        assert isinstance(s["scope"], str) and s["scope"]
+    else:
+        assert s["scope"] in SCOPES
+        assert s["metric"] in METRICS or s["metric"] == "manual" or (s["id"].split(".")[1] == "geotag"
+                                                                      and s["metric"] in GEOTAG_METRICS)
     assert is_number(s["community"])
     for k in OPTIONAL & keys:
         assert is_number(s[k]), k
@@ -93,12 +108,18 @@ def test_bars_are_ordered(s):
 
 @pytest.mark.parametrize("s", standards(), ids=lambda s: s.get("id", "?"))
 def test_rates_are_fractions(s):
-    if s["metric"] in RATES | GEOTAG_RATES:
+    if s["metric"] in RATES | GEOTAG_RATES or ("plugin" in s and plugin_metrics()[s["plugin"]][s["metric"]].fraction):
         assert s["unit"] == "fraction"
     if s["unit"] == "fraction":
         for k in ("industry", "community", "stretch"):
             if k in s:
                 assert 0 <= s[k] <= 1, k
+
+
+def test_the_harness_reads_the_file():
+    from bioscan.cli import bench
+
+    assert len(bench.read_standards(PATH)) == len(standards())
 
 
 def test_industry_numbers_cite_a_url():

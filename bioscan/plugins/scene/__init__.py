@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from bioscan.plugin import Manifest
+from bioscan.plugin import Manifest, Metric
 
 GATE_CLASSES = ("bird", "mammal", "other_animal", "person", "none")    # = bioscan.service.taxa.GATE_CLASSES
 DEFAULT_LABELS: dict[str, list[str]] = {
@@ -68,5 +68,7 @@ MANIFEST = Manifest(
                        "strength: its share of the edge weight} (landscape only)"},
     impl="bioscan.plugins.scene.stage:STAGE",
     check=check,
+    metrics=(Metric("scene_acc", "rate", "bioscan.cull:row_scene",
+                    description="top label is the truth's; scopes all and each truth label"),),
     fingerprinted=True,
 )

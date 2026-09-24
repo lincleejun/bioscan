@@ -4,7 +4,12 @@ the results; frames without either stay alone. Manifest only (stdlib)."""
 from __future__ import annotations
 
 from bioscan import cull
-from bioscan.plugin import Manifest
+from bioscan.plugin import Manifest, Metric
+
+ROW = "bioscan.cull:row_burst"
+METRICS = (Metric("burst_pair_precision", "pair_precision", ROW, description="pairs grouped that the truth groups"),
+           Metric("burst_pair_recall", "pair_recall", ROW, description="truth pairs that were grouped"),
+           Metric("burst_pair_f1", "pair_f1", ROW, description="harmonic mean of the two"))
 
 MANIFEST = Manifest(
     name="burst",
@@ -19,4 +24,5 @@ MANIFEST = Manifest(
     impl="bioscan.cull:BURST",
     check=cull.check_burst,
     kind="reducer",
+    metrics=METRICS,
 )
