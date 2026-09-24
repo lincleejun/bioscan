@@ -128,3 +128,40 @@ Directories the service may read from and write to; empty means no limit.
 **Settings fingerprint**:
 Twelve hex characters over the output-changing constants (thresholds, prompts, vocabulary, prior floor, max edge);
 the configured detail edge is reported beside it as `engine.detail_edge`.
+
+## Evaluation harness
+
+**Preds file**:
+`preds.ndjson` from `bioscan eval`: a meta line, then the run's result/error events and its `done`.
+
+**Report**:
+`report.json` (schema `bioscan-report`): one scored run as data — meta, metrics per scope with Wilson
+intervals, per-species and per-family tables, one row per image (`bioscan bench run` / `bench report`).
+_Avoid_: results, scores (eval's `report.md` is the markdown view of the same run)
+
+**Scope**:
+A report's metrics row: `all`, `bird`, `mammal`, `other`, or `<tier>/<scope>`.
+
+**Tier**:
+Which ground-truth set a run belongs to (smoke, golden, own, public); picks the standards the scorecard applies.
+
+**Baseline**:
+A committed report (`baselines/NAME.json`) that later runs are compared with, e.g. `ci-smoke`, `golden-inat-<tag>`.
+
+**Budget**:
+The regressions a comparison may show before it fails (`baselines/budget.toml`): per-metric drop/rise limits
+per scope, species lost, images broken.
+_Avoid_: threshold (rules.py has those)
+
+**Broken / fixed image**:
+An image paired between two reports (by sha256, else path) whose top-1 went from right to wrong / wrong to right.
+
+**Failure class**:
+Why an image has no correct top-1, one per image: failed, gate_miss, detector_miss, wrong_kind, not_in_list,
+out_of_range, within_genus, within_family, far_miss; `overconfident` (wrong at level species) overlaps them.
+
+**Confident error**:
+An image whose best box is graded species and whose top-1 is wrong.
+
+**Standard**:
+One bar in `data/standards.toml`: a tier, scope and metric with industry, community and stretch values.

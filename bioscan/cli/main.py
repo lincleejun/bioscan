@@ -9,7 +9,7 @@ import urllib.error
 from pathlib import Path
 
 from bioscan import contract, serve_config
-from bioscan.cli import client, gt
+from bioscan.cli import bench, client, gt
 from bioscan.cli.render import Renderer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -261,6 +261,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--no-synonyms", action="store_true", help="compare raw truth labels (skip data/names/synonyms.csv)")
     s.set_defaults(func=cmd_eval)
 
+    bench.add_parser(sub)
+
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)
     s = n.add_parser("geo-gaps", help="unlabelled AviList species whose genus lives at a place (review for synonyms.csv)")
@@ -280,6 +282,9 @@ def main(argv=None) -> int:
     except client.ServiceError as e:
         print(f"error: {e}", file=sys.stderr)
         return EXIT_SERVICE
+    except bench.BenchError as e:   # a report, budget or standards file the harness cannot use
+        print(f"error: {e}", file=sys.stderr)
+        return bench.EXIT_INCOMPARABLE
     except urllib.error.URLError as e:   # upstream (iNaturalist, HF) during gt / names
         print(f"error: upstream request failed: {getattr(e, 'reason', e)}", file=sys.stderr)
         return EXIT_INCOMPLETE

@@ -176,6 +176,26 @@ The first line of `preds.ndjson` is a meta line (schema, request options, sha256
 The report splits "no box" by whole-frame gate class: `none/person` means the gate missed the animal (the detector never ran); anything else means the detector did not box it.
 Ground-truth columns: `path, scientific, tier, lat, lon, taken_at, source, kind`. Truth names are normalised to AviList/MDD through `data/names/synonyms.csv` before comparison.
 
+### Harness: baselines, compare, failure analysis
+
+`bioscan bench` builds on eval so that results never silently degrade. The full workflow and the schemas are in [docs/harness.md](docs/harness.md).
+```sh
+bioscan bench run data/inat/groundtruth-inat.csv --out runs/<date>-golden --tier golden   # eval + report.json
+bioscan bench report runs/<date>/preds.ndjson GT.csv                                    # report.json offline from preds
+bioscan bench baseline runs/<date>-golden/report.json --name golden-inat-<tag>          # -> baselines/
+bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json          # exit 1 over budget
+bioscan bench analyze runs/<new>/report.json                                            # failure classes, what to fix next
+bioscan bench scorecard runs/<new>/report.json                                          # against data/standards.toml
+```
+- **report.json** (`bioscan-report` v1) holds:
+  - the run's git sha, engine, settings fingerprint and ground-truth sha;
+  - every metric per scope (`all`, `bird`, `mammal`, `other`, and per tier) with Wilson 95% intervals;
+  - per-species and per-family tables;
+  - one row per image.
+- **compare** pairs images by sha256 and counts fixed and broken images, with an exact McNemar p-value. It lists species regressions and broken images with their evidence, and checks `baselines/budget.toml`. It exits 0 within budget, 1 over budget and 2 when the reports can't be compared.
+- **analyze** puts every wrong answer into a failure class: gate miss, detector miss, wrong kind, not in list, out of range, within genus, within family or far miss. It also flags overconfident answers. Each class comes with examples and a pointer to the code to fix.
+- **CI.** `models.yml` compares every real-model smoke with `baselines/ci-smoke.json`. A `v*` tag publishes the smoke report.
+
 ## Name mapping
 
 `data/names/avilist_map.csv`: for each AviList species, its TreeOfLife name and BirdNET label and how each was matched (exact / synonym / none). `synonyms.csv` is the hand-maintained alias table, each row with a source and a note; `candidates.csv` lists suspected spelling differences found by the script, for human review only, never adopted automatically. Rebuild with `uv run python scripts/build_name_map.py`.
@@ -209,7 +229,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # needs a running service and your own tests/smoke/*.ARW
 ```
 
-CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data or dependencies (weights and photos cached), and writes the metrics to the job summary.
+CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights and photos cached), and on every `v*` tag. It writes the metrics to the job summary, and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job.
 
 ## Layout
 
@@ -228,7 +248,8 @@ bioscan/service/settings.py      fingerprint of output-changing settings
 bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + EXIF + sha256
 bioscan/service/names.py         AviList / MDD lists, TreeOfLife mapping, text-vector cache
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
-bioscan/cli/                     main client render gt eval
+bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
+baselines/                       committed reports compared against, and the regression budget
 data/names/                      name mapping tables keyed on AviList
 docs/                            design spec, implementation plan, evaluation results
 ```

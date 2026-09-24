@@ -233,8 +233,11 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
 (ruff, pytest, golden equivalence where behaviour must not change, independent reviewer), then integrates.
 
 - [x] CLAUDE.md: common rules for every model (no model pin); product decisions recorded
-- [ ] W1 harness: `bioscan bench run | baseline | compare | analyze | scorecard`; report.json schema;
+- [x] W1 harness: `bioscan bench run | baseline | compare | analyze | scorecard`; report.json schema;
       regression budgets; CI smoke compares against a committed baseline; tag runs publish a report
+      (branch v15/w1-harness; docs/harness.md)
+  - [ ] after the first green models.yml run: commit its printed report as `baselines/ci-smoke.json`
+  - [ ] models.yml on a real push (tags + branches + paths, the compare step) is unverified until CI runs it
 - [ ] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured)
 - [ ] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
       (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off
