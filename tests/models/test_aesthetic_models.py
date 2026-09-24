@@ -4,6 +4,7 @@ vectors /run's `embed` serves and the aesthetics stage scores, and the stage run
 
 Only with BIOSCAN_MODEL_TESTS=1 and SigLIP2 in the HF cache (CI models.yml). Uses 4 photos of
 tests/models/sample.csv (fetched like test_real_models.py)."""
+import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -34,8 +35,6 @@ def test_training_vectors_are_the_served_vectors_and_the_stage_scores_them(tmp_p
         r = c.post("/run", json={"inputs": [{"path": p} for p in paths], "want": ["embed", "aesthetics"],
                                  "options": {"aesthetics": {"head": str(head), "blend": 1.0}}})
     assert r.status_code == 200, r.text
-    import json
-
     res = {e["path"]: e for e in map(json.loads, r.text.splitlines()) if e["type"] == "result"}
     assert set(res) == set(paths)
     sys.path.insert(0, str(ROOT / "scripts"))

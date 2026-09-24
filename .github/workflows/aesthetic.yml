@@ -52,8 +52,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/bioscan/eva
-          key: eva-${{ hashFiles('bioscan/aesthetic.py') }}-${{ hashFiles('bioscan/service/adapters/siglip2.py', 'bioscan/service/decode.py') }}
-          restore-keys: eva-${{ hashFiles('bioscan/aesthetic.py') }}-
+          # the EVA commit is pinned in bioscan/aesthetic.py (EVA_COMMIT); bump this prefix with it
+          key: eva-fb40a9f-${{ hashFiles('bioscan/service/adapters/siglip2.py', 'bioscan/service/decode.py') }}
+          restore-keys: eva-fb40a9f-
       - name: Train the EVA head
         env:
           HF_HUB_OFFLINE: "1"
