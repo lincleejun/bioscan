@@ -206,7 +206,7 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 |---|---|---|---|---|
 | `full` | identify（`want` 要时加 embed、jpg） | 默认 | SigLIP2、OWLv2、BioCLIP | 不加：不带 profile 的请求就是它，任何文件都改不了 |
 | `wildlife` | geotag、identify | 物种、位置先验与各项准确率修正全开（`top_k` 5，`geo` true）；`geotag.gpx`（或 `run --gpx`）给出轨迹前 geotag 什么都不做 | SigLIP2、OWLv2、BioCLIP | 暂无 |
-| `album` | identify、embed | identify `species: false` | SigLIP2、OWLv2（从不加载 BioCLIP） | `quality`、`scene`、`aesthetics` stage；`burst`、`select` reducer（在 CLI 端跑） |
+| `album` | identify、embed、quality、scene；reducer burst、select（由 `bioscan cull` 在 CLI 端跑，服务从不跑） | identify `species: false`；scene 标签；burst、select 的阈值 | SigLIP2、OWLv2（从不加载 BioCLIP） | `aesthetics` stage（C2），有时 select 会读它 |
 
 ```sh
 bioscan run DIR --profile album                  # 用 profile 的 stage 与选项；命令行参数仍优先
@@ -243,7 +243,8 @@ candidates = ["Strigidae", "Accipitridae"]
 - **服务端**用它自己的文件（启动时读一次）展开请求里的 `"profile"`。不带 `"profile"` 的请求永远是 `full`：`default_profile` 和 `$BIOSCAN_PROFILE` 只作用于 CLI，HTTP 客户端看不到变化。
 - **错误**：未知的键、profile、stage 或选项都会报错并指出是哪个文件（请求里则是 400）。用户文件里写 `[profile.full]` 会被拒绝。选项的取值由服务检查。`bioscan serve --launchd` 把命令行参数、否则文件里 `[serve]` 的值写进 plist，并通过 `BIOSCAN_CONFIG` 让服务读当前目录的 `bioscan.toml`。
 - **信任**：运行目录下的 `./bioscan.toml` 会被自动读取，只在你信任其文件的目录里运行 bioscan：它可以设 `serve.host = "0.0.0.0"`、`allow_roots`，或让 jpg 写到某个 `out_dir`；`bioscan config show` 会列出读到的每个文件及其设置的每个值。
-- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag` 的顺序列出。
+- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag, quality, scene` 的顺序列出。v1.7 起新建的 stage 在运行包含它们时，把 `v<版本>@<设置指纹>` 写进 `result.engine.plugins`。
+- **Reducer**：`reducers = ["burst", "select"]` 指的是在一次运行的全部结果上跑的无模型单元，只在 CLI（`bioscan cull`、`bench`）或离线跑，从不在服务里跑，服务保持无状态。它们的选项和 stage 的写在一起（`[profile.album.options.select] per_category = 20`）；/run 请求不能设置它们。
 
 ### 用 GPX 轨迹补 GPS
 
@@ -285,6 +286,22 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 
   各场景明细见 docs/2026-09-24-geotag-synthetic.md。
 
+### 相册挑片（cull）
+
+`bioscan cull` 把一个文件夹整理成可审阅的结果：带原因的规则淘汰、连拍组及其最佳一张、每个场景类别里最好的照片。它先让服务跑 `album` profile，再在本地跑 `burst` 和 `select` 两个 reducer。它从不删除、移动或评分任何照片：淘汰只是列出来。
+
+```sh
+bioscan cull ~/Pictures/2026-05-trip -r --html review.html --csv selection.csv --link-dir picks --per-category 20
+bioscan cull --preds cull.ndjson --html review.html      # 用保存的 --json 结果离线重跑（例如换阈值）
+```
+
+- **淘汰**（`quality`，只按规则，每张给出原因）：`soft_subject`（主体框发虚而画面别处清晰：对焦跑到了背景上）、`motion_or_defocus`（画面里没有清晰的地方：手抖、运动模糊或整体失焦，也包括柔和虚化背景前发虚的主体）、`overexposed`（主体 8% 像素过曝，或主体偏亮且 4% 过曝）、`underexposed`（整幅偏暗且主体也暗；只是黑色的鸟不算）、`subject_cut`（框碰到画面边缘且不是满画幅特写）、`subject_too_small`（不到画面的 0.5%）、`no_subject`（门类判断有动物，检测却没框出）。这里的清晰度是主体框中心区域的“再模糊”测度；所有阈值都是 `bioscan/plugins/quality/stage.py` 里的常量，并进入该 stage 的指纹。主体是 identify 的最佳框，没有动物的照片（风景、人像）按整幅画面判断。`select` 在 `night` 类别里豁免 `underexposed`。
+- **场景**（`scene`）：在服务已算好的整幅 SigLIP2 向量上做零样本分类：landscape、people、wildlife（门类判断里 bird + mammal 的份额）、macro、architecture、food、night、other。标签和提示词可用 `[profile.album.options.scene.labels]` 修改。风景照还会给出地平线倾斜角（只报告，不淘汰）。
+- **连拍**（`burst`）：同一台相机（EXIF 的 Make 与 Model）、按亚秒拍摄时间相隔不超过 1.5 s、整幅向量余弦不低于 0.92 的帧连成一组。
+- **挑选**（`select`）：每组连拍的最佳一张依次看：未被淘汰、主体清晰度（与最清晰一张相差 0.03 以内算一样）、没被切、曝光在 ±0.2 以内，有美学分时再看美学分（只调整顺序，从不淘汰）。然后每个类别取前 `per_category` 张（默认 10；`--per-category`，0 表示全部），跳过与已选照片向量相似度达 0.95 的近重复。每张照片得到一个状态：`pick`、`spare`（超出前 N 的可留照片）、`duplicate` 或 `reject`。
+- **输出**：`--csv`（每张一行：状态、keep、类别、名次、原因、连拍组、组内名次、重复自、清晰度、美学分、拍摄时间；失败的照片也在内）、`--link-dir`（每张入选照片在 `<dir>/<类别>/` 下建符号链接，从不覆盖已有文件）、`--html`（审阅页：各类别的入选、备选、连拍组、按原因分组的淘汰和失败；缩略图是服务写到 `<页面>-files/` 的旋正 JPEG，所以该目录要在服务的 allow-roots 里；`--no-thumbs` 不生成）、`--json`（带 `products.burst`、`products.select` 的结果，`cull --preds` 与 `bench report` 可读回）。
+- **准确率**：在真实相册上未验证。CI 在用冒烟图片合成的淘汰集上测量规则与 reducer（docs/harness.md“Album tier”，docs/standards.md §13）；暂不写 XMP 评分或标签。
+
 ### HTTP API
 
 ```sh
@@ -325,7 +342,7 @@ bioscan bench scorecard runs/<new>/report.json                                  
 bioscan bench geotag runs/geotag-synth                                                  # 在合成轨迹上评 GPX 定位
 ```
 - **基线流程**：今天跑一遍，用 `bench baseline` 存成基线并提交；之后换模型或改代码，再跑一遍，用 `bench compare` 对照基线。
-- **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行。
+- **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行；`meta.profile`，以及 `plugin_metrics`：各插件自己的指标（album 层级按原因的淘汰精确率与召回率、keepers lost、连拍成对 F1、场景准确率），带 Wilson 区间，预算与标准都可以引用。
 - **compare** 按 sha256（其次路径）配对图片。指标、按种变化和回退预算（`baselines/budget.toml`）都只按配对上的图片算，测试集加了新图不算回退，新图单独列出。它统计修好/改坏的图并给出精确 McNemar p 值，列出改坏图片的证据。退出码：0 预算内，1 超预算，2 无法对照。
 - **analyze** 把每个错答归入一个失败类：门漏判、检测漏框、类别错、不在名录、分布外、被地点先验压下、同属错、同科错、远错；另标出定到种却错的答案。每类附例图和该改哪段代码的提示。
 
@@ -365,7 +382,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
 
-CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。
+CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。随后用其中 24 张合成相册淘汰集跑 album profile，把 `models-report-album.json` 对照 `baselines/ci-album.json`（预算 `baselines/budget-album.toml`；该基线提交前 job 只打印候选报告）。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。
 
 ## 布局
 
@@ -380,7 +397,8 @@ bioscan/service/app.py           路由、请求校验、允许目录、NDJSON �
 bioscan/service/run.py           一次 /run 的事件流：分 chunk、按 chunk 的模型轮次、解码进程池自愈
 bioscan/service/engine.py        设备选择、经 Loaders 惰性加载模型（测试注入假适配器）、每类先验
 bioscan/plugin.py                stage 插件的声明（Manifest）与实现接口（Stage）；运行计划（仅标准库）
-bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag；__init__.py 是标准库 manifest，stage.py 是服务端代码
+bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag、quality、scene；__init__.py 是标准库 manifest，stage.py 是服务端代码；
+                                 reducer manifest：burst、select
 bioscan/service/stages.py        服务端的 stage：选项合并与校验、/products、allow-roots 路径
 bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
 bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
@@ -390,8 +408,11 @@ bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF�
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/geotag.py                GPX 解析、拍摄时间转 UTC、时钟偏差、轨迹插值、XMP 旁车文件（纯标准库）
+bioscan/cull.py                  burst、select reducer，挑片记录，album 层级的评测行函数（纯标准库）
 bioscan/cli/                     main client render gt eval bench config（profile）geotag_cli（geotag、run --gpx）geobench（bench geotag）
+                                 cull（bioscan cull：reducer、CSV、符号链接、HTML 审阅页）
 scripts/geotag_synth.py          用 golden 集合成 GPX 场景，供 bench geotag 使用
+scripts/cull_synth.py            用带主体框的照片合成相册集（带标签的淘汰图、连拍）
 data/names/                      AviList 为准的名字映射表
 docs/                            设计 spec、实施计划、评测结果
 ```

@@ -39,7 +39,7 @@ _Avoid_: timestamp, date
 
 **Stage**:
 One unit of per-image work in a run, batched per chunk: a plugin in `bioscan/plugins/<name>/` (today `identify`,
-`embed`, `jpg`, `geotag`). It reads facts and may provide facts for later stages; its output is the product of the same name.
+`embed`, `jpg`, `geotag`, `quality`, `scene`). It reads facts and may provide facts for later stages; its output is the product of the same name.
 _Avoid_: hook, step, node
 
 **Manifest**:
@@ -66,7 +66,7 @@ are needed. A read nobody provides, a cycle or an unknown option makes no plan (
 _Avoid_: pipeline, DAG
 
 **Profile**:
-A named request template: stages, options and (later) reducers. Built in: `full` (what a request without a profile
+A named request template: stages, options and reducers. Built in: `full` (what a request without a profile
 gets; fixed), `wildlife`, `album` (`bioscan/profiles.toml`); more, or changes, in a `bioscan.toml`. Expanded by the
 CLI (`--profile`) and by the service (`"profile"` in /run) with the same resolver (`bioscan/profile.py`).
 _Avoid_: preset, mode
@@ -77,12 +77,13 @@ project `bioscan.toml`, `$BIOSCAN_CONFIG`, then the request (flags or /run body)
 value's layer.
 
 **Reducer**:
-A model-free unit over a whole run's results (burst grouping, selection), run by the CLI or offline over a preds
-file, never inside the service stream. None exists yet.
+A model-free unit over a whole run's results, run by the CLI (`bioscan cull`, `bench`) or offline over a saved
+run, never inside the service stream: `burst` and `select` (`bioscan/cull.py`; manifests with kind `reducer` in
+`plugins.REDUCERS`). Its output goes under `products[<reducer>]` of the CLI's copy of each result.
 _Avoid_: stage (a stage sees one chunk)
 
 **Product**:
-A named result a run can ask for per image (`identify`, `embed`, `jpg`, `geotag`): the output of the stage of that name
+A named result a run can ask for per image (`identify`, `embed`, `jpg`, `geotag`, `quality`, `scene`): the output of the stage of that name
 (`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.
 
 ## Identify
@@ -258,6 +259,42 @@ When the track gives a position: linear between neighbouring points up to the ma
 whose ends are within the max span and at most the max still time apart (the device stood still, 3 h at most); none
 outside the track unless extrapolation holds an end.
 
+## Culling
+
+**Reject reason**:
+Why a rule rejects a photo, one of `soft_subject`, `motion_or_defocus`, `overexposed`, `underexposed`,
+`subject_cut`, `subject_too_small`, `no_subject` (the `quality` stage; `select` may waive one per scene category).
+Rules only: a photo is never rejected for taste.
+_Avoid_: flaw, defect, score
+
+**Subject**:
+The photo's main animal: identify's best box by score. A photo without a box is judged on its whole frame.
+
+**Keeper**:
+A photo worth keeping: no reject reason (after waivers). In ground truth, a row with `keep = 1`; losing one to a
+rule is the `keepers_lost` metric.
+_Avoid_: good photo, select (a verb here)
+
+**Burst**:
+Frames of one camera at most `max_gap_s` apart whose frame vectors are alike (cosine at least `min_cosine`),
+chained in time order by the `burst` reducer; a frame in no burst has id null.
+_Avoid_: sequence, series, stack
+
+**Scene category**:
+A photo's top `scene` label (landscape, people, wildlife, macro, architecture, food, night, other by default; set
+per profile). Selection ranks within it.
+_Avoid_: class (the gate has classes), tag
+
+**Selection**:
+What the `select` reducer decides per photo: `pick` (the best of its burst and in the top `per_category` of its
+scene category), `spare` (a keeper past that), `duplicate` (not the best of its burst, or near-identical to a
+pick) or `reject`; with the category, rank and reasons it forms the photo's cull record (`cull.records`).
+_Avoid_: rating, stars (those are the owner's, in XMP)
+
+**Aesthetic score**:
+A per-image taste score from the `aesthetics` stage (work package C2), when a run has it. It only reorders within a
+burst and a category; it never rejects.
+
 ## Standards and releases
 
 **Standard**:
@@ -267,7 +304,8 @@ _Avoid_: KPI, target (alone)
 
 **Tier**:
 One test folder a standard is judged on: `smoke` (CI, 95 photos: 42 birds, 35 mammals, 18 other animals; reduced lists), `golden` (1,625 iNat California),
-`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed), `geotag` (synthetic GPX scenarios built from golden).
+`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed), `geotag` (synthetic GPX scenarios built from golden),
+`album` (synthetic reject set and bursts built from the smoke photos, profile album).
 _Avoid_: dataset (alone), split
 
 **Community bar**:
@@ -293,7 +331,13 @@ intervals, per-species and per-family tables, one row per image (`bioscan bench 
 _Avoid_: results, scores (eval's `report.md` is the markdown view of the same run)
 
 **Scope**:
-A report's metrics row: `all`, `bird`, `mammal`, `other`, or `<tier>/<scope>`.
+A report's metrics row: `all`, `bird`, `mammal`, `other`, or `<tier>/<scope>`. A plugin metric has its own scopes
+(`all`, `soft`, a reject reason, a scene label).
+
+**Plugin metric**:
+A harness metric a plugin declares (`plugin.Metric`: a stdlib row function per image, aggregated as a rate,
+median or pairwise precision / recall / F1), reported under `report.json` `plugin_metrics[plugin][scope]`, which
+budgets and standards may name.
 
 **Baseline**:
 A committed report (`baselines/NAME.json`) that later runs are compared with, e.g. `ci-smoke`, `golden-inat-<tag>`.

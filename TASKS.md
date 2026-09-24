@@ -134,8 +134,33 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
       `{"place_source": "request" | "exif" | "gpx" | "none"}` (None only without a track). In plugins.BUILTIN after jpg,
       in `wildlife`, never in `full`. `run --gpx` uses the stage only when the profile includes geotag; otherwise the
       CLI geotags locally as in W6. The clock offset is always decided in the CLI for the whole folder.
-- [ ] A6 harness: meta.profile (eval already writes "profile" in the preds meta line), plugin_metrics, standards `profile` field
-- [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
+- [x] A6 harness (branch v17/c1-cull): meta.profile + meta.reducers, `plugin_metrics[plugin][scope]` and `plugin_images`
+      from `Manifest.metrics` (plugin.Metric: stdlib row functions; rate / median / pair_* with Wilson intervals), plugin
+      rules in budgets, standards `profile` (default wildlife; no profile or full = wildlife) and `plugin`; schema v1
+      additive (A0 golden bench-report.json unchanged); docs/harness.md
+- [x] C1 cull plugins (branch v17/c1-cull): `quality` stage (CPU; re-blur measure on the subject core and frame tiles,
+      rules.quality sharpness/exposure, clipped shares, area, cut, thirds/centre; reasons soft_subject, motion_or_defocus,
+      overexposed, underexposed, subject_cut, subject_too_small, no_subject), `scene` stage (SigLIP2 zero-shot on the
+      frame vector, wildlife from the gate, labels as options, horizon tilt for landscapes), reducers `burst` + `select`
+      (bioscan/cull.py, stdlib), `bioscan cull` (CSV, symlinks, HTML review, NDJSON; --preds offline), album profile =
+      identify (species off) + embed + quality + scene + burst/select; result.engine.plugins fingerprints for new stages
+      only; decode reads EXIF Make/Model
+- [x] C1 evaluation: scripts/cull_synth.py (labelled rejects + bursts, seeded), album tier metrics, tests/models album
+      smoke with loose floors (models-report-album.json), baselines/budget-album.toml, models.yml compare step,
+      data/standards.toml album rows (profile album, plugin metrics), docs/standards.md §13
+- [ ] first models.yml run on v17/c1-cull: commit the printed candidate as baselines/ci-album.json (owner approves), tighten
+      ALBUM_FLOORS in tests/models, fill "Now" in docs/standards.md §13; until then every album number is unverified
+- [ ] quality thresholds were calibrated on 1/f-noise surrogates only (SOFT_BLUR 0.45, SHARP_ELSEWHERE 0.38, exposure
+      limits): re-check on the CI smoke set and a real album; expect keepers_lost from tight iNat crops (subject_cut)
+- [ ] cull speed on the Mac: quality measured ~70-110 ms per 2048 px frame on the container CPU (synthetic); scene adds
+      one matrix product per chunk; measure with a real folder (album tier throughput)
+- [ ] XMP ratings / colour labels for picks and rejects behind a flag, never overwriting an existing sidecar (as geotag --xmp)
+- [ ] motion vs defocus as separate reasons (per-axis re-blur anisotropy) if the owner wants the split; today
+      motion_or_defocus means "nothing in the frame is sharp" and a soft subject on smooth bokeh lands there
+- [ ] horizon tilt: measured for landscapes only and reported; decide whether a tilt over N degrees becomes a flag
+- [ ] next composition checks from the research doc: headroom, lead room (OWLv2 "head"/"eye" query), eye focus
+- [ ] `bioscan report` (TASKS above) can reuse cull's HTML writer (bioscan/cli/cull.py write_html)
+- [ ] mixed cameras whose clocks disagree: bursts are per camera already; a per-camera clock offset would align them
 - [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
 - [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
       synthetic reject set (blur / cut-off / exposure degradations of iNat photos) for the rule stages
