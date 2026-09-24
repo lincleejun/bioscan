@@ -48,8 +48,9 @@ profile's stages must include identify, which is what the harness scores; eval s
 `--no-geo` / `--identify-opt` override the profile. The preds meta line records `"profile"` and the expanded
 `options`, so report.json's `meta.options` shows what ran. Without `--profile`, `BIOSCAN_PROFILE` or a
 `default_profile`, the request is byte for byte the one eval sent before profiles, so existing baselines stay
-comparable. Compare runs of different profiles only when you mean to: `album` switches species off. A
-`meta.profile` field and per-plugin metrics come with harness step A6.
+comparable. report.json keeps the name in `meta.profile`, adds the rates of the plugins that ran in
+`plugin_metrics`, and the scorecard holds a report only to its profile's standards. Compare runs of
+different profiles only when you mean to (`album` switches species off); compare warns when they differ.
 
 **Rescore without the service.** A preds file carries everything:
 `bioscan bench report runs/x/preds.ndjson data/inat/groundtruth-inat.csv --tier golden`. Rescoring after a
@@ -88,7 +89,8 @@ bioscan bench baseline runs/$(date +%F)-own/report.json --name own-raw-$(date +%
 
 ```json
 {"schema": "bioscan-report", "version": 1,
- "meta": {...}, "metrics": {...}, "per_species": {...}, "per_family": {...}, "images": [...]}
+ "meta": {...}, "metrics": {...}, "plugin_metrics": {...}, "per_species": {...}, "per_family": {...},
+ "images": [...]}
 ```
 
 A reader refuses any other `schema` or `version`. Adding a key is not a version bump. Removing a key,
@@ -99,6 +101,7 @@ or changing what one means, is.
 | Key | Meaning |
 |---|---|
 | `tier` | Standards tier of the run (`smoke`, `golden`, `own`, `public`, `mac`), from `--tier`; null when not given |
+| `profile` | The profile of the run, from the preds meta line (`eval`/`bench run --profile`); null when no profile was chosen, which is `full` (the request before profiles) |
 | `git_sha`, `git_dirty` | `git rev-parse HEAD` of the checkout that built the report (falls back to `$GITHUB_SHA`), and whether tracked files had changes |
 | `date` | UTC, ISO 8601 |
 | `engine` | `result.engine` of the run (version, settings, models, name lists, priors, detail_edge); a list when the run mixed engines |
@@ -141,6 +144,21 @@ keys:
 | `<rate>_ci` | Wilson 95% interval `[lo, hi]` for each of the ten rates above; null when its denominator is 0 |
 
 Rates are fractions from 0 to 1, rounded to 6 places. Failed images count as misses everywhere, as in eval.
+
+### plugin_metrics
+
+`plugin_metrics[plugin][scope]` for each stage plugin that declares metrics (`Manifest.metrics`, a
+`Metric(name, description, row)` in its stdlib `__init__.py`) and whose output is in at least one
+result. Scopes are `all`, `bird`, `mammal`, `other`. Each scope has `n` (its images whose result carries
+the plugin's output) and, per metric, the rate and its Wilson interval `<metric>_ci`. A metric's `row`
+sees the image's output and its ground-truth row and returns hit, miss, or not counted. `{}` when no
+such plugin ran (identify's numbers are the core `metrics` above). The core `metrics` do not depend on
+which other stages ran.
+
+| Plugin | Metric | Definition |
+|---|---|---|
+| geotag | `gpx_rate` | `place_source` is `gpx`: placed from the track |
+| geotag | `no_place_rate` | `place_source` is `none`: no request, EXIF or track position |
 
 ### per_species, per_family
 
@@ -195,7 +213,8 @@ One row per ground-truth row:
 - **Evidence.** `broken` and `fixed` list each image with its truth and its old and new answers: top-1,
   level, box kind, gate, p_visual, p_geo and posterior.
 - **Warnings.** The comparison warns when any of these differ between the reports: settings
-  fingerprint, engine, ground-truth sha, synonyms sha or request options.
+  fingerprint, engine, ground-truth sha, synonyms sha, profile (`meta.profile`, null read as `full`) or
+  request options.
 - **Exit 2.** The reports cannot be compared when either is unreadable or has the wrong schema, when no
   image pairs, or when the budget file is invalid.
 
@@ -263,10 +282,12 @@ W2 owns the content; this is the schema the reader enforces.
 [[standard]]
 id = "accuracy.golden.bird.top1"      # <dimension>.<tier>.<scope>.<metric>[.nogeo]; unique
 tier = "golden"                       # optional: default is the id's second segment
+profile = "album"                     # optional: default full and wildlife (the identify-first profiles)
 dimension = "accuracy"
 title = "Birds: top-1 species correct"
 scope = "bird"                        # all | bird | mammal | other
-metric = "top1"                       # a metrics key above, a geotag metric (tier geotag), or "manual"
+metric = "top1"                       # a metrics key above, a geotag metric (tier geotag),
+                                      # a plugin metric "<plugin>.<metric>" (e.g. geotag.gpx_rate), or "manual"
 op = ">="                             # ">=" or "<="
 industry = 0.95                       # optional (TOML has no null: omit the key)
 community = 0.90                      # the release bar; required, a number
@@ -281,6 +302,12 @@ source = "URL or why there is none"
   these, it exits 2. A tier that no standard in the file uses also exits 2, with the known tiers listed.
 - **Geo mode.** A report run with `--no-geo` is held only to the `.nogeo` standards. A normal report
   skips them.
+- **Profile.** A report is held only to the standards of its profile (`meta.profile`, null read as
+  `full`). A standard without `profile` holds for `full` and `wildlife`, which run identify with the
+  same options, so every report from before profiles keeps its scorecard. An `album` report (species
+  off) is held only to standards with `profile = "album"`.
+- **Plugin metrics.** A `<plugin>.<metric>` standard is read from `plugin_metrics[plugin][scope]`,
+  takes unit `fraction`, and is judged like any rate.
 - **Statistical rule** (docs/standards.md). A rate passes when its Wilson 95% bound clears the bar:
   the lower bound for `>=`, the upper bound for `<=`. Two cases are judged on the observed value
   instead:

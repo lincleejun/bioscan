@@ -134,7 +134,13 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
       `{"place_source": "request" | "exif" | "gpx" | "none"}` (None only without a track). In plugins.BUILTIN after jpg,
       in `wildlife`, never in `full`. `run --gpx` uses the stage only when the profile includes geotag; otherwise the
       CLI geotags locally as in W6. The clock offset is always decided in the CLI for the whole folder.
-- [ ] A6 harness: meta.profile (eval already writes "profile" in the preds meta line), plugin_metrics, standards `profile` field
+- [x] A6 harness: `meta.profile` (from the preds meta line; null = full), `plugin_metrics[plugin][scope]` from
+      `Manifest.metrics` (`plugin.Metric`; geotag: gpx_rate, no_place_rate), standards `profile` (omitted = full and
+      wildlife) and `<plugin>.<metric>` standards, compare warns on a profile change. Core metrics unchanged
+      (golden bench-report.json; scorecards and compare of the committed baselines identical but the header line)
+- [ ] A6 follow-up: budget.toml rules naming plugin metrics (none needed until the album tier has a baseline)
+- [ ] A6 follow-up: tests/unit/test_standards.py (the stdlib check of data/standards.toml) does not yet accept
+      `profile` or `<plugin>.<metric>` standards (id rule is 4-5 segments); extend it with the first album standards (C1)
 - [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
 - [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
 - [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);

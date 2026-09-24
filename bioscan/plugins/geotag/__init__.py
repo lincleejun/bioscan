@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan import geotag as gt
-from bioscan.plugin import Manifest
+from bioscan.plugin import Manifest, Metric
 
 LIMITS = ("max_gap_s", "max_span_m", "max_still_s", "extrapolate_s")
 
@@ -64,4 +64,8 @@ MANIFEST = Manifest(
             "utc": "corrected capture time, UTC"},
     impl="bioscan.plugins.geotag.stage:STAGE",
     check=check,
+    metrics=(Metric("gpx_rate", "share of images placed from the track",
+                    lambda out, truth: out.get("place_source") == "gpx" if isinstance(out, dict) else None),
+             Metric("no_place_rate", "share of images left without a place (no request, EXIF or track fix)",
+                    lambda out, truth: out.get("place_source") == "none" if isinstance(out, dict) else None)),
 )

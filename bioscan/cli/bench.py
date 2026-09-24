@@ -29,6 +29,7 @@ from typing import Any
 from bioscan import contract, naming
 from bioscan.cli import eval as ev
 from bioscan.cli.config import PROFILE_HELP, eval_request
+from bioscan.plugins import BY_NAME as PLUGINS
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BASELINES_DIR = PROJECT_ROOT / "baselines"
@@ -227,6 +228,29 @@ def metrics_for(rows: list[dict], images_per_s: float | None = None) -> dict:
     return m
 
 
+def plugin_metrics_for(truth_rows: list[dict], images: list[dict], preds: dict[str, dict]) -> dict:
+    """{plugin: {scope: {"n", <metric>, <metric>_ci}}} for each plugin with metrics (Manifest.metrics)
+    whose product is in at least one result. `n` is the scope's images with that product; a metric
+    whose `row` leaves images out is a rate over fewer (its interval shows how many)."""
+    out: dict[str, dict] = {}
+    for name, man in PLUGINS.items():
+        outputs = [(pev or {}).get("products", {}).get(name) if (pev or {}).get("type") == contract.RESULT else None
+                   for pev in (preds.get(r["path"]) for r in truth_rows)]
+        if not man.metrics or all(o is None for o in outputs):
+            continue
+        per: dict[str, dict] = {}
+        for s in SCOPES:
+            sel = [(o, t) for o, t, im in zip(outputs, truth_rows, images, strict=True) if s == "all" or im["scope"] == s]
+            m: dict[str, Any] = {"n": sum(o is not None for o, _ in sel)}
+            for metric in man.metrics:
+                hits = [h for h in (metric.row(o, t) for o, t in sel) if h is not None]
+                m[metric.name] = round(sum(hits) / len(hits), 6) if hits else None
+                m[metric.name + "_ci"] = wilson(sum(hits), len(hits))
+            per[s] = m
+        out[name] = per
+    return out
+
+
 def _git() -> tuple[str | None, bool | None]:
     try:
         sha = subprocess.run(["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
@@ -274,7 +298,7 @@ def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str |
     fingerprints = sorted({(p.get("engine") or {}).get("settings") for p in preds.values()} - {None})
     sha, dirty = _git()
     meta = {
-        "tier": tier, "git_sha": sha, "git_dirty": dirty, "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "tier": tier, "profile": preds_meta.get("profile"), "git_sha": sha, "git_dirty": dirty, "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "engine": engine, "settings_fingerprint": fingerprints[0] if len(fingerprints) == 1 else fingerprints or None,
         "groundtruth": groundtruth, "groundtruth_sha256": sha256_of(groundtruth),
         "preds_groundtruth_sha256": preds_meta.get("groundtruth_sha256"),
@@ -286,6 +310,7 @@ def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str |
         "name_lists": sorted(lists),
     }
     return {"schema": REPORT_SCHEMA, "version": REPORT_VERSION, "meta": meta, "metrics": metrics,
+            "plugin_metrics": plugin_metrics_for(rows, images, preds),
             "per_species": _table(images, lambda r: r["truth"], with_kind=True),
             "per_family": _table(images, lambda r: r["family_truth"] or "(unknown)"),
             "images": images}
@@ -389,6 +414,11 @@ def summary_md(rep: dict) -> str:
     keys = [k for k in METRICS if k != "n"]
     lines = ["| scope | n | " + " | ".join(keys) + " |", "|---" * (len(keys) + 2) + "|"]
     lines += [f"| {s} | {m[s]['n']} | " + " | ".join(fmt(k, m[s][k]) for k in keys) + " |" for s in scopes]
+    for plugin, per in (rep.get("plugin_metrics") or {}).items():
+        names = [k for k in per["all"] if k != "n" and not k.endswith("_ci")]
+        lines += ["", f"| {plugin} scope | n | " + " | ".join(names) + " |", "|---" * (len(names) + 2) + "|"]
+        lines += [f"| {s} | {per[s]['n']} | " + " | ".join("–" if per[s][k] is None else f"{per[s][k] * 100:.1f}%"
+                                                         for k in names) + " |" for s in per if per[s]["n"]]
     return "\n".join(lines)
 
 
@@ -541,6 +571,8 @@ def compare(base: dict, new: dict, budget: dict | None = None, labels: tuple[str
                         f"{str(nm.get('groundtruth_sha256'))[:12]} (metrics are over different images)")
     if bm.get("synonyms_sha256") != nm.get("synonyms_sha256"):
         warnings.append("synonyms.csv differs (truth labels may be normalised differently)")
+    if report_profile(base) != report_profile(new):
+        warnings.append(f"profiles differ: {report_profile(base)} -> {report_profile(new)} (different stages or options)")
     if json.dumps(bm.get("options"), sort_keys=True) != json.dumps(nm.get("options"), sort_keys=True):
         warnings.append(f"request options differ: {bm.get('options')} -> {nm.get('options')}")
     pairs, only_base, only_new, key = pair_images(base["images"], new["images"])
@@ -773,11 +805,30 @@ def analyze_md(a: dict) -> str:
 
 # ---- scorecard -------------------------------------------------------------------------------
 
-STANDARD_FIELDS = ("id", "dimension", "title", "tier", "scope", "metric", "op", "industry", "community", "stretch",
-                   "unit", "how", "source")
-OPTIONAL_FIELDS = ("tier", "industry", "stretch")      # TOML has no null: an absent key means null
+STANDARD_FIELDS = ("id", "dimension", "title", "tier", "profile", "scope", "metric", "op", "industry", "community",
+                   "stretch", "unit", "how", "source")
+OPTIONAL_FIELDS = ("tier", "profile", "industry", "stretch")   # TOML has no null: an absent key means null
 MANUAL = "manual"                                      # a standard checked by hand, not read from a report
 POINT_TIERS = ("smoke",)                               # regression guards: judged on the observed value
+# The profiles a standard without `profile` holds for: the identify-first runs. `full` is what a run
+# without a profile gets (every baseline before profiles), with wildlife's identify options.
+IDENTIFY_PROFILES = ("full", "wildlife")
+
+
+def report_profile(rep: dict) -> str:
+    """meta.profile; a report without one ran the request before profiles, which is `full`."""
+    return rep["meta"].get("profile") or "full"
+
+
+def standard_profiles(s: dict) -> tuple[str, ...]:
+    return (s["profile"],) if s.get("profile") else IDENTIFY_PROFILES
+
+
+def plugin_metric(metric: str) -> tuple[str, str] | None:
+    """(plugin, name) for a `<plugin>.<name>` metric one of the plugins declares, else None."""
+    plugin, _, name = metric.partition(".")
+    man = PLUGINS.get(plugin)
+    return (plugin, name) if man and any(m.name == name for m in man.metrics) else None
 
 
 def standard_tier(s: dict) -> str | None:
@@ -819,12 +870,17 @@ def read_standards(path: str | Path) -> list[dict]:
             raise BenchError(f"{where}: scope must be one of {', '.join(SCOPES)}")
         if s["op"] not in (">=", "<="):
             raise BenchError(f"{where}: op must be >= or <=")
+        if "profile" in s and (not isinstance(s["profile"], str) or not s["profile"]):
+            raise BenchError(f"{where}: profile must be a profile name")
         if s["metric"] == MANUAL:
             continue
-        if s["metric"] not in METRICS and s["metric"] not in GEOTAG_METRICS:
+        plugin = plugin_metric(s["metric"])
+        if s["metric"] not in METRICS and s["metric"] not in GEOTAG_METRICS and not plugin:
             raise BenchError(f"{where}: metric must be one of {', '.join(METRICS)}, a geotag metric "
-                             f"({', '.join(GEOTAG_METRICS[1:])}) or {MANUAL}")
-        if (s["metric"] in FRACTIONS or s["metric"] in GEOTAG_RATES) != (s["unit"] == "fraction"):
+                             f"({', '.join(GEOTAG_METRICS[1:])}), a plugin metric "
+                             f"({', '.join(f'{p}.{m.name}' for p, man in PLUGINS.items() for m in man.metrics)}) "
+                             f"or {MANUAL}")
+        if (s["metric"] in FRACTIONS or s["metric"] in GEOTAG_RATES or bool(plugin)) != (s["unit"] == "fraction"):
             raise BenchError(f"{where}: rate metrics take unit \"fraction\" (0-1), other metrics may not")
         if standard_tier(s) is None:
             raise BenchError(f"{where}: no tier (add `tier`, or use an id <dimension>.<tier>.<scope>.<metric>)")
@@ -848,21 +904,27 @@ def report_nogeo(rep: dict) -> bool:
 
 
 def scorecard(rep: dict, standards: list[dict], tier: str) -> dict:
-    """{tier, nogeo, rows, manual, skipped}. A rate meets its bar when its Wilson 95% bound does (lower
-    bound for >=, upper for <=), except on POINT_TIERS and for metrics without an interval, which are
-    judged on the observed value. A --no-geo report is held to the `.nogeo` standards only; a normal
-    report skips them."""
-    nogeo = report_nogeo(rep)
+    """{tier, profile, nogeo, rows, manual, skipped}. A rate meets its bar when its Wilson 95% bound does
+    (lower bound for >=, upper for <=), except on POINT_TIERS and for metrics without an interval, which
+    are judged on the observed value. A --no-geo report is held to the `.nogeo` standards only; a normal
+    report skips them. A report is held only to the standards of its profile (standard_profiles).
+    A `<plugin>.<name>` metric is read from plugin_metrics[plugin][scope]."""
+    nogeo, prof = report_nogeo(rep), report_profile(rep)
     rows, manual, skipped = [], [], 0
     for s in standards:
         if s["metric"] == MANUAL:
             manual.append({k: s.get(k) for k in STANDARD_FIELDS})
             continue
-        if standard_tier(s) != tier or is_nogeo(s) != nogeo:
+        if standard_tier(s) != tier or is_nogeo(s) != nogeo or prof not in standard_profiles(s):
             skipped += 1
             continue
-        m = rep["metrics"].get(s["scope"]) or {}
-        v, ci = m.get(s["metric"]), m.get(s["metric"] + "_ci")
+        plugin = plugin_metric(s["metric"])
+        if plugin:
+            m = ((rep.get("plugin_metrics") or {}).get(plugin[0]) or {}).get(s["scope"]) or {}
+            key = plugin[1]
+        else:
+            m, key = rep["metrics"].get(s["scope"]) or {}, s["metric"]
+        v, ci = m.get(key), m.get(key + "_ci")
         use_ci = bool(ci) and tier not in POINT_TIERS
         judged = (ci[0] if s["op"] == ">=" else ci[1]) if use_ci else v
         if judged is None:
@@ -872,7 +934,7 @@ def scorecard(rep: dict, standards: list[dict], tier: str) -> dict:
             status = "pass" if gap >= 0 else "fail"
         rows.append({**{k: s.get(k) for k in STANDARD_FIELDS}, "tier": tier, "n": m.get("n"), "value": v, "ci": ci,
                      "judged_on": "wilson" if use_ci else "value", "judged": judged, "status": status, "gap": gap})
-    return {"tier": tier, "nogeo": nogeo, "rows": rows, "manual": manual, "skipped": skipped}
+    return {"tier": tier, "profile": prof, "nogeo": nogeo, "rows": rows, "manual": manual, "skipped": skipped}
 
 
 def _num(x, unit) -> str:
@@ -887,8 +949,8 @@ def scorecard_md(sc: dict, rep: dict) -> str:
     lines = ["# bioscan bench scorecard", "",
              f"- report: git {str(rep['meta'].get('git_sha'))[:12]}, {rep['meta'].get('date')}, "
              f"{rep['meta'].get('groundtruth')}",
-             f"- tier: {sc['tier']}{' (no-geo run: .nogeo standards only)' if sc['nogeo'] else ''}; "
-             f"{sc['skipped']} standards of other tiers or geo modes skipped", "",
+             f"- tier: {sc['tier']}{' (no-geo run: .nogeo standards only)' if sc['nogeo'] else ''}, "
+             f"profile {sc['profile']}; {sc['skipped']} standards of other tiers, geo modes or profiles skipped", "",
              "Status and gap are against the community bar; gap > 0 means better than the bar. Rates are judged on "
              "the Wilson 95% bound (lower for >=, upper for <=), except on the smoke tier and for speeds.", ""]
     if not sc["rows"]:

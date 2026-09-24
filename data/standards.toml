@@ -7,10 +7,13 @@
 #   dimension  accuracy | trust | detection | location | directory | speed | coverage |
 #              robustness | onboarding | privacy | reproducibility (= the id's first segment)
 #   title      one line
+#   profile    optional: the profile whose runs it judges (report meta.profile, null = full); omitted =
+#              full and wildlife, the identify-first profiles. An album standard names "album".
 #   scope      all | bird | mammal | other   (the report row the metric is read from)
 #   metric     a report key (n, gate_acc, detect_rate, top1, top5, genus_acc, coverage, precision,
 #              confident_error_rate, no_box_rate, failed_rate, ece, decode_ms_median,
-#              identify_ms_median, images_per_s) or "manual" (checked by hand, see docs/standards.md)
+#              identify_ms_median, images_per_s), a plugin metric "<plugin>.<metric>" read from
+#              plugin_metrics (e.g. geotag.gpx_rate; unit fraction) or "manual" (checked by hand, see docs/standards.md)
 #   op         ">=" (higher is better) or "<=" (lower is better)
 #   industry   what leaders achieve or claim; the key is OMITTED when there is no comparable number
 #              (TOML has no null: a missing `industry` or `stretch` means null)
