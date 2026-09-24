@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from bioscan.cli import eval as ev
 
 
@@ -165,6 +167,25 @@ def test_preds_file_carries_meta_and_rescoring_reads_it(tmp_path, monkeypatch):
     report2, complete2 = ev.run_eval(_gt(tmp_path), str(tmp_path / "b"), False, "http://x",
                                      str(tmp_path / "a" / "preds.ndjson"))
     assert complete2 and "- geo: False" in report2 and "- preds schema: 1" in report2
+
+
+def test_identify_opts_reach_the_service_and_the_report(tmp_path, monkeypatch):
+    """`bioscan eval --identify-opt kind_check=false`: an A/B arm of one accuracy switch."""
+    from bioscan.cli import main as cli
+
+    sent = []
+    monkeypatch.setattr(ev.client, "health", lambda url: {"status": "ok"})
+    monkeypatch.setattr(ev.client, "run", lambda payload, url: sent.append(payload) or
+                        (json.dumps(e).encode() for e in PREDS))
+    assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "a"), "--identify-opt", "kind_check=false",
+                     "--identify-opt", "range_veto=true"]) == 0
+    assert sent[0]["options"]["identify"] == {"top_k": 5, "geo": True, "kind_check": False, "range_veto": True}
+    meta = json.loads((tmp_path / "a" / "preds.ndjson").read_text().splitlines()[0])
+    assert meta["options"]["identify"]["kind_check"] is False
+    assert '- identify options: {"kind_check": false, "range_veto": true}' in (tmp_path / "a" / "report.md").read_text()
+    assert cli.identify_opts(["top_k=3", "x=abc"]) == {"top_k": 3, "x": "abc"} and cli.identify_opts(None) == {}
+    with pytest.raises(SystemExit):
+        cli.identify_opts(["kind_check"])
 
 
 def test_stream_without_done_is_incomplete(tmp_path, monkeypatch):

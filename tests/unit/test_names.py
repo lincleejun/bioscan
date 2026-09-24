@@ -276,3 +276,70 @@ def test_cache_from_before_revisions_were_recorded_is_used(tmp_path):
     calls = FakeModel.calls
     again = names.load_lists(None, None, "cpu", cache, data_dir=data, tol_files=(tmp_path / "x", tmp_path / "x"))
     assert FakeModel.calls == calls and again["bird"].scientific == ["Corvus corax", "Megascops kennicottii"]
+
+
+def test_labels_only_mdd_map_keeps_the_matrix_and_its_key(tmp_path, caplog):
+    """mdd_map.csv carries BirdNET labels only: the mammal matrix, TreeOfLife matching and cache key
+    stay what they were without it (no rebuild of an existing cache), and it is not checked
+    against the bird synonyms."""
+    data, tol, _ = setup(tmp_path)
+    cache = tmp_path / "cache"
+    before = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", cache, data_dir=data, tol_files=tol)
+    assert before["mammal"].birdnet == [] and before["mammal"].unlabelled == "genus"
+    write_csv(data / "names" / "mdd_map.csv", ["scientific", "common", "order", "family", "birdnet_label", "birdnet_how"],
+              [["Rangifer tarandus", "Reindeer", "Artiodactyla", "Cervidae", "Rangifer tarandus_Reindeer", "exact"],
+               ["Alces alces", "Moose", "Artiodactyla", "Cervidae", "Alces alces_Moose|Alces americanus_Moose",
+                "exact"]])
+    calls = FakeModel.calls
+    caplog.clear()
+    after = names.load_lists(None, None, "cpu", cache, data_dir=data, tol_files=(tmp_path / "x", tmp_path / "x"))
+    assert FakeModel.calls == calls and after["mammal"].sha == before["mammal"].sha     # cache hit
+    np.testing.assert_array_equal(after["mammal"].matrix, before["mammal"].matrix)
+    assert after["mammal"].tol_how == before["mammal"].tol_how
+    assert after["mammal"].birdnet == ["Rangifer tarandus_Reindeer", "Alces alces_Moose|Alces americanus_Moose"]
+    assert after["mammal"].unlabelled == "genus" and after["bird"].unlabelled == "zero"
+    assert "stale name map" not in caplog.text
+    assert after["bird"].sha == before["bird"].sha
+    # provenance: the map's own sha travels with the list (engine info, settings fingerprint)
+    assert before["mammal"].label_map_sha == "" and len(after["mammal"].label_map_sha) == 12
+    assert after["mammal"].label_map_sha == names.label_map_sha(data / "names" / "mdd_map.csv")
+
+
+def _build_name_map():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "build_name_map", Path(__file__).resolve().parents[2] / "scripts" / "build_name_map.py")
+    bnm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bnm)
+    return bnm
+
+
+def test_build_mdd_map_exact_synonym_lump_and_review():
+    import pytest
+
+    bnm = _build_name_map()
+    tax = lambda g, e: ["Animalia", "Chordata", "Mammalia", "Primates", "Cebidae", g, f"{g} {e}"]  # noqa: E731
+    rows = [("Cebus albifrons", "", tax("Cebus", "albifrons")), ("Cebus capucinus", "", tax("Cebus", "capucinus")),
+            ("Bos bison", "", tax("Bos", "bison")), ("Rattus lutreola", "", tax("Rattus", "lutreola")),
+            ("Rattus fuscipes", "", tax("Rattus", "fuscipes")), ("Lepus californicus", "", tax("Lepus", "californicus"))]
+    syn = [{"MDD_species": "Cebus_albifrons", "MDD_original_combination": "Cebus yuracus", "MDD_root_name": "yuracus"},
+           {"MDD_species": "Cebus_albifrons", "MDD_original_combination": "Cebus versicolor", "MDD_root_name": "versicolor"},
+           {"MDD_species": "Cebus_capucinus", "MDD_original_combination": "Cebus imitator", "MDD_root_name": "imitator"},
+           {"MDD_species": "Bos_bison", "MDD_original_combination": "Bison bison", "MDD_root_name": "bison"},
+           {"MDD_species": "Rattus_lutreola", "MDD_original_combination": "Mus lutreolus", "MDD_root_name": "lutreolus"},
+           {"MDD_species": "Rattus_fuscipes", "MDD_original_combination": "Rattus lutreolus", "MDD_root_name": "NA"}]
+    index = bnm.mdd_synonym_index(syn)
+    labels = ["Cebus yuracus_Y", "Cebus versicolor_V", "Cebus capucinus_C", "Cebus imitator_I", "Bison bison_B",
+              "Rattus lutreolus_R"]
+    mapped, report = bnm.build_mdd(rows, labels, index)
+    got = {m["scientific"]: (m["birdnet_label"], m["birdnet_how"]) for m in mapped}
+    assert got == {"Cebus albifrons": ("Cebus versicolor_V|Cebus yuracus_Y", "synonym"),      # lump, no own label
+                   "Cebus capucinus": ("Cebus capucinus_C|Cebus imitator_I", "exact"),         # own label first
+                   "Bos bison": ("Bison bison_B", "synonym"),                                  # genus moved
+                   "Rattus lutreola": ("Rattus lutreolus_R", "synonym"),                       # reviewed
+                   "Rattus fuscipes": ("", "none"), "Lepus californicus": ("", "none")}
+    assert "lump: Cebus albifrons <- Cebus versicolor_V, Cebus yuracus_Y" in report
+    with pytest.raises(SystemExit, match="REVIEWED"):
+        bnm.build_mdd(rows, labels, index, reviewed={})      # lutreolus -> lutreola or fuscipes: a human decides

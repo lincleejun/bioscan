@@ -104,16 +104,16 @@ class Candidate(TypedDict):
 
 
 class Species(TypedDict):
-    list: str                    # name list id, e.g. avilist-2025
+    list: str                    # name list id: avilist-2025 | mdd-2025 | tol200m-animalia
     level: Level
-    top: list[Candidate]         # by posterior, highest first
+    top: list[Candidate]         # by posterior, highest first; a range-vetoed first may cede to a congener
 
 
 class _BoxFields(TypedDict):
     id: int
     xyxy: list[float]            # normalised 0-1, upright image
     score: float
-    kind: str                    # bird | mammal | other_animal
+    kind: str                    # bird | mammal | other_animal (the kind check or candidates may move it)
     quality: Quality
 
 

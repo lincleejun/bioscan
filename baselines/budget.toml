@@ -1,0 +1,39 @@
+# Regression budget for `bioscan bench compare` (default file). Schema: docs/harness.md.
+# A comparison is over budget (exit 1) when any rule below is broken in any listed scope.
+# Sized for the CI smoke (95 photos: 42 birds, 35 mammals, 18 other animals): one image is 2.4 pts of bird Top-1 and 2.9 pts of
+# mammal Top-1, and CPU runs repeat exactly, so these limits allow about one image of movement per kind.
+# A change that means to move results past them needs the owner's acceptance and a new baseline.
+
+[[rule]]
+metric = "top1"
+scopes = ["all", "bird", "mammal"]
+max_drop_pts = 3.0
+
+[[rule]]
+metric = "top5"
+scopes = ["all", "bird", "mammal"]
+max_drop_pts = 3.0
+
+[[rule]]
+metric = "detect_rate"
+scopes = ["all", "bird", "mammal"]
+max_drop_pts = 3.0
+
+[[rule]]
+metric = "confident_error_rate"
+scopes = ["all", "bird", "mammal"]
+max_rise_pts = 3.0
+
+[[rule]]
+metric = "failed_rate"
+scopes = ["all"]
+max_rise_pts = 0.0
+
+[[rule]]
+metric = "images_per_s"
+scopes = ["all"]
+max_drop_pct = 50.0
+note = "shared CI runners vary a lot; this only catches a gross slowdown"
+
+[species]
+max_lost = 1

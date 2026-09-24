@@ -1,6 +1,8 @@
 """identify_many batches every model stage across a chunk and must give exactly what identifying
-each frame alone gives; a frame that makes a batched stage throw costs only itself."""
+each frame alone gives, with the v1.5 accuracy switches on and off; a frame that makes a batched
+stage throw costs only itself."""
 import numpy as np
+import pytest
 from PIL import Image
 
 from bioscan.service import pipeline
@@ -10,17 +12,21 @@ from bioscan.service.names import NameList
 
 GATE = ("bird", "mammal", "other_animal", "person", "none")
 OPTS = {"top_k": 3, "geo": True, "species": True}
+SWITCHES_OFF = {"range_veto": False, "kind_check": False, "mammal_geo": False}
 
 
 def g(**kw):
     return {**dict.fromkeys(GATE, 0.0), **kw}
 
 
-def names(kind, cls, genus, n=4):
+def names(kind, cls, genus, first, n=4):
+    """Rows are unit vectors e_first .. e_first+n-1 of an 8-d space; mammals label rows 0-1 only
+    (genus back-off for the rest)."""
     sci = [f"{genus} s{i}" for i in range(n)]
     tax = [["Animalia", "Chordata", cls, "O", "F", genus, s] for s in sci]
-    return NameList(f"{kind}-list", kind, sci, [""] * n, tax, np.zeros((n, 4), np.float32), ["exact"] * n,
-                    birdnet=[f"{s}_x" for s in sci] if kind == "bird" else [])
+    labels = [f"{s}_x" for s in sci] if kind == "bird" else [f"{s}_x" for s in sci[:2]] + [""] * (n - 2)
+    return NameList(f"{kind}-list", kind, sci, [""] * n, tax, np.eye(8, dtype=np.float32)[first:first + n],
+                    ["exact"] * n, birdnet=labels, unlabelled="zero" if kind == "bird" else "genus")
 
 
 class Models:
@@ -29,15 +35,16 @@ class Models:
     def __init__(self, boom_colour=None):
         self.calls = {"detect": 0, "crop": 0, "bioclip": 0}
         self.boom = boom_colour
-        self.names = {"bird": names("bird", "Aves", "Buteo"), "mammal": names("mammal", "Mammalia", "Lynx")}
+        self.names = {"bird": names("bird", "Aves", "Buteo", 0), "mammal": names("mammal", "Mammalia", "Lynx", 4)}
 
         class Prior:
-            labels = [f"Buteo s{i}_x" for i in range(4)]
+            labels = [f"Buteo s{i}_x" for i in range(4)] + ["Lynx s0_x", "Lynx s1_x"]
 
             def probs(self, lat, lon, week):
-                return np.array([0.9, 0.05, 0.02, 0.03]) if lat > 0 else np.array([0.01, 0.01, 0.9, 0.08])
+                return (np.array([0.9, 0.05, 0.02, 0.03, 0.4, 0.0]) if lat > 0
+                        else np.array([0.01, 0.01, 0.9, 0.08, 0.0, 0.3]))
 
-        self.priors = {"bird": geo.LocationPrior(Prior(), self.names["bird"].birdnet)}
+        self.priors = geo.priors_for(self.names, Prior())
         models = self
 
         class Owl:
@@ -67,8 +74,22 @@ class Models:
                 models.calls["bioclip"] += 1
                 return [c.getpixel((c.width // 2, c.height // 2)) for c in crops]
 
+            @staticmethod
+            def _vecs(feats):
+                vecs = np.zeros((len(feats), 8))
+                for i, (r, _g, b) in enumerate(feats):
+                    vecs[i, b % 8] += 1.0
+                    vecs[i, r % 8] += 0.6
+                return vecs
+
             def probs(self, feats, matrix):
-                return np.array([np.roll([0.6, 0.2, 0.15, 0.05], f[2] % 4) for f in feats])
+                """softmax over the given rows of a feature that leans to row b % 8 and a little to row r % 8"""
+                z = np.exp(4.0 * self._vecs(feats) @ np.asarray(matrix, dtype=np.float64).T)
+                return z / z.sum(axis=1, keepdims=True)
+
+            def logits(self, feats, matrix):
+                """what probs takes the softmax of"""
+                return 4.0 * self._vecs(feats) @ np.asarray(matrix, dtype=np.float64).T
 
         self.owlv2, self.siglip2, self.bioclip = Owl(), Sig(), Bio()
 
@@ -89,13 +110,23 @@ FRAMES = [
 ]
 
 
-def test_batched_equals_one_by_one(monkeypatch):
+@pytest.mark.parametrize("switches", [{}, SWITCHES_OFF], ids=["switches-on", "switches-off"])
+def test_batched_equals_one_by_one(monkeypatch, switches):
     monkeypatch.setattr(pipeline, "SPECIES_BATCH", 2)      # small, to cross BioCLIP batch boundaries
-    batched = pipeline.identify_many(Models(), FRAMES, OPTS)
-    single = [pipeline.identify(Models(), f.image, f.gate, f.lat, f.lon, f.taken_at, OPTS) for f in FRAMES]
+    opts = {**OPTS, **switches}
+    batched = pipeline.identify_many(Models(), FRAMES, opts)
+    single = [pipeline.identify(Models(), f.image, f.gate, f.lat, f.lon, f.taken_at, opts) for f in FRAMES]
     assert batched == single
     assert any(b["species"] and b["species"]["top"][0]["p_geo"] for b in batched[0]["boxes"])
     assert batched[5]["boxes"] == [] and batched[4]["gate"]["class"] == "none" and batched[4]["boxes"]
+    moved = [b for o in batched for b in o["boxes"] if b.get("species") and b["species"]["list"] != f"{b['kind']}-list"]
+    assert not moved                                       # a box is always named from its own kind's list
+    kinds = [b["kind"] for o in batched for b in o["boxes"]]
+    if switches:                                           # off: the crop check's kinds, as before v1.5
+        assert kinds == [b["kind"] for o in pipeline.identify_many(Models(), FRAMES, {**OPTS, "kind_check": False})
+                         for b in o["boxes"]]
+    else:                                                  # on: frame 2's mammal boxes look like birds
+        assert batched[2]["boxes"] and all(b["kind"] == "bird" for b in batched[2]["boxes"])
 
 
 def test_stages_are_batched(monkeypatch):

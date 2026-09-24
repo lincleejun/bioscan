@@ -34,7 +34,8 @@ def pick_device() -> str:
 
 
 def load_species(device: str) -> tuple[Any, dict[str, Any]]:
-    """BioCLIP 2.5 Huge plus the name lists (AviList birds, MDD mammals) in its text space."""
+    """BioCLIP 2.5 Huge plus the name lists (AviList birds, MDD mammals, TreeOfLife all-taxa for other
+    animals) in its text space."""
     from bioscan.service import names
     from bioscan.service.adapters.bioclip import BioCLIP
 
@@ -46,9 +47,26 @@ def load_species(device: str) -> tuple[Any, dict[str, Any]]:
 
 def _load_species(device: str) -> tuple[Any, dict[str, Any]]:
     """load_species with each list's matrix already on the device, so a failure there is a load failure."""
-    bioclip, lists = load_species(device)
-    for nl in lists.values():
-        bioclip.place(nl.matrix)
+    return place_lists(*load_species(device))
+
+
+def place_lists(bioclip: Any, lists: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """Every list's matrix onto the device. A curated list that does not fit fails the load; the
+    all-taxa list (about 0.9 GiB) is placed last and, if it does not fit (MPS out of memory), is
+    dropped with a warning: other animals go back to species null, birds and mammals are served."""
+    from bioscan.service import names
+
+    other = names.ALL_TAXA.kind
+    for kind, nl in lists.items():
+        if kind != other:
+            bioclip.place(nl.matrix)
+    if other in lists:
+        try:
+            bioclip.place(lists[other].matrix)
+        except Exception as exc:  # noqa: BLE001 - optional list, see docstring
+            log.warning("all-taxa list not placed on the device (%s: %s): %s boxes get no species",
+                        type(exc).__name__, exc, other)
+            lists = {k: v for k, v in lists.items() if k != other}
     return bioclip, lists
 
 
@@ -133,17 +151,22 @@ class Engine:
         return bird.source if bird is not None else None
 
     def info(self) -> dict[str, Any]:
-        from bioscan.service import settings
+        from bioscan.service import names, settings
         from bioscan.service.adapters import bioclip, owlv2, siglip2
 
         lists = {k: f"{nl.list_id}@{nl.sha}" for k, nl in self.names.items()}
-        priors = {k: b.name for k, b in self.priors.items()}
+        # every loaded name list, with its location prior's name or None (bird, mammal)
+        priors = {k: b.name for k, b in self.priors.items()} | {k: None for k in self.names if k not in self.priors}
+        # the label map each list's BirdNET labels came from (file@sha12): mdd_map.csv is not in the list sha
+        label_maps = {k: f"{names.LISTS[k].label_map}@{nl.label_map_sha}" for k, nl in self.names.items()
+                      if getattr(nl, "label_map_sha", "") and k in names.LISTS}
         return {"version": bioscan.__version__, "settings": settings.fingerprint(),
                 "models": {"gate": f"{siglip2.MODEL_ID}@{siglip2.REVISION[:12]}",
                            "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
                            "species": f"{bioclip.MODEL_ID.removeprefix('hf-hub:')}@{bioclip.REVISION[:12]}",
                            "names": lists,
-                           "geo": priors.get("bird"), "priors": priors}}
+                           "taxonomy": {k: nl.source for k, nl in self.names.items() if getattr(nl, "source", "")},
+                           "geo": priors.get("bird"), "priors": priors, "label_maps": label_maps}}
 
     # ---- inference ----
     def frame(self, images: list[Any]) -> tuple[np.ndarray, list[dict[str, float]]]:

@@ -8,13 +8,15 @@ import sys
 import urllib.error
 from pathlib import Path
 
-from bioscan import contract, serve_config
-from bioscan.cli import client, gt
+from bioscan import contract, formats, serve_config
+from bioscan.cli import bench, client, gt
 from bioscan.cli.render import Renderer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PRODUCTS = contract.PRODUCTS
 EXIT_OK, EXIT_PARTIAL, EXIT_SERVICE, EXIT_INCOMPLETE = 0, 1, 2, 3
+CANDIDATES_HELP = ('comma list of taxa to rank species among, e.g. "Megascops kennicottii,Strigidae,Bubo" '
+                   "(scientific names or genus/family/order/class); default: all taxa")
 
 
 # ---- serve -------------------------------------------------------------------
@@ -72,8 +74,8 @@ def build_payload(a) -> dict:
         raise SystemExit("--want jpg needs --jpg-out DIR")
     if (a.lat is None) != (a.lon is None):
         raise SystemExit("--lat and --lon go together")
-    exts = {e.strip().lower().lstrip(".") for e in a.ext.split(",")}
-    paths = [p for root in a.paths for p in gt.list_images(root, exts, a.recursive)]
+    exts = formats.parse_ext(a.ext)
+    paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)]
     if not paths:
         raise SystemExit("no images found")
     inputs = [{"path": p} for p in paths]
@@ -87,9 +89,16 @@ def build_payload(a) -> dict:
     options: dict = {}
     if "identify" in want:
         options["identify"] = {"top_k": a.top_k, "geo": not a.no_geo, "species": not a.no_species}
+        if a.candidates:
+            options["identify"]["candidates"] = split_candidates(a.candidates)
     if "jpg" in want:
         options["jpg"] = {"out_dir": os.path.abspath(a.jpg_out)}
     return {"inputs": inputs, "want": want, "options": options}
+
+
+def split_candidates(text: str | None) -> list[str]:
+    """--candidates "Megascops kennicottii, Strigidae,Bubo" -> the names, blanks dropped."""
+    return [c.strip() for c in (text or "").split(",") if c.strip()]
 
 
 def exit_code(errors: int, done: bool) -> int:
@@ -129,8 +138,7 @@ def cmd_run(a):
 # ---- gt / eval / names -------------------------------------------------------------
 
 def cmd_gt_folders(a):
-    exts = {e.strip().lower() for e in a.ext.split(",")}
-    counts = gt.gt_folders(a.dir, a.out, a.names or [], exts)
+    counts = gt.gt_folders(a.dir, a.out, a.names or [], formats.parse_ext(a.ext))
     for k, v in counts.items():
         print(f"{v:>5}  {k}")
     print(f"{sum(counts.values()):>5}  total -> {a.out}")
@@ -150,9 +158,30 @@ def cmd_gt_inat(a):
     return 0
 
 
+def identify_opts(pairs: list[str] | None) -> dict:
+    """["kind_check=false", "top_k=3"] -> {"kind_check": False, "top_k": 3}: JSON values, else the
+    text. The service validates them (an unknown name is a 400)."""
+    out = {}
+    for pair in pairs or []:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"--identify-opt wants NAME=VALUE, got {pair!r}")
+        try:
+            out[key.strip()] = json.loads(value)
+        except json.JSONDecodeError:
+            out[key.strip()] = value
+    return out
+
+
 def cmd_eval(a):
     from bioscan.cli import eval as ev
-    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms)
+    if a.preds and (a.candidates or a.identify_opt):
+        raise SystemExit("--candidates and --identify-opt only apply when eval calls the service; a --preds file "
+                         "was made with the options in its meta line")
+    opts = identify_opts(a.identify_opt)
+    if a.candidates:
+        opts["candidates"] = split_candidates(a.candidates)
+    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms, opts)
     print(report)
     if not complete:
         print("error: the prediction stream ended before the service's `done`; missing images count as misses",
@@ -233,9 +262,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--top-k", type=int, default=5)
     s.add_argument("--no-species", action="store_true")
+    s.add_argument("--candidates", help=CANDIDATES_HELP)
     s.add_argument("--jpg-out")
     s.add_argument("-r", "--recursive", action="store_true")
-    s.add_argument("--ext", default=gt.DEFAULT_EXT)
+    s.add_argument("--ext", default=formats.DEFAULT_EXT)
     s.set_defaults(func=cmd_run)
 
     g = sub.add_parser("gt", help="build ground-truth CSVs").add_subparsers(dest="gt_cmd", required=True)
@@ -243,7 +273,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("dir")
     s.add_argument("--out", default="groundtruth.csv")
     s.add_argument("--names", action="append", help="AviList/MDD CSV to match folder names against (repeatable)")
-    s.add_argument("--ext", default=gt.DEFAULT_EXT)
+    s.add_argument("--ext", default=formats.DEFAULT_EXT)
     s.set_defaults(func=cmd_gt_folders)
     s = g.add_parser("inat", help="download iNaturalist research-grade photos -> inat-tier CSV")
     s.add_argument("--place", default="california", help="name or numeric place_id")
@@ -259,7 +289,12 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--preds", help="score an existing preds.ndjson instead of calling the service")
     s.add_argument("--no-synonyms", action="store_true", help="compare raw truth labels (skip data/names/synonyms.csv)")
+    s.add_argument("--identify-opt", action="append", metavar="NAME=VALUE",
+                   help="extra identify option, repeatable; e.g. range_veto=false to measure that fix (README)")
+    s.add_argument("--candidates", help=CANDIDATES_HELP)
     s.set_defaults(func=cmd_eval)
+
+    bench.add_parser(sub)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)
@@ -280,6 +315,9 @@ def main(argv=None) -> int:
     except client.ServiceError as e:
         print(f"error: {e}", file=sys.stderr)
         return EXIT_SERVICE
+    except bench.BenchError as e:   # a report, budget or standards file the harness cannot use
+        print(f"error: {e}", file=sys.stderr)
+        return bench.EXIT_INCOMPARABLE
     except urllib.error.URLError as e:   # upstream (iNaturalist, HF) during gt / names
         print(f"error: upstream request failed: {getattr(e, 'reason', e)}", file=sys.stderr)
         return EXIT_INCOMPLETE

@@ -23,6 +23,15 @@ GATE_PROMPTS: dict[str, list[str]] = {
 
 NOT_ANIMAL = ("person", "none")          # a crop gate this sure of these vetoes a box (rules.VETO)
 PROMOTE_TO = "bird"                      # the crop gate may turn any other animal box into this kind
+# Kinds whose name lists compete in the kind check (pipeline): a box of one of these kinds moves to
+# whichever of their lists holds the strongest species evidence (rules.kind_evidence_logits: each
+# list's best rows). A list joins by adding its kind here.
+KIND_CHECK = ("bird", "mammal", "other_animal")
+# Lists that compete only for boxes of their own kind. other_animal is the all-taxa list (~366k
+# rows, only when loaded): the best KIND_TOP of that many rows sit higher by chance alone than those
+# of an 11k or 7k list, so it would pull bird and mammal boxes to itself. An other_animal box may
+# still move to bird or mammal: the size effect only works against that move.
+ONE_WAY = ("other_animal",)
 
 # gate class -> {prompt: first-pass floor}
 VOCAB: dict[str, dict[str, float]] = {

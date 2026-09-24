@@ -37,6 +37,24 @@
 - 对不上的名字用 BioCLIP 2.5 Huge 文本塔编码，文本与 TreeOfLife-toolbox `processing/scripts/make_txt_embedding.py` 完全一致：`"an image of {界 门 纲 目 科 属 种加词} with common name {俗名}."`（无俗名时省掉 ` with common name …`），L2 归一化。实测对 10 个 TreeOfLife 行用此模板重编码，与官方向量余弦均为 1.0000。
 - 缓存：`~/.cache/bioscan/names/bioclip-2.5-vith14-<sha>.npz`，sha 取 CSV 内容 + list_id + 缓存版本（2）+ synonyms.csv +（鸟）avilist_map.csv；改任一文件都会重建。建完缓存后 3.26 GB 的官方文件可删。
 
+## 全类群名单（list_id `tol200m-animalia`，其他动物用）
+
+- 来源：同上的 TreeOfLife-200M 官方向量（同一 snapshot `5f2dc493`），不另下载、不编码。代码：`names.ALL_TAXA` / `names.load_all_taxa`。
+- json 行格式（`names._read_tol` 读取，见上）：`[[界, 门, 纲, 目, 科, 属, 种加词], 俗名]`，共 794878 行，与 npy 的 `(1024, 794878)` float32 一一对应（3.26 GB = 794878 × 1024 × 4 B）。
+- 取行规则（`names.all_taxa_select`，`ALL_TAXA_VERSION` 2）：
+  - 7 级；null 当空串。中间级（门、纲、目、科）可以为空：有的分类骨架里爬行类、部分鱼没有纲。
+  - 是动物：界 = Animalia 或 Metazoa（不分大小写）；界为空时门属于动物门（`ANIMAL_PHYLA`）也算，存成 Animalia，候选类群才能用 "Animalia" 选到。
+  - 不是有专表的纲（Aves / Mammalia，不分大小写）；纲为空但目是 TreeOfLife 里归在这两个纲下的目（如 Passeriformes）也不要，免得丢了纲的鸟、兽从后门进来。
+  - 种级：属和种加词都有，种加词是一个词；种加词栏写成完整学名（"Crotalus oreganus"）时取第二个词；其他多词种加词（亚种、没解析的）和没有属或种加词的行（高级阶元）不要。
+  - 同一学名（`norm_binomial(属 + " " + 种加词)`）多行时只留一行：第一条有俗名的，否则第一条（重复行会把一个种的概率分给几行）。
+- 第一次真数据构建（CI models 任务 run 35951065079，旧规则 `ALL_TAXA_VERSION` 1：7 级都非空、界严格等于 "Animalia"）：365,973 种；冒烟集的 6 种爬行类（Crotalus oreganus、Elgaria multicarinata、Pituophis catenifer、Sceloporus occidentalis、Thamnophis sirtalis、Trachemys scripta）和鱼 Hypsypops rubicundus 都不在表里，两栖、昆虫都在。原因已证实（CI models run 35953188230 的普查）：不是过滤规则，而是 TreeOfLife-200M 的 BioCLIP 2.5 向量文件里根本没有这些种，连同属的行都没有（794,878 行中爬行纲、辐鳍鱼纲均未进前 40 个纲）。下面的新规则照样保留，新规则放宽了上面各点，list sha 随版本变，CI 会重建，并由 `tests/models/download.py` 打印 TreeOfLife 按（界，纲）的行数、各条排除理由的行数、表的大小，以及冒烟集每种其他动物在 TreeOfLife 里的原始行和是否入表。行数待重测。
+- 植物、真菌不收：门判没有植物类，没有框会落到它们；收了只多占内存、稀释每个 other_animal 框的 softmax。以后要加，是另一个 `AllTaxaSource(kingdoms=("Plantae",))` 加一个门判类别，不改这张表。
+- 向量：官方向量原样取，转 float16 存（再 L2 归一化）。npy 是 (dim, N) 布局，一行跨整个文件，所以按 64 维一块顺序读。
+- 缓存：`~/.cache/bioscan/names/bioclip-2.5-vith14-<sha>.npz`，与鸟/哺乳同一套（同目录、同命名、同一个 `_stale` 版本检查）；sha 取缓存版本 + 全类群版本（`ALL_TAXA_VERSION`）+ list_id + `TOL_REVISION` + 界/排除纲。字符串（学名、俗名、taxonomy）存成一段 JSON（几十万行的 numpy 定长 unicode 数组比矩阵还大），加载时 taxonomy 各级名字共享同一个字符串对象。
+- 缓存缺失且 TreeOfLife 文件已删时，服务照常启动，只记一条 warning，其他动物 `species: null`（与以前一样）；`uv run python tests/models/download.py` 会重新下载并建好（下载到临时目录，建完即删）。
+- 内存：矩阵 N × 1024 × 2 B。第一次真数据 N = 365,973：float16 715 MiB（float32 要 1.40 GiB）；新规则实测（CI run 35953188230）：N = 366,460，float16 716 MiB，缓存 763 MiB。下面的替身测量按 N = 47 万（早先的估计）：float16 918 MiB，缓存文件约 980 MiB；字符串约 0.1–0.3 GiB。最坏把 794878 行全收：float16 1.52 GiB。实测（本仓库开发容器，CPU，按真实行数和布局生成的 47 万行替身文件）：建表 25 s，新进程从缓存加载 6 s、峰值 RSS 1.3 GiB；16 个框对 47 万行打分 1.3 s（CPU，float16 按 65536 行一段升 float32 算，计算本身误差 < 1e-5）。float16 存储本身的误差（相对 float32 官方向量；20 万行随机单位向量、logit scale 100 实测）：logit 最多约 3.5e-3；概率在一个名字占绝大部分时约 1e-10，两个名字分摊概率时最多约 3e-4。
+- 真实行数、去重条数、每张照片的 top-1：见 CI `models` 任务的报告（`tests/models`，18 张其他动物照片）。
+
 ## 实测（2026-09-22，M 系列 Mac，MPS，`uv run python scripts/build_names.py`）
 
 | 名单 | 总数 | 官方向量 | 自编码 | 覆盖率 | 缓存文件 |
@@ -61,13 +79,19 @@
   - 未收：`Alces alces → Alces americanus`。MDD v2.5 只有 `Alces alces`，没有 americanus，真值 `Alces alces` 已直接对上。
 - `avilist_map.csv`（`uv run python scripts/build_name_map.py` 生成，需要 HF 缓存里的 TreeOfLife json 和 birdnet 包）：每个 AviList 种一行，`scientific, common, order, family, tol_name, tol_how, birdnet_label, birdnet_how`，`*_how` 取 `exact | synonym | none`。`birdnet_label` 是 BirdNET 原样的 `学名_俗名`，服务加载时建好"名单行号 → BirdNET 输出位置"索引，请求时一次数组查表得每行 `p_geo`（无标签的行为 0）。
 - `candidates.csv`（同一脚本生成，只供人审，不会自动采纳）：映射为 none 的种里，同属且种加词编辑距离 ≤ 2 的 TreeOfLife / BirdNET 名字。`candidate_in_avilist=True` 表示候选本身也是 AviList 的另一个种，多半是不同种。确认后把对应行抄进 `synonyms.csv` 再重跑脚本。
-- 哺乳只做 TreeOfLife 匹配（exact + tol/spelling 别名）和 eval 真值的 inat 别名，不做 BirdNET（哺乳无地理先验）。
+- `mdd_map.csv`（`uv run python scripts/build_name_map.py --list mammal --mdd-synonyms …/Species_Syn_Current_v2.5.csv` 生成，2026-09-24）：每个 MDD 种一行，`scientific, common, order, family, birdnet_label, birdnet_how`。只有 BirdNET 标签，没有 TreeOfLife 列：哺乳的 TreeOfLife 匹配仍在建缓存时现算，所以这个文件不进哺乳缓存的 key，加它不会重建缓存。
+  - 输入：BirdNET geo v3.0.4 的标签文件 `labels_raw-8250b457e45d.txt`（14082 行）与分类表 `taxonomy_v0.2-Jun2026.csv`（birdnet 1.1.1 下载到 `~/.local/share/birdnet/` 的同一对文件，Apache-2.0，见 geomodel 仓库 LICENSE-MODELS.md），按 birdnet 包的规则拼成 `学名_英文名` 标签；其中分类表 `class_name == mammalia` 的 1048 个（两文件 sha256 前缀即文件名里的 `8250b457e45d`、`98b27fc4a77c`）；MDD 仓库 `assets/data/MDD.zip` 里的 `MDD/Species_Syn_Current_v2.5.csv`（取自提交 `749c2de`，同一 zip 的 `MDD_v2.5_6904species.csv` 与上文 sha256 相同；sha256 `6467d05eef4a45fddf2cab97fcd6dd19aeb1b4da3d70ff6d23e92c99351cdfd4`）。离线构建时用 `--labels`（一行一个标签，模型原序）和 `--birdnet-taxonomy` 指定文件。
+  - 匹配：学名 `norm_binomial` 精确相等（1028 个标签）→ MDD 同义名表（原始组合名、规范化原始组合名、种加词放进现行属）→ 无。同义名得到两个 MDD 种时必须在脚本的 `REVIEWED` 里人工定，否则脚本报错。
+  - 同义名 20 个，已逐条人审（2026-09-24）：拼写 4 个（*Saguinus weddelli*→*weddellii*、*Hypsugo alaschanicus*→*alashanicus*、*Lophiomys imhausi*→*imhausii*、*Rattus lutreolus*→*R. lutreola*）；换属 5 个（*Tadarida aegyptiaca*→*Nyctinomus aegyptiacus*、*Pecari tajacu*→*Dicotyles tajacu*、*Bison bonasus*/*bison*→*Bos*、*Parotomys brantsii*→*Otomys brantsii*、*Pipistrellus abramus*→*Alionoctula abramus*）；MDD 并种 11 个（*Cebus yuracus*/*versicolor*/*cuscinus*/*aequatorialis*→*C. albifrons*、*C. imitator*→*C. capucinus*、*Cephalophorus harveyi*→*C. natalensis*、*Microtus miurus*→*M. abbreviatus*、*Plecturocebus discolor*→*P. cupreus*、*P. aureipalatii*→*P. toppini*、*Myotis dinellii*→*M. levis*）。有歧义的两个：*Rattus lutreolus*（同义名表还指向 *R. fuscipes*）取 *R. lutreola*；*Pipistrellus abramus*（还指向 *Alionoctula paterculus*）取 *A. abramus*。
+  - 一行多个标签（MDD 并了 BirdNET 分开的种）用 `|` 连接，先验取其中最大值：*Cebus albifrons*（4 个）、*Cebus capucinus*、*Plecturocebus cupreus*、*Plecturocebus toppini*（各 2 个）。
+  - 结果：1042 行有标签（exact 1028、synonym 14），1048 个哺乳标签全部用上；golden 集 23 种哺乳里 21 种有标签，*Lepus californicus*、*Sylvilagus audubonii* 按属回退。
+  - 没有标签的行按名单的 unlabelled policy 处理：哺乳为 `genus`（取同属有标签种的最大 p_geo，同属都没有时取 `geo.UNLABELLED_NEUTRAL` 0.05），鸟为 `zero`（按 0，行为不变）。属回退得到的 p_geo 不触发分布否决。
 
 覆盖率（2026-09-23）：
 
 | 名单 | 总数 | TreeOfLife exact / synonym / none | 官方向量覆盖 | BirdNET exact / synonym / none |
 |---|---|---|---|---|
 | avilist-2025 | 11131 | 9416 / 2 / 1713 | 84.6% | 10380 / 3 / 748（93.3%） |
-| mdd-2025 | 6904 | 3835 / 0 / 3069 | 55.5% | — |
+| mdd-2025 | 6904 | 3835 / 0 / 3069 | 55.5% | 1028 / 14 / 5862（15.1%，其余按属回退） |
 
 旧版 BirdNET 匹配另外用俗名兜底（多 15 种），新版只按学名 + 别名，暂未把俗名匹配搬进映射表。`candidates.csv` 当前 49 条（distance 1：11 条）。
