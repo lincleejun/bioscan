@@ -41,12 +41,18 @@
 
 - 来源：同上的 TreeOfLife-200M 官方向量（同一 snapshot `5f2dc493`），不另下载、不编码。代码：`names.ALL_TAXA` / `names.load_all_taxa`。
 - json 行格式（`names._read_tol` 读取，见上）：`[[界, 门, 纲, 目, 科, 属, 种加词], 俗名]`，共 794878 行，与 npy 的 `(1024, 794878)` float32 一一对应（3.26 GB = 794878 × 1024 × 4 B）。
-- 取行规则（`names.all_taxa_rows`）：7 级齐全；界 = Animalia；纲不是 Aves / Mammalia（它们有 AviList / MDD）；属和种加词都非空且种加词是一个词（只要种级，属级行和亚种行不要）。同一学名（`norm_binomial(属 + " " + 种加词)`）多行时只留一行：第一条有俗名的，否则第一条（重复行会把一个种的概率分给几行）。
+- 取行规则（`names.all_taxa_select`，`ALL_TAXA_VERSION` 2）：
+  - 7 级；null 当空串。中间级（门、纲、目、科）可以为空：有的分类骨架里爬行类、部分鱼没有纲。
+  - 是动物：界 = Animalia 或 Metazoa（不分大小写）；界为空时门属于动物门（`ANIMAL_PHYLA`）也算，存成 Animalia，候选类群才能用 "Animalia" 选到。
+  - 不是有专表的纲（Aves / Mammalia，不分大小写）；纲为空但目是 TreeOfLife 里归在这两个纲下的目（如 Passeriformes）也不要，免得丢了纲的鸟、兽从后门进来。
+  - 种级：属和种加词都有，种加词是一个词；种加词栏写成完整学名（"Crotalus oreganus"）时取第二个词；其他多词种加词（亚种、没解析的）和没有属或种加词的行（高级阶元）不要。
+  - 同一学名（`norm_binomial(属 + " " + 种加词)`）多行时只留一行：第一条有俗名的，否则第一条（重复行会把一个种的概率分给几行）。
+- 第一次真数据构建（CI models 任务 run 35951065079，旧规则 `ALL_TAXA_VERSION` 1：7 级都非空、界严格等于 "Animalia"）：365,973 种；冒烟集的 6 种爬行类（Crotalus oreganus、Elgaria multicarinata、Pituophis catenifer、Sceloporus occidentalis、Thamnophis sirtalis、Trachemys scripta）和鱼 Hypsypops rubicundus 都不在表里，两栖、昆虫都在。原因未证实（这里连不上 Hugging Face）；新规则放宽了上面各点，list sha 随版本变，CI 会重建，并由 `tests/models/download.py` 打印 TreeOfLife 按（界，纲）的行数、各条排除理由的行数、表的大小，以及冒烟集每种其他动物在 TreeOfLife 里的原始行和是否入表。行数待重测。
 - 植物、真菌不收：门判没有植物类，没有框会落到它们；收了只多占内存、稀释每个 other_animal 框的 softmax。以后要加，是另一个 `AllTaxaSource(kingdoms=("Plantae",))` 加一个门判类别，不改这张表。
 - 向量：官方向量原样取，转 float16 存（再 L2 归一化）。npy 是 (dim, N) 布局，一行跨整个文件，所以按 64 维一块顺序读。
 - 缓存：`~/.cache/bioscan/names/bioclip-2.5-vith14-<sha>.npz`，与鸟/哺乳同一套（同目录、同命名、同一个 `_stale` 版本检查）；sha 取缓存版本 + 全类群版本（`ALL_TAXA_VERSION`）+ list_id + `TOL_REVISION` + 界/排除纲。字符串（学名、俗名、taxonomy）存成一段 JSON（几十万行的 numpy 定长 unicode 数组比矩阵还大），加载时 taxonomy 各级名字共享同一个字符串对象。
 - 缓存缺失且 TreeOfLife 文件已删时，服务照常启动，只记一条 warning，其他动物 `species: null`（与以前一样）；`uv run python tests/models/download.py` 会重新下载并建好（下载到临时目录，建完即删）。
-- 内存（行数 N 要等真数据；CI 报告会写出真实的 N 和 MiB）：矩阵 N × 1024 × 2 B。按 N ≈ 47 万估：float16 918 MiB（float32 要 1.84 GiB），缓存文件约 980 MiB；字符串约 0.1–0.3 GiB。最坏把 794878 行全收：float16 1.52 GiB。实测（本仓库开发容器，CPU，按真实行数和布局生成的 47 万行替身文件）：建表 25 s，新进程从缓存加载 6 s、峰值 RSS 1.3 GiB；16 个框对 47 万行打分 1.3 s（CPU，float16 按 65536 行一段升 float32 算，计算本身误差 < 1e-5）。float16 存储本身的误差（相对 float32 官方向量；20 万行随机单位向量、logit scale 100 实测）：logit 最多约 3.5e-3；概率在一个名字占绝大部分时约 1e-10，两个名字分摊概率时最多约 3e-4。
+- 内存：矩阵 N × 1024 × 2 B。第一次真数据 N = 365,973：float16 715 MiB（float32 要 1.40 GiB）；新规则下 N 会变，CI 报告会写出新的 N 和 MiB。下面的替身测量按 N = 47 万（早先的估计）：float16 918 MiB，缓存文件约 980 MiB；字符串约 0.1–0.3 GiB。最坏把 794878 行全收：float16 1.52 GiB。实测（本仓库开发容器，CPU，按真实行数和布局生成的 47 万行替身文件）：建表 25 s，新进程从缓存加载 6 s、峰值 RSS 1.3 GiB；16 个框对 47 万行打分 1.3 s（CPU，float16 按 65536 行一段升 float32 算，计算本身误差 < 1e-5）。float16 存储本身的误差（相对 float32 官方向量；20 万行随机单位向量、logit scale 100 实测）：logit 最多约 3.5e-3；概率在一个名字占绝大部分时约 1e-10，两个名字分摊概率时最多约 3e-4。
 - 真实行数、去重条数、每张照片的 top-1：见 CI `models` 任务的报告（`tests/models`，18 张其他动物照片）。
 
 ## 实测（2026-09-22，M 系列 Mac，MPS，`uv run python scripts/build_names.py`）
