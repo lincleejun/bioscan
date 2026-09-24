@@ -54,6 +54,20 @@ def test_model_load_failure_503():
         assert r.status_code == 503 and "weights missing" in r.json()["error"]
 
 
+def test_candidates_are_checked_against_the_loaded_lists(client, tmp_path):
+    """Unknown candidates are a 400 naming them, after the lists load; known ones narrow the ranking."""
+    path = make_jpg(tmp_path / "a.jpg")
+    r = client.post("/run", json={"inputs": [{"path": path}],
+                                  "options": {"identify": {"candidates": ["Strigidae", "Nonexistus rex"]}}})
+    assert r.status_code == 400 and "['Nonexistus rex']" in r.json()["error"]
+    r = client.post("/run", json={"inputs": [{"path": path}],
+                                  "options": {"identify": {"candidates": ["Megascops asio"]}}})
+    box = next(e for e in events(r) if e["type"] == "result")["products"]["identify"]["boxes"][0]
+    assert [c["scientific"] for c in box["species"]["top"]] == ["Megascops asio"]
+    assert box["species"]["top"][0]["posterior"] == 1.0 and box["species"]["list"] == "fake-owls"
+    assert client.get("/products").json()["identify"]["options"]["candidates"]["default"] == []
+
+
 def test_full_run_all_products(client, fakes, tmp_path):
     paths = [make_jpg(tmp_path / f"{i}.jpg", (3000, 2000)) for i in range(3)]
     out = tmp_path / "out"

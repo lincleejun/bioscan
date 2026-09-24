@@ -1,7 +1,7 @@
 # bioscan
 
-Local service and CLI that find birds and mammals in photos and name the species, for one photographer's
-archive. Terms below are the ones code, tests and docs use.
+Local service and CLI that find animals in photos and name the species (all taxa by default), for one
+photographer's archive. Terms below are the ones code, tests and docs use.
 
 ## Photos and runs
 
@@ -55,6 +55,12 @@ _Avoid_: grade, confidence
 
 **Candidate**:
 One ranked name for a box: scientific, common, taxonomy, p_visual, p_geo, posterior.
+_Avoid_: confusing it with candidate taxa (the option)
+
+**Candidate taxa**:
+The optional `candidates` identify option: scientific names or higher taxa species ranking is restricted
+to, across every loaded name list; the box's kind follows the list of its top-1. Empty = all taxa.
+_Avoid_: filter, whitelist; "candidates" alone when a Candidate could be meant
 
 **Conformance**:
 How a payload departs from the contract's fields (`contract.identify_problems`).
@@ -77,8 +83,14 @@ _Avoid_: backend, wrapper
 ## Names
 
 **Name list**:
-One species list in the species encoder's text space, loaded finished and frozen: AviList for birds, MDD for mammals.
+One species list in the species encoder's text space, loaded finished and frozen: AviList for birds, MDD for
+mammals, the all-taxa list for other animals.
 _Avoid_: vocabulary (that is the detector's words), taxonomy
+
+**All-taxa list**:
+The name list for other_animal boxes (`tol200m-animalia`): every species-level TreeOfLife-200M animal row
+outside the classes a curated list covers, with its official vector, float16 (`names.ALL_TAXA`).
+_Avoid_: ToL list, fallback list
 
 **List source**:
 Where a name list comes from: id, data folder, taxonomic class, reader and label map (`names.ListSource`).

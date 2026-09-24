@@ -8,6 +8,10 @@ so both kinds of vectors live in one space. A list with a label map (birds: avil
 carries each row's BirdNET label from it, the location-prior label. `load_lists` returns finished
 lists: callers never patch fields onto a NameList. The matrix is cached per list as
 `<cache_dir>/<model>-<list_sha>.npz`; labels and sha are not cached, they come from the map and key.
+
+Everything else gets the all-taxa list (`ALL_TAXA`): the species-level TreeOfLife rows of the
+animal kingdom minus the classes a curated list covers, taken with their official vectors as they
+are (nothing to encode), stored float16 and cached the same way.
 """
 from __future__ import annotations
 
@@ -50,6 +54,7 @@ class NameList:
     # Both empty when the list has no label map (mammals; birds when avilist_map.csv is missing).
     birdnet: list[str] = field(default_factory=list)
     birdnet_how: list[str] = field(default_factory=list)
+    source: str = ""             # the taxonomy the rows follow (engine info), "" = not stated
 
 
 def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> list[str]:
@@ -87,12 +92,29 @@ class ListSource(NamedTuple):
     cls: str                     # the TreeOfLife class its rows match against
     reader: Callable[[Path], list[tuple[str, str, list[str]]]]
     label_map: str | None
+    source: str = ""             # the taxonomy it follows, reported by engine info()
 
 
 LISTS = {
-    "bird": ListSource("avilist-2025", "avilist", "Aves", read_avilist, "avilist_map.csv"),
-    "mammal": ListSource("mdd-2025", "mdd", "Mammalia", read_mdd, None),
+    "bird": ListSource("avilist-2025", "avilist", "Aves", read_avilist, "avilist_map.csv", "AviList v2025"),
+    "mammal": ListSource("mdd-2025", "mdd", "Mammalia", read_mdd, None, "MDD v2.5"),
 }
+
+
+class AllTaxaSource(NamedTuple):
+    """The all-taxa list: species-level TreeOfLife rows of `kingdoms`, minus `exclude` classes."""
+    list_id: str
+    kind: str                    # the box kind it names
+    kingdoms: tuple[str, ...]
+    exclude: tuple[str, ...]     # classes with a curated list (LISTS)
+    source: str
+
+
+# Animals only. Plants and fungi stay out: the gate has no plant class, so no box could reach them,
+# and they would add their rows to every other_animal softmax and to memory. A plant list is a
+# second AllTaxaSource (kingdoms=("Plantae",)) plus a gate class, not a change to this one.
+ALL_TAXA = AllTaxaSource("tol200m-animalia", "other_animal", ("Animalia",), tuple(s.cls for s in LISTS.values()),
+                         f"TreeOfLife-200M @ {TOL_REVISION[:8]}")
 
 
 def tol_text(taxonomy: list[str], common: str) -> str:
@@ -258,10 +280,96 @@ def _read_label_map(data_dir: Path, src: ListSource, kind: str, synonyms) -> tup
     return amap, map_path
 
 
+ALL_TAXA_VERSION = "1"            # bump when the row filter, dedupe or file layout below changes
+_GATHER_BLOCK = 64               # dimensions (dim-major file) or 64k rows (row-major) read at a time
+
+
+def all_taxa_rows(tol_names, src: AllTaxaSource = ALL_TAXA) -> list[int]:
+    """Indexes into TreeOfLife's names of the rows the all-taxa list keeps, in file order: 7 ranks,
+    kingdom in `src.kingdoms`, class not in `src.exclude`, a genus and a one-word epithet (species
+    level; higher-rank and infraspecific rows are left out). A binomial listed more than once keeps
+    one row, the first with a common name, else the first: duplicates would split one species'
+    probability between rows."""
+    keep: dict[str, int] = {}
+    for i, (tax, common) in enumerate(tol_names):
+        if len(tax) != 7 or tax[0] not in src.kingdoms or tax[2] in src.exclude:
+            continue
+        genus, epithet = (tax[5] or "").strip(), (tax[6] or "").strip()
+        if not genus or not epithet or " " in epithet:
+            continue
+        key = norm_binomial(f"{genus} {epithet}")
+        j = keep.get(key)
+        if j is None or (common and not tol_names[j][1]):
+            keep[key] = i
+    return sorted(keep.values())
+
+
+def _gather16(vecs: np.ndarray, idx: np.ndarray) -> np.ndarray:
+    """vecs[idx] as float16 rows, L2-normalised. TreeOfLife's file is (dim, N): a row of the (N, dim)
+    view is strided across the whole file, so read it a few dimensions at a time instead."""
+    out = np.empty((len(idx), vecs.shape[1]), np.float16)
+    raw = vecs.T
+    if raw.flags.c_contiguous:                       # the (dim, N) file seen through .T
+        for d in range(0, raw.shape[0], _GATHER_BLOCK):
+            out[:, d:d + _GATHER_BLOCK] = np.asarray(raw[d:d + _GATHER_BLOCK])[:, idx].T
+    else:
+        for r in range(0, len(idx), _GATHER_BLOCK * 1024):
+            out[r:r + _GATHER_BLOCK * 1024] = vecs[idx[r:r + _GATHER_BLOCK * 1024]]
+    for r in range(0, len(out), _GATHER_BLOCK * 1024):
+        x = out[r:r + _GATHER_BLOCK * 1024].astype(np.float32)
+        out[r:r + _GATHER_BLOCK * 1024] = x / np.linalg.norm(x, axis=1, keepdims=True)
+    return out
+
+
+def all_taxa_sha(src: AllTaxaSource = ALL_TAXA) -> str:
+    """The list sha: what the rows are made from (TreeOfLife snapshot, filter, layout version)."""
+    key = "\0".join([CACHE_VERSION, ALL_TAXA_VERSION, src.list_id, TOL_REVISION, ",".join(src.kingdoms),
+                     ",".join(src.exclude)])
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def all_taxa_path(cache_dir: Path = CACHE_DIR, src: AllTaxaSource = ALL_TAXA) -> Path:
+    return Path(cache_dir).expanduser() / f"{MODEL_NAME}-{all_taxa_sha(src)}.npz"
+
+
+def load_all_taxa(cache_dir: Path = CACHE_DIR, *, tol_files: tuple[Path, Path] | None = None, tol=None,
+                  src: AllTaxaSource = ALL_TAXA) -> NameList | None:
+    """The all-taxa NameList from its cache, built from the TreeOfLife files on a miss (no model:
+    every row has its official vector). None when TreeOfLife has no row for it. Strings are kept
+    as one JSON blob in the npz and interned on load: a few hundred thousand rows as numpy unicode
+    arrays would cost more than the matrix."""
+    path, sha = all_taxa_path(cache_dir, src), all_taxa_sha(src)
+    if not (path.is_file() and not _stale(path)):
+        names, vecs = tol if tol is not None else _read_tol(tol_files)
+        keep = all_taxa_rows(names, src)
+        if not keep:
+            return None
+        log.info("%s: taking %d TreeOfLife rows (of %d)", src.list_id, len(keep), len(names))
+        ranks = [[(t or "").strip() for t in names[i][0]] for i in keep]      # a rank may be null
+        taxonomy = [[*r[:6], f"{r[5]} {r[6]}"] for r in ranks]
+        blob = json.dumps({"scientific": [t[6] for t in taxonomy], "common": [(names[i][1] or "").strip() for i in keep],
+                           "taxonomy": taxonomy}, ensure_ascii=False).encode()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "wb") as f:
+            np.savez(f, matrix=_gather16(vecs, np.asarray(keep)), rows=np.frombuffer(blob, np.uint8),
+                     **{k: np.array(v) for k, v in _built_with().items()})
+        os.replace(tmp, path)
+    with np.load(path, allow_pickle=False) as z:
+        cols, matrix = json.loads(z["rows"].tobytes().decode()), z["matrix"]
+    pool: dict[str, str] = {}
+    taxonomy = [[pool.setdefault(r, r) for r in t] for t in cols["taxonomy"]]   # ranks repeat: share them
+    log.info("%s: %d species, matrix %s %.0f MiB", src.list_id, len(taxonomy), matrix.dtype, matrix.nbytes / 2**20)
+    return NameList(src.list_id, src.kind, [t[6] for t in taxonomy], cols["common"], taxonomy, matrix,
+                    ["exact"] * len(taxonomy), sha=sha, source=src.source)
+
+
 def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
                data_dir: Path = DATA_DIR, tol_files: tuple[Path, Path] | None = None) -> dict[str, NameList]:
-    """{"bird": NameList, "mammal": NameList}. `model`/`tokenizer` are only used on a cache miss.
-    `tol_files` = (names.json, vectors.npy) overrides the HF download (tests)."""
+    """{"bird": NameList, "mammal": NameList, "other_animal": all-taxa NameList}. `model`/`tokenizer`
+    are only used on a cache miss. `tol_files` = (names.json, vectors.npy) overrides the HF download
+    (tests). The all-taxa list is left out, with a warning, when it cannot be loaded or built (say
+    its cache is missing and the TreeOfLife files were deleted)."""
     cache_dir = Path(cache_dir).expanduser()
     syn_path = data_dir / NAMES_DIR / "synonyms.csv"
     synonyms = read_synonyms(syn_path)
@@ -289,7 +397,15 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
             m = [amap.get(r[0], {}) for r in rows]
             labels = {"birdnet": [x.get("birdnet_label", "") for x in m],
                       "birdnet_how": [x.get("birdnet_how") or "none" for x in m]}
-        out[kind] = NameList(src.list_id, kind, **cols, sha=sha, **labels)
+        out[kind] = NameList(src.list_id, kind, **cols, sha=sha, **labels, source=src.source)
+    try:
+        other = load_all_taxa(cache_dir, tol_files=tol_files, tol=tol)
+    except Exception as exc:  # noqa: BLE001 - an optional list must not cost birds and mammals
+        log.warning("all-taxa list unavailable (%s: %s): %s boxes get no species", type(exc).__name__, exc,
+                    ALL_TAXA.kind)
+    else:
+        if other is not None:
+            out[other.kind] = other
     for s in stats(out).values():
         log.info("names %s: %d species, TreeOfLife %s, BirdNET %s", s["list_id"], s["total"], s["tol"], s["birdnet"])
     return out

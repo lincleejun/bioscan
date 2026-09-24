@@ -1,10 +1,14 @@
 """Real-model smoke: SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo when it loads) through the
-real /run pipeline on 77 iNaturalist golden-set photos (tests/models/sample.csv).
+real /run pipeline on 95 iNaturalist photos (tests/models/sample.csv): 77 birds and mammals from the
+golden set and 18 other animals (reptiles, amphibians, insects, a spider, a fish; CC0 / CC BY).
 
 Only runs with BIOSCAN_MODEL_TESTS=1 and the weights in the HF cache (tests/models/download.py);
-CI's models.yml does both. Species are ranked against a small in-memory name list encoded with
-the BioCLIP text tower (every AviList species of the sampled bird genera, tests/models/mammals.csv
-for mammals), because the full AviList/MDD CSVs and TreeOfLife vectors are not in the repo.
+CI's models.yml does both. Birds and mammals are ranked against a small in-memory name list encoded
+with the BioCLIP text tower (every AviList species of the sampled bird genera, tests/models/mammals.csv
+for mammals), because the full AviList/MDD CSVs are not in the repo. Other animals are ranked
+against the real all-taxa list (every species-level TreeOfLife animal row outside birds and
+mammals), which download.py builds into ~/.cache/bioscan/names; without it their floors are skipped,
+unless BIOSCAN_REQUIRE_ALLTAXA=1 (CI), where that is a failure.
 Thresholds sit below what the first CI run measured: they catch a broken model, adapter or
 dependency upgrade, not a point of accuracy. The report (BIOSCAN_REPORT) has the real numbers.
 """
@@ -32,8 +36,10 @@ PHOTO_URL = "https://inaturalist-open-data.s3.amazonaws.com/photos/{pid}/medium.
 #   bird   (42): gate 97.6 %, detect 95.2 %, top-1 88.1 %, top-5 92.9 %
 #   mammal (35): gate 91.4 %, detect 91.4 %, top-1 85.7 %, top-5 91.4 %
 # Floors leave about four images of room per kind; a drop past them is a regression to explain.
+# other_animal (18): not measured yet; loose first floors, to tighten after the first CI run.
 FLOORS = {"bird": {"gate_acc": 0.88, "detect_rate": 0.85, "top1": 0.78, "top5": 0.83},
-          "mammal": {"gate_acc": 0.80, "detect_rate": 0.80, "top1": 0.74, "top5": 0.80}}
+          "mammal": {"gate_acc": 0.80, "detect_rate": 0.80, "top1": 0.74, "top5": 0.80},
+          "other_animal": {"gate_acc": 0.40, "detect_rate": 0.45, "top1": 0.25, "top5": 0.35}}
 
 
 def sample() -> list[dict]:
@@ -45,7 +51,7 @@ def fetch(row: dict) -> Path | None:
     path = PHOTOS / f"{row['observation']}_{row['photo_id']}.jpg"
     if path.is_file() and path.stat().st_size:
         return path
-    for ext in ("jpg", "jpeg", "png"):
+    for ext in ("jpg", "jpeg", "png", "JPG", "JPEG"):          # the bucket's keys are case-sensitive
         req = urllib.request.Request(PHOTO_URL.format(pid=row["photo_id"], ext=ext),
                                      headers={"User-Agent": "bioscan-model-tests"})
         try:
@@ -81,8 +87,14 @@ def small_lists(bioclip) -> dict:
         return names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs),
                               sha=f"test-{len(recs)}", **labels)
 
-    return {"bird": build("avilist-2025-test-subset", "bird", "Aves", birds),
-            "mammal": build("mdd-test-subset", "mammal", "Mammalia", mammals)}
+    lists = {"bird": build("avilist-2025-test-subset", "bird", "Aves", birds),
+             "mammal": build("mdd-test-subset", "mammal", "Mammalia", mammals)}
+    if names.all_taxa_path().is_file():
+        other = names.load_all_taxa(tol_files=(Path("/nonexistent"),) * 2)     # from the cache, never built here
+        lists[other.kind] = other
+    elif os.environ.get("BIOSCAN_REQUIRE_ALLTAXA") == "1":
+        raise AssertionError(f"all-taxa list missing at {names.all_taxa_path()} (run tests/models/download.py)")
+    return lists
 
 
 @pytest.fixture(scope="module")
@@ -131,8 +143,9 @@ def metrics(run):
     rescued = sum(1 for e in events if e["type"] == "result" and e["products"]["identify"]["gate"]["class"]
                   in ("none", "person") and e["products"]["identify"]["boxes"])
     meta = {"photos": len(gt), "device": engine.device, "geo": engine.geo is not None,
-            "names": {k: len(nl.scientific) for k, nl in engine.names.items()}, "gate-rescued images": rescued,
-            "floors": json.dumps(FLOORS)}
+            "names": {k: len(nl.scientific) for k, nl in engine.names.items()},
+            "name matrices MiB": {k: f"{nl.matrix.nbytes / 2**20:.1f} ({nl.matrix.dtype})" for k, nl in engine.names.items()},
+            "gate-rescued images": rescued, "floors": json.dumps(FLOORS)}
     report = ev.report_md(m, meta)
     per_image = ["", "## Per image", "", "| truth | gate | boxes | top-1 | level |", "|---|---|---|---|---|"]
     by_path = {e["path"]: e for e in events if e["type"] == "result"}
@@ -167,7 +180,7 @@ def test_embed_is_a_unit_siglip2_vector(run):
 
 
 def test_boxes_are_well_formed(run):
-    _, events, _ = run
+    _, events, engine = run
     for e in (e for e in events if e["type"] == "result"):
         problems = contract.identify_problems(e["products"]["identify"])
         assert not problems, (e["path"], problems)
@@ -175,13 +188,16 @@ def test_boxes_are_well_formed(run):
             x0, y0, x1, y1 = b["xyxy"]
             assert 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1 and b["kind"] in ("bird", "mammal", "other_animal")
             sp = b["species"]
-            if b["kind"] in ("bird", "mammal"):
+            if b["kind"] in engine.names:
+                assert sp["list"] == engine.names[b["kind"]].list_id
                 post = [c["posterior"] for c in sp["top"]]
                 assert post == sorted(post, reverse=True) and sp["level"] in ("species", "genus", "family", "unconfirmed")
 
 
-@pytest.mark.parametrize("kind", ["bird", "mammal"])
-def test_accuracy_floors(metrics, kind):
+@pytest.mark.parametrize("kind", ["bird", "mammal", "other_animal"])
+def test_accuracy_floors(run, metrics, kind):
+    if kind not in run[2].names:
+        pytest.skip(f"no {kind} name list loaded (all-taxa cache missing; see tests/models/download.py)")
     m = metrics[kind]
     low = {k: round(m[k], 3) for k, floor in FLOORS[kind].items() if m[k] < floor}
     assert not low, f"{kind}: below floor {low} (all: { {k: round(m[k], 3) for k in FLOORS[kind]} })"

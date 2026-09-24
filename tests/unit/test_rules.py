@@ -177,10 +177,15 @@ def test_softmax_gate():
 
 def test_resolve_options():
     o = products.resolve_options(None)
-    assert o["identify"] == {"top_k": 5, "geo": True, "species": True} and o["embed"]["format"] == "list"
+    assert o["identify"] == {"top_k": 5, "geo": True, "species": True, "candidates": []}
+    assert o["embed"]["format"] == "list"
     assert products.resolve_options({"identify": {"top_k": 3}})["identify"]["top_k"] == 3
+    got = products.resolve_options({"identify": {"candidates": [" Bubo ", "Strigidae"]}})["identify"]["candidates"]
+    assert got == ["Bubo", "Strigidae"] and products.DEFAULTS["identify"]["candidates"] == []
     for bad in ({"identify": {"top_k": 0}}, {"identify": {"nope": 1}}, {"embed": {"format": "npy"}},
-                {"jpg": {"out_dir": "rel/dir"}}, {"video": {}}, {"identify": {"geo": "yes"}}):
+                {"jpg": {"out_dir": "rel/dir"}}, {"video": {}}, {"identify": {"geo": "yes"}},
+                {"identify": {"candidates": "Bubo"}}, {"identify": {"candidates": ["Bubo", " "]}},
+                {"identify": {"candidates": [3]}}, {"identify": {"candidates": ["x"] * 1001}}):
         with pytest.raises(ValueError):
             products.resolve_options(bad)
 

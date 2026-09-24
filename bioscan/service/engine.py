@@ -34,7 +34,8 @@ def pick_device() -> str:
 
 
 def load_species(device: str) -> tuple[Any, dict[str, Any]]:
-    """BioCLIP 2.5 Huge plus the name lists (AviList birds, MDD mammals) in its text space."""
+    """BioCLIP 2.5 Huge plus the name lists (AviList birds, MDD mammals, TreeOfLife all-taxa for other
+    animals) in its text space."""
     from bioscan.service import names
     from bioscan.service.adapters.bioclip import BioCLIP
 
@@ -143,6 +144,7 @@ class Engine:
                            "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
                            "species": f"{bioclip.MODEL_ID.removeprefix('hf-hub:')}@{bioclip.REVISION[:12]}",
                            "names": lists,
+                           "taxonomy": {k: nl.source for k, nl in self.names.items() if getattr(nl, "source", "")},
                            "geo": priors.get("bird"), "priors": priors}}
 
     # ---- inference ----

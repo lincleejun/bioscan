@@ -44,7 +44,8 @@
 做的：
 - 单次扫描一个目录，一口气出结果，边跑边打。
 - 三个产物可以任意组合：`identify`（框 + 物种）、`embed`（整图 SigLIP2 向量）、`jpg`（RAW 转旋正 JPG）。
-- 名字以 **AviList 2025**（鸟，11131 种）和 **MDD v2.5**（哺乳，6904 种）为唯一标准；BirdNET、TreeOfLife/BioCLIP、iNaturalist 的名字都通过 `data/names/` 的映射表归一到它们。
+- 鸟和哺乳的名字以 **AviList 2025**（鸟，11131 种）和 **MDD v2.5**（哺乳，6904 种）为标准；BirdNET、TreeOfLife/BioCLIP、iNaturalist 的名字都通过 `data/names/` 的映射表归一到它们。
+- 默认全类群：其他动物（爬行、两栖、鱼、昆虫、蜘蛛……）用 TreeOfLife-200M 全类群名单（`tol200m-animalia`）命名，不用先指定类群。可选的 `candidates`（候选类群）只在你已知答案范围时缩小排序：`bioscan run DIR --candidates "Megascops kennicottii,Strigidae,Bubo"`，或请求里 `options.identify.candidates`。学名或任意上级类群（属、科、目、纲）都行，跨所有已加载名单匹配；框的 kind 和 `species.list` 随 top-1 所在名单变；不认识的名字返回 400 并列出。细节见英文 README 的 "All taxa and candidates" 和 `data/README.md`。
 - 自带评测：`bioscan gt` 建真值集（文件夹名或 iNaturalist），`bioscan eval` 出报告。
 
 不做的（v1）：
@@ -95,7 +96,7 @@ uv run python tests/models/download.py      # 三个模型的钉定版本 + Bird
 ```
 名单向量缓存会记录建它时的 BioCLIP / TreeOfLife 版本，版本变了自动重建；早于记录的旧缓存照常使用。
 
-名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，建完可删，约半分钟），之后秒开。改动 `data/names/synonyms.csv` 或 `avilist_map.csv` 会让鸟类缓存重建一次。
+名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，约半分钟）；同时用这个文件建全类群名单（不编码，float16 缓存约 1 GB）。两者都建好后才可删它；删了且全类群缓存缺失时服务照常启动，其他动物 `species: null`，跑 `uv run python tests/models/download.py` 可重建。之后启动要几秒（主要是全类群名单）。改动 `data/names/synonyms.csv` 或 `avilist_map.csv` 会让鸟类缓存重建一次。
 
 ```sh
 uv run bioscan names stats                # 名单覆盖率
@@ -204,7 +205,7 @@ bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在�
 ```sh
 uv run ruff check .
 uv run pytest                                     # 无模型，秒级；tests/models 默认跳过
-uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # 真模型冒烟，77 张 iNat 图
+uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # 真模型冒烟，95 张 iNat 图（含 18 张其他动物）
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
 

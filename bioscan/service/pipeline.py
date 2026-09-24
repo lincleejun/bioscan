@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 
 from bioscan import contract
+from bioscan.service import candidates
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
     RESCUE,
@@ -37,7 +38,7 @@ class Models(Protocol):
 
     owlv2: Any                      # .detect(image, prompts, threshold=) -> list[Detection]
     siglip2: Any                    # .embed_images(images) -> vecs; .gate(vecs) -> [{class: p}]
-    bioclip: Any                    # .encode_images(crops) -> feats; .probs(feats, NameList.matrix) -> (n, N)
+    bioclip: Any                    # .encode_images(crops) -> feats; .probs / .logits(feats, NameList.matrix) -> (n, N)
     names: dict[str, Any]           # kind -> names.NameList
     priors: dict[str, Any]          # kind -> geo.LocationPrior (absent = no prior for that kind)
 
@@ -166,7 +167,9 @@ def _identify_batch(engine: Models, frames: list[Frame], opts: dict[str, Any]) -
                                       round(d.confidence, 4), kind, quality(image, d.bbox)))
         outs[i]["boxes"] = boxes
         species_work.append((frames[i], boxes, [d.bbox for d, _ in k]))
-    if opts["species"]:
+    if opts["species"] and opts.get("candidates"):
+        candidates.species_among(engine, species_work, opts, SPECIES_BATCH)
+    elif opts["species"]:
         _species_many(engine, species_work, opts)
     return outs
 

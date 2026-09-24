@@ -70,6 +70,11 @@ class Models:
             def probs(self, feats, matrix):
                 return np.array([np.roll([0.6, 0.2, 0.15, 0.05], f[2] % 4) for f in feats])
 
+            def logits(self, feats, matrix):
+                # what probs is the softmax of, shifted by the list's first matrix entry (0 in names()),
+                # so a test can make one list's rows look closer than another's
+                return np.log(self.probs(feats, matrix)) + float(matrix[0, 0])
+
         self.owlv2, self.siglip2, self.bioclip = Owl(), Sig(), Bio()
 
 

@@ -34,10 +34,12 @@ def test_model_test_sample_is_covered_by_its_name_lists():
     sample = read(ROOT / "tests" / "models" / "sample.csv")
     mammals = {r["scientific"] for r in read(ROOT / "tests" / "models" / "mammals.csv")}
     avilist_genera = {r["scientific"].split()[0] for r in read(NAMES / "avilist_map.csv")}
-    assert len(sample) == 77 and len({r["photo_id"] for r in sample}) == 77
+    assert len(sample) == 95 and len({r["photo_id"] for r in sample}) == 95
     for r in sample:
         if r["kind"] == "mammal":
             assert r["scientific"] in mammals, r["scientific"]
+        elif r["kind"] == "other_animal":   # ranked against the all-taxa list; photos are CC0 / CC BY only
+            assert len(r["scientific"].split()) == 2 and r["license"] in ("cc0", "cc-by"), r
         else:
             assert r["kind"] == "bird" and r["scientific"].split()[0] in avilist_genera, r["scientific"]
         assert r["lat"] and r["lon"] and r["license"].startswith("cc")

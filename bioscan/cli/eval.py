@@ -183,9 +183,10 @@ def report_md(metrics: dict, meta: dict) -> str:
 
 
 def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str | None = None,
-             synonyms: bool = True) -> tuple[str, bool]:
+             synonyms: bool = True, candidates: list[str] | None = None) -> tuple[str, bool]:
     """(report markdown, complete). complete is False when the prediction stream ended without
-    the service's `done` (service died mid-run): the missing images score as misses."""
+    the service's `done` (service died mid-run): the missing images score as misses. `candidates`
+    narrows species ranking (identify's option); the meta line records it with the other options."""
     rows = read_gt(gt_csv)
     if synonyms:
         rows = normalise_truth(rows, naming.read_synonyms(SYNONYMS_CSV))
@@ -205,6 +206,8 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
                 inp["taken_at"] = r["taken_at"]
             inputs.append(inp)
         payload = {"inputs": inputs, "want": ["identify"], "options": {"identify": {"top_k": 5, "geo": not no_geo}}}
+        if candidates:
+            payload["options"]["identify"]["candidates"] = list(candidates)
         n = 0
         head = {"type": "meta", "schema": PREDS_SCHEMA, "options": payload["options"], "groundtruth": gt_csv,
                 "groundtruth_sha256": _sha256(gt_csv), "synonyms_sha256": _sha256(SYNONYMS_CSV) if synonyms else None,
@@ -222,9 +225,11 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
     with open(preds_path, "rb") as f:
         preds = load_preds(f)
     metrics = compute(rows, preds)
-    geo = (preds_meta.get("options") or {}).get("identify", {}).get("geo")
+    ident_opts = (preds_meta.get("options") or {}).get("identify", {})
+    geo = ident_opts.get("geo")
     meta = {"groundtruth": gt_csv, "preds": str(preds_path), "images": len(rows),
             "geo": geo if geo is not None else f"{not no_geo} (from the command line; preds file has no meta line)",
+            "candidates": ", ".join(ident_opts.get("candidates") or []) or "all taxa",
             "preds schema": preds_meta.get("schema", "none (pre-schema file)"), "complete": complete,
             "synonyms": str(SYNONYMS_CSV) if synonyms else "off", "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "wall_s": f"{time.monotonic() - t0:.1f}"}
     engines = {json.dumps(e.get("engine"), sort_keys=True) for e in preds.values() if e.get("engine")}

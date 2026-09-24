@@ -37,6 +37,18 @@
 - 对不上的名字用 BioCLIP 2.5 Huge 文本塔编码，文本与 TreeOfLife-toolbox `processing/scripts/make_txt_embedding.py` 完全一致：`"an image of {界 门 纲 目 科 属 种加词} with common name {俗名}."`（无俗名时省掉 ` with common name …`），L2 归一化。实测对 10 个 TreeOfLife 行用此模板重编码，与官方向量余弦均为 1.0000。
 - 缓存：`~/.cache/bioscan/names/bioclip-2.5-vith14-<sha>.npz`，sha 取 CSV 内容 + list_id + 缓存版本（2）+ synonyms.csv +（鸟）avilist_map.csv；改任一文件都会重建。建完缓存后 3.26 GB 的官方文件可删。
 
+## 全类群名单（list_id `tol200m-animalia`，其他动物用）
+
+- 来源：同上的 TreeOfLife-200M 官方向量（同一 snapshot `5f2dc493`），不另下载、不编码。代码：`names.ALL_TAXA` / `names.load_all_taxa`。
+- json 行格式（`names._read_tol` 读取，见上）：`[[界, 门, 纲, 目, 科, 属, 种加词], 俗名]`，共 794878 行，与 npy 的 `(1024, 794878)` float32 一一对应（3.26 GB = 794878 × 1024 × 4 B）。
+- 取行规则（`names.all_taxa_rows`）：7 级齐全；界 = Animalia；纲不是 Aves / Mammalia（它们有 AviList / MDD）；属和种加词都非空且种加词是一个词（只要种级，属级行和亚种行不要）。同一学名（`norm_binomial(属 + " " + 种加词)`）多行时只留一行：第一条有俗名的，否则第一条（重复行会把一个种的概率分给几行）。
+- 植物、真菌不收：门判没有植物类，没有框会落到它们；收了只多占内存、稀释每个 other_animal 框的 softmax。以后要加，是另一个 `AllTaxaSource(kingdoms=("Plantae",))` 加一个门判类别，不改这张表。
+- 向量：官方向量原样取，转 float16 存（再 L2 归一化）。npy 是 (dim, N) 布局，一行跨整个文件，所以按 64 维一块顺序读。
+- 缓存：`~/.cache/bioscan/names/bioclip-2.5-vith14-<sha>.npz`，与鸟/哺乳同一套（同目录、同命名、同一个 `_stale` 版本检查）；sha 取缓存版本 + 全类群版本（`ALL_TAXA_VERSION`）+ list_id + `TOL_REVISION` + 界/排除纲。字符串（学名、俗名、taxonomy）存成一段 JSON（几十万行的 numpy 定长 unicode 数组比矩阵还大），加载时 taxonomy 各级名字共享同一个字符串对象。
+- 缓存缺失且 TreeOfLife 文件已删时，服务照常启动，只记一条 warning，其他动物 `species: null`（与以前一样）；`uv run python tests/models/download.py` 会重新下载并建好（下载到临时目录，建完即删）。
+- 内存（行数 N 要等真数据；CI 报告会写出真实的 N 和 MiB）：矩阵 N × 1024 × 2 B。按 N ≈ 47 万估：float16 918 MiB（float32 要 1.84 GiB），缓存文件约 980 MiB；字符串约 0.1–0.3 GiB。最坏把 794878 行全收：float16 1.52 GiB。实测（本仓库开发容器，CPU，按真实行数和布局生成的 47 万行替身文件）：建表 25 s，新进程从缓存加载 6 s、峰值 RSS 1.3 GiB；16 个框对 47 万行打分 1.3 s（CPU，float16 按 65536 行一段升 float32 算，logit 误差 < 1e-5）。
+- 真实行数、去重条数、每张照片的 top-1：见 CI `models` 任务的报告（`tests/models`，18 张其他动物照片）。
+
 ## 实测（2026-09-22，M 系列 Mac，MPS，`uv run python scripts/build_names.py`）
 
 | 名单 | 总数 | 官方向量 | 自编码 | 覆盖率 | 缓存文件 |

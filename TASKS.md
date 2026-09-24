@@ -239,6 +239,15 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
 - [ ] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
       (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off
 - [ ] W4 all-taxa: other animals get species from the TreeOfLife-wide list by default; `candidates` option
+  (branch v15/w4-alltaxa)
+  - [x] all-taxa list `tol200m-animalia` from TreeOfLife rows (Animalia, species level, minus Aves/Mammalia,
+        deduped), float16, cached like the others; optional at load (warning, species null without it)
+  - [x] `candidates` option (API, `run --candidates`, `eval --candidates`, preds meta), 400 on unknown names
+  - [x] tests on fakes + golden (300 frames, before side from `git archive 0a66f72`)
+  - [x] models.yml: 18 CC0/CC-BY other-animal photos ranked against the real all-taxa list, loose floors
+  - [x] docs: README, README.zh-CN, data/README, CONTEXT
+  - [ ] first models.yml run: record real row count, memory, top-1; tighten other_animal floors
+  - [ ] plants/fungi: only with a gate class (owner decision), as a second AllTaxaSource
 - [ ] W5 RAW robustness: EXIF/GPS/time for CR3/RAF/ORF/RW2/PEF; SubSecTimeOriginal; one shared scan-extension list
 - [ ] integration: behaviour-preserving parts first -> CI -> commit baseline from that run; then W3/W4 ->
       CI compare vs baseline (no regression beyond budget); final review; PR

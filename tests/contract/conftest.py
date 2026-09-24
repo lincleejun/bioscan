@@ -71,6 +71,9 @@ class FakeBioCLIP:
     def probs(self, features, matrix):
         return np.array([[0.81, 0.19]] * len(features))
 
+    def logits(self, features, matrix):
+        return np.log(self.probs(features, matrix))
+
 
 class FakeGeo:
     """Location prior (BirdNET-shaped): the Western owl is the local one."""
