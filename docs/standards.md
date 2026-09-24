@@ -14,7 +14,7 @@ correctly at species level, at least Y% at genus or better, and at most Z% are c
 | Golden iNat, California | 1,625 | **≥ 88%** | **≥ 95%** | **≤ 3%** | X 84.2%, Y unmeasured, Z 7.2%: **not met** |
 | Owner's own RAW | 404 | **≥ 95%** | **≥ 98%** | **≤ 3%** | X 96.3%, Y unmeasured, Z 2.2%: **not met** (not enough images to prove it) |
 | Public, multi-region (to build) | ≥ 5,000 | ≥ 85% | ≥ 93% | ≤ 3% | unmeasured (the set does not exist yet) |
-| CI smoke (regression guard only) | 77 | ≥ 85% | ≥ 90% | ≤ 7% | X 87.0%, Z 6.5%: guard holds |
+| CI smoke (regression guard only) | 95 (42 birds, 35 mammals, 18 other animals) | ≥ 85% | ≥ 90% | ≤ 7% | X 87.0%, Z 6.5% (on the earlier 77-photo set): guard holds |
 
 These are the **community bars**: meet them and we invite people to try bioscan and help identify
 (release v0.x). The v1.0 "bundle and release" stage adds the bars for other animals, speed,
@@ -44,7 +44,7 @@ must clear it, not just the observed rate.
 
 | Tier | What | N | Lists | Licence | Where it runs | Use |
 |---|---|---|---|---|---|---|
-| `smoke` | 77 iNat golden-set photos (42 birds, 35 mammals, 65 species), `tests/models/sample.csv` | 77 | reduced: AviList rows of the sampled genera + 41 mammals | CC BY-NC / CC BY / CC0, fetched at test time | CI `models.yml`, CPU, every push | regression guard |
+| `smoke` | 95 iNat photos (42 birds, 35 mammals, 18 other animals; 83 species), `tests/models/sample.csv` | 95 | reduced: AviList rows of the sampled genera + 41 mammals | CC BY-NC / CC BY / CC0, fetched at test time | CI `models.yml`, CPU, every push | regression guard |
 | `golden` | iNat research-grade, California, 65 species × 25 (42 bird, 23 mammal), real GPS and dates, `data/inat/groundtruth-inat.csv` | 1,625 | full AviList 2025 + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
 | `golden` other-animal slice | **to build**: iNat California, about 16 non-bird, non-mammal species × 25 (reptiles, amphibians, insects, spiders), with `bioscan gt inat` | ~400 | TreeOfLife-wide list (work package W4) | as golden | owner's Mac | all-taxa default |
 | `own` | owner's telephoto RAW, folder-name truth, `data/groundtruth-own.csv` (288 Western Screech-Owl, 85 Red-tailed Hawk, 31 Steller's Jay) | 404 | full lists | private | owner's Mac | the real use case |
@@ -60,7 +60,7 @@ why the public tier is CC0/CC BY only.
 at or above the bar. For a "≤" bar the upper bound must be at or below it. Precision uses the
 species-level images as its n, and every other rate uses all images of the row. Speeds are medians
 over at least 500 images, with no interval. The smoke tier is exempt: its bars are regression guards
-judged on the observed value, because 77 images cannot prove any accuracy bar. (With n = 42, even
+judged on the observed value, because 95 images cannot prove any accuracy bar. (With n = 42, even
 42/42 correct has a lower bound of only 0.92.)
 
 **Images needed** to prove a bar when the true rate beats it by a margin:
@@ -115,7 +115,7 @@ kind: `bird`, `mammal`, `other` (other animals) or `all`. The best box is the bo
 | `coverage` | the best box is graded at level species |
 | `precision` | `top1` among the species-level images |
 | `confident_error_rate` | species-level and wrong ÷ n (= coverage × (1 − precision)). This is Z. |
-| `ece` | expected calibration error: 10 equal-width bins of the best box's species confidence (top-1 posterior, or `p_correct` once calibration lands) against `top1` correctness |
+| `ece` | expected calibration error: 10 equal-width bins of the best box's species confidence `p_correct` against `top1` correctness; n/a until the service emits `p_correct` (the posterior is not used) |
 | `failed_rate` | images with an error or no result ÷ n |
 | `decode_ms_median`, `identify_ms_median` | median `timing_ms` per image |
 | `images_per_s` | ok images ÷ wall seconds of the run (`done.elapsed_ms`) |
@@ -214,7 +214,7 @@ The owner's test, per tier (see [the short version](#the-short-version)):
 
 | Tier | Id prefix | X top-1 (community / stretch) | Y genus (c / s) | Z confident errors (c / s) | Now |
 |---|---|---|---|---|---|
-| smoke, 77 | `directory.smoke.all.*` | 85% / 90% | 90% / 95% | ≤ 7% / ≤ 3% | X 87.0% (67/77), Z 6.5% (5/77) on bbd6377 (CI, CPU) |
+| smoke, 95 | `directory.smoke.all.*` | 85% / 90% | 90% / 95% | ≤ 7% / ≤ 3% | X 87.0% (67/77), Z 6.5% (5/77) on bbd6377, the earlier 77-photo set (CI, CPU) |
 | golden, 1,625 | `directory.golden.all.*` | 88% / 93% (industry 88.7% iNat [^inat220]) | 95% / 98% | ≤ 3% / ≤ 1% | X 84.2% (Wilson 82.4–85.9), Z 7.2% (6.0–8.6), from README golden numbers |
 | own RAW, 404 | `directory.own.all.*` | 95% / 98% (WildlifeAI claims 97.3% on its own set [^wildlifeai]) | 98% / 99% | ≤ 3% / ≤ 1% | X 96.3% (Wilson 94.0–97.7), Z 2.2% (1.2–4.2), with an assumed batch coordinate, 3 species only |
 | public, ≥ 5,000 | `directory.public.all.*` | 85% / 92% (industry 88.7% iNat [^inat220]) | 93% / 97% | ≤ 3% / ≤ 1% | unmeasured: set to build |

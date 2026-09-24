@@ -393,21 +393,65 @@ def test_budget_pass(tmp_path, report, capsys):
 
 
 def test_budget_fail(tmp_path, report, capsys):
-    # the degraded report keeps top1 rates as they were (only rows changed), so top1 passes; the rest fail
+    # budget metrics are recomputed from the paired image rows: /a broke (bird 1/6 -> 0/6), /h was fixed
+    # (mammal 0/4 -> 1/4), so `all` top1 is flat, bird drops, and /a is now a confident error
     assert _cmp(tmp_path, report, BUDGET.format(top1=0, cer=5, ips=10, lost=0)) == 1
     why = [v["why"] for v in json.loads((tmp_path / "c.json").read_text())["budget"]["violations"]]
-    assert why == ["confident_error_rate rose 10.0 pts in all (limit 5 pts)",
+    assert why == ["top1 dropped 16.7 pts in bird (limit 0 pts)",
+                   "confident_error_rate rose 10.0 pts in all (limit 5 pts)",
                    "images_per_s dropped 50.0 % in all (limit 10 %)",
                    "Buteo jamaicensis lost 1 top-1 hits (limit 0)"]
     assert "OVER BUDGET" in capsys.readouterr().out
 
 
-def test_budget_top1_drop_in_one_scope(tmp_path, report):
+def test_budget_real_regression_among_paired_images_fails(tmp_path, report):
     new = copy.deepcopy(report)
-    new["metrics"]["mammal"]["top1"] = report["metrics"]["mammal"]["top1"] - 0.05
-    budget = bench.read_budget(_write(tmp_path / "b.toml", BUDGET.format(top1=2, cer=5, ips=10, lost=5)))
+    next(r for r in new["images"] if r["path"] == "/a.jpg").update(correct_top1=False, top1="Buteo lineatus")
+    new["metrics"]["all"]["top1"] = 0.9            # aggregate metrics are not what the budget reads
+    budget = bench.read_budget(_write(tmp_path / "b.toml", BUDGET.format(top1=2, cer=50, ips=90, lost=5)))
     v = bench.compare(report, new, budget)["budget"]["violations"]
-    assert [x["scope"] for x in v] == ["mammal"] and v[0]["why"].startswith("top1 dropped 5.0 pts in mammal")
+    assert [x["scope"] for x in v] == ["all", "bird"]
+    assert v[0]["why"] == "top1 dropped 10.0 pts in all (limit 2 pts)"
+
+
+def _extra(row, path, sha, correct):
+    r = copy.deepcopy(row)
+    r.update(path=path, sha256=sha, correct_top1=correct, correct_top5=correct, correct_genus=correct,
+             top1=r["truth"] if correct else "Nope nope", level="species")
+    return r
+
+
+def test_budget_ignores_images_only_in_the_new_report(tmp_path, report):
+    """The smoke set grew: extra all-wrong images in the new report must not read as a regression."""
+    new = copy.deepcopy(report)
+    other = {**new["images"][0], "kind": "other_animal", "scope": "other", "truth": "Anolis carolinensis"}
+    new["images"] += [_extra(other, f"/new/{i}.jpg", f"{i:064x}", False) for i in range(8)]
+    new["metrics"] = bench.metrics_by_scope(new["images"], report["metrics"]["all"]["images_per_s"])
+    budget = bench.read_budget(_write(tmp_path / "b.toml", BUDGET.format(top1=0, cer=0, ips=0, lost=0)))
+    c = bench.compare(report, new, budget)
+    assert c["verdict"] == "ok" and not c["budget"]["violations"]
+    assert c["pairing"]["only_new"] == 8
+    assert (c["metrics"]["all"]["n"]["base"], c["metrics"]["all"]["n"]["new"]) == (10, 10)
+    assert c["metrics_whole"]["all"]["top1"]["delta"] < 0                    # the whole-set view did drop
+    assert c["unpaired"]["only_new"]["other"]["n"] == 8 and c["unpaired"]["only_new"]["other"]["top1"] == 0
+    assert c["unpaired"]["only_base"] == {}
+    md = bench.compare_md(c)
+    assert "8 only in new" in md and "## Unpaired images: new images (only in new)" in md
+    assert "| other | 8 | 0.0% |" in md
+
+
+def test_budget_with_disjoint_extras_on_both_sides(tmp_path, report):
+    base, new = copy.deepcopy(report), copy.deepcopy(report)
+    base["images"] += [_extra(base["images"][0], f"/old/{i}.jpg", f"b{i:063x}", True) for i in range(5)]
+    new["images"] += [_extra(new["images"][0], f"/new/{i}.jpg", f"c{i:063x}", False) for i in range(5)]
+    budget = bench.read_budget(_write(tmp_path / "b.toml", BUDGET.format(top1=0, cer=0, ips=0, lost=0)))
+    c = bench.compare(base, new, budget)
+    pr = c["pairing"]
+    assert (pr["paired"], pr["only_base"], pr["only_new"], pr["broken"]) == (10, 5, 5, 0)
+    assert c["verdict"] == "ok" and c["species"]["regressions"] == []      # per_species tables would say -5
+    assert c["unpaired"]["only_base"]["bird"]["n"] == 5 and c["unpaired"]["only_new"]["bird"]["top1"] == 0
+    md = bench.compare_md(c)
+    assert "5 only in base, 5 only in new" in md and "## Unpaired images: only in base" in md
 
 
 def _write(path, text):

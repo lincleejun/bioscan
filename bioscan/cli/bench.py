@@ -241,7 +241,7 @@ def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str |
                  lists: dict[str, dict[str, str]] | None = None, preds_path: str | None = None,
                  complete: bool | None = None, options: dict | None = None, tier: str | None = None) -> dict:
     """report.json from ground-truth rows (already synonym-normalised) and preds (path -> event).
-    `tier` names the standards tier the run belongs to (smoke, golden, own, public), for the scorecard."""
+    `tier` names the standards tier the run belongs to (smoke, golden, own, public, mac), for the scorecard."""
     lists = lists or {}
     families = {k: v for nl in lists.values() for k, v in nl.items() if v}
     for pev in preds.values():                       # the candidates' own taxonomy fills in the rest
@@ -493,6 +493,34 @@ def pair_images(base: list[dict], new: list[dict]) -> tuple[list[tuple[dict, dic
     return pairs, len(base) - len(used), len(new) - len(pairs), key
 
 
+def metrics_by_scope(images: list[dict], images_per_s: float | None = None) -> dict:
+    """metrics_for per scope over any set of report image rows: SCOPES, then `<tier>/<scope>` when
+    the rows carry tiers. `images_per_s` (a whole-run value) goes into `all` only."""
+    out = {s: metrics_for([r for r in images if s == "all" or r["scope"] == s], images_per_s if s == "all" else None)
+           for s in SCOPES}
+    tiers = sorted({r.get("tier") or "?" for r in images})
+    if tiers != ["?"]:
+        for t in tiers:
+            for s in SCOPES:
+                sel = [r for r in images if (r.get("tier") or "?") == t and (s == "all" or r["scope"] == s)]
+                if sel:
+                    out[f"{t}/{s}"] = metrics_for(sel)
+    return out
+
+
+def _deltas(bm: dict, nm: dict) -> dict:
+    """{scope: {metric: {base, new, delta, base_ci, new_ci}}} for scopes in both with any images."""
+    out: dict[str, dict] = {}
+    for scope in [s for s in bm if s in nm]:
+        b, v = bm[scope], nm[scope]
+        if not b["n"] and not v["n"]:
+            continue
+        out[scope] = {k: {"base": b.get(k), "new": v.get(k),
+                          "delta": None if b.get(k) is None or v.get(k) is None else round(v[k] - b[k], 6),
+                          "base_ci": b.get(k + "_ci"), "new_ci": v.get(k + "_ci")} for k in METRICS}
+    return out
+
+
 def compare(base: dict, new: dict, budget: dict | None = None, labels: tuple[str, str] = ("base", "new")) -> dict:
     """The comparison of two reports as data (the JSON `bench compare --json` writes)."""
     warnings = []
@@ -509,31 +537,32 @@ def compare(base: dict, new: dict, budget: dict | None = None, labels: tuple[str
         warnings.append("synonyms.csv differs (truth labels may be normalised differently)")
     if json.dumps(bm.get("options"), sort_keys=True) != json.dumps(nm.get("options"), sort_keys=True):
         warnings.append(f"request options differ: {bm.get('options')} -> {nm.get('options')}")
-    metrics: dict[str, dict] = {}
-    for scope in [s for s in base["metrics"] if s in new["metrics"]]:
-        b, v = base["metrics"][scope], new["metrics"][scope]
-        if not b["n"] and not v["n"]:
-            continue
-        metrics[scope] = {k: {"base": b.get(k), "new": v.get(k),
-                              "delta": None if b.get(k) is None or v.get(k) is None else round(v[k] - b[k], 6),
-                              "base_ci": b.get(k + "_ci"), "new_ci": v.get(k + "_ci")} for k in METRICS}
     pairs, only_base, only_new, key = pair_images(base["images"], new["images"])
+    # Everything budgeted is computed over the paired images only, so a test set that gains (or
+    # loses) photos never reads as a regression. images_per_s stays whole-run: it is a run property.
+    metrics = _deltas(metrics_by_scope([b for b, _ in pairs], base["metrics"]["all"].get("images_per_s")),
+                      metrics_by_scope([n for _, n in pairs], new["metrics"]["all"].get("images_per_s")))
+    whole = _deltas(base["metrics"], new["metrics"])
+    paired_ids = {id(b) for b, _ in pairs} | {id(n) for _, n in pairs}
+    unpaired = {side: {s: m for s, m in metrics_by_scope([r for r in rep["images"] if id(r) not in paired_ids]).items()
+                       if m["n"]}
+                for side, rep in (("only_base", base), ("only_new", new))}
     fixed = [(b, n) for b, n in pairs if not b["correct_top1"] and n["correct_top1"]]
     broken = [(b, n) for b, n in pairs if b["correct_top1"] and not n["correct_top1"]]
     same = sum(b["correct_top1"] == n["correct_top1"] and naming.norm_binomial(b.get("top1"))
                != naming.norm_binomial(n.get("top1")) for b, n in pairs)
-    bs, ns = base["per_species"], new["per_species"]
-    changes = []
-    for sci in sorted(set(bs) | set(ns)):
-        bh, nh = (bs.get(sci) or {}).get("top1_hits", 0), (ns.get(sci) or {}).get("top1_hits", 0)
-        if bh != nh:
-            changes.append({"truth": sci, "base_hits": bh, "new_hits": nh, "base_n": (bs.get(sci) or {}).get("n", 0),
-                            "new_n": (ns.get(sci) or {}).get("n", 0), "lost": bh - nh})
+    hits: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])      # truth -> [base hits, new hits, n] (paired)
+    for b, n in pairs:
+        hits[b["truth"]][0] += b["correct_top1"]
+        hits[n["truth"]][1] += n["correct_top1"]
+        hits[n["truth"]][2] += 1
+    changes = [{"truth": sci, "base_hits": bh, "new_hits": nh, "base_n": cnt, "new_n": cnt, "lost": bh - nh}
+               for sci, (bh, nh, cnt) in sorted(hits.items()) if bh != nh]
     evidence = [{"path": n["path"], "truth": n["truth"], "old": _answer(b), "new": _answer(n)} for b, n in broken]
     out = {"schema": COMPARE_SCHEMA, "version": 1,
            "base": {"label": labels[0], "git_sha": bm.get("git_sha"), "date": bm.get("date"), "n": bm.get("n")},
            "new": {"label": labels[1], "git_sha": nm.get("git_sha"), "date": nm.get("date"), "n": nm.get("n")},
-           "warnings": warnings, "metrics": metrics,
+           "warnings": warnings, "metrics": metrics, "metrics_whole": whole, "unpaired": unpaired,
            "pairing": {"key": key, "paired": len(pairs), "only_base": only_base, "only_new": only_new,
                        "fixed": len(fixed), "broken": len(broken), "changed_same": same,
                        "mcnemar_p": round(mcnemar_exact(len(fixed), len(broken)), 6)},
@@ -571,7 +600,12 @@ def compare_md(c: dict, limit: int = 30) -> str:
               f"Paired by {pr['key']}: {pr['paired']} (only in base {pr['only_base']}, only in new {pr['only_new']}). "
               f"Fixed {pr['fixed']}, broken {pr['broken']}, changed answer with the same correctness "
               f"{pr['changed_same']}. McNemar exact p (top-1) = {pr['mcnemar_p']:.4g}.", ""]
-    lines += ["## Metrics", "", "Rates in %, 95% Wilson intervals in brackets.", ""]
+    if pr["only_base"] or pr["only_new"]:
+        lines += [f"Note: the reports hold different images ({pr['only_base']} only in base, {pr['only_new']} only "
+                  "in new). Metrics, species changes and the budget below use the paired images only; the "
+                  "unpaired ones are summarised under “Unpaired images”.", ""]
+    lines += ["## Metrics (paired images)", "",
+              "Rates in %, 95% Wilson intervals in brackets; images_per_s is whole-run.", ""]
     for scope, ms in c["metrics"].items():
         if scope != "all" and not any(row["delta"] for row in ms.values()):
             lines += [f"### {scope}: no change (n {ms['n']['new']})", ""]
@@ -585,8 +619,20 @@ def compare_md(c: dict, limit: int = 30) -> str:
             lines.append(f"| {k} | {fmt(k, row['base'])}{fmt_ci(k, row['base_ci'])} | "
                          f"{fmt(k, row['new'])}{fmt_ci(k, row['new_ci'])} | {fmt_delta(k, row['delta'])}{flag} |")
         lines.append("")
-    for title, rows in (("Species regressions", c["species"]["regressions"]),
-                        ("Species improvements", c["species"]["improvements"])):
+    unpaired = c.get("unpaired") or {}
+    for side, title in (("only_new", "Unpaired images: new images (only in new)"),
+                        ("only_base", "Unpaired images: only in base")):
+        scopes = unpaired.get(side) or {}
+        if not scopes:
+            continue
+        keys = ("top1", "top5", "genus_acc", "coverage", "precision", "confident_error_rate", "no_box_rate",
+                "failed_rate")
+        lines += [f"## {title}", "", "Not budgeted.", "", "| scope | n | " + " | ".join(keys) + " |",
+                  "|---" * (len(keys) + 2) + "|"]
+        lines += [f"| {s} | {m['n']} | " + " | ".join(fmt(k, m[k]) for k in keys) + " |" for s, m in scopes.items()]
+        lines.append("")
+    for title, rows in (("Species regressions (paired images)", c["species"]["regressions"]),
+                        ("Species improvements (paired images)", c["species"]["improvements"])):
         lines += [f"## {title}", ""]
         if not rows:
             lines += ["(none)", ""]
@@ -613,7 +659,8 @@ FAILURE_CLASSES = {   # class -> where to look first; the order is the precedenc
     "failed": "decode or service error: the preds error message; bioscan/service/decode.py, run.py",
     "gate_miss": "gate said none/person and no box: gate rescue threshold (rules.py), gate prompts (taxa.py)",
     "detector_miss": "gate saw an animal, detector boxed nothing: detector vocabulary (taxa.py), a detector fallback",
-    "wrong_kind": "box kind differs from the truth: two-way kind check in rules.judge (bird <-> mammal)",
+    "wrong_kind": "box kind differs from the truth: kind check, rules.kind_of / rules.kind_evidence_logits "
+                  "in pipeline._species_many",
     "not_in_list": "truth is not in the kind's name list: name list / data/names/synonyms.csv",
     "out_of_range": "top-1 has p_geo ~ 0 where the place is known: range veto in rules.py; prior labels / geo gaps",
     "prior_suppressed": "truth ranked first by p_visual, pushed below top-1 by a lower p_geo: geo gaps "
@@ -957,7 +1004,7 @@ def add_parser(sub) -> None:
         .add_subparsers(dest="bench_cmd", required=True)
 
     def report_opts(s):
-        s.add_argument("--tier", help="standards tier of this run (smoke, golden, own, public), kept in meta.tier")
+        s.add_argument("--tier", help="standards tier of this run (smoke, golden, own, public, mac), kept in meta.tier")
         s.add_argument("--names", action="append", metavar="KIND=CSV",
                        help="name list for not_in_list/family (default bird=data/names/avilist_map.csv, "
                             "mammal=data/mdd/*.csv when present)")
@@ -1004,6 +1051,6 @@ def add_parser(sub) -> None:
     s = b.add_parser("scorecard", help="a report against data/standards.toml; exit 1 when a bar is missed")
     s.add_argument("report")
     s.add_argument("--standards", help=f"standards TOML (default {STANDARDS_TOML})")
-    s.add_argument("--tier", help="standards tier to apply (smoke, golden, own, public); default: the report's")
+    s.add_argument("--tier", help="standards tier to apply (smoke, golden, own, public, mac); default: the report's")
     s.add_argument("--md", help="also write the markdown here")
     s.set_defaults(func=cmd_scorecard)

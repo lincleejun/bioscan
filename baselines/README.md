@@ -6,7 +6,7 @@ are compared with, plus the regression budget.
 | File | What it is |
 |---|---|
 | `budget.toml` | The default regression budget for `bioscan bench compare` |
-| `ci-smoke.json` | The real-model CI smoke (`tests/models`, 77 iNaturalist photos, CPU). `models.yml` compares every run with it. It is created from the first CI run: while it is missing, the harness step prints that run's report between `===== BEGIN bioscan-report ci-smoke candidate =====` markers and passes; commit that JSON here |
+| `ci-smoke.json` | The real-model CI smoke (`tests/models`, 95 iNaturalist photos: 42 birds, 35 mammals, 18 other animals; CPU). `models.yml` compares every run with it. It is created from the first CI run: while it is missing, the harness step prints that run's report between `===== BEGIN bioscan-report ci-smoke candidate =====` markers and passes; commit that JSON here |
 | `golden-inat-<tag>.json` | The full iNaturalist golden set (`data/inat/groundtruth-inat.csv`) at release tag `<tag>`, run on the owner's Mac |
 | `own-raw-<YYYY-MM-DD>.json` | The owner's own RAW set (`data/groundtruth-own.csv`) on that date |
 

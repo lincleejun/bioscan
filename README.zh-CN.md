@@ -218,6 +218,22 @@ bioscan eval GT.csv --out runs/x --preds runs/<date>/preds.ndjson        # 只�
 报告里"没框"按整图门类拆开：`none/person` 是门漏判（检测器没跑），其余是检测器没框到。
 真值格式：`path, scientific, tier, lat, lon, taken_at, source, kind`。真值学名会先经 `data/names/synonyms.csv` 归一到 AviList/MDD 再比较。
 
+### 评测框架：基线、对照、失败分析
+
+`bioscan bench` 建在 eval 之上，保证结果不会悄悄变差。完整流程和各文件格式见 [docs/harness.md](docs/harness.md)。
+```sh
+bioscan bench run data/inat/groundtruth-inat.csv --out runs/<date>-golden --tier golden   # eval + report.json
+bioscan bench report runs/<date>/preds.ndjson GT.csv                                    # 离线从 preds 重建 report.json
+bioscan bench baseline runs/<date>-golden/report.json --name golden-inat-<tag>          # 存为 baselines/ 下的基线
+bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json          # 超出预算退出码 1
+bioscan bench analyze runs/<new>/report.json                                            # 失败分类，下一步修什么
+bioscan bench scorecard runs/<new>/report.json                                          # 对照 data/standards.toml
+```
+- **基线流程**：今天跑一遍，用 `bench baseline` 存成基线并提交；之后换模型或改代码，再跑一遍，用 `bench compare` 对照基线。
+- **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行。
+- **compare** 按 sha256（其次路径）配对图片。指标、按种变化和回退预算（`baselines/budget.toml`）都只按配对上的图片算，测试集加了新图不算回退，新图单独列出。它统计修好/改坏的图并给出精确 McNemar p 值，列出改坏图片的证据。退出码：0 预算内，1 超预算，2 无法对照。
+- **analyze** 把每个错答归入一个失败类：门漏判、检测漏框、类别错、不在名录、分布外、被地点先验压下、同属错、同科错、远错；另标出定到种却错的答案。每类附例图和该改哪段代码的提示。
+
 ## 名字映射
 
 `data/names/avilist_map.csv`：每个 AviList 种对应的 TreeOfLife 名和 BirdNET 标签及匹配方式（exact / synonym / none）。`synonyms.csv` 是手工维护的别名表，每条带来源和说明；`candidates.csv` 是脚本列出的疑似拼写差异，只供人审，不自动采纳。重建：`uv run python scripts/build_name_map.py`。
@@ -238,7 +254,7 @@ bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在�
 ## 已知局限与路线
 
 - 哺乳 golden 集 45 张没框（熊、美洲狮、短尾猫为主）。已补检测词表并加了门漏判时的补查，效果待 `bioscan eval` 复测。
-- 哺乳地理先验、分布否决、类别核对在真实照片上的效果未验证，要等 Mac 上的 `bioscan eval`（CI 开/关对照只覆盖 77 张）。ε、τ、类别核对阈值和中性常数都是初值。
+- 哺乳地理先验、分布否决、类别核对在真实照片上的效果未验证，要等 Mac 上的 `bioscan eval`（CI 开/关对照只覆盖 95 张：42 鸟、35 哺乳、18 其他动物）。ε、τ、类别核对阈值和中性常数都是初值。
 - 分布否决可能把真正的迷鸟改名成本地同属种（只定到属，不会定到种）。
 - 近期拆分的种（北鹞 / 白尾鹞、美洲仓鸮 / 西方仓鸮）在训练数据里用旧名，靠共用向量 + 地点先验区分；同义词目前不按地区生效。
 - 先验公式的底数 0.02 限制了地点对视觉的纠正幅度，尚未在 golden 集上调参。
@@ -254,7 +270,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
 
-CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary。
+CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。
 
 ## 布局
 

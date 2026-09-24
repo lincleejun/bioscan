@@ -266,7 +266,7 @@ bioscan bench scorecard runs/<new>/report.json                                  
   - every metric per scope (`all`, `bird`, `mammal`, `other`, and per tier) with Wilson 95% intervals;
   - per-species and per-family tables;
   - one row per image.
-- **compare** pairs images by sha256 and counts fixed and broken images, with an exact McNemar p-value. It lists species regressions and broken images with their evidence, and checks `baselines/budget.toml`. It exits 0 within budget, 1 over budget and 2 when the reports can't be compared.
+- **compare** pairs images by sha256 and counts fixed and broken images, with an exact McNemar p-value. Metrics, species changes and the budget use the paired images only, so a test set that gains photos never counts as a regression; new images are listed separately. It lists species regressions and broken images with their evidence, and checks `baselines/budget.toml`. It exits 0 within budget, 1 over budget and 2 when the reports can't be compared.
 - **analyze** puts every wrong answer into a failure class: gate miss, detector miss, wrong kind, not in list, out of range, suppressed by the location prior, within genus, within family or far miss. It also flags overconfident answers. Each class comes with examples and a pointer to the code to fix.
 - **CI.** `models.yml` compares every real-model smoke with `baselines/ci-smoke.json`. A `v*` tag publishes the smoke report.
 

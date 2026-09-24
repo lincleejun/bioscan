@@ -88,7 +88,7 @@ or changing what one means, is.
 
 | Key | Meaning |
 |---|---|
-| `tier` | Standards tier of the run (`smoke`, `golden`, `own`, `public`), from `--tier`; null when not given |
+| `tier` | Standards tier of the run (`smoke`, `golden`, `own`, `public`, `mac`), from `--tier`; null when not given |
 | `git_sha`, `git_dirty` | `git rev-parse HEAD` of the checkout that built the report (falls back to `$GITHUB_SHA`), and whether tracked files had changes |
 | `date` | UTC, ISO 8601 |
 | `engine` | `result.engine` of the run (version, settings, models, name lists, priors, detail_edge); a list when the run mixed engines |
@@ -162,8 +162,16 @@ One row per ground-truth row:
 
 ## compare
 
-- **Metric deltas.** For every scope in both reports, each metric gives `base`, `new`, `delta`,
-  `base_ci` and `new_ci`.
+- **Paired images only.** Metrics, species changes and the budget are computed over the images the
+  two reports share (paired as below), recomputed from the image rows of each side. A test set that
+  gains or loses photos therefore never counts as a regression. The one exception is
+  `images_per_s`, which stays the whole-run value of each report.
+- **Metric deltas** (`metrics`). For every scope over the paired images, each metric gives `base`,
+  `new`, `delta`, `base_ci` and `new_ci`. `metrics_whole` holds the same over each report's full image
+  set, for reference; it is not budgeted.
+- **Unpaired images** (`unpaired.only_new`, `unpaired.only_base`). Metrics per scope of the images in
+  only one report. The markdown adds a note when either side has such images, and a "new images"
+  section with their metrics.
 - **Pairing.** Images pair by sha256, falling back to path, so moved folders still pair. When several images share a sha256 (duplicate photos), the copy at the same path pairs first and the remaining copies pair one-to-one in order. The comparison
   counts:
   - `fixed`: wrong before, right now;
@@ -173,7 +181,7 @@ One row per ground-truth row:
 
   `mcnemar_p` is the exact two-sided McNemar p-value on fixed against broken. It tells you whether the
   change in top-1 is more than noise.
-- **Species.** Regressions and improvements come from the `top1_hits` of `per_species`.
+- **Species.** Regressions and improvements count top-1 hits per truth over the paired images.
 - **Evidence.** `broken` and `fixed` list each image with its truth and its old and new answers: top-1,
   level, box kind, gate, p_visual, p_geo and posterior.
 - **Warnings.** The comparison warns when any of these differ between the reports: settings
@@ -201,8 +209,10 @@ max_lost = 1                         # no species may lose more than this many t
 max_broken = 5                       # optional: at most this many broken images in total
 ```
 
-A metric that is null in either report is skipped. Unknown sections or keys are an error (exit 2).
-The committed budget suits the 77-image CI smoke. For its reasoning, see the comments in the file.
+Every rule reads the paired-image metrics (`images_per_s`: whole-run), and `max_lost` / `max_broken`
+count paired images only. A metric that is null in either report is skipped. Unknown sections or keys
+are an error (exit 2).
+The committed budget suits the 95-image CI smoke (42 birds, 35 mammals, 18 other animals). For its reasoning, see the comments in the file.
 
 ## analyze: failure classes
 
@@ -214,7 +224,7 @@ order, and the first that matches wins:
 | `failed` | Decode or service error | The preds error message; decode.py, run.py |
 | `gate_miss` | No box, and the gate said none/person | Gate rescue threshold (rules.py), gate prompts (taxa.py) |
 | `detector_miss` | No box, and the gate saw an animal | Detector vocabulary (taxa.py), a detector fallback |
-| `wrong_kind` | Best box's kind (bird/mammal/other) differs from the truth's | Two-way kind check in rules.judge |
+| `wrong_kind` | Best box's kind (bird/mammal/other) differs from the truth's | Kind check: `rules.kind_of` / `rules.kind_evidence_logits` in `pipeline._species_many` |
 | `not_in_list` | Truth not in the kind's name list (or a box with no species where no list is known) | Name list, synonyms.csv |
 | `out_of_range` | Top-1 has p_geo < 0.01 where the place is known | Range veto in rules.py; prior labels, geo gaps |
 | `prior_suppressed` | The truth is first by p_visual among the candidates, but ranked below top-1 because its p_geo is lower than the top-1's | Geo gaps (`bioscan names geo-gaps` → a `birdnet` row in synonyms.csv), label map, prior floor |
