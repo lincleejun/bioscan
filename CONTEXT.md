@@ -53,6 +53,18 @@ A box's naming result: the name list used, a level and the top candidates. Absen
 How far the evidence supports a name: species, genus, family or unconfirmed.
 _Avoid_: grade, confidence
 
+**Range veto**:
+Where the place is known and the list has a location prior, a top candidate whose own p_geo is below
+ε (`rules.RANGE_EPS`) cannot get level species; an in-range congener (p_geo ≥ τ, `rules.RANGE_TAU`)
+among the candidates is listed first. Identify option `range_veto`.
+_Avoid_: geo filter, out-of-range filter
+
+**Kind check**:
+Scoring a box's species features against every kind-check list at once (`taxa.KIND_CHECK`) and giving
+the box the kind whose list holds most of the visual mass, whatever the gate and crop check said;
+a box that moved on a thin margin (`rules.KIND_SURE`) gets level unconfirmed. Identify option `kind_check`.
+_Avoid_: second crop check, reclassify
+
 **Candidate**:
 One ranked name for a box: scientific, common, taxonomy, p_visual, p_geo, posterior.
 
@@ -84,10 +96,12 @@ _Avoid_: vocabulary (that is the detector's words), taxonomy
 Where a name list comes from: id, data folder, taxonomic class, reader and label map (`names.ListSource`).
 
 **Label map**:
-The CSV giving each list row its TreeOfLife name and BirdNET label (`data/names/avilist_map.csv`).
+The CSV giving each list row its BirdNET label and, for birds, its TreeOfLife name
+(`data/names/avilist_map.csv`, `data/names/mdd_map.csv`).
 
 **BirdNET label**:
-A name-list row's label in the location prior source; empty when the row has none.
+A name-list row's label in the location prior source; empty when the row has none, several joined by
+`|` when the list lumps species the source keeps apart (the row takes their largest p_geo).
 
 **Match key**:
 The normalised form two names are compared by: `norm_binomial` for scientific names, `norm_label` for folder names.
@@ -103,10 +117,17 @@ How likely each row of one name list is at a place and date (`geo.LocationPrior`
 _Avoid_: geo filter, range map
 
 **Prior source**:
-The model behind a location prior: `labels` plus `probs(lat, lon, week)`; today BirdNET geo 3.0, birds only.
+The model behind a location prior: `labels` plus `probs(lat, lon, week)`; today BirdNET geo 3.0, for birds
+and mammals (identify option `mammal_geo` for the mammal list).
 
 **p_geo**:
 One row's location prior value at a place and date; none when the place is unknown or the source fails.
+
+**Unlabelled policy**:
+What a list row with no BirdNET label gets as p_geo (`names.ListSource.unlabelled`): `zero` (birds) or
+`genus` (mammals: the largest p_geo among labelled rows of its genus, the genus back-off, else a neutral
+constant). A backed-off p_geo is not evidence about the species, so it never triggers the range veto.
+_Avoid_: default prior, fallback
 
 **Posterior**:
 p_visual × (floor + p_geo) renormalised over the whole name list, before top-k.
@@ -126,5 +147,6 @@ Flag, else `BIOSCAN_*` variable, else default, done once per process (`serve_con
 Directories the service may read from and write to; empty means no limit.
 
 **Settings fingerprint**:
-Twelve hex characters over the output-changing constants (thresholds, prompts, vocabulary, prior floor, max edge);
+Twelve hex characters over the output-changing constants (thresholds, prompts, vocabulary, prior floor,
+unlabelled policies, accuracy option defaults, max edge);
 the configured detail edge is reported beside it as `engine.detail_edge`.

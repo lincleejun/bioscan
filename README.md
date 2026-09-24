@@ -63,11 +63,29 @@ RAW/JPG ─ decode ─▶ upright 2048 px image + EXIF (GPS, time) + sha256 (plu
               │   none/person but the three animal classes total ≥ 0.25, detect anyway with the strongest
               │   animal class's words) ─▶ SigLIP2 check of each box crop ─▶ image quality
               │
-              └─ BioCLIP 2.5 Huge on the same framing cut from the detail copy ─▶ cosine against that
-                 class's name-list text vectors × (0.02 + BirdNET location prior) ─▶ normalise ─▶ top-k ─▶ grade
+              └─ BioCLIP 2.5 Huge on the same framing cut from the detail copy ─▶ kind check against the
+                 bird and mammal lists together ─▶ cosine against that kind's name-list text vectors
+                 × (0.02 + BirdNET location prior) ─▶ normalise ─▶ top-k ─▶ range veto ─▶ grade
 ```
 
-Grading: species when top-1 ≥ 0.5 and leads the runner-up by ≥ 0.3; otherwise genus when the top-5 summed by genus reaches ≥ 0.6, family when summed by family reaches ≥ 0.6; otherwise `unconfirmed`.
+Grading: species when top-1 ≥ 0.5 and leads the runner-up by ≥ 0.3; otherwise genus when the top-5 summed by genus reaches ≥ 0.6, family when summed by family reaches ≥ 0.6; otherwise `unconfirmed`. The range veto and the kind check (next section) can lower that grade.
+
+### Accuracy rules (v1.5)
+
+Three fixes for confident species-level mistakes. Each is an `identify` option, on by default, so a run can switch one off and measure it:
+
+| Option | What it does | Constants |
+|---|---|---|
+| `range_veto` | **Range veto.** Where the place is known and the list has a location prior, a top candidate whose own p_geo is below ε cannot be graded species. If a congener among the returned candidates has p_geo ≥ τ, it is listed first (the only case where `top` is not in posterior order); the grade then comes from the genus/family roll-up. Fixes a Raven named as a Philippine crow in California. A p_geo borrowed from the genus (below) never vetoes. | `rules.RANGE_EPS` ε = 0.01, `rules.RANGE_TAU` τ = 0.05 |
+| `kind_check` | **Kind check.** Each box's BioCLIP features (already computed) are also scored against the bird and mammal lists stacked into one, and the box takes the kind whose list holds most of that visual probability. So a box can move bird ↔ mammal against the gate and crop check (an owl gated mammal is no longer named as a skunk). A box that moved on less than 0.75 of the mass is graded `unconfirmed`: any name above that would assert a kind the evidence cannot. The visual mass decides, not the posterior, because the two lists differ in prior coverage. `other_animal` boxes are left alone. | `rules.KIND_SURE` = 0.75; lists in `taxa.KIND_CHECK` |
+| `mammal_geo` | **Mammal location prior.** The BirdNET geo model the service already loads also scores 1,048 mammals; `data/names/mdd_map.csv` gives them to MDD rows. An MDD row with no label gets the highest p_geo among labelled species of its genus (**genus back-off**), or 0.05 when its genus has none. Birds keep their rule: unlabelled rows get 0. | `geo.UNLABELLED_NEUTRAL` = 0.05; per-list policy `names.LISTS[...].unlabelled` |
+
+All thresholds, the unlabelled policies and the option defaults are in the settings fingerprint. With all three options off, identify output is the same as v1.4 (checked byte for byte on a 300-frame stand-in recording, 5 option sets). To measure one fix, run the same ground truth twice and compare the reports:
+```sh
+bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-on
+bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-no-veto --identify-opt range_veto=false
+```
+Over HTTP, pass `"options":{"identify":{"kind_check":false}}`. CI's real-model smoke runs its photos with all three on and all three off and adds an on/off table plus every changed image to its report (`models-report`). It fails if, for either kind, the options lose a Top-1 hit or add a species-level wrong answer.
 
 Models and data:
 
@@ -77,7 +95,7 @@ Models and data:
 | Detection | `google/owlv2-base-patch16-ensemble` | Apache-2.0 |
 | Species | `imageomics/bioclip-2.5-vith14` (BioCLIP 2.5 Huge) | MIT |
 | Species-name text vectors | official precomputed `imageomics/TreeOfLife-200M` vectors; unmatched names encoded with the text tower | CC0 |
-| Location prior (birds only) | BirdNET geo 3.0 (`birdnet` package) | CC BY-NC-SA 4.0 |
+| Location prior (birds, mammals) | BirdNET geo 3.0 (`birdnet` package) | CC BY-NC-SA 4.0 |
 | Bird list | AviList v2025 | CC BY 4.0 |
 | Mammal list | Mammal Diversity Database v2.5 | CC BY 4.0 |
 
@@ -96,7 +114,7 @@ uv run python tests/models/download.py      # pinned versions of the three model
 ```
 The name-vector cache records the BioCLIP / TreeOfLife versions it was built with and is rebuilt when they change; older caches without that record are still used.
 
-The name-list CSVs are large and not in git: download them as described in `data/README.md` into `data/avilist/` and `data/mdd/`. The first start encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which can be deleted afterwards; about half a minute). Later starts take a second. Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once.
+The name-list CSVs are large and not in git: download them as described in `data/README.md` into `data/avilist/` and `data/mdd/`. The first start encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which can be deleted afterwards; about half a minute). Later starts take a second. Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
 
 ```sh
 uv run bioscan names stats                # name-list coverage
@@ -180,6 +198,8 @@ Ground-truth columns: `path, scientific, tier, lat, lon, taken_at, source, kind`
 
 `data/names/avilist_map.csv`: for each AviList species, its TreeOfLife name and BirdNET label and how each was matched (exact / synonym / none). `synonyms.csv` is the hand-maintained alias table, each row with a source and a note; `candidates.csv` lists suspected spelling differences found by the script, for human review only, never adopted automatically. Rebuild with `uv run python scripts/build_name_map.py`.
 
+`data/names/mdd_map.csv`: for each MDD species, its BirdNET label(s) and how they matched. Only BirdNET labels of class Mammalia count. Matching is exact name first, then the MDD synonym table (reviewed; see `data/README.md`). MDD lumps some species that BirdNET splits (e.g. four white-fronted capuchins into *Cebus albifrons*); such a row lists every label joined by `|`, and the prior takes the largest. Rebuild with `uv run python scripts/build_name_map.py --list mammal --mdd-synonyms MDD/Species_Syn_Current_v2.5.csv`.
+
 The 748 AviList species without a BirdNET label get 0 in the location prior (mostly extinct species or species BirdNET lumps with a sister, such as *Tyto javanica*, which should stay suppressed). To find the gaps that actually matter at a place:
 ```sh
 bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # unlabelled species whose genus occurs there
@@ -189,12 +209,13 @@ After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the m
 | List | Total | Official TreeOfLife vectors | BirdNET label |
 |---|---|---|---|
 | AviList 2025 | 11131 | 84.6% | 93.3% |
-| MDD v2.5 | 6904 | 55.5% | n/a |
+| MDD v2.5 | 6904 | 55.5% | 15.1% (1042 rows carry all 1,048 BirdNET mammal labels; the rest back off to their genus) |
 
 ## Known limitations and roadmap
 
 - 45 mammal images in the golden set got no box (mostly bears, mountain lions, bobcats). The detector vocabulary was extended and a gate-miss rescue added; the effect awaits a `bioscan eval` rerun.
-- Mammals have no location prior.
+- The mammal location prior, the range veto and the kind check are unverified on real photos until a `bioscan eval` on the Mac (CI's on/off table covers 77 photos only). ε, τ, the kind-check margin and the neutral constant are first guesses.
+- The range veto can rename a genuine vagrant to a local congener (graded genus, never species).
 - Recently split species (Northern / Hen Harrier, American / Western Barn Owl) carry old names in the training data and are separated by a shared vector plus the location prior; synonyms do not yet apply per region.
 - The 0.02 floor in the prior formula limits how far location can override vision; it has not been tuned on the golden set.
 - When the subject is tiny in the frame (distant raptors), the detector can box the wrong object.

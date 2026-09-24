@@ -237,7 +237,7 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
       regression budgets; CI smoke compares against a committed baseline; tag runs publish a report
 - [ ] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured)
 - [ ] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
-      (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off
+      (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off. Checklist: TASKS-w3.md
 - [ ] W4 all-taxa: other animals get species from the TreeOfLife-wide list by default; `candidates` option
 - [ ] W5 RAW robustness: EXIF/GPS/time for CR3/RAF/ORF/RW2/PEF; SubSecTimeOriginal; one shared scan-extension list
 - [ ] integration: behaviour-preserving parts first -> CI -> commit baseline from that run; then W3/W4 ->
