@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from bioscan import contract
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.taxa import ANIMALS, NOT_ANIMAL, PROMOTE_TO
 
@@ -94,7 +95,7 @@ def species_level(cands: list[dict[str, Any]]) -> str:
     return "unconfirmed"
 
 
-def quality(image: Image.Image, bbox: tuple[float, ...]) -> dict[str, float]:
+def quality(image: Image.Image, bbox: tuple[float, ...]) -> contract.Quality:
     """Sharpness and exposure of the box grown by 10 %.
 
     Sharpness is PhotoOS's metric, not plain Laplacian variance: variance measures how much
@@ -109,7 +110,7 @@ def quality(image: Image.Image, bbox: tuple[float, ...]) -> dict[str, float]:
     gray = np.asarray(crop.convert("L"), dtype=np.float32) / 255.0
     exposure = round(float(gray.mean()) - 0.5, 4) if gray.size else 0.0
     if min(gray.shape) < 8:
-        return {"sharpness": 0.0, "exposure": exposure}
+        return contract.quality(0.0, exposure)
     height, width = gray.shape
     kernel = np.exp(-(np.arange(-2, 3) ** 2) / 2.0)
     kernel /= kernel.sum()
@@ -120,7 +121,7 @@ def quality(image: Image.Image, bbox: tuple[float, ...]) -> dict[str, float]:
                     - 4.0 * smooth[1:-1, 1:-1])
     strongest = energy[energy >= np.percentile(energy, 99.9)]
     amplitude = float(np.percentile(np.abs(gray - np.median(gray)), 99.5)) + 1e-3
-    return {"sharpness": round(float(strongest.mean()) / amplitude, 4), "exposure": exposure}
+    return contract.quality(round(float(strongest.mean()) / amplitude, 4), exposure)
 
 
 def species_crops(image: Image.Image, bboxes: list[tuple[float, ...]],

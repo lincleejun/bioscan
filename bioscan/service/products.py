@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image
 
 from bioscan import contract
+from bioscan.service import pipeline
 from bioscan.service.adapters.siglip2 import MODEL_NAME
 from bioscan.service.pipeline import Frame, _species, identify  # noqa: F401 - re-exported
 from bioscan.service.rules import *  # noqa: F403 - rules and thresholds re-exported for callers of products.X
@@ -32,12 +33,7 @@ PRODUCTS: dict[str, Any] = {
         "options": {"top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
                     "geo": {"type": "boolean", "default": True},
                     "species": {"type": "boolean", "default": True}},
-        "output": {"gate": {"class": "bird|mammal|other_animal|person|none", "probs": "{class: float}"},
-                   "boxes": [{"id": "int", "xyxy": "[x0,y0,x1,y1] normalised 0-1, upright image",
-                              "score": "float", "kind": "bird|mammal|other_animal",
-                              "quality": {"sharpness": "float", "exposure": "float, mean luma - 0.5"},
-                              "species": "null | {list, level: species|genus|family|unconfirmed, "
-                                         "top: [{scientific, common, taxonomy[7], p_visual, p_geo, posterior}]}"}]},
+        "output": contract.IDENTIFY_OUTPUT,          # the payload's fields live in bioscan/contract.py
     },
     "embed": {
         "description": "SigLIP2 whole-frame image vector (same forward pass as the gate).",
@@ -168,8 +164,8 @@ REGISTRY: dict[str, Product] = {
     "identify": Product(
         "identify", ("siglip2", "owlv2", "bioclip"), True, True, DEFAULTS["identify"], _check_identify,
         PRODUCTS["identify"],
-        lambda e, items, o: e.identify_many([Frame(it.dec.image, it.gate, it.lat, it.lon, it.taken_at, it.dec.detail)
-                                             for it in items], o)),
+        lambda e, items, o: pipeline.identify_many(
+            e, [Frame(it.dec.image, it.gate, it.lat, it.lon, it.taken_at, it.dec.detail) for it in items], o)),
     "embed": Product(
         "embed", ("siglip2",), True, True, DEFAULTS["embed"], _check_embed, PRODUCTS["embed"],
         _each(lambda e, it, o: embed(it.vec, o["format"]))),

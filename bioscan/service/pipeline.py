@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import numpy as np
 from PIL import Image
 
-from bioscan.service.adapters import geo as geo_mod
+from bioscan import contract
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
     RESCUE,
@@ -27,20 +27,19 @@ from bioscan.service.rules import (
 from bioscan.service.taxa import VOCAB
 
 CROP_BATCH = 32          # crop-gate crops per SigLIP2 call
+SPECIES_BATCH = 16       # species crops per BioCLIP call
 
 
 class Models(Protocol):
-    """The seam between identify and the models: detector, crop gate, species encoder, name lists
-    and location priors per kind. Engine implements it; unit tests pass small stand-ins."""
+    """The seam between identify and the models: the three model adapters (detector, crop gate,
+    species encoder) and the data they need (name lists and location priors per kind). Engine
+    implements it; unit tests pass small stand-ins, the contract tests an Engine of fake adapters."""
 
     owlv2: Any                      # .detect(image, prompts, threshold=) -> list[Detection]
     siglip2: Any                    # .embed_images(images) -> vecs; .gate(vecs) -> [{class: p}]
-    bioclip: Any                    # .encode_images(crops) -> feats; .probs(feats, matrix) -> (n, N)
+    bioclip: Any                    # .encode_images(crops) -> feats; .probs(feats, NameList.matrix) -> (n, N)
     names: dict[str, Any]           # kind -> names.NameList
-    priors: dict[str, Any]          # kind -> geo.PriorBinding (absent = no prior for that kind)
-    BIOCLIP_BATCH: int
-
-    def name_matrix(self, kind: str) -> Any: ...
+    priors: dict[str, Any]          # kind -> geo.LocationPrior (absent = no prior for that kind)
 
 
 @dataclass(frozen=True)
@@ -94,7 +93,7 @@ def _judged_many(engine: Models, work: list[tuple[Image.Image, list[Detection], 
 def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], list[tuple[float, ...]]]],
                   opts: dict[str, Any]) -> None:
     """Fills every box's "species" in place: one BioCLIP pass per name list over all frames' boxes
-    (BIOCLIP_BATCH at a time), each frame's own location prior."""
+    (SPECIES_BATCH at a time), each frame's own location prior."""
     by_kind: dict[str, list[tuple[int, int]]] = defaultdict(list)
     for fi, (_f, boxes, _b) in enumerate(work):
         for bi, b in enumerate(boxes):
@@ -107,26 +106,20 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
         p_geo: dict[int, np.ndarray | None] = {}
         for fi in {fi for fi, _bi in refs}:
             f = work[fi][0]
-            p_geo[fi] = None
-            if opts["geo"] and prior is not None and f.lat is not None and f.lon is not None:
-                try:
-                    p_geo[fi] = geo_mod.align(prior.model.probs(f.lat, f.lon, geo_mod.week_of(f.taken_at)), prior.index)
-                except Exception:  # noqa: BLE001 - an optional prior must not discard the visual result
-                    p_geo[fi] = None
-        floor = prior.floor if prior is not None else geo_mod.GEO_FLOOR
-        for part in _batches(refs, engine.BIOCLIP_BATCH):
+            p_geo[fi] = prior.p_geo(f.lat, f.lon, f.taken_at) if opts["geo"] and prior is not None else None
+        for part in _batches(refs, SPECIES_BATCH):
             crops = [species_crops(work[fi][0].image, [work[fi][2][bi]], work[fi][0].detail)[0] for fi, bi in part]
-            probs = engine.bioclip.probs(engine.bioclip.encode_images(crops), engine.name_matrix(kind))
+            probs = engine.bioclip.probs(engine.bioclip.encode_images(crops), names.matrix)
             for (fi, bi), row in zip(part, probs):
                 row = np.asarray(row, dtype=np.float64)
-                post = geo_mod.posterior(row, p_geo[fi], floor)
+                post = prior.posterior(row, p_geo[fi]) if prior is not None else row
                 top = [
-                    {"scientific": names.scientific[j], "common": names.common[j] or None,
-                     "taxonomy": list(names.taxonomy[j]), "p_visual": round(float(row[j]), 6),
-                     "p_geo": None if p_geo[fi] is None else round(float(p_geo[fi][j]), 6),
-                     "posterior": round(float(post[j]), 6)}
+                    contract.candidate(names.scientific[j], names.common[j] or None,
+                                       list(names.taxonomy[j]), round(float(row[j]), 6),
+                                       None if p_geo[fi] is None else round(float(p_geo[fi][j]), 6),
+                                       round(float(post[j]), 6))
                     for j in np.argsort(-post, kind="stable")[:opts["top_k"]]]
-                work[fi][1][bi]["species"] = {"list": names.list_id, "level": species_level(top), "top": top}
+                work[fi][1][bi]["species"] = contract.species(names.list_id, species_level(top), top)
 
 
 def _species(engine: Models, image: Image.Image, boxes: list[dict[str, Any]], bboxes: list[tuple[float, ...]],
@@ -141,7 +134,7 @@ def _identify_batch(engine: Models, frames: list[Frame], opts: dict[str, Any]) -
     plan: dict[int, tuple[dict[str, float], str, bool]] = {}      # frame -> (vocab, kind, rescued)
     for i, f in enumerate(frames):
         cls = max(f.gate, key=lambda k: f.gate[k])
-        outs.append({"gate": {"class": cls, "probs": {k: round(v, 4) for k, v in f.gate.items()}}, "boxes": []})
+        outs.append(contract.identify(contract.gate(cls, {k: round(v, 4) for k, v in f.gate.items()}), []))
         rescue = cls not in VOCAB
         if rescue:
             # A bear at night or a bobcat in brush can lose the whole-frame vote to "none" while the
@@ -169,8 +162,8 @@ def _identify_batch(engine: Models, frames: list[Frame], opts: dict[str, Any]) -
         boxes = []
         for n, (d, kind) in enumerate(k):
             x0, y0, x1, y1 = d.bbox
-            boxes.append({"id": n, "xyxy": [round(x0 / w, 5), round(y0 / h, 5), round(x1 / w, 5), round(y1 / h, 5)],
-                          "score": round(d.confidence, 4), "kind": kind, "quality": quality(image, d.bbox)})
+            boxes.append(contract.box(n, [round(x0 / w, 5), round(y0 / h, 5), round(x1 / w, 5), round(y1 / h, 5)],
+                                      round(d.confidence, 4), kind, quality(image, d.bbox)))
         outs[i]["boxes"] = boxes
         species_work.append((frames[i], boxes, [d.bbox for d, _ in k]))
     if opts["species"]:

@@ -29,6 +29,7 @@ class BioCLIP:
         self.model.eval()
         self.tokenizer = open_clip.get_tokenizer(local)
         self.logit_scale = float(self.model.logit_scale.exp().item())
+        self._lists: dict[int, tuple[np.ndarray, Any]] = {}     # id(matrix) -> (matrix, its device copy)
 
     def encode_images(self, images: list[Any]) -> Any:
         """(n, 1024) L2-normalised torch tensor on device."""
@@ -37,7 +38,15 @@ class BioCLIP:
             f = self.model.encode_image(x)
             return f / f.norm(dim=-1, keepdim=True)
 
-    def probs(self, features: Any, matrix: Any) -> np.ndarray:
-        """softmax over a name list; `matrix` is the (N, 1024) list tensor on device."""
+    def probs(self, features: Any, matrix: np.ndarray) -> np.ndarray:
+        """softmax over a name list; `matrix` is its (N, 1024) float32 array (NameList.matrix),
+        copied to the device on first use and kept."""
         with self.torch.no_grad():
-            return (self.logit_scale * features @ matrix.T).softmax(dim=-1).float().cpu().numpy()
+            return (self.logit_scale * features @ self.place(matrix).T).softmax(dim=-1).float().cpu().numpy()
+
+    def place(self, matrix: np.ndarray) -> Any:
+        """The device copy of a name list's matrix, made on the first call and kept."""
+        hit = self._lists.get(id(matrix))
+        if hit is None:                 # the entry holds the array, so its id is never reused meanwhile
+            hit = self._lists[id(matrix)] = (matrix, self.torch.from_numpy(matrix).to(self.device))
+        return hit[1]

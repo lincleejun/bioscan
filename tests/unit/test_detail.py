@@ -6,7 +6,6 @@ from PIL import Image
 
 from bioscan.service import products
 from bioscan.service.adapters.owlv2 import Detection
-from bioscan.service.app import detail_edge_from
 
 
 def frame(size=(3000, 2000)) -> Image.Image:
@@ -44,15 +43,12 @@ class Engine:
         gate = {"bird": 0.9, "mammal": 0.05, "other_animal": 0.02, "person": 0.01, "none": 0.02}
         self.owlv2 = SimpleNamespace(detect=lambda im, prompts, threshold: [Detection("a bird", 0.8, (900, 500, 960, 560))])
         self.siglip2 = SimpleNamespace(embed_images=lambda ims: ims, gate=lambda ims: [dict(gate) for _ in ims])
-        self.names, self.priors, self.BIOCLIP_BATCH = names, {}, 16
+        self.names, self.priors = names, {}
         self.bioclip = SimpleNamespace(encode_images=self._encode, probs=lambda f, m: np.array([[0.7, 0.3]] * len(f)))
 
     def _encode(self, ims):
         self.seen += [im.size for im in ims]
         return ims
-
-    def name_matrix(self, kind):
-        return None
 
 
 def test_identify_detail_changes_only_the_species_crop():
@@ -71,10 +67,3 @@ def test_identify_detail_changes_only_the_species_crop():
     new = products.identify(b, image, gate, None, None, None, opts, detail=detail)
     assert old == new                              # boxes, quality, species output: identical here
     assert a.seen == [(320, 320)] and b.seen == [(480, 480)]
-
-
-def test_detail_edge_flag_env_default():
-    assert detail_edge_from(None, env={}) == 3072
-    assert detail_edge_from(None, env={"BIOSCAN_DETAIL_EDGE": "4096"}) == 4096
-    assert detail_edge_from(2500, env={"BIOSCAN_DETAIL_EDGE": "4096"}) == 2500
-    assert detail_edge_from(2048, env={}) is None and detail_edge_from(0, env={}) is None

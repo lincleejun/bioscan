@@ -18,6 +18,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from bioscan import contract
+
 pytestmark = pytest.mark.skipif(os.environ.get("BIOSCAN_MODEL_TESTS") != "1",
                                 reason="real-model smoke: set BIOSCAN_MODEL_TESTS=1 (see tests/models/download.py)")
 
@@ -72,12 +74,12 @@ def small_lists(bioclip) -> dict:
         common = [r["common"] for r in recs]
         matrix = names.encode([names.tol_text(t, c) for t, c in zip(tax, common)], bioclip.model, bioclip.tokenizer,
                               bioclip.device)
-        nl = names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs))
-        if kind == "bird":
-            nl.birdnet = [r["birdnet_label"] for r in recs]
-            nl.birdnet_how = [r["birdnet_how"] or "none" for r in recs]
-        nl.sha = f"test-{len(recs)}"
-        return nl
+        labels = {}
+        if names.LISTS[kind].label_map:          # rows come from avilist_map.csv, BirdNET labels included
+            labels = {"birdnet": [r["birdnet_label"] for r in recs],
+                      "birdnet_how": [r["birdnet_how"] or "none" for r in recs]}
+        return names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs),
+                              sha=f"test-{len(recs)}", **labels)
 
     return {"bird": build("avilist-2025-test-subset", "bird", "Aves", birds),
             "mammal": build("mdd-test-subset", "mammal", "Mammalia", mammals)}
@@ -103,11 +105,8 @@ def run():
     device = engine_mod.pick_device()
     bioclip = BioCLIP(device)
     lists = small_lists(bioclip)
-    mp = pytest.MonkeyPatch()
-    mp.setattr(engine_mod, "load_species", lambda device: (bioclip, lists))
-    engine = engine_mod.Engine(device)
+    engine = engine_mod.Engine(device, engine_mod.Loaders(species=lambda device: (bioclip, lists)))
     engine.ensure(["identify", "embed"])
-    mp.undo()
     if os.environ.get("BIOSCAN_REQUIRE_GEO") == "1":
         assert engine.geo is not None, "BirdNET geo prior failed to load (BIOSCAN_REQUIRE_GEO=1)"
 
@@ -170,6 +169,8 @@ def test_embed_is_a_unit_siglip2_vector(run):
 def test_boxes_are_well_formed(run):
     _, events, _ = run
     for e in (e for e in events if e["type"] == "result"):
+        problems = contract.identify_problems(e["products"]["identify"])
+        assert not problems, (e["path"], problems)
         for b in e["products"]["identify"]["boxes"]:
             x0, y0, x1, y1 = b["xyxy"]
             assert 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1 and b["kind"] in ("bird", "mammal", "other_animal")
@@ -213,6 +214,7 @@ def test_detail_path_with_real_models(run, tmp_path):
     from fastapi.testclient import TestClient
     from PIL import Image
 
+    from bioscan.service import pipeline
     from bioscan.service.app import create_app
 
     gt, events, engine = run
@@ -226,10 +228,10 @@ def test_detail_path_with_real_models(run, tmp_path):
                 .save(tmp_path / Path(p).name, quality=95)
         big.append(str(tmp_path / Path(p).name))
     seen = []
-    real = engine.identify_many
+    real = pipeline.identify_many
     mp = pytest.MonkeyPatch()
-    mp.setattr(engine, "identify_many", lambda frames, opts: seen.extend(f.detail.size for f in frames)
-               or real(frames, opts))
+    mp.setattr(pipeline, "identify_many", lambda models, frames, opts: seen.extend(f.detail.size for f in frames)
+               or real(models, frames, opts))
     try:
         with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(2))) as c:
             evs = [json.loads(line) for line in c.post("/run", json={"inputs": [{"path": p} for p in big]}).text.splitlines()]

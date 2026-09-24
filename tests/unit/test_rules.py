@@ -8,7 +8,7 @@ from PIL import Image, ImageFilter
 from bioscan.service import products
 from bioscan.service.adapters import geo, siglip2
 from bioscan.service.adapters.owlv2 import Detection, clip_to_frame
-from bioscan.service.app import allow_roots_from, parse_run, tunables
+from bioscan.service.app import parse_run
 
 TAX = lambda g, f, s: ["Animalia", "Chordata", "Aves", "O", f, g, f"{g} {s}"]  # noqa: E731
 
@@ -70,11 +70,62 @@ def test_geo_week_and_posterior():
     assert geo.week_of("2026-12-31") == 48
     assert geo.week_of(None) is None and geo.week_of("garbage!!!") is None
     pv = np.array([0.6, 0.4, 0.0])
-    assert geo.posterior(pv, None) is pv
-    p_geo = geo.align(np.array([0.0, 0.9]), np.array([-1, 1, 0]))   # row 0 has no BirdNET label -> 0
+
+    class Source:
+        labels = ["Buteo b_x", "Buteo a_x"]
+
+        def probs(self, lat, lon, week):
+            return np.array([0.0, 0.9])
+
+    prior = geo.LocationPrior(Source(), ["", "Buteo a_x", "Buteo b_x"])   # row 0 has no BirdNET label -> 0
+    assert prior.posterior(pv, None) is pv
+    p_geo = prior.p_geo(37.4, -122.1, None)
     np.testing.assert_allclose(p_geo, [0.0, 0.9, 0.0])
-    post = geo.posterior(pv, p_geo)
+    post = prior.posterior(pv, p_geo)
     assert post.argmax() == 1 and abs(post.sum() - 1) < 1e-12
+    np.testing.assert_allclose(post, pv * (geo.GEO_FLOOR + p_geo) / (pv * (geo.GEO_FLOOR + p_geo)).sum())
+
+
+def test_location_prior_p_geo():
+    """Rows follow the name list, not the source's order; the week comes from taken_at; no place
+    or a failing source -> None (never an error)."""
+    asked = []
+
+    class Source:
+        labels = ["Tyto alba_x", "Junco hyemalis_x", "Anas platyrhynchos_x"]
+
+        def probs(self, lat, lon, week):
+            asked.append((lat, lon, week))
+            if lat < 0:
+                raise RuntimeError("model down")
+            return np.array([0.3, 0.6, 0.9])
+
+    prior = geo.LocationPrior(Source(), ["Junco hyemalis_x", "", "Tyto alba_x", "Not in source_x"])
+    np.testing.assert_allclose(prior.p_geo(32.9, -118.5, "2026-05-01T08:00:00"), [0.6, 0.0, 0.3, 0.0])
+    assert asked == [(32.9, -118.5, 17)]
+    prior.p_geo(32.9, -118.5, "garbage!!!")
+    assert asked[-1] == (32.9, -118.5, None)
+    assert prior.p_geo(None, -118.5, "2026-05-01") is None and prior.p_geo(32.9, None, None) is None
+    assert len(asked) == 2                                              # no place: the source is not asked
+    assert prior.p_geo(-33.9, 151.2, "2026-05-01") is None              # the source failed
+    assert prior.name == "birdnet-geo-3.0" and prior.floor == geo.GEO_FLOOR
+
+
+def test_priors_for_binds_lists_with_birdnet_labels():
+    from types import SimpleNamespace
+
+    class Source:
+        labels = ["Buteo a_x"]
+
+        def probs(self, lat, lon, week):
+            return np.array([0.5])
+
+    lists = {"bird": SimpleNamespace(birdnet=["Buteo a_x", ""]), "mammal": SimpleNamespace(birdnet=[])}
+    assert geo.priors_for(lists, None) == {}                            # birdnet cannot load: no prior
+    src = Source()
+    priors = geo.priors_for(lists, src)
+    assert list(priors) == ["bird"] and priors["bird"].source is src
+    np.testing.assert_allclose(priors["bird"].p_geo(1.0, 2.0, None), [0.5, 0.0])
 
 
 def test_geo_prior_applies_to_whole_list_before_top_k():
@@ -97,9 +148,7 @@ def test_geo_prior_applies_to_whole_list_before_top_k():
         def probs(self, lat, lon, week):
             return np.array([probs[lab] for lab in self.labels])
 
-    g = Geo()
-    eng = SimpleNamespace(names={"bird": birds}, priors={"bird": geo.PriorBinding(g, geo.GeoPrior.index(g, birds.birdnet))},
-                          BIOCLIP_BATCH=16, name_matrix=lambda k: None,
+    eng = SimpleNamespace(names={"bird": birds}, priors={"bird": geo.LocationPrior(Geo(), birds.birdnet)},
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims, probs=lambda f, m: np.array([visual])))
 
     def run(**opts):
@@ -152,15 +201,6 @@ def test_parse_run():
             parse_run(bad)
 
 
-def test_tunables_flag_env_default():
-    assert tunables(None, None, env={}) == (4, 32)
-    env = {"BIOSCAN_DECODE_WORKERS": "2", "BIOSCAN_CHUNK": "8"}
-    assert tunables(None, None, env=env) == (2, 8)
-    assert tunables(6, None, env=env) == (6, 8)
-    with pytest.raises(SystemExit):
-        tunables(0, None, env={})
-
-
 def test_mammal_species_uses_mdd_without_geo():
     from types import SimpleNamespace
 
@@ -172,12 +212,13 @@ def test_mammal_species_uses_mdd_without_geo():
                    [tax, tax2], np.zeros((2, 4), np.float32), ["exact", "exact"])
 
     class Geo:
+        labels: list[str] = []
+
         def probs(self, *a):
             raise AssertionError("mammals get no geo prior")
 
     # a prior exists but is bound to birds only: mammals never ask it
-    eng = SimpleNamespace(names={"mammal": mdd}, priors={"bird": geo.PriorBinding(Geo(), np.zeros(0, np.int64))},
-                          BIOCLIP_BATCH=16, name_matrix=lambda k: None,
+    eng = SimpleNamespace(names={"mammal": mdd}, priors={"bird": geo.LocationPrior(Geo(), [])},
                           bioclip=SimpleNamespace(encode_images=lambda ims: ims,
                                                   probs=lambda f, m: np.array([[0.9, 0.1]] * len(f))))
     boxes = [{"kind": "mammal"}]
@@ -190,11 +231,3 @@ def test_mammal_species_uses_mdd_without_geo():
     # MDD 7-level taxonomy: [5] is the genus, [4] the family -> two cervid genera roll up to family
     assert products.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}]) \
         == "family"
-
-
-def test_allow_roots_flag_env_default():
-    import os
-
-    assert allow_roots_from(None, env={}) == []
-    assert allow_roots_from(None, env={"BIOSCAN_ALLOW_ROOTS": f"/a{os.pathsep}/b{os.pathsep}"}) == ["/a", "/b"]
-    assert allow_roots_from(["/c"], env={"BIOSCAN_ALLOW_ROOTS": "/a"}) == ["/c"]

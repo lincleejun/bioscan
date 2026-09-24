@@ -11,6 +11,7 @@ def test_norm_and_builtin_match():
     assert gt.match_folder("Steller’s Jay", {}) == ("Cyanocitta stelleri", "bird")
     assert gt.match_folder("Western-Screech-Owl", {}) == ("Megascops kennicottii", "bird")
     assert gt.match_folder("Mystery Bird", {}) == ("", "")
+    assert gt.match_folder("Stellers Jay", {}) == ("", "")    # the apostrophe is part of the name
 
 
 def test_names_csv_match_and_ambiguity(tmp_path):

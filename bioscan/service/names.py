@@ -4,8 +4,10 @@ Each list row gets the official TreeOfLife-200M text vector when its binomial ma
 row of the same class, exactly or through `data/names/synonyms.csv` (birds: as recorded in the
 committed `data/names/avilist_map.csv`, built by scripts/build_name_map.py; mammals: matched at
 build time); otherwise the row is encoded with the text tower using TreeOfLife's own text format,
-so both kinds of vectors live in one space. Birds also carry their BirdNET label from the map.
-The result is cached per list as `<cache_dir>/<model>-<list_sha>.npz`.
+so both kinds of vectors live in one space. A list with a label map (birds: avilist_map.csv) also
+carries each row's BirdNET label from it, the location-prior label. `load_lists` returns finished
+lists: callers never patch fields onto a NameList. The matrix is cached per list as
+`<cache_dir>/<model>-<list_sha>.npz`; labels and sha are not cached, they come from the map and key.
 """
 from __future__ import annotations
 
@@ -16,10 +18,11 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 import numpy as np
 
-from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, map_problems, norm_binomial, read_synonyms  # noqa: F401
+from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, map_problems, norm_binomial, read_synonyms
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +35,9 @@ CACHE_VERSION = "2"  # bump when text format, matching or npz layout changes
 DIM = 1024
 
 
-@dataclass
+@dataclass(frozen=True)
 class NameList:
+    """One species list, complete as `load_lists` returns it. Frozen: fields are set once, there."""
     list_id: str                 # "avilist-2025" | "mdd-2025"
     kind: str                    # "bird" | "mammal"
     scientific: list[str]
@@ -42,8 +46,10 @@ class NameList:
     matrix: np.ndarray           # (N, 1024) float32, L2-normalised
     tol_how: list[str]           # exact | synonym (official TreeOfLife vector) | none (self-encoded)
     sha: str = ""                # list hash (CSV + map + synonyms + list_id + cache version), the cache key
-    birdnet: list[str] = field(default_factory=list)      # BirdNET label per row ("" = none); birds only
-    birdnet_how: list[str] = field(default_factory=list)  # exact | synonym | none
+    # BirdNET (location-prior) label per row, "" = none, and how it matched (exact | synonym | none).
+    # Both empty when the list has no label map (mammals; birds when avilist_map.csv is missing).
+    birdnet: list[str] = field(default_factory=list)
+    birdnet_how: list[str] = field(default_factory=list)
 
 
 def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> list[str]:
@@ -72,10 +78,20 @@ def read_mdd(path: Path) -> list[tuple[str, str, list[str]]]:
     return rows
 
 
-# kind -> (list_id, data subdir, class, reader)
+class ListSource(NamedTuple):
+    """Where a list comes from. `label_map` names a CSV under data/names that maps each row to its
+    TreeOfLife name and BirdNET label (scripts/build_name_map.py); None = matched to TreeOfLife at
+    build time through synonyms.csv, with no BirdNET labels and so no location prior."""
+    list_id: str
+    subdir: str                  # under data_dir, holding exactly one CSV
+    cls: str                     # the TreeOfLife class its rows match against
+    reader: Callable[[Path], list[tuple[str, str, list[str]]]]
+    label_map: str | None
+
+
 LISTS = {
-    "bird": ("avilist-2025", "avilist", "Aves", read_avilist),
-    "mammal": ("mdd-2025", "mdd", "Mammalia", read_mdd),
+    "bird": ListSource("avilist-2025", "avilist", "Aves", read_avilist, "avilist_map.csv"),
+    "mammal": ListSource("mdd-2025", "mdd", "Mammalia", read_mdd, None),
 }
 
 
@@ -175,14 +191,14 @@ def _built_with() -> dict[str, str]:
     return {"bioclip_revision": bioclip.REVISION, "tol_revision": TOL_REVISION}
 
 
-def _build(kind, rows, tol, model, tokenizer, device, keys: list[tuple[str, str]] | None,
-           synonyms: list[dict[str, str]]) -> NameList:
-    """`keys` = (TreeOfLife binomial, how) per row from the map; None = match here."""
-    list_id, _sub, cls, _reader = LISTS[kind]
+def _build(src: ListSource, rows, tol, model, tokenizer, device, keys: list[tuple[str, str]] | None,
+           synonyms: list[dict[str, str]]) -> dict:
+    """The cached columns of one list. `keys` = (TreeOfLife binomial, how) per row from the label
+    map; None = match here."""
     names, vecs = tol
     if keys is None:
-        keys = match_names([r[0] for r in rows], tol_targets(names, cls), aliases(synonyms, ("tol", "spelling")))
-    hits = match_tol(rows, names, cls, [k for k, _ in keys])
+        keys = match_names([r[0] for r in rows], tol_targets(names, src.cls), aliases(synonyms, ("tol", "spelling")))
+    hits = match_tol(rows, names, src.cls, [k for k, _ in keys])
     tol_how = [how if h is not None else "none" for (_k, how), h in zip(keys, hits)]
     official = np.array([h is not None for h in hits], dtype=bool)
     matrix = np.zeros((len(rows), vecs.shape[1]), np.float32)
@@ -194,20 +210,20 @@ def _build(kind, rows, tol, model, tokenizer, device, keys: list[tuple[str, str]
         matrix[official] = taken
     missing = np.flatnonzero(~official)
     if len(missing):
-        log.info("%s: encoding %d names with the text tower", list_id, len(missing))
+        log.info("%s: encoding %d names with the text tower", src.list_id, len(missing))
         texts = [tol_text(rows[i][2], rows[i][1]) for i in missing]
         matrix[missing] = encode(texts, model, tokenizer, device)
     matrix /= np.linalg.norm(matrix, axis=1, keepdims=True)
-    return NameList(list_id, kind, [r[0] for r in rows], [r[1] for r in rows], [r[2] for r in rows],
-                    matrix, tol_how)
+    return {"scientific": [r[0] for r in rows], "common": [r[1] for r in rows], "taxonomy": [r[2] for r in rows],
+            "matrix": matrix, "tol_how": tol_how}
 
 
-def _save(path: Path, nl: NameList) -> None:
+def _save(path: Path, cols: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     with open(tmp, "wb") as f:
-        np.savez(f, scientific=np.array(nl.scientific), common=np.array(nl.common),
-                 taxonomy=np.array(nl.taxonomy), matrix=nl.matrix, tol_how=np.array(nl.tol_how),
+        np.savez(f, scientific=np.array(cols["scientific"]), common=np.array(cols["common"]),
+                 taxonomy=np.array(cols["taxonomy"]), matrix=cols["matrix"], tol_how=np.array(cols["tol_how"]),
                  **{k: np.array(v) for k, v in _built_with().items()})
     os.replace(tmp, path)
 
@@ -222,10 +238,24 @@ def _stale(path: Path) -> bool:
     return any(recorded[k] != v for k, v in _built_with().items() if k in recorded)
 
 
-def _load(path: Path, kind: str) -> NameList:
+def _load(path: Path) -> dict:
     with np.load(path, allow_pickle=False) as z:
-        return NameList(LISTS[kind][0], kind, z["scientific"].tolist(), z["common"].tolist(),
-                        z["taxonomy"].tolist(), z["matrix"], z["tol_how"].tolist())
+        return {"scientific": z["scientific"].tolist(), "common": z["common"].tolist(),
+                "taxonomy": z["taxonomy"].tolist(), "matrix": z["matrix"], "tol_how": z["tol_how"].tolist()}
+
+
+def _read_label_map(data_dir: Path, src: ListSource, kind: str, synonyms) -> tuple[dict[str, dict[str, str]], Path | None]:
+    """(label map, its path); ({}, None) when the list has none or the file is missing (warned)."""
+    if src.label_map is None:
+        return {}, None
+    map_path = data_dir / NAMES_DIR / src.label_map
+    amap = read_map(map_path)
+    if not amap:
+        log.warning("%s missing: %ss matched to TreeOfLife here, no BirdNET labels (no geo prior)", map_path, kind)
+        return {}, None
+    for problem in map_problems(amap, synonyms):
+        log.warning("stale name map: %s", problem)
+    return amap, map_path
 
 
 def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
@@ -233,36 +263,33 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
     """{"bird": NameList, "mammal": NameList}. `model`/`tokenizer` are only used on a cache miss.
     `tol_files` = (names.json, vectors.npy) overrides the HF download (tests)."""
     cache_dir = Path(cache_dir).expanduser()
-    syn_path, map_path = data_dir / NAMES_DIR / "synonyms.csv", data_dir / NAMES_DIR / "avilist_map.csv"
+    syn_path = data_dir / NAMES_DIR / "synonyms.csv"
     synonyms = read_synonyms(syn_path)
-    amap = read_map(map_path)
-    if not amap:
-        log.warning("%s missing: birds matched to TreeOfLife here, no BirdNET labels (no geo prior)", map_path)
-    for problem in map_problems(amap, synonyms) if amap else []:
-        log.warning("stale name map: %s", problem)
     out, tol = {}, None
-    for kind, (list_id, sub, _cls, reader) in LISTS.items():
-        src = _list_file(data_dir, sub)
-        mapped = kind == "bird" and bool(amap)
-        extra = b"".join(p.read_bytes() for p in (syn_path, map_path if mapped else None) if p and p.is_file())
-        sha = hashlib.sha256(f"{CACHE_VERSION}\0{list_id}\0".encode() + src.read_bytes() + b"\0" + extra).hexdigest()[:16]
+    for kind, src in LISTS.items():
+        amap, map_path = _read_label_map(data_dir, src, kind, synonyms)
+        csv_path = _list_file(data_dir, src.subdir)
+        # The key hashes the label map only when one is used (cache key unchanged since v2).
+        extra = b"".join(p.read_bytes() for p in (syn_path, map_path) if p and p.is_file())
+        sha = hashlib.sha256(f"{CACHE_VERSION}\0{src.list_id}\0".encode() + csv_path.read_bytes() + b"\0" + extra).hexdigest()[:16]
         path = cache_dir / f"{MODEL_NAME}-{sha}.npz"
-        rows = reader(src)
+        rows = src.reader(csv_path)
         if path.is_file() and not _stale(path):
-            out[kind] = _load(path, kind)
+            cols = _load(path)
         else:
             if tol is None:
                 tol = _read_tol(tol_files)
             keys = None
-            if mapped:
+            if amap:
                 keys = [(m["tol_name"], m["tol_how"]) if (m := amap.get(r[0])) else ("", "none") for r in rows]
-            out[kind] = _build(kind, rows, tol, model, tokenizer, device, keys, synonyms)
-            _save(path, out[kind])
-        if mapped:
+            cols = _build(src, rows, tol, model, tokenizer, device, keys, synonyms)
+            _save(path, cols)
+        labels = {}
+        if amap:
             m = [amap.get(r[0], {}) for r in rows]
-            out[kind].birdnet = [x.get("birdnet_label", "") for x in m]
-            out[kind].birdnet_how = [x.get("birdnet_how") or "none" for x in m]
-        out[kind].sha = sha
+            labels = {"birdnet": [x.get("birdnet_label", "") for x in m],
+                      "birdnet_how": [x.get("birdnet_how") or "none" for x in m]}
+        out[kind] = NameList(src.list_id, kind, **cols, sha=sha, **labels)
     for s in stats(out).values():
         log.info("names %s: %d species, TreeOfLife %s, BirdNET %s", s["list_id"], s["total"], s["tol"], s["birdnet"])
     return out

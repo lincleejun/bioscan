@@ -158,7 +158,7 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
-The response is an NDJSON stream of `progress` / `result` / `error` / `done` events, defined in `bioscan/contract.py` (`result` and `done` carry `schema: 1`). Concurrent requests take turns on the models one chunk at a time (a one-image request waits for at most one chunk); within a chunk every model stage is batched across images, and CPU decoding overlaps inference. `result.engine` holds the model versions, the name-list versions, `settings` (a fingerprint of rule thresholds, prompts and vocabularies: if it changes, results are not directly comparable) and `detail_edge`. The full contract is in section 4 of `docs/superpowers/specs/2026-09-22-bioscan-design.md`.
+The response is an NDJSON stream of `progress` / `result` / `error` / `done` events, defined in `bioscan/contract.py` together with the `identify` payload (gate, boxes, quality, species, candidates); `result` and `done` carry `schema: 1`. Concurrent requests take turns on the models one chunk at a time (a one-image request waits for at most one chunk); within a chunk every model stage is batched across images, and CPU decoding overlaps inference. `result.engine` holds the model versions, the name-list versions, `settings` (a fingerprint of rule thresholds, prompts and vocabularies: if it changes, results are not directly comparable) and `detail_edge`. The full contract is in section 4 of `docs/superpowers/specs/2026-09-22-bioscan-design.md`.
 
 CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.
 
@@ -214,10 +214,12 @@ CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.ym
 ## Layout
 
 ```
-bioscan/contract.py              single definition of /run events and product names (shared by CLI and service, stdlib only)
-bioscan/naming.py                scientific-name normalisation, synonyms.csv, stale-map check (stdlib only)
-bioscan/service/app.py           routes, NDJSON stream, per-chunk model lock, self-healing decode pool
-bioscan/service/engine.py        device choice, model loader registry, per-kind priors, EngineProtocol
+bioscan/contract.py              single definition of /run events, product names and the identify payload (shared by CLI and service, stdlib only)
+bioscan/naming.py                name normalisation (scientific names; gt folder labels), synonyms.csv, stale-map check (stdlib only)
+bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > default, once, for both entry points (stdlib only)
+bioscan/service/app.py           routes, request validation, allow-roots, NDJSON stream
+bioscan/service/run.py           a /run as events: chunks, per-chunk model turn, self-healing decode pool
+bioscan/service/engine.py        device choice, lazy model loading via Loaders (tests inject fake adapters), per-kind priors
 bioscan/service/products.py      product registry: dependencies, options, validation, schema, runner
 bioscan/service/pipeline.py      identify orchestration (batched across images) behind the Models protocol
 bioscan/service/rules.py         pure rules and thresholds: crop check, grading, quality, cropping

@@ -11,6 +11,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from bioscan.naming import norm_label
+
 DEFAULT_EXT = "arw,dng,jpg,jpeg,raf,nef,cr3"
 # spec 8 columns + `kind` (bird|mammal): eval groups by kind and the truth row is the only
 # place that knows it. The inat extras (license, attribution) are from spec 7.
@@ -67,14 +69,8 @@ def exif_time(dt, offset) -> str:
     return s + offset if isinstance(offset, str) and re.fullmatch(r"[+-]\d\d:\d\d", offset) else s
 
 
-def norm(name: str) -> str:
-    """Fold a common/scientific name for matching: 'Red-Tailed-Hawk' == 'Red-tailed Hawk'."""
-    s = name.replace("’", "'").replace("_", " ").replace("-", " ").lower()
-    return " ".join(s.split())
-
-
 def load_name_index(csv_paths: list[str]) -> dict[str, set[tuple[str, str]]]:
-    """norm(common or scientific) -> {(scientific, kind)}. Columns are detected by header name
+    """norm_label(common or scientific) -> {(scientific, kind)}. Columns are detected by header name
     (AviList: Scientific_name / English_name_*; MDD: sciName / mainCommonName / otherCommonNames)."""
     index: dict[str, set[tuple[str, str]]] = {}
     for p in csv_paths:
@@ -93,19 +89,21 @@ def load_name_index(csv_paths: list[str]) -> dict[str, set[tuple[str, str]]]:
                 sci = " ".join(row[sci_col].replace("_", " ").split())
                 if not sci:
                     continue
-                keys = {norm(sci)}
+                keys = {norm_label(sci)}
                 for c in common_cols:  # MDD otherCommonNames is '|'-separated
-                    keys |= {norm(n) for n in re.split(r"[|;]", row[c] or "") if n.strip()}
+                    keys |= {norm_label(n) for n in re.split(r"[|;]", row[c] or "") if n.strip()}
                 for k in keys:
                     index.setdefault(k, set()).add((sci, kind))
     return index
 
 
 def match_folder(label: str, index: dict) -> tuple[str, str]:
-    """Folder name -> (scientific, kind); ('', '') when unknown or ambiguous."""
-    hits = index.get(norm(label)) if index else None
+    """Folder name -> (scientific, kind) by naming.norm_label ('Red-Tailed-Hawk' == 'Red-tailed Hawk',
+    'Steller’s Jay' == "Steller's Jay"); ('', '') when unknown or ambiguous."""
+    key = norm_label(label)
+    hits = index.get(key) if index else None
     if hits is None:
-        hits = {BUILTIN[norm(label)]} if norm(label) in BUILTIN else set()
+        hits = {BUILTIN[key]} if key in BUILTIN else set()
     return next(iter(hits)) if len(hits) == 1 else ("", "")
 
 

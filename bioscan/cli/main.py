@@ -8,7 +8,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-from bioscan import contract
+from bioscan import contract, serve_config
 from bioscan.cli import client, gt
 from bioscan.cli.render import Renderer
 
@@ -41,21 +41,18 @@ def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = N
 
 def cmd_serve(a):
     if a.launchd:
-        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or 4, a.chunk or 32,
+        # launchd starts the job without this shell's environment: bake in the flags, else the
+        # defaults, and let the served command line resolve the rest.
+        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or serve_config.DECODE_WORKERS,
+                                              a.chunk or serve_config.CHUNK,
                                               allow_roots=a.allow_root, detail_edge=a.detail_edge))
         return 0
-    # The service reads its tunables from the environment (flag > env > default 4/32).
-    if a.decode_workers is not None:
-        os.environ["BIOSCAN_DECODE_WORKERS"] = str(a.decode_workers)
-    if a.chunk is not None:
-        os.environ["BIOSCAN_CHUNK"] = str(a.chunk)
-    if a.detail_edge is not None:
-        os.environ["BIOSCAN_DETAIL_EDGE"] = str(a.detail_edge)
-    if a.allow_root:
-        os.environ["BIOSCAN_ALLOW_ROOTS"] = os.pathsep.join(os.path.abspath(r) for r in a.allow_root)
+    config = serve_config.resolve(port=a.port, decode_workers=a.decode_workers, chunk=a.chunk,
+                                  detail_edge=a.detail_edge,
+                                  allow_roots=[os.path.abspath(r) for r in a.allow_root or []])
     from bioscan.service import app  # service deps live with bioscan.service; keep the CLI import-light
 
-    app.main(["--port", str(a.port)])
+    app.serve(config)
     return 0
 
 
@@ -176,12 +173,11 @@ def cmd_names_stats(a):
     return 0
 
 
-def cmd_names_geo_gaps(a, prior=None):
+def cmd_names_geo_gaps(a, source=None):
     """Unlabelled AviList species whose genus lives at --lat/--lon: candidates for a `birdnet`
-    row in data/names/synonyms.csv. Needs only the birdnet package, not the models."""
+    row in data/names/synonyms.csv. Needs only the birdnet package, not the models. `source` is
+    the BirdNET geo model (default: load it)."""
     import csv
-
-    import numpy as np
 
     from bioscan.service.adapters import geo
 
@@ -194,12 +190,11 @@ def cmd_names_geo_gaps(a, prior=None):
             for r in csv.DictReader(f):
                 if r["side"] == "birdnet":
                     cands.setdefault(r["scientific"], []).append(r["candidate"])
-    prior = prior or geo.GeoPrior.load()
-    if prior is None:
+    source = source or geo.GeoPrior.load()
+    if source is None:
         raise SystemExit("BirdNET geo model unavailable (pip package `birdnet`, model geo 3.0)")
-    index = prior.index([r["birdnet_label"] for r in rows])
-    probs = prior.probs(a.lat, a.lon, geo.week_of(a.date))
-    found = geo.gaps([r["scientific"] for r in rows], [r["common"] for r in rows], np.asarray(index), probs, a.min_p)
+    prior = geo.LocationPrior(source, [r["birdnet_label"] for r in rows])
+    found = prior.gaps([r["scientific"] for r in rows], [r["common"] for r in rows], a.lat, a.lon, a.date, a.min_p)
     print(f"{len(found)} unlabelled species whose genus has p_geo >= {a.min_p} at {a.lat},{a.lon}"
           f" (week {geo.week_of(a.date) or 'all'}):")
     for g in found:
@@ -216,11 +211,13 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("serve", help="run the service (uvicorn, one worker)")
-    s.add_argument("--port", type=int, default=8765)
-    s.add_argument("--decode-workers", type=int, help="env BIOSCAN_DECODE_WORKERS, default 4")
-    s.add_argument("--chunk", type=int, help="env BIOSCAN_CHUNK, default 32")
+    s.add_argument("--port", type=int, default=serve_config.PORT)
+    s.add_argument("--decode-workers", type=int,
+                   help=f"env BIOSCAN_DECODE_WORKERS, default {serve_config.DECODE_WORKERS}")
+    s.add_argument("--chunk", type=int, help=f"env BIOSCAN_CHUNK, default {serve_config.CHUNK}")
     s.add_argument("--allow-root", action="append", help="only serve files under DIR (repeatable); env BIOSCAN_ALLOW_ROOTS")
-    s.add_argument("--detail-edge", type=int, help="species-crop image long edge, <=2048 = off; env BIOSCAN_DETAIL_EDGE, default 3072")
+    s.add_argument("--detail-edge", type=int, help=f"species-crop image long edge, <={serve_config.MAX_EDGE} = off; "
+                                                   f"env BIOSCAN_DETAIL_EDGE, default {serve_config.DETAIL_EDGE}")
     s.add_argument("--launchd", action="store_true", help="print a launchd plist to stdout instead of serving")
     s.set_defaults(func=cmd_serve)
 

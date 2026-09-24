@@ -8,12 +8,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from conftest import ALL_WANTS, FAIL_SIZE, FakeEngine, client_for, events, make_jpg
+from conftest import ALL_WANTS, FAIL_SIZE, Fakes, client_for, events, make_jpg, species_crop
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import bioscan
 from bioscan.service import products
-from bioscan.service.app import create_app, run_events
+from bioscan.service import run as run_mod
+from bioscan.service.app import create_app
 
 
 def test_health(client):
@@ -47,12 +49,12 @@ def test_bad_json_400(client):
 
 
 def test_model_load_failure_503():
-    with client_for(FakeEngine(fail_load=True)) as c:
+    with client_for(Fakes(fail_load=True).engine()) as c:
         r = c.post("/run", json={"inputs": [{"path": "/x.jpg"}]})
         assert r.status_code == 503 and "weights missing" in r.json()["error"]
 
 
-def test_full_run_all_products(client, engine, tmp_path):
+def test_full_run_all_products(client, fakes, tmp_path):
     paths = [make_jpg(tmp_path / f"{i}.jpg", (3000, 2000)) for i in range(3)]
     out = tmp_path / "out"
     r = client.post("/run", json={"inputs": [{"path": p} for p in paths], "want": ["identify", "embed", "jpg"],
@@ -65,12 +67,13 @@ def test_full_run_all_products(client, engine, tmp_path):
     for e in results:
         assert len(e["sha256"]) == 64
         assert e["image"] == {"width": 3000, "height": 2000, "orientation": 1}
-        assert e["engine"]["version"] == "test" and set(e["engine"]["models"]) >= {"gate", "detect", "species"}
+        assert e["engine"]["version"] == bioscan.__version__
+        assert set(e["engine"]["models"]) >= {"gate", "detect", "species"}
         assert set(e["timing_ms"]) == {"decode", "identify", "embed", "jpg"}
         ident = e["products"]["identify"]
         assert ident["gate"]["class"] == "bird" and set(ident["gate"]["probs"]) == {"bird", "mammal", "other_animal", "person", "none"}
         box = ident["boxes"][0]
-        assert all(0 <= v <= 1 for v in box["xyxy"]) and box["species"]["level"] == "species"
+        assert box["xyxy"] == [0.31, 0.22, 0.58, 0.71] and box["species"]["level"] == "species"
         emb = e["products"]["embed"]
         assert emb["dim"] == 768 and len(emb["vector"]) == 768 and emb["model"] == "siglip2-base-patch16-224"
         jpg = e["products"]["jpg"]
@@ -79,20 +82,22 @@ def test_full_run_all_products(client, engine, tmp_path):
             assert im.size == (2048, 1365)
     prog = [e for e in ev if e["type"] == "progress"]
     assert [(e["product"], e["done"], e["total"]) for e in prog] == [("identify", 3, 3), ("embed", 3, 3), ("jpg", 3, 3)]
-    assert engine.details == [(3000, 2000)] * 3      # species crops from the full 3000 px frame, not the 2048 one
+    # species crops from the full 3000 px frame, not the 2048 one
+    assert fakes.crops == [species_crop((2048, 1365), (3000, 2000))] * 3
 
 
 def test_detail_image_only_for_identify_and_can_be_off(tmp_path):
     p = make_jpg(tmp_path / "a.jpg", (3000, 2000))
-    engine = FakeEngine()
-    with client_for(engine) as c:
+    assert species_crop((2048, 1365), (3000, 2000)) != species_crop((2048, 1365))   # the crops tell them apart
+    fakes = Fakes()
+    with client_for(fakes.engine()) as c:
         events(c.post("/run", json={"inputs": [{"path": p}], "want": ["embed"]}))
         events(c.post("/run", json={"inputs": [{"path": p}]}))
-    assert engine.details == [(3000, 2000)]
-    engine = FakeEngine()
-    with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(2), detail_edge=None)) as c:
+    assert fakes.crops == [species_crop((2048, 1365), (3000, 2000))]
+    fakes = Fakes()
+    with TestClient(create_app(fakes.engine(), decode_pool=ThreadPoolExecutor(2), detail_edge=None)) as c:
         events(c.post("/run", json={"inputs": [{"path": p}]}))
-    assert engine.details == [None] and engine.calls[0]["size"] == (2048, 1365)
+    assert fakes.crops == [species_crop((2048, 1365))] and fakes.frames == [(2048, 1365)]
 
 
 def test_jpg_names_do_not_collide(client, tmp_path):
@@ -167,20 +172,22 @@ def test_chunked_progress(engine, tmp_path):
     assert ev[-1]["ok"] == 5 and sum(e["type"] == "done" for e in ev) == 1
 
 
-def test_request_coordinates_override_exif(client, engine, tmp_path):
+def test_request_coordinates_override_exif(client, fakes, tmp_path):
     p = make_jpg(tmp_path / "a.jpg")
     client.post("/run", json={"inputs": [{"path": p, "lat": 37.4, "lon": -122.1, "taken_at": "2026-05-01T08:00:00Z"}]})
     client.post("/run", json={"inputs": [{"path": p}]})
-    assert engine.calls[0] == {"size": (64, 48), "lat": 37.4, "lon": -122.1, "taken_at": "2026-05-01T08:00:00Z"}
-    assert engine.calls[1]["lat"] is None and engine.calls[1]["taken_at"] is None
+    assert fakes.frames == [(64, 48), (64, 48)]
+    # the request's place and date reach the location prior (2026-05-01 is BirdNET week 17);
+    # the second request has neither, so the prior is never asked
+    assert fakes.where == [(37.4, -122.1, 17)]
 
 
 def test_requests_are_serialised_and_queued(tmp_path):
     gate = threading.Event()
-    engine = FakeEngine(block=gate)
+    fakes = Fakes(block=gate)
     p = make_jpg(tmp_path / "a.jpg")
     finished: list[tuple[str, float]] = []
-    with client_for(engine) as c:
+    with client_for(fakes.engine()) as c:
         def post(name):
             r = c.post("/run", json={"inputs": [{"path": p}]})
             finished.append((name, time.monotonic()))
@@ -192,17 +199,19 @@ def test_requests_are_serialised_and_queued(tmp_path):
         second = threading.Thread(target=post, args=("second",))
         second.start()
         _wait(lambda: c.get("/health").json()["queued"] == 1)
-        assert len(engine.calls) == 1            # the second batch has not touched the models
+        assert len(fakes.frames) == 1            # the second batch has not touched the detector
         gate.set()
         first.join(10)
         second.join(10)
         assert [n for n, _ in sorted(finished, key=lambda x: x[1])] == ["first", "second"]
         h = c.get("/health").json()
-        assert (h["running"], h["queued"]) == (0, 0) and len(engine.calls) == 2
+        assert (h["running"], h["queued"]) == (0, 0) and len(fakes.frames) == 2
 
 
 def test_disconnect_stops_after_current_chunk(tmp_path):
-    engine = FakeEngine()
+    fakes = Fakes()
+    engine = fakes.engine()
+    engine.ensure(["identify"])          # what POST /run does before RunQueue.events
     paths = [make_jpg(tmp_path / f"{i}.jpg") for i in range(6)]
     checks = []
 
@@ -211,14 +220,14 @@ def test_disconnect_stops_after_current_chunk(tmp_path):
         return True
 
     async def collect():
-        with ThreadPoolExecutor(2) as pool, ThreadPoolExecutor(1) as gpu:
-            return [e async for e in run_events(engine, [{"path": q, "lat": None, "lon": None, "taken_at": None} for q in paths],
-                                                ["identify"], products.resolve_options(None),
-                                                decode_pool=pool, gpu=gpu, chunk=2, is_disconnected=gone)]
+        with ThreadPoolExecutor(2) as pool:
+            runs = run_mod.RunQueue(engine, decode_pool=pool, chunk=2)
+            return [e async for e in runs.events([{"path": q, "lat": None, "lon": None, "taken_at": None} for q in paths],
+                                                 ["identify"], products.resolve_options(None), gone)]
 
     ev = asyncio.run(collect())
     assert len([e for e in ev if e["type"] == "result"]) == 2
-    assert not any(e["type"] == "done" for e in ev) and len(engine.calls) == 2 and checks == [1]
+    assert not any(e["type"] == "done" for e in ev) and len(fakes.frames) == 2 and checks == [1]
 
 
 def _wait(cond, timeout=10.0):
@@ -237,8 +246,8 @@ def test_allow_roots(tmp_path):
     ok = make_jpg(inside / "a.jpg")
     secret = make_jpg(outside / "b.jpg")
     (inside / "link.jpg").symlink_to(secret)
-    engine = FakeEngine()
-    app = create_app(engine, decode_pool=ThreadPoolExecutor(2), allow_roots=[str(inside)])
+    fakes = Fakes()
+    app = create_app(fakes.engine(), decode_pool=ThreadPoolExecutor(2), allow_roots=[str(inside)])
     with TestClient(app) as c:
         assert events(c.post("/run", json={"inputs": [{"path": ok}]}))[-1]["ok"] == 1
         for path in (secret, str(inside / "link.jpg"), str(inside / ".." / "private" / "b.jpg")):
@@ -249,7 +258,7 @@ def test_allow_roots(tmp_path):
         r = c.post("/run", json={"inputs": [{"path": ok}], "want": ["jpg"],
                                  "options": {"jpg": {"out_dir": str(inside / "jpg")}}})
         assert events(r)[-1]["ok"] == 1
-    assert len(engine.calls) == 1        # rejected requests never reach the models
+    assert len(fakes.frames) == 1        # rejected requests never reach the models
 
 
 def test_process_pool_decode_path(tmp_path):
@@ -258,11 +267,11 @@ def test_process_pool_decode_path(tmp_path):
     from concurrent.futures import ProcessPoolExecutor
 
     p = make_jpg(tmp_path / "a.jpg", (3000, 2000))
-    engine = FakeEngine()
-    with ProcessPoolExecutor(1) as pool, TestClient(create_app(engine, decode_pool=pool)) as c:
+    fakes = Fakes()
+    with ProcessPoolExecutor(1) as pool, TestClient(create_app(fakes.engine(), decode_pool=pool)) as c:
         ev = events(c.post("/run", json={"inputs": [{"path": p}, {"path": str(tmp_path / "missing.jpg")}]}))
     assert sorted(e["type"] for e in ev if e["type"] in ("result", "error")) == ["error", "result"]
-    assert engine.details == [(3000, 2000)] and engine.calls[0]["size"] == (2048, 1365)
+    assert fakes.crops == [species_crop((2048, 1365), (3000, 2000))] and fakes.frames == [(2048, 1365)]
 
 
 def test_small_request_waits_one_chunk_not_the_whole_batch(tmp_path):
@@ -271,14 +280,14 @@ def test_small_request_waits_one_chunk_not_the_whole_batch(tmp_path):
     first_chunk = threading.Event()
     order: list[str] = []
 
-    class Engine(FakeEngine):
-        def identify_many(self, frames, opts):
-            order.append("small" if frames[0].image.size == (30, 20) else "big")
+    class Recording(Fakes):
+        def detected(self, images):             # one detector call per chunk (chunk=1, every frame a bird)
+            order.append("small" if images[0].size == (30, 20) else "big")
             if len(order) == 1:
                 first_chunk.wait(10)
-            return super().identify_many(frames, opts)
+            super().detected(images)
 
-    engine = Engine()
+    engine = Recording().engine()
     big = [make_jpg(tmp_path / f"b{i}.jpg") for i in range(3)]
     small = make_jpg(tmp_path / "s.jpg", (30, 20))
     with client_for(engine, chunk=1) as c:
@@ -308,14 +317,12 @@ def test_decode_worker_crash_costs_one_file(tmp_path, monkeypatch):
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
 
-    from bioscan.service import app as app_mod
-
-    monkeypatch.setattr(app_mod, "timed_decode", _crash_on)
+    monkeypatch.setattr(run_mod, "timed_decode", _crash_on)
     ctx = multiprocessing.get_context("fork")        # the worker must see the patched function
-    pool = app_mod.DecodePool(lambda: ProcessPoolExecutor(1, mp_context=ctx))
+    pool = run_mod.DecodePool(lambda: ProcessPoolExecutor(1, mp_context=ctx))
     good = [make_jpg(tmp_path / f"{i}.jpg") for i in range(3)]
     bad = make_jpg(tmp_path / "crash.jpg")
-    engine = FakeEngine()
+    engine = Fakes().engine()
     with TestClient(create_app(engine, decode_pool=pool, chunk=2)) as c:
         ev = events(c.post("/run", json={"inputs": [{"path": good[0]}, {"path": bad}, {"path": good[1]},
                                                     {"path": good[2]}]}))
@@ -330,19 +337,17 @@ def test_decode_worker_crash_costs_one_file(tmp_path, monkeypatch):
 def test_decode_pool_rebuild_only_replaces_the_broken_executor():
     """Two requests that saw the same crash both call rebuild; the second must not shut down the
     fresh executor the first created (that cancelled another request's queued decodes)."""
-    from bioscan.service import app as app_mod
-
     made: list[ThreadPoolExecutor] = []
 
     def factory():
         made.append(ThreadPoolExecutor(1))
         return made[-1]
 
-    pool = app_mod.DecodePool(factory)
+    pool = run_mod.DecodePool(factory)
     broken = pool.executor
     assert pool.rebuild(broken) and pool.executor is made[1]
     fut = pool.executor.submit(time.sleep, 0.05)             # queued work on the healthy executor
     assert pool.rebuild(broken) and pool.executor is made[1] and len(made) == 2   # late caller: no-op
     fut.result(timeout=5)                                    # not cancelled
-    assert not app_mod.DecodePool(executor=broken).rebuild(broken)   # a caller's executor is never rebuilt
+    assert not run_mod.DecodePool(executor=broken).rebuild(broken)   # a caller's executor is never rebuilt
     made[1].shutdown()
