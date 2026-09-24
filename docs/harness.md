@@ -42,6 +42,14 @@ bioscan bench analyze runs/2026-09-25-golden/report.json --md runs/2026-09-25-go
 A regression past the budget exits 1. Per CLAUDE.md, a change over budget needs the owner's acceptance;
 when it is accepted, the new report becomes the baseline in its own commit (`bench baseline ... --force`).
 
+**Profiles.** `bench run` and `eval` take `--profile NAME` (see README "Profiles and bioscan.toml"). The
+profile's stages must include identify, which is what the harness scores; eval still asks for `top_k` 5, and
+`--no-geo` / `--identify-opt` override the profile. The preds meta line records `"profile"` and the expanded
+`options`, so report.json's `meta.options` shows what ran. Without `--profile`, `BIOSCAN_PROFILE` or a
+`default_profile`, the request is byte for byte the one eval sent before profiles, so existing baselines stay
+comparable. Compare runs of different profiles only when you mean to: `album` switches species off. A
+`meta.profile` field and per-plugin metrics come with harness step A6.
+
 **Rescore without the service.** A preds file carries everything:
 `bioscan bench report runs/x/preds.ndjson data/inat/groundtruth-inat.csv --tier golden`. Rescoring after a
 synonyms.csv edit changes truth labels; `compare` warns when the synonyms sha differs.

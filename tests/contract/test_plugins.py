@@ -76,3 +76,47 @@ def test_a_plan_that_cannot_run_is_a_400_and_loads_nothing(tmp_path):
             r = c.post("/run", json={"inputs": [{"path": p}], **body})
             assert r.status_code == 400 and message in r.json()["error"], (body, r.text)
     assert engine.loaded() == []
+
+
+class Track(StageBase):
+    """geotag-shaped: reads a track file (checked against allow-roots), provides "place" on the CPU
+    pool for photos without one; identify's location prior then uses it."""
+
+    def reads_paths(self, o):
+        return [o["track"]] if o["track"] else []
+
+    def run(self, engine, items, o):
+        def one(it):
+            if it.lat is not None:
+                return None                              # the request or EXIF wins
+            it.facts["place"] = (37.4, -122.1)
+            return {"place_source": "track"}
+        return each(items, one)
+
+
+TRACK = Manifest("track", 1, "place from a track", reads=("time",), provides=("place",), thread="cpu",
+                 options={"track": {"type": "string", "default": ""}}, impl=f"{__name__}:TRACKER")
+TRACKER = Track()
+
+
+def test_a_place_providing_stage_feeds_identify_and_its_file_is_allow_rooted(tmp_path):
+    inside, outside = tmp_path / "photos", tmp_path / "private"
+    inside.mkdir()
+    outside.mkdir()
+    p = make_jpg(inside / "a.jpg")
+    fakes = Fakes()
+    app = create_app(fakes.engine(), decode_pool=ThreadPoolExecutor(2), allow_roots=[str(inside)],
+                     plugins=(*BUILTIN, TRACK))
+    with TestClient(app) as c:
+        r = c.post("/run", json={"inputs": [{"path": p}], "want": ["identify", "track"],
+                                 "options": {"track": {"track": str(outside / "t.gpx")}}})
+        assert r.status_code == 400 and "t.gpx" in r.json()["error"]
+        ev = events(c.post("/run", json={"inputs": [{"path": p, "taken_at": "2026-05-01T08:00:00Z"}],
+                                         "want": ["identify", "track"],
+                                         "options": {"track": {"track": str(inside / "t.gpx")}}}))
+        res = next(e for e in ev if e["type"] == "result")
+        with_place = events(c.post("/run", json={"inputs": [{"path": p, "lat": 1.0, "lon": 2.0}],
+                                                 "want": ["identify", "track"]}))
+    assert list(res["products"]) == ["identify", "track"] and res["products"]["track"] == {"place_source": "track"}
+    assert fakes.where == [(37.4, -122.1, 17), (1.0, 2.0, None)]      # identify's prior saw the provided place
+    assert "track" not in next(e for e in with_place if e["type"] == "result")["products"]

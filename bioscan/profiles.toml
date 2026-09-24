@@ -1,0 +1,30 @@
+# Built-in profiles: named request templates (the stages a run wants, and their options) that
+# `bioscan run|eval|bench run --profile NAME` and a /run body's "profile" expand. A bioscan.toml
+# (project ./bioscan.toml, user ~/.config/bioscan/bioscan.toml, or $BIOSCAN_CONFIG) may change
+# wildlife and album or add profiles, key by key. `full` is fixed: it is what a /run request
+# without "profile" gets, which is the behaviour before profiles existed.
+#
+# Keys per profile: description, stages (the default `want`), reducers (none exist yet),
+# options.<stage>.<option>. See README "Profiles and bioscan.toml".
+
+[profile.full]
+description = "The contract as before profiles: identify by default; embed and jpg when want asks for them."
+stages = ["identify"]
+# will gain: nothing. New stages are off here, so a request without a profile never changes.
+
+[profile.wildlife]
+description = "Names first: identify with species, the location prior and every accuracy fix on."
+stages = ["identify"]
+# will gain: geotag (GPX track -> place for photos without GPS), run before identify.
+
+[profile.wildlife.options.identify]
+top_k = 5
+geo = true
+
+[profile.album]
+description = "Culling an album: boxes for subject focus without species (BioCLIP never loads), plus the frame vector."
+stages = ["identify", "embed"]
+# will gain: the quality, scene and aesthetics stages, and the burst and select reducers (run by the CLI).
+
+[profile.album.options.identify]
+species = false

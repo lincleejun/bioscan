@@ -100,8 +100,19 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
 - [x] A1 Product -> Manifest + Stage (bioscan/plugin.py, bioscan/plugins/{identify,embed,jpg}, service/stages.py); contract.PRODUCTS derived from plugins.BUILTIN
 - [x] A2 models(opts): identify with species=false (and no candidates) skips BioCLIP; Engine.ensure takes model names; detail decode keyed on `reads`
 - [x] A3 Item.facts + topological plan from reads/provides (plugin.plan: ties by name, report order = BUILTIN; cycle, missing provider, unknown option -> 400); Loaders.extra + Manifest.loaders
-- [ ] A4 profiles: bioscan/profile.py (stdlib), bioscan.toml, serve_config file layer, --profile / "profile"; full = today
-- [ ] W6 geotag from GPX (in progress, v16/w6-geotag) -> becomes the step-5 `geotag` stage after A4
+- [x] A4 profiles: bioscan/profile.py (stdlib) + bioscan/profiles.toml (full, wildlife, album), bioscan.toml (user <
+      project < BIOSCAN_CONFIG), serve_config file layer, --profile on run/eval/bench run, "profile" in /run,
+      `bioscan config show`; full = today (payload test, goldens); unit tests never read a developer's files
+      (tests/bioscan_test_env.py)
+- [ ] W6 geotag from GPX (in progress, v16/w6-geotag) -> becomes the step-5 `geotag` stage after A4. How it plugs in:
+      `bioscan/plugins/geotag/__init__.py` MANIFEST (reads `time`, provides `place`, thread `cpu`, models none,
+      options gpx / max_gap_s / camera_utc_offset with defaults); `stage.py` Stage: `check` (types, offset format),
+      `reads_paths(opts)` = the GPX files (app.outside_roots checks them against allow-roots), `settings()` = its
+      constants, `run` sets `item.facts["place"] = (lat, lon)` only when `item.lat` is None (request and EXIF win) and
+      returns `{"place_source": "gpx", ...}` or None. identify reads `place`, so the plan runs geotag first and
+      Item.lat/lon pick the fact up. Add it to plugins.BUILTIN after jpg (report order), to `wildlife` stages in
+      profiles.toml, never to `full`; `run --gpx` sets options.geotag.gpx and adds geotag to `want`.
+- [ ] A6 note: harness meta.profile (eval already writes "profile" in the preds meta line)
 - [ ] A6 harness: meta.profile, plugin_metrics, standards `profile` field
 - [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
 - [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)

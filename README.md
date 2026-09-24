@@ -141,6 +141,7 @@ uv run bioscan names stats                # name-list coverage
 uv run bioscan serve                                   # 127.0.0.1:8765, models stay resident
 uv run bioscan serve --launchd > ~/Library/LaunchAgents/cc.outman.bioscan.plist   # start at login on macOS
 uv run bioscan health
+uv run bioscan config show                             # the profile, plan and settings in effect, with their sources
 ```
 
 ```sh
@@ -208,6 +209,10 @@ uv run python -m bioscan.service.decode /path/to/card -r    # per file: ext, con
 | `--chunk` / `BIOSCAN_CHUNK` | images per pipeline chunk | 32 |
 | `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | long edge of the species-crop detail copy; ≤ 2048 turns it off (crops come from the 2048 image) | 3072 |
 | `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | only read and write files under these directories (repeatable; `:`-separated in the variable); unset means no limit, with a warning when listening beyond localhost | no limit |
+| `--profile` / `BIOSCAN_PROFILE` | the CLI's profile (run, eval, bench run, config show); see Profiles | `default_profile`, else `full` |
+| `BIOSCAN_CONFIG` | one more `bioscan.toml`, above the project and user files | none |
+
+Every serve setting above except the URL can also come from the `[serve]` table of a `bioscan.toml` (flag > variable > file > default; see Profiles and bioscan.toml).
 
 ### All taxa and candidates
 
@@ -226,6 +231,52 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
 - With `kind_check` on (the default) the kind check runs over the competing lists only, on their matching rows: a kind with no candidate cannot win. With it off, a box keeps its kind when its own list has a matching row, and otherwise goes to the competing list with the most evidence (you said the answer is there, so that move is not graded `unconfirmed`).
 - Within the chosen list, `p_visual` is the softmax over its matching rows; the location prior (birds, and mammals with `mammal_geo`), the range veto and the grade then work on those rows as they do on a whole list. `species.list` names the list, and every candidate in `top` comes from it.
 - Empty or absent means all taxa. A name no loaded list knows is a 400 that lists the unknown names. `bioscan eval --candidates …` passes the option through and records it in the preds meta line and the report (with `--preds`, which rescores a finished run, it is refused).
+
+### Profiles and bioscan.toml
+
+A **profile** is a named request template: the stages a run wants and their options. Three are built in (`bioscan/profiles.toml`):
+
+| Profile | Stages now | Options | Models loaded | Will gain |
+|---|---|---|---|---|
+| `full` | identify (embed, jpg when `want` asks) | defaults | SigLIP2, OWLv2, BioCLIP | nothing: it is what a request without a profile gets, and no file can change it |
+| `wildlife` | identify | species, location prior and every accuracy fix on (`top_k` 5, `geo` true) | SigLIP2, OWLv2, BioCLIP | `geotag` (GPX track -> place), run before identify |
+| `album` | identify, embed | identify `species: false` | SigLIP2, OWLv2 (BioCLIP never loads) | `quality`, `scene`, `aesthetics` stages; `burst` and `select` reducers, run by the CLI |
+
+```sh
+bioscan run DIR --profile album                  # the profile's stages and options; flags still win
+bioscan run DIR --profile wildlife --top-k 10
+bioscan eval GT.csv --out runs/x --profile wildlife   # also bench run; recorded as "profile" in the preds meta line
+bioscan config show --profile album              # the resolved plan and where every value came from (--json)
+curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}],"profile":"album"}'
+```
+
+Your own settings go in a `bioscan.toml`: the project one (`./bioscan.toml`, where you run the command) and the user one (`~/.config/bioscan/bioscan.toml`, or under `$XDG_CONFIG_HOME`); `$BIOSCAN_CONFIG` names one more. A file may change `wildlife` and `album` key by key, add profiles, pick the CLI's default profile and hold the service settings:
+
+```toml
+default_profile = "wildlife"          # the CLI's profile when --profile is not given
+
+[serve]                               # bioscan serve: flag > BIOSCAN_* variable > this table > default
+port = 8765
+chunk = 32
+detail_edge = 3072
+allow_roots = ["~/Pictures/Wildlife"]
+
+[profile.wildlife.options.identify]   # change a built-in profile
+top_k = 10
+
+[profile.trip]                        # or add one
+stages = ["identify", "jpg"]
+[profile.trip.options.jpg]
+out_dir = "/Users/me/Pictures/trip-jpg"
+[profile.trip.options.identify]
+candidates = ["Strigidae", "Accipitridae"]
+```
+
+- **Merge order**, lowest first: each stage's defaults < `profiles.toml` < the user file < the project file < `$BIOSCAN_CONFIG` < command-line flags or the request's `want` / `options`. `--want` replaces the profile's stages.
+- **Which profile**: `--profile`, else `$BIOSCAN_PROFILE`, else `default_profile`, else `full`. With none of them the CLI sends exactly the request it sent before profiles. The CLI expands the profile itself and sends plain `want` and `options`, so the service needs no copy of your file.
+- **The service** expands a request's `"profile"` with its own files (read once at start). A request without `"profile"` always gets `full`: `default_profile` and `$BIOSCAN_PROFILE` are the CLI's, so HTTP clients see no change.
+- **Errors**: an unknown key, profile, stage or option is an error naming the file (a 400 for a request). `[profile.full]` in a user file is refused. Option values are checked by the service. `bioscan serve --launchd` bakes the flags, else the file's `[serve]` values, into the plist and points the job at this folder's `bioscan.toml` through `BIOSCAN_CONFIG`.
+- **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options; the service code in `stage.py`, imported only when a run needs it). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are still listed in the order `identify, embed, jpg`.
 
 ### HTTP API
 
@@ -319,11 +370,13 @@ CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.ym
 bioscan/contract.py              single definition of /run events, product names and the identify payload (shared by CLI and service, stdlib only)
 bioscan/naming.py                name normalisation (scientific names; gt folder labels), synonyms.csv, stale-map check (stdlib only)
 bioscan/formats.py               supported photo extensions (decoder and folder scans share it), the folder scan (stdlib only)
-bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > default, once, for both entry points (stdlib only)
+bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > bioscan.toml [serve] > default, once, for both entry points (stdlib only)
+bioscan/profile.py               profiles and bioscan.toml: layers, merge order, the resolved plan (stdlib only; CLI and service)
+bioscan/profiles.toml            the built-in profiles full, wildlife, album
 bioscan/service/app.py           routes, request validation, allow-roots, NDJSON stream
 bioscan/service/run.py           a /run as events: chunks, per-chunk model turn, self-healing decode pool
 bioscan/service/engine.py        device choice, lazy model loading via Loaders (tests inject fake adapters), per-kind priors
-bioscan/plugin.py                what a stage plugin declares (Manifest) and implements (Stage), stdlib only
+bioscan/plugin.py                what a stage plugin declares (Manifest) and implements (Stage); the run plan (stdlib only)
 bioscan/plugins/<name>/          built-in stages identify, embed, jpg: stdlib manifest in __init__.py, service code in stage.py
 bioscan/service/stages.py        the stages in the service: options merged and checked, /products, paths for allow-roots
 bioscan/service/pipeline.py      identify orchestration (batched across images) behind the Models protocol
@@ -334,7 +387,7 @@ bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + 
 bioscan/service/names.py         AviList / MDD lists, the TreeOfLife all-taxa list, TreeOfLife mapping, text-vector cache
 bioscan/service/candidates.py    the candidates option: taxon index, the rows each list keeps
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
-bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
+bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard) config (profiles)
 baselines/                       committed reports compared against, and the regression budget
 data/names/                      name mapping tables keyed on AviList
 docs/                            design spec, implementation plan, evaluation results

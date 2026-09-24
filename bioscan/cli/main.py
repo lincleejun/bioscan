@@ -8,8 +8,10 @@ import sys
 import urllib.error
 from pathlib import Path
 
-from bioscan import contract, formats, serve_config
+from bioscan import contract, formats, profile, serve_config
 from bioscan.cli import bench, client, gt
+from bioscan.cli.config import PROFILE_HELP, eval_request, expand, load_config, request_options
+from bioscan.cli.config import add_parser as add_config_parser
 from bioscan.cli.render import Renderer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -17,12 +19,16 @@ PRODUCTS = contract.PRODUCTS
 EXIT_OK, EXIT_PARTIAL, EXIT_SERVICE, EXIT_INCOMPLETE = 0, 1, 2, 3
 CANDIDATES_HELP = ('comma list of taxa to rank species among, e.g. "Megascops kennicottii,Strigidae,Bubo" '
                    "(scientific names or genus/family/order/class); default: all taxa")
+# identify options `bioscan run` has always sent, so a request's identify options are explicit
+ALWAYS_SENT = {"identify": ("top_k", "geo", "species")}
 
 
 # ---- serve -------------------------------------------------------------------
 
 def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = None, root: Path = PROJECT_ROOT,
-                  allow_roots: list[str] | None = None, detail_edge: int | None = None) -> bytes:
+                  allow_roots: list[str] | None = None, detail_edge: int | None = None,
+                  config_file: str | None = None) -> bytes:
+    """`config_file`: a bioscan.toml the job reads as BIOSCAN_CONFIG (it runs in `root`, not here)."""
     uv = uv or shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
     log = os.path.expanduser("~/Library/Logs/bioscan.log")
     extra = [a for r in allow_roots or [] for a in ("--allow-root", os.path.abspath(r))]
@@ -33,7 +39,8 @@ def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = N
                              "--port", str(port), "--decode-workers", str(decode_workers), "--chunk", str(chunk),
                              *extra],
         "WorkingDirectory": str(root),
-        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"},
+        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+                                 **({"BIOSCAN_CONFIG": os.path.abspath(config_file)} if config_file else {})},
         "RunAtLoad": True,
         "KeepAlive": True,
         "StandardOutPath": log,
@@ -42,16 +49,22 @@ def launchd_plist(port: int, decode_workers: int, chunk: int, uv: str | None = N
 
 
 def cmd_serve(a):
+    files = load_config()
+    file = files.serve()
     if a.launchd:
-        # launchd starts the job without this shell's environment: bake in the flags, else the
-        # defaults, and let the served command line resolve the rest.
-        sys.stdout.buffer.write(launchd_plist(a.port, a.decode_workers or serve_config.DECODE_WORKERS,
-                                              a.chunk or serve_config.CHUNK,
-                                              allow_roots=a.allow_root, detail_edge=a.detail_edge))
+        # launchd starts the job without this shell's environment, in the project folder: bake in
+        # the flags, else the [serve] values of this folder's bioscan.toml files, else the defaults.
+        # The job reads this folder's bioscan.toml (or $BIOSCAN_CONFIG) as BIOSCAN_CONFIG.
+        baked = serve_config.resolve(port=a.port, decode_workers=a.decode_workers, chunk=a.chunk, env={}, file=file)
+        roots = a.allow_root or [os.path.expanduser(r) for r in file.get("allow_roots", ([], ""))[0]]
+        edge = a.detail_edge if a.detail_edge is not None else file.get("detail_edge", (None, ""))[0]
+        local = [path for label, path, exists in files.files if exists and label != "user"]
+        sys.stdout.buffer.write(launchd_plist(baked.port, baked.decode_workers, baked.chunk, allow_roots=roots,
+                                              detail_edge=edge, config_file=local[-1] if local else None))
         return 0
     config = serve_config.resolve(port=a.port, decode_workers=a.decode_workers, chunk=a.chunk,
                                   detail_edge=a.detail_edge,
-                                  allow_roots=[os.path.abspath(r) for r in a.allow_root or []])
+                                  allow_roots=[os.path.abspath(r) for r in a.allow_root or []], file=file)
     from bioscan.service import app  # service deps live with bioscan.service; keep the CLI import-light
 
     app.serve(config)
@@ -65,12 +78,31 @@ def cmd_health(a):
     return 0
 
 
-def build_payload(a) -> dict:
-    want = [w.strip() for w in a.want.split(",") if w.strip()]
-    bad = [w for w in want if w not in PRODUCTS]
-    if not want or bad:
-        raise SystemExit(f"--want must be a non-empty subset of {','.join(PRODUCTS)} (got {a.want!r})")
-    if "jpg" in want and not a.jpg_out:
+def build_payload(a, config: profile.Config | None = None) -> dict:
+    """The /run body for `bioscan run`. The profile (--profile, else BIOSCAN_PROFILE, else
+    default_profile, else full) is expanded here with `config` (default: the bioscan.toml files)
+    and sent as `want` and `options`, so the service needs no copy of this machine's bioscan.toml.
+    With no profile chosen, the body is the one bioscan sent before profiles existed."""
+    flag_want = None
+    if a.want is not None:
+        flag_want = [w.strip() for w in a.want.split(",") if w.strip()]
+        bad = [w for w in flag_want if w not in PRODUCTS]
+        if not flag_want or bad:
+            raise SystemExit(f"--want must be a non-empty subset of {','.join(PRODUCTS)} (got {a.want!r})")
+    flags: dict = {"identify": {}}
+    if a.top_k is not None:
+        flags["identify"]["top_k"] = a.top_k
+    if a.no_geo:
+        flags["identify"]["geo"] = False
+    if a.no_species:
+        flags["identify"]["species"] = False
+    if a.candidates:
+        flags["identify"]["candidates"] = split_candidates(a.candidates)
+    if a.jpg_out:
+        flags["jpg"] = {"out_dir": os.path.abspath(a.jpg_out)}
+    res = expand(config or load_config(), a.profile, flag_want, flags)
+    want = res.want
+    if "jpg" in want and res.sources["jpg"]["out_dir"] == profile.DEFAULT:
         raise SystemExit("--want jpg needs --jpg-out DIR")
     if (a.lat is None) != (a.lon is None):
         raise SystemExit("--lat and --lon go together")
@@ -86,14 +118,8 @@ def build_payload(a) -> dict:
         for inp in inputs:
             if exif.get(inp["path"], {}).get("lat", "") == "":
                 inp["lat"], inp["lon"] = a.lat, a.lon
-    options: dict = {}
-    if "identify" in want:
-        options["identify"] = {"top_k": a.top_k, "geo": not a.no_geo, "species": not a.no_species}
-        if a.candidates:
-            options["identify"]["candidates"] = split_candidates(a.candidates)
-    if "jpg" in want:
-        options["jpg"] = {"out_dir": os.path.abspath(a.jpg_out)}
-    return {"inputs": inputs, "want": want, "options": options}
+    always = {m: {k: res.options[m][k] for k in keys} for m, keys in ALWAYS_SENT.items()}
+    return {"inputs": inputs, "want": want, "options": request_options(res, always)}
 
 
 def split_candidates(text: str | None) -> list[str]:
@@ -178,10 +204,14 @@ def cmd_eval(a):
     if a.preds and (a.candidates or a.identify_opt):
         raise SystemExit("--candidates and --identify-opt only apply when eval calls the service; a --preds file "
                          "was made with the options in its meta line")
+    if a.preds and a.profile:
+        raise SystemExit("--profile only applies when eval calls the service; a --preds file was made with the "
+                         "options in its meta line")
     opts = identify_opts(a.identify_opt)
     if a.candidates:
         opts["candidates"] = split_candidates(a.candidates)
-    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms, opts)
+    request = None if a.preds else eval_request(a.profile, a.no_geo, opts)
+    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms, opts, request)
     print(report)
     if not complete:
         print("error: the prediction stream ended before the service's `done`; missing images count as misses",
@@ -240,7 +270,7 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("serve", help="run the service (uvicorn, one worker)")
-    s.add_argument("--port", type=int, default=serve_config.PORT)
+    s.add_argument("--port", type=int, help=f"[serve] port in bioscan.toml, default {serve_config.PORT}")
     s.add_argument("--decode-workers", type=int,
                    help=f"env BIOSCAN_DECODE_WORKERS, default {serve_config.DECODE_WORKERS}")
     s.add_argument("--chunk", type=int, help=f"env BIOSCAN_CHUNK, default {serve_config.CHUNK}")
@@ -254,13 +284,14 @@ def parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("run", help="identify/embed/jpg over files or directories")
     s.add_argument("paths", nargs="+")
-    s.add_argument("--want", default="identify", help="comma list of identify,embed,jpg")
+    s.add_argument("--want", help="comma list of identify,embed,jpg; default: the profile's stages (full: identify)")
+    s.add_argument("--profile", help=PROFILE_HELP)
     s.add_argument("--json", action="store_true", help="write raw NDJSON")
     s.add_argument("--out", help="write to FILE instead of stdout")
     s.add_argument("--lat", type=float)
     s.add_argument("--lon", type=float)
     s.add_argument("--no-geo", action="store_true")
-    s.add_argument("--top-k", type=int, default=5)
+    s.add_argument("--top-k", type=int, help="default: the profile's, else 5")
     s.add_argument("--no-species", action="store_true")
     s.add_argument("--candidates", help=CANDIDATES_HELP)
     s.add_argument("--jpg-out")
@@ -292,9 +323,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--identify-opt", action="append", metavar="NAME=VALUE",
                    help="extra identify option, repeatable; e.g. range_veto=false to measure that fix (README)")
     s.add_argument("--candidates", help=CANDIDATES_HELP)
+    s.add_argument("--profile", help=PROFILE_HELP)
     s.set_defaults(func=cmd_eval)
 
     bench.add_parser(sub)
+    add_config_parser(sub)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)

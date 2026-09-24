@@ -28,6 +28,7 @@ from typing import Any
 
 from bioscan import contract, naming
 from bioscan.cli import eval as ev
+from bioscan.cli.config import PROFILE_HELP, eval_request
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BASELINES_DIR = PROJECT_ROOT / "baselines"
@@ -926,7 +927,10 @@ def _write_md(text: str, path: str | None) -> None:
 
 def cmd_run(a) -> int:
     out = Path(a.out or f"runs/{time.strftime('%Y-%m-%d-%H%M%S', time.gmtime())}")
-    report, complete = ev.run_eval(a.groundtruth, str(out), a.no_geo, a.url, a.preds, not a.no_synonyms)
+    if a.preds and a.profile:
+        raise SystemExit("--profile only applies when bench run calls the service")
+    request = None if a.preds else eval_request(a.profile, a.no_geo, {})
+    report, complete = ev.run_eval(a.groundtruth, str(out), a.no_geo, a.url, a.preds, not a.no_synonyms, None, request)
     print(report)
     rep = report_from_preds(a.preds or str(out / "preds.ndjson"), a.groundtruth, not a.no_synonyms,
                             _lists_from_args(a.names), a.tier, a.no_geo)
@@ -1015,6 +1019,7 @@ def add_parser(sub) -> None:
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--preds", help="score an existing preds.ndjson instead of calling the service")
     s.add_argument("--no-synonyms", action="store_true")
+    s.add_argument("--profile", help=PROFILE_HELP)
     report_opts(s)
     s.set_defaults(func=cmd_run)
 

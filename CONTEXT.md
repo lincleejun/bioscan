@@ -37,6 +37,43 @@ _Avoid_: format (that is the extension)
 (`2026-05-01T08:00:00.37-07:00`); what orders burst frames and picks the location prior's week.
 _Avoid_: timestamp, date
 
+**Stage**:
+One unit of per-image work in a run, batched per chunk: a plugin in `bioscan/plugins/<name>/` (today `identify`,
+`embed`, `jpg`). It reads facts and may provide facts for later stages; its output is the product of the same name.
+_Avoid_: hook, step, node
+
+**Manifest**:
+What a stage declares without loading anything heavy (`plugin.Manifest`, in the plugin's `__init__.py`): name,
+version, the facts it reads and provides, the models it needs under its options, its thread, its options with
+defaults and its output. The service code (`Stage`) is imported from `impl` only when a plan contains the stage.
+_Avoid_: registry entry, spec
+
+**Fact**:
+A named value a stage can read: `image`, `detail`, `time`, `place`, `vec`, `gate` from the host, or one a stage
+provides (`boxes` from identify) in `Item.facts`.
+
+**Plan**:
+What a run will do, decided before any model loads (`plugin.plan`): the wanted stages in report order, the run
+order (providers before readers, ties by name), the models to load, and whether the frame pass and the detail copy
+are needed. A read nobody provides, a cycle or an unknown option makes no plan (a 400).
+_Avoid_: pipeline, DAG
+
+**Profile**:
+A named request template: stages, options and (later) reducers. Built in: `full` (what a request without a profile
+gets; fixed), `wildlife`, `album` (`bioscan/profiles.toml`); more, or changes, in a `bioscan.toml`. Expanded by the
+CLI (`--profile`) and by the service (`"profile"` in /run) with the same resolver (`bioscan/profile.py`).
+_Avoid_: preset, mode
+
+**Config layer**:
+One source of profile or serve values, lowest first: stage defaults, `profiles.toml`, the user `bioscan.toml`, the
+project `bioscan.toml`, `$BIOSCAN_CONFIG`, then the request (flags or /run body). `bioscan config show` names each
+value's layer.
+
+**Reducer**:
+A model-free unit over a whole run's results (burst grouping, selection), run by the CLI or offline over a preds
+file, never inside the service stream. None exists yet.
+_Avoid_: stage (a stage sees one chunk)
+
 **Product**:
 A named result a run can ask for per image (`identify`, `embed`, `jpg`): the output of the stage of that name
 (`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.
@@ -171,7 +208,8 @@ A row with no BirdNET label whose genus is present at a place; fixed by a review
 The resolved settings one service process runs with (host, port, decode workers, chunk, detail edge, allow roots).
 
 **Resolve**:
-Flag, else `BIOSCAN_*` variable, else default, done once per process (`serve_config.resolve`).
+Flag, else `BIOSCAN_*` variable, else the `[serve]` table of a `bioscan.toml`, else default, done once per process
+(`serve_config.resolve`).
 
 **Allow roots**:
 Directories the service may read from and write to; empty means no limit.

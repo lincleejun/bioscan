@@ -10,7 +10,8 @@ HEAVY = ("numpy", "torch", "transformers", "open_clip", "PIL", "bioscan.service"
 def test_cli_modules_do_not_import_heavy_deps():
     code = ("import sys; import bioscan.cli.main, bioscan.cli.client, bioscan.cli.render, bioscan.cli.gt, "
             "bioscan.cli.eval, bioscan.cli.bench, bioscan.contract, bioscan.naming, bioscan.formats, "
-            "bioscan.plugin, bioscan.plugins; bioscan.contract.PRODUCTS; "
+            "bioscan.plugin, bioscan.plugins, bioscan.profile, bioscan.cli.config; bioscan.contract.PRODUCTS; "
+            "bioscan.profile.resolve(bioscan.profile.builtin(), 'album'); "
             f"print([m for m in sys.modules if m.split('.')[0] in {HEAVY!r} or m.startswith('bioscan.service') "
             "or m.endswith('.stage')])")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.strip()

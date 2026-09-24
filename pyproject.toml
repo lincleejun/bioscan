@@ -38,7 +38,8 @@ build-backend = "hatchling.build"
 packages = ["bioscan"]
 
 [tool.pytest.ini_options]
-addopts = "-q -p no:cacheprovider"
+addopts = "-q -p no:cacheprovider -p bioscan_test_env"
+pythonpath = ["tests"]
 
 [tool.ruff]
 line-length = 120

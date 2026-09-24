@@ -125,6 +125,7 @@ uv run bioscan names stats                # 名单覆盖率
 uv run bioscan serve                                   # 127.0.0.1:8765，模型常驻
 uv run bioscan serve --launchd > ~/Library/LaunchAgents/cc.outman.bioscan.plist   # macOS 开机常驻
 uv run bioscan health
+uv run bioscan config show                             # 当前生效的 profile、计划与设置，以及各自来源
 ```
 
 ```sh
@@ -192,6 +193,56 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 | `--chunk` / `BIOSCAN_CHUNK` | 流水 chunk 张数 | 32 |
 | `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | 物种裁切用细节图的长边；≤2048 关闭（回到 2048 图上裁） | 3072 |
 | `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | 只允许读写这些目录下的文件（可重复；环境变量用 `:` 分隔）；不设则不限制，监听非本机地址时会告警 | 不限 |
+| `--profile` / `BIOSCAN_PROFILE` | CLI 用的 profile（run、eval、bench run、config show），见 Profile 一节 | `default_profile`，否则 `full` |
+| `BIOSCAN_CONFIG` | 再加一个 `bioscan.toml`，优先于项目与用户文件 | 无 |
+
+上面除 URL 外的服务设置也可以写在 `bioscan.toml` 的 `[serve]` 表里（命令行 > 环境变量 > 文件 > 默认；见 Profile 与 bioscan.toml）。
+
+### Profile 与 bioscan.toml
+
+**profile** 是一份命名的请求模板：一次运行要哪些 stage、各带什么选项。内置三个（`bioscan/profiles.toml`）：
+
+| Profile | 现在的 stage | 选项 | 加载的模型 | 以后会加 |
+|---|---|---|---|---|
+| `full` | identify（`want` 要时加 embed、jpg） | 默认 | SigLIP2、OWLv2、BioCLIP | 不加：不带 profile 的请求就是它，任何文件都改不了 |
+| `wildlife` | identify | 物种、位置先验与各项准确率修正全开（`top_k` 5，`geo` true） | SigLIP2、OWLv2、BioCLIP | `geotag`（GPX 轨迹 -> 地点），在 identify 之前跑 |
+| `album` | identify、embed | identify `species: false` | SigLIP2、OWLv2（从不加载 BioCLIP） | `quality`、`scene`、`aesthetics` stage；`burst`、`select` reducer（在 CLI 端跑） |
+
+```sh
+bioscan run DIR --profile album                  # 用 profile 的 stage 与选项；命令行参数仍优先
+bioscan run DIR --profile wildlife --top-k 10
+bioscan eval GT.csv --out runs/x --profile wildlife   # bench run 同样可用；preds 的 meta 行记下 "profile"
+bioscan config show --profile album              # 解析后的计划，以及每个值来自哪里（--json）
+curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}],"profile":"album"}'
+```
+
+自己的设置写在 `bioscan.toml`：项目文件（运行命令所在目录的 `./bioscan.toml`）和用户文件（`~/.config/bioscan/bioscan.toml`，或 `$XDG_CONFIG_HOME` 下）；`$BIOSCAN_CONFIG` 可再指定一个。文件可以逐键修改 `wildlife`、`album`，新增 profile，指定 CLI 的默认 profile，并放服务设置：
+
+```toml
+default_profile = "wildlife"          # 不给 --profile 时 CLI 用的 profile
+
+[serve]                               # bioscan serve：命令行 > BIOSCAN_* 变量 > 本表 > 默认
+port = 8765
+chunk = 32
+detail_edge = 3072
+allow_roots = ["~/Pictures/Wildlife"]
+
+[profile.wildlife.options.identify]   # 改内置 profile
+top_k = 10
+
+[profile.trip]                        # 或新增一个
+stages = ["identify", "jpg"]
+[profile.trip.options.jpg]
+out_dir = "/Users/me/Pictures/trip-jpg"
+[profile.trip.options.identify]
+candidates = ["Strigidae", "Accipitridae"]
+```
+
+- **合并顺序**（由低到高）：各 stage 的默认 < `profiles.toml` < 用户文件 < 项目文件 < `$BIOSCAN_CONFIG` < 命令行参数或请求里的 `want` / `options`。`--want` 替换 profile 的 stage 列表。
+- **用哪个 profile**：`--profile`，否则 `$BIOSCAN_PROFILE`，否则 `default_profile`，否则 `full`。都没有时 CLI 发出的请求与引入 profile 之前完全相同。CLI 自己展开 profile，只发普通的 `want` 和 `options`，服务端不需要你的配置文件。
+- **服务端**用它自己的文件（启动时读一次）展开请求里的 `"profile"`。不带 `"profile"` 的请求永远是 `full`：`default_profile` 和 `$BIOSCAN_PROFILE` 只作用于 CLI，HTTP 客户端看不到变化。
+- **错误**：未知的键、profile、stage 或选项都会报错并指出是哪个文件（请求里则是 400）。用户文件里写 `[profile.full]` 会被拒绝。选项的取值由服务检查。`bioscan serve --launchd` 把命令行参数、否则文件里 `[serve]` 的值写进 plist，并通过 `BIOSCAN_CONFIG` 让服务读当前目录的 `bioscan.toml`。
+- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项；服务端代码在 `stage.py`，只有运行需要时才导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果仍按 `identify, embed, jpg` 的顺序列出。
 
 ### HTTP API
 
@@ -279,11 +330,13 @@ CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.
 bioscan/contract.py              /run 事件、产物名与 identify 输出的唯一定义（CLI 与服务共用，纯标准库）
 bioscan/naming.py                名称归一化（学名；gt 文件夹名）、synonyms.csv、映射表过期检查（纯标准库）
 bioscan/formats.py               支持的照片扩展名（解码与目录扫描共用）、目录扫描（纯标准库）
+bioscan/profile.py               profile 与 bioscan.toml：分层、合并顺序、解析出的计划（仅标准库；CLI 与服务共用）
+bioscan/profiles.toml            内置 profile：full、wildlife、album
 bioscan/serve_config.py          服务设置：参数 > BIOSCAN_* > 默认值，两个入口共用一次解析（纯标准库）
 bioscan/service/app.py           路由、请求校验、允许目录、NDJSON 流
 bioscan/service/run.py           一次 /run 的事件流：分 chunk、按 chunk 的模型轮次、解码进程池自愈
 bioscan/service/engine.py        设备选择、经 Loaders 惰性加载模型（测试注入假适配器）、每类先验
-bioscan/plugin.py                stage 插件的声明（Manifest）与实现接口（Stage），仅标准库
+bioscan/plugin.py                stage 插件的声明（Manifest）与实现接口（Stage）；运行计划（仅标准库）
 bioscan/plugins/<name>/          内置 stage：identify、embed、jpg；__init__.py 是标准库 manifest，stage.py 是服务端代码
 bioscan/service/stages.py        服务端的 stage：选项合并与校验、/products、allow-roots 路径
 bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
@@ -293,7 +346,7 @@ bioscan/service/settings.py      影响输出的设置指纹
 bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF（各 RAW 容器）+ sha256
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
-bioscan/cli/                     main client render gt eval
+bioscan/cli/                     main client render gt eval config（profile）
 data/names/                      AviList 为准的名字映射表
 docs/                            设计 spec、实施计划、评测结果
 ```
