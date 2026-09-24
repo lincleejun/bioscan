@@ -1,0 +1,2 @@
+{"status": "ok", "device": "cpu", "models_loaded": [], "running": 0, "queued": 0}
+{"status": "ok", "device": "cpu", "models_loaded": ["siglip2", "owlv2", "bioclip"], "running": 0, "queued": 0}

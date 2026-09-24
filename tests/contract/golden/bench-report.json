@@ -1,0 +1,680 @@
+{
+ "metrics": {
+  "all": {
+   "n": 4,
+   "gate_acc": 0.5,
+   "gate_acc_ci": [
+    0.150039,
+    0.849961
+   ],
+   "detect_rate": 0.5,
+   "detect_rate_ci": [
+    0.150039,
+    0.849961
+   ],
+   "top1": 0.25,
+   "top1_ci": [
+    0.045587,
+    0.699358
+   ],
+   "top5": 0.5,
+   "top5_ci": [
+    0.150039,
+    0.849961
+   ],
+   "genus_acc": 0.5,
+   "genus_acc_ci": [
+    0.150039,
+    0.849961
+   ],
+   "coverage": 0.75,
+   "coverage_ci": [
+    0.300642,
+    0.954413
+   ],
+   "precision": 0.333333,
+   "precision_ci": [
+    0.061492,
+    0.79234
+   ],
+   "confident_error_rate": 0.5,
+   "confident_error_rate_ci": [
+    0.150039,
+    0.849961
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.489891
+   ],
+   "failed_rate": 0.25,
+   "failed_rate_ci": [
+    0.045587,
+    0.699358
+   ],
+   "ece": null,
+   "decode_ms_median": 0.0,
+   "identify_ms_median": 0.0,
+   "images_per_s": null
+  },
+  "bird": {
+   "n": 3,
+   "gate_acc": 0.666667,
+   "gate_acc_ci": [
+    0.20766,
+    0.938508
+   ],
+   "detect_rate": 0.666667,
+   "detect_rate_ci": [
+    0.20766,
+    0.938508
+   ],
+   "top1": 0.333333,
+   "top1_ci": [
+    0.061492,
+    0.79234
+   ],
+   "top5": 0.666667,
+   "top5_ci": [
+    0.20766,
+    0.938508
+   ],
+   "genus_acc": 0.666667,
+   "genus_acc_ci": [
+    0.20766,
+    0.938508
+   ],
+   "coverage": 0.666667,
+   "coverage_ci": [
+    0.20766,
+    0.938508
+   ],
+   "precision": 0.5,
+   "precision_ci": [
+    0.094531,
+    0.905469
+   ],
+   "confident_error_rate": 0.333333,
+   "confident_error_rate_ci": [
+    0.061492,
+    0.79234
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.561497
+   ],
+   "failed_rate": 0.333333,
+   "failed_rate_ci": [
+    0.061492,
+    0.79234
+   ],
+   "ece": null,
+   "decode_ms_median": 0.0,
+   "identify_ms_median": 0.0,
+   "images_per_s": null
+  },
+  "mammal": {
+   "n": 1,
+   "gate_acc": 0.0,
+   "gate_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "detect_rate": 0.0,
+   "detect_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "top1": 0.0,
+   "top1_ci": [
+    0.0,
+    0.793451
+   ],
+   "top5": 0.0,
+   "top5_ci": [
+    0.0,
+    0.793451
+   ],
+   "genus_acc": 0.0,
+   "genus_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "coverage": 1.0,
+   "coverage_ci": [
+    0.206549,
+    1.0
+   ],
+   "precision": 0.0,
+   "precision_ci": [
+    0.0,
+    0.793451
+   ],
+   "confident_error_rate": 1.0,
+   "confident_error_rate_ci": [
+    0.206549,
+    1.0
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "failed_rate": 0.0,
+   "failed_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "ece": null,
+   "decode_ms_median": 0.0,
+   "identify_ms_median": 0.0,
+   "images_per_s": null
+  },
+  "other": {
+   "n": 0,
+   "gate_acc": null,
+   "gate_acc_ci": null,
+   "detect_rate": null,
+   "detect_rate_ci": null,
+   "top1": null,
+   "top1_ci": null,
+   "top5": null,
+   "top5_ci": null,
+   "genus_acc": null,
+   "genus_acc_ci": null,
+   "coverage": null,
+   "coverage_ci": null,
+   "precision": null,
+   "precision_ci": null,
+   "confident_error_rate": null,
+   "confident_error_rate_ci": null,
+   "no_box_rate": null,
+   "no_box_rate_ci": null,
+   "failed_rate": null,
+   "failed_rate_ci": null,
+   "ece": null,
+   "decode_ms_median": null,
+   "identify_ms_median": null,
+   "images_per_s": null
+  },
+  "golden/all": {
+   "n": 3,
+   "gate_acc": 0.666667,
+   "gate_acc_ci": [
+    0.20766,
+    0.938508
+   ],
+   "detect_rate": 0.666667,
+   "detect_rate_ci": [
+    0.20766,
+    0.938508
+   ],
+   "top1": 0.333333,
+   "top1_ci": [
+    0.061492,
+    0.79234
+   ],
+   "top5": 0.666667,
+   "top5_ci": [
+    0.20766,
+    0.938508
+   ],
+   "genus_acc": 0.666667,
+   "genus_acc_ci": [
+    0.20766,
+    0.938508
+   ],
+   "coverage": 1.0,
+   "coverage_ci": [
+    0.438503,
+    1.0
+   ],
+   "precision": 0.333333,
+   "precision_ci": [
+    0.061492,
+    0.79234
+   ],
+   "confident_error_rate": 0.666667,
+   "confident_error_rate_ci": [
+    0.20766,
+    0.938508
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.561497
+   ],
+   "failed_rate": 0.0,
+   "failed_rate_ci": [
+    0.0,
+    0.561497
+   ],
+   "ece": null,
+   "decode_ms_median": 0.0,
+   "identify_ms_median": 0.0,
+   "images_per_s": null
+  },
+  "golden/bird": {
+   "n": 2,
+   "gate_acc": 1.0,
+   "gate_acc_ci": [
+    0.34238,
+    1.0
+   ],
+   "detect_rate": 1.0,
+   "detect_rate_ci": [
+    0.34238,
+    1.0
+   ],
+   "top1": 0.5,
+   "top1_ci": [
+    0.094531,
+    0.905469
+   ],
+   "top5": 1.0,
+   "top5_ci": [
+    0.34238,
+    1.0
+   ],
+   "genus_acc": 1.0,
+   "genus_acc_ci": [
+    0.34238,
+    1.0
+   ],
+   "coverage": 1.0,
+   "coverage_ci": [
+    0.34238,
+    1.0
+   ],
+   "precision": 0.5,
+   "precision_ci": [
+    0.094531,
+    0.905469
+   ],
+   "confident_error_rate": 0.5,
+   "confident_error_rate_ci": [
+    0.094531,
+    0.905469
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.65762
+   ],
+   "failed_rate": 0.0,
+   "failed_rate_ci": [
+    0.0,
+    0.65762
+   ],
+   "ece": null,
+   "decode_ms_median": 0.0,
+   "identify_ms_median": 0.0,
+   "images_per_s": null
+  },
+  "golden/mammal": {
+   "n": 1,
+   "gate_acc": 0.0,
+   "gate_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "detect_rate": 0.0,
+   "detect_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "top1": 0.0,
+   "top1_ci": [
+    0.0,
+    0.793451
+   ],
+   "top5": 0.0,
+   "top5_ci": [
+    0.0,
+    0.793451
+   ],
+   "genus_acc": 0.0,
+   "genus_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "coverage": 1.0,
+   "coverage_ci": [
+    0.206549,
+    1.0
+   ],
+   "precision": 0.0,
+   "precision_ci": [
+    0.0,
+    0.793451
+   ],
+   "confident_error_rate": 1.0,
+   "confident_error_rate_ci": [
+    0.206549,
+    1.0
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "failed_rate": 0.0,
+   "failed_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "ece": null,
+   "decode_ms_median": 0.0,
+   "identify_ms_median": 0.0,
+   "images_per_s": null
+  },
+  "own/all": {
+   "n": 1,
+   "gate_acc": 0.0,
+   "gate_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "detect_rate": 0.0,
+   "detect_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "top1": 0.0,
+   "top1_ci": [
+    0.0,
+    0.793451
+   ],
+   "top5": 0.0,
+   "top5_ci": [
+    0.0,
+    0.793451
+   ],
+   "genus_acc": 0.0,
+   "genus_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "coverage": 0.0,
+   "coverage_ci": [
+    0.0,
+    0.793451
+   ],
+   "precision": null,
+   "precision_ci": null,
+   "confident_error_rate": 0.0,
+   "confident_error_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "failed_rate": 1.0,
+   "failed_rate_ci": [
+    0.206549,
+    1.0
+   ],
+   "ece": null,
+   "decode_ms_median": null,
+   "identify_ms_median": null,
+   "images_per_s": null
+  },
+  "own/bird": {
+   "n": 1,
+   "gate_acc": 0.0,
+   "gate_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "detect_rate": 0.0,
+   "detect_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "top1": 0.0,
+   "top1_ci": [
+    0.0,
+    0.793451
+   ],
+   "top5": 0.0,
+   "top5_ci": [
+    0.0,
+    0.793451
+   ],
+   "genus_acc": 0.0,
+   "genus_acc_ci": [
+    0.0,
+    0.793451
+   ],
+   "coverage": 0.0,
+   "coverage_ci": [
+    0.0,
+    0.793451
+   ],
+   "precision": null,
+   "precision_ci": null,
+   "confident_error_rate": 0.0,
+   "confident_error_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "no_box_rate": 0.0,
+   "no_box_rate_ci": [
+    0.0,
+    0.793451
+   ],
+   "failed_rate": 1.0,
+   "failed_rate_ci": [
+    0.206549,
+    1.0
+   ],
+   "ece": null,
+   "decode_ms_median": null,
+   "identify_ms_median": null,
+   "images_per_s": null
+  }
+ },
+ "per_species": {
+  "Canis latrans": {
+   "kind": "mammal",
+   "family": null,
+   "n": 1,
+   "top1_hits": 0,
+   "top1": 0.0,
+   "confident_errors": 1
+  },
+  "Megascops asio": {
+   "kind": "bird",
+   "family": "Strigidae",
+   "n": 2,
+   "top1_hits": 0,
+   "top1": 0.0,
+   "confident_errors": 1
+  },
+  "Megascops kennicottii": {
+   "kind": "bird",
+   "family": "Strigidae",
+   "n": 1,
+   "top1_hits": 1,
+   "top1": 1.0,
+   "confident_errors": 0
+  }
+ },
+ "per_family": {
+  "(unknown)": {
+   "n": 1,
+   "top1_hits": 0,
+   "top1": 0.0,
+   "confident_errors": 1
+  },
+  "Strigidae": {
+   "n": 3,
+   "top1_hits": 1,
+   "top1": 0.333333,
+   "confident_errors": 1
+  }
+ },
+ "images": [
+  {
+   "path": "<tmp>/in/a.jpg",
+   "sha256": "5c999000cb4fbadef69eeaaf58314610ca5bacf9e98a493b0a4710871d308bc1",
+   "tier": "golden",
+   "truth": "Megascops kennicottii",
+   "truth_raw": "Megascops kennicottii",
+   "kind": "bird",
+   "scope": "bird",
+   "failed": false,
+   "error": null,
+   "gate": "bird",
+   "gate_ok": true,
+   "detected": true,
+   "has_box": true,
+   "box_kind": "bird",
+   "top1": "Megascops kennicottii",
+   "top5": [
+    "Megascops kennicottii",
+    "Megascops asio"
+   ],
+   "level": "species",
+   "correct_top1": true,
+   "correct_top5": true,
+   "correct_genus": true,
+   "p_visual": 0.81,
+   "p_geo": 0.6,
+   "posterior": 0.956571,
+   "p_correct": null,
+   "truth_rank": 1,
+   "truth_visual_rank": 1,
+   "truth_p_visual": 0.81,
+   "truth_p_geo": 0.6,
+   "truth_posterior": 0.956571,
+   "family_truth": "Strigidae",
+   "family_pred": "Strigidae",
+   "in_list": true,
+   "place_known": true,
+   "decode_ms": 0.0,
+   "identify_ms": 0.0
+  },
+  {
+   "path": "<tmp>/in/big.jpg",
+   "sha256": "0e281b87e5a17f89f6ed231fd4dac3b297b77a7c256e2e13bbc6ecda92ddd100",
+   "tier": "golden",
+   "truth": "Megascops asio",
+   "truth_raw": "Megascops asio",
+   "kind": "bird",
+   "scope": "bird",
+   "failed": false,
+   "error": null,
+   "gate": "bird",
+   "gate_ok": true,
+   "detected": true,
+   "has_box": true,
+   "box_kind": "bird",
+   "top1": "Megascops kennicottii",
+   "top5": [
+    "Megascops kennicottii",
+    "Megascops asio"
+   ],
+   "level": "species",
+   "correct_top1": false,
+   "correct_top5": true,
+   "correct_genus": true,
+   "p_visual": 0.81,
+   "p_geo": null,
+   "posterior": 0.81,
+   "p_correct": null,
+   "truth_rank": 2,
+   "truth_visual_rank": 2,
+   "truth_p_visual": 0.19,
+   "truth_p_geo": null,
+   "truth_posterior": 0.19,
+   "family_truth": "Strigidae",
+   "family_pred": "Strigidae",
+   "in_list": true,
+   "place_known": false,
+   "decode_ms": 0.0,
+   "identify_ms": 0.0
+  },
+  {
+   "path": "<tmp>/in/c.jpg",
+   "sha256": "5efa766861882b71d8e611a417f0a15a801723eae0582d428c18ca48b5cb5c94",
+   "tier": "golden",
+   "truth": "Canis latrans",
+   "truth_raw": "Canis latrans",
+   "kind": "mammal",
+   "scope": "mammal",
+   "failed": false,
+   "error": null,
+   "gate": "bird",
+   "gate_ok": false,
+   "detected": false,
+   "has_box": true,
+   "box_kind": "bird",
+   "top1": "Megascops kennicottii",
+   "top5": [
+    "Megascops kennicottii",
+    "Megascops asio"
+   ],
+   "level": "species",
+   "correct_top1": false,
+   "correct_top5": false,
+   "correct_genus": false,
+   "p_visual": 0.81,
+   "p_geo": null,
+   "posterior": 0.81,
+   "p_correct": null,
+   "truth_rank": null,
+   "truth_visual_rank": null,
+   "truth_p_visual": null,
+   "truth_p_geo": null,
+   "truth_posterior": null,
+   "family_truth": null,
+   "family_pred": "Strigidae",
+   "in_list": null,
+   "place_known": false,
+   "decode_ms": 0.0,
+   "identify_ms": 0.0
+  },
+  {
+   "path": "<tmp>/in/gone.jpg",
+   "sha256": null,
+   "tier": "own",
+   "truth": "Megascops asio",
+   "truth_raw": "Megascops asio",
+   "kind": "bird",
+   "scope": "bird",
+   "failed": true,
+   "error": "missing",
+   "gate": null,
+   "gate_ok": false,
+   "detected": false,
+   "has_box": false,
+   "box_kind": null,
+   "top1": null,
+   "top5": [],
+   "level": null,
+   "correct_top1": false,
+   "correct_top5": false,
+   "correct_genus": false,
+   "p_visual": null,
+   "p_geo": null,
+   "posterior": null,
+   "p_correct": null,
+   "truth_rank": null,
+   "truth_visual_rank": null,
+   "truth_p_visual": null,
+   "truth_p_geo": null,
+   "truth_posterior": null,
+   "family_truth": "Strigidae",
+   "family_pred": null,
+   "in_list": true,
+   "place_known": false,
+   "decode_ms": null,
+   "identify_ms": null
+  }
+ ]
+}
