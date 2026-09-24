@@ -106,7 +106,7 @@ class Candidate(TypedDict):
 class Species(TypedDict):
     list: str                    # name list id, e.g. avilist-2025
     level: Level
-    top: list[Candidate]         # by posterior, highest first
+    top: list[Candidate]         # by posterior, highest first; a range-vetoed first may cede to a congener
 
 
 class _BoxFields(TypedDict):

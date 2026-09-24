@@ -66,11 +66,24 @@ RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256 （identi
               ├─ OWLv2 开放词表检测（词表按门选；门判 none/person 但三类动物合计 ≥0.25 时
               │   仍按最强动物类的词表查一遍）─▶ 每框 SigLIP2 裁切复判 ─▶ 画质
               │
-              └─ BioCLIP 2.5 Huge 对细节图上同一取景的裁切编码 ─▶ 与该纲名单的文本向量做余弦
-                        × (0.02 + BirdNET 地理先验)  ─▶ 归一化 ─▶ top-k ─▶ 定级
+              └─ BioCLIP 2.5 Huge 对细节图上同一取景的裁切编码 ─▶ 鸟、哺乳两张名单合起来做类别核对
+                        ─▶ 与该类名单的文本向量做余弦 × (0.02 + BirdNET 地理先验)
+                        ─▶ 归一化 ─▶ top-k ─▶ 分布否决 ─▶ 定级
 ```
 
-定级规则：top-1 ≥ 0.5 且领先第二名 ≥ 0.3 定为种；否则 top-5 按属累加 ≥ 0.6 定为属，按科累加 ≥ 0.6 定为科；否则 `unconfirmed`。
+定级规则：top-1 ≥ 0.5 且领先第二名 ≥ 0.3 定为种；否则 top-5 按属累加 ≥ 0.6 定为属，按科累加 ≥ 0.6 定为科；否则 `unconfirmed`。分布否决和类别核对（下节）可以降低这个级别。
+
+### 准确率规则（v1.5）
+
+三项修正针对"定到种却错了"的情况，各是一个 `identify` 选项，默认开，可以单独关掉来测效果：
+
+| 选项 | 作用 | 常量 |
+|---|---|---|
+| `range_veto` | **分布否决**（range veto）：地点已知且名单有地理先验时，top-1 自身的 p_geo < ε 就不能定到种；若返回的候选里有同属且 p_geo ≥ τ 的种，把它排到第一（`top` 唯一不按后验排序的情况），级别按属/科累加定。解决加州渡鸦被认成菲律宾乌鸦。借自同属的 p_geo（见下）不触发否决。 | `rules.RANGE_EPS` ε = 0.01，`rules.RANGE_TAU` τ = 0.05 |
+| `kind_check` | **类别核对**（kind check）：每个框已算好的 BioCLIP 特征再与鸟+哺乳合并名单打一次分，框的类别取最好 5 个名字视觉概率之和更高的那张名单（每张名单取同样个数，名单长不占便宜），可以推翻门和裁切复判（门判哺乳的猫头鹰不再被叫成臭鼬）。改了类别但优势不足 0.75 的定为 `unconfirmed`。按视觉质量而不是后验比较，因为两张名单的先验覆盖不同。`other_animal` 框不参与。 | `rules.KIND_TOP` = 5，`rules.KIND_SURE` = 0.75；参与的名单见 `taxa.KIND_CHECK` |
+| `mammal_geo` | **哺乳地理先验**：服务已加载的 BirdNET geo 模型也给 1,048 种哺乳打分，`data/names/mdd_map.csv` 把它们对到 MDD 行。没有标签的 MDD 行取同属有标签种里最高的 p_geo（**属回退**，unlabelled policy `genus`），同属都没标签时取 0.05。鸟保持原规则：无标签为 0（policy `zero`）。 | `geo.UNLABELLED_NEUTRAL` = 0.05；每张名单的 `names.LISTS[...].unlabelled` |
+
+所有阈值、无标签策略、标签映射表内容和选项默认值都在 settings 指纹里；`result.engine.models.label_maps` 给出每张映射表及其 sha。三项全关时 identify 输出与 v1.4 相同（在 300 帧替身模型录制、5 组选项上逐字节比对过）。测某一项：同一份真值跑两遍对比报告，例如 `bioscan eval GT.csv --out runs/x-no-veto --identify-opt range_veto=false`；HTTP 里传 `"options":{"identify":{"kind_check":false}}`。CI 的真模型冒烟把样本照片开、关各跑一遍，报告（`models-report`）里附开/关对照表和每张变了答案的图；任一类别丢了一张以上 Top-1 命中、或多了一张以上定到种的错误才失败：每类约 38 张，这只是绊线，真正的关卡是 `bioscan bench compare` 对照已提交基线的回退预算。
 
 模型与数据：
 
@@ -80,7 +93,7 @@ RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256 （identi
 | 检测 | `google/owlv2-base-patch16-ensemble` | Apache-2.0 |
 | 物种 | `imageomics/bioclip-2.5-vith14`（BioCLIP 2.5 Huge） | MIT |
 | 物种名文本向量 | `imageomics/TreeOfLife-200M` 官方预计算向量，对不上的名字用文本塔自编 | CC0 |
-| 地理先验（仅鸟） | BirdNET geo 3.0（`birdnet` 包） | CC BY-NC-SA 4.0 |
+| 地理先验（鸟、哺乳） | BirdNET geo 3.0（`birdnet` 包） | CC BY-NC-SA 4.0 |
 | 鸟名单 | AviList v2025 | CC BY 4.0 |
 | 哺乳名单 | Mammal Diversity Database v2.5 | CC BY 4.0 |
 
@@ -99,7 +112,7 @@ uv run python tests/models/download.py      # 三个模型的钉定版本 + Bird
 ```
 名单向量缓存会记录建它时的 BioCLIP / TreeOfLife 版本，版本变了自动重建；早于记录的旧缓存照常使用。
 
-名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，建完可删，约半分钟），之后秒开。改动 `data/names/synonyms.csv` 或 `avilist_map.csv` 会让鸟类缓存重建一次。
+名单 CSV 体积大、不进 git，按 `data/README.md` 下载放到 `data/avilist/`、`data/mdd/`。首次启动会把名单编成 BioCLIP 文本向量并缓存到 `~/.cache/bioscan/names/`（需要 TreeOfLife-200M 的 3.26 GB 官方向量文件，建完可删，约半分钟），之后秒开。改动 `data/names/synonyms.csv` 或 `avilist_map.csv` 会让鸟类缓存重建一次；`mdd_map.csv` 只有标签，不影响哺乳缓存。
 
 ```sh
 uv run bioscan names stats                # 名单覆盖率
@@ -214,15 +227,18 @@ bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # 同属在�
 ```
 确认后把对应行写进 `synonyms.csv`（source `birdnet`）再重建映射表。
 
+`data/names/mdd_map.csv`：每个 MDD 种对应的 BirdNET 标签及匹配方式，只用 BirdNET 里纲为 Mammalia 的标签；先按学名精确匹配，再查 MDD 同义名表（已人工审过，见 `data/README.md`）。MDD 把 BirdNET 分开的几个种并成一个时（如四种白额卷尾猴并入 *Cebus albifrons*），该行列出全部标签，用 `|` 连接，先验取最大值。重建：`uv run python scripts/build_name_map.py --list mammal --mdd-synonyms MDD/Species_Syn_Current_v2.5.csv`。
+
 | 名单 | 总数 | TreeOfLife 官方向量 | BirdNET 标签 |
 |---|---|---|---|
 | AviList 2025 | 11131 | 84.6% | 93.3% |
-| MDD v2.5 | 6904 | 55.5% | 不适用 |
+| MDD v2.5 | 6904 | 55.5% | 15.1%（1042 行覆盖全部 1,048 个 BirdNET 哺乳标签，其余按属回退） |
 
 ## 已知局限与路线
 
 - 哺乳 golden 集 45 张没框（熊、美洲狮、短尾猫为主）。已补检测词表并加了门漏判时的补查，效果待 `bioscan eval` 复测。
-- 哺乳没有地理先验。
+- 哺乳地理先验、分布否决、类别核对在真实照片上的效果未验证，要等 Mac 上的 `bioscan eval`（CI 开/关对照只覆盖 77 张）。ε、τ、类别核对阈值和中性常数都是初值。
+- 分布否决可能把真正的迷鸟改名成本地同属种（只定到属，不会定到种）。
 - 近期拆分的种（北鹞 / 白尾鹞、美洲仓鸮 / 西方仓鸮）在训练数据里用旧名，靠共用向量 + 地点先验区分；同义词目前不按地区生效。
 - 先验公式的底数 0.02 限制了地点对视觉的纠正幅度，尚未在 golden 集上调参。
 - 主体在画面里很小的图（远处猛禽）检测框会选错目标。

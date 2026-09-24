@@ -149,9 +149,25 @@ def cmd_gt_inat(a):
     return 0
 
 
+def identify_opts(pairs: list[str] | None) -> dict:
+    """["kind_check=false", "top_k=3"] -> {"kind_check": False, "top_k": 3}: JSON values, else the
+    text. The service validates them (an unknown name is a 400)."""
+    out = {}
+    for pair in pairs or []:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"--identify-opt wants NAME=VALUE, got {pair!r}")
+        try:
+            out[key.strip()] = json.loads(value)
+        except json.JSONDecodeError:
+            out[key.strip()] = value
+    return out
+
+
 def cmd_eval(a):
     from bioscan.cli import eval as ev
-    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms)
+    report, complete = ev.run_eval(a.groundtruth, a.out, a.no_geo, a.url, a.preds, not a.no_synonyms,
+                                   identify_opts(a.identify_opt))
     print(report)
     if not complete:
         print("error: the prediction stream ended before the service's `done`; missing images count as misses",
@@ -258,6 +274,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--preds", help="score an existing preds.ndjson instead of calling the service")
     s.add_argument("--no-synonyms", action="store_true", help="compare raw truth labels (skip data/names/synonyms.csv)")
+    s.add_argument("--identify-opt", action="append", metavar="NAME=VALUE",
+                   help="extra identify option, repeatable; e.g. range_veto=false to measure that fix (README)")
     s.set_defaults(func=cmd_eval)
 
     bench.add_parser(sub)
