@@ -73,7 +73,9 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
 - [ ] service shutdown leaves decode-pool workers alive after SIGTERM (found 2026-09-24 on the Mac); terminate the pool in the lifespan handler
 - [ ] Phase 0 speed benchmark (docs/strategy): 2,000 files, ARW/CR3/NEF at 24 and 45 MP, USB vs SSD; CR3/NEF need sample files the owner does not have yet
 
-- [ ] `bioscan report <preds.ndjson>`: reviewable HTML (thumbnails with boxes, grouped by top-1, species table, review.csv with a verdict column); prototype in runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW at Coyote Hills, owner reviewed: OK)
+- [ ] run report, JSON first (design: docs/research/2026-09-24-report-design.md): `bioscan summarize` reducer ->
+      summary.json (categories, taxa, review queue with rule reasons); `bioscan report` renders it; review.json ->
+      `bioscan gt review`. First prototype: runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW, owner reviewed: OK)
 
 ## v1.6 W6: geotag from GPX (branch v16/w6-geotag, 2026-09-24)
 Goal: photos without GPS get a position from the photographer's GPX track, for the location prior and captions.
