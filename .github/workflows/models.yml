@@ -62,12 +62,14 @@ jobs:
         with:
           path: ~/.local/share/birdnet
           key: birdnet-geo-3.0-${{ hashFiles('uv.lock') }}
+      - name: All-taxa list cache key (its list sha and the BioCLIP revision it is checked against)
+        id: alltaxa
+        run: echo "key=$(uv run python -c 'from bioscan.service import names; from bioscan.service.adapters import bioclip; print(names.all_taxa_sha() + "-" + bioclip.REVISION[:12])')" >> "$GITHUB_OUTPUT"
       - name: Cache the all-taxa name list (built from 3.26 GB of TreeOfLife vectors on a miss)
         uses: actions/cache@v4
         with:
           path: ~/.cache/bioscan/names
-          key: names-alltaxa-${{ hashFiles('bioscan/service/names.py') }}
-          restore-keys: names-alltaxa-
+          key: names-alltaxa-${{ steps.alltaxa.outputs.key }}
       - name: Download weights, BirdNET geo and the all-taxa list
         run: uv run python tests/models/download.py
       - name: Cache photos
