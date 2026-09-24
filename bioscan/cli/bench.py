@@ -140,6 +140,21 @@ def _family(name: str | None, taxonomy: list | None, families: dict[str, str]) -
     return families.get(naming.norm_binomial(name)) or None
 
 
+def _truth_candidate(sci: str, top: list[dict]) -> dict:
+    """Where the truth sits among the best box's candidates: its rank by posterior (1 = top-1), its
+    rank by p_visual among the listed candidates, and its p values. All None when it is not listed."""
+    key = naming.norm_binomial(sci)
+    j = next((j for j, t in enumerate(top) if naming.norm_binomial(t.get("scientific")) == key), None)
+    if j is None:
+        return {"truth_rank": None, "truth_visual_rank": None, "truth_p_visual": None, "truth_p_geo": None,
+                "truth_posterior": None}
+    t = top[j]
+    pv = t.get("p_visual")
+    vrank = None if pv is None else 1 + sum((c.get("p_visual") or 0) > pv for c in top)
+    return {"truth_rank": j + 1, "truth_visual_rank": vrank, "truth_p_visual": pv, "truth_p_geo": t.get("p_geo"),
+            "truth_posterior": t.get("posterior")}
+
+
 def image_row(truth: dict, pev: dict | None, lists: dict[str, dict[str, str]], families: dict[str, str]) -> dict:
     """One image of report.json. Correctness (gate, detected, top1, top5, level) is eval.outcome."""
     o = ev.outcome(truth, pev)
@@ -162,6 +177,7 @@ def image_row(truth: dict, pev: dict | None, lists: dict[str, dict[str, str]], f
         "correct_genus": bool(c.get("scientific")) and genus_of(c.get("scientific")) == genus_of(sci),
         "p_visual": c.get("p_visual"), "p_geo": c.get("p_geo"), "posterior": c.get("posterior"),
         "p_correct": (sp or {}).get("p_correct"),
+        **_truth_candidate(sci, top),
         "family_truth": families.get(naming.norm_binomial(sci)) or None,
         "family_pred": _family(c.get("scientific"), c.get("taxonomy"), families) if c else None,
         "in_list": None if listed is None else naming.norm_binomial(sci) in listed,
@@ -196,8 +212,9 @@ def metrics_for(rows: list[dict], images_per_s: float | None = None) -> dict:
         k, den = counts[key]
         m[key] = round(k / den, 6) if den else None
         m[key + "_ci"] = wilson(k, den)
-    m["ece"] = ece([(float(r["p_correct"]), r["correct_top1"]) for r in rows
-                    if isinstance(r.get("p_correct"), (int, float))])
+    m["ece"] = ece([(min(1.0, max(0.0, float(r["p_correct"]))), r["correct_top1"]) for r in rows   # clamped
+                    if isinstance(r.get("p_correct"), (int, float)) and not isinstance(r["p_correct"], bool)
+                    and math.isfinite(r["p_correct"])])
     m["decode_ms_median"] = _median(r["decode_ms"] for r in rows)
     m["identify_ms_median"] = _median(r["identify_ms"] for r in rows)
     m["images_per_s"] = images_per_s
@@ -453,15 +470,21 @@ def _answer(r: dict) -> dict:
 
 def pair_images(base: list[dict], new: list[dict]) -> tuple[list[tuple[dict, dict]], int, int, str]:
     """Pairs (base row, new row) by sha256, else by path; (pairs, only in base, only in new, key used)."""
-    by_sha = {r["sha256"]: i for i, r in enumerate(base) if r.get("sha256")}
-    by_path = {r["path"]: i for i, r in enumerate(base)}
+    by_sha: dict[str, list[int]] = defaultdict(list)     # duplicate photos share a sha: keep them all
+    by_path: dict[str, list[int]] = defaultdict(list)
+    for i, r in enumerate(base):
+        if r.get("sha256"):
+            by_sha[r["sha256"]].append(i)
+        by_path[r["path"]].append(i)
     used, pairs, keys = set(), [], Counter()
     for r in new:
-        i = by_sha.get(r.get("sha256")) if r.get("sha256") else None
+        free = [i for i in by_sha.get(r.get("sha256") or "", []) if i not in used]
+        # same sha: the copy at the same path first, then the remaining copies one-to-one in order
+        i = next((i for i in free if base[i]["path"] == r["path"]), free[0] if free else None)
         k = "sha256"
-        if i is None or i in used:
-            i, k = by_path.get(r["path"]), "path"
-        if i is None or i in used:
+        if i is None:
+            i, k = next((i for i in by_path.get(r["path"], []) if i not in used), None), "path"
+        if i is None:
             continue
         used.add(i)
         keys[k] += 1
@@ -593,6 +616,8 @@ FAILURE_CLASSES = {   # class -> where to look first; the order is the precedenc
     "wrong_kind": "box kind differs from the truth: two-way kind check in rules.judge (bird <-> mammal)",
     "not_in_list": "truth is not in the kind's name list: name list / data/names/synonyms.csv",
     "out_of_range": "top-1 has p_geo ~ 0 where the place is known: range veto in rules.py; prior labels / geo gaps",
+    "prior_suppressed": "truth ranked first by p_visual, pushed below top-1 by a lower p_geo: geo gaps "
+                        "(bioscan names geo-gaps -> synonyms.csv birdnet rows), label map, prior floor",
     "within_genus": "right genus, wrong species: detail copy, crop quality, location prior between congeners",
     "within_family": "right family, wrong genus: prior floor tuning; grade to family when the genus is unsure",
     "far_miss": "wrong family: check the crop (wrong object boxed?) and image quality",
@@ -617,6 +642,9 @@ def failure_class(r: dict) -> str | None:
         return "far_miss"
     if r["place_known"] and r["p_geo"] is not None and r["p_geo"] < OUT_OF_RANGE_P_GEO:
         return "out_of_range"
+    if (r.get("truth_visual_rank") == 1 and (r.get("truth_rank") or 0) > 1 and r.get("truth_p_geo") is not None
+            and r["p_geo"] is not None and r["truth_p_geo"] < r["p_geo"]):
+        return "prior_suppressed"
     if r["correct_genus"]:
         return "within_genus"
     if r["family_truth"] and r["family_pred"] and r["family_truth"].lower() == r["family_pred"].lower():
@@ -913,6 +941,9 @@ def cmd_scorecard(a) -> int:
     tier = a.tier or report_tier(rep)
     if not tier:
         raise BenchError("the report has no tier (meta.tier or a single ground-truth tier): pass --tier")
+    known = sorted({standard_tier(s) for s in standards if s["metric"] != MANUAL})
+    if tier not in known:
+        raise BenchError(f"no standards for tier {tier!r}; known tiers: {', '.join(known)}")
     sc = scorecard(rep, standards, tier)
     md = scorecard_md(sc, rep)
     print(md)

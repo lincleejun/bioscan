@@ -158,7 +158,7 @@ An image paired between two reports (by sha256, else path) whose top-1 went from
 
 **Failure class**:
 Why an image has no correct top-1, one per image: failed, gate_miss, detector_miss, wrong_kind, not_in_list,
-out_of_range, within_genus, within_family, far_miss; `overconfident` (wrong at level species) overlaps them.
+out_of_range, prior_suppressed, within_genus, within_family, far_miss; `overconfident` (wrong at level species) overlaps them.
 
 **Confident error**:
 An image whose best box is graded species and whose top-1 is wrong.

@@ -98,7 +98,8 @@ jobs:
               --budget baselines/budget.toml --md bench-compare.md --json bench-compare.json > /dev/null
             rc=$?
             set -e
-            tee -a "$GITHUB_STEP_SUMMARY" < bench-compare.md
+            # compare exits 2 without writing markdown when the reports cannot be compared
+            if [ -f bench-compare.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-compare.md; fi
           else
             rc=0
             echo "baselines/ci-smoke.json does not exist yet: candidate baseline follows" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -106,11 +107,13 @@ jobs:
             cat models-report.json
             echo "===== END bioscan-report ci-smoke candidate ====="
           fi
-          tee -a "$GITHUB_STEP_SUMMARY" < bench-analyze.md
+          if [ -f bench-analyze.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-analyze.md; fi
           exit $rc
       - name: Tag report
         if: always() && startsWith(github.ref, 'refs/tags/v')
         run: |
+          # artifact names may not contain "/" (and a few other characters): sanitise the tag
+          echo "BENCH_ARTIFACT=bench-report-$(printf '%s' "$GITHUB_REF_NAME" | tr '/\:<>|*?"' '---------')" >> "$GITHUB_ENV"
           test -f models-report.json || exit 0
           echo "===== BEGIN bioscan-report ${GITHUB_REF_NAME} ====="
           cat models-report.json
@@ -118,7 +121,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always() && startsWith(github.ref, 'refs/tags/v')
         with:
-          name: bench-report-${{ github.ref_name }}
+          name: ${{ env.BENCH_ARTIFACT }}
           path: |
             models-report.json
             bench-compare.md

@@ -177,6 +177,14 @@ def test_ece_from_p_correct(tmp_path):
     assert rep["metrics"]["all"]["ece"] == pytest.approx((abs(0.8 - 1) + abs(0.4 - 0)) / 2)
 
 
+def test_ece_clamps_p_correct(tmp_path):
+    evs = events()
+    evs[1]["products"]["identify"]["boxes"][0]["species"]["p_correct"] = 1.5     # right, clamped to 1.0
+    evs[2]["products"]["identify"]["boxes"][0]["species"]["p_correct"] = -0.2    # wrong, clamped to 0.0
+    preds, gt = write_case(tmp_path, evs)
+    assert bench.report_from_preds(preds, gt, lists=lists(tmp_path))["metrics"]["all"]["ece"] == 0.0
+
+
 # ---- analyze ---------------------------------------------------------------------------------
 
 def test_failure_classes_on_crafted_cases(report):
@@ -184,10 +192,35 @@ def test_failure_classes_on_crafted_cases(report):
     assert got == {p: cls for p, _, _, _, cls in CASES}
 
 
+def test_prior_suppressed_truth_first_by_p_visual(tmp_path):
+    """The geo-gap case: the truth has the highest p_visual, but a lower p_geo put a congener on top."""
+    write_case(tmp_path)                                    # writes the name-list CSVs lists() reads
+    truth = {"path": "/k.jpg", "scientific": "Corvus corax", "tier": "own", "kind": "bird", "lat": "37", "lon": "-122"}
+
+    def c(name, pv, pg, post):
+        return {**cand(name, p_geo=pg, post=post), "p_visual": pv}
+
+    pev = res("/k.jpg", "bird", [box("bird", "genus", c("Corvus brachyrhynchos", 0.3, 0.9, 0.7),
+                                     c("Corvus corax", 0.6, 0.02, 0.2), c("Corvus ossifragus", 0.1, 0.5, 0.1))])
+    row = bench.image_row(truth, pev, lists(tmp_path), {})
+    assert (row["truth_rank"], row["truth_visual_rank"], row["truth_p_visual"], row["truth_p_geo"],
+            row["truth_posterior"]) == (2, 1, 0.6, 0.02, 0.2)
+    assert bench.failure_class(row) == "prior_suppressed"
+    # not first by p_visual: an ordinary congener miss
+    pev2 = res("/k.jpg", "bird", [box("bird", "genus", c("Corvus brachyrhynchos", 0.7, 0.9, 0.7),
+                                      c("Corvus corax", 0.6, 0.02, 0.2))])
+    assert bench.failure_class(bench.image_row(truth, pev2, lists(tmp_path), {})) == "within_genus"
+    # truth not listed: all truth_* fields null
+    pev3 = res("/k.jpg", "bird", [box("bird", "species", c("Buteo lineatus", 0.7, 0.9, 0.7))])
+    row3 = bench.image_row(truth, pev3, lists(tmp_path), {})
+    assert row3["truth_rank"] is None and row3["truth_p_geo"] is None
+
+
 def test_analyze_counts_examples_and_confusion(report):
     a = bench.analyze(report)
     by = {c["class"]: c for c in a["classes"]}
-    assert a["wrong"] == 9 and all(by[c]["count"] == 1 for c in bench.PRIMARY)
+    assert a["wrong"] == 9 and all(by[c]["count"] == 1 for c in bench.PRIMARY if c != "prior_suppressed")
+    assert by["prior_suppressed"]["count"] == 0
     over = by["overconfident"]                       # /b /f /i: wrong at species
     assert over["count"] == 3 and not over["primary"] and over["examples"][0]["path"] == "/f.jpg"   # highest posterior
     assert by["out_of_range"]["fix"].startswith("top-1 has p_geo") and "range veto in rules.py" in by["out_of_range"]["fix"]
@@ -294,6 +327,27 @@ def test_compare_pairs_by_sha_when_paths_move(report):
         r["path"] = "/moved" + r["path"]
     pr = bench.compare(report, new)["pairing"]
     assert pr["paired"] == 9 and pr["only_base"] == 1 and pr["only_new"] == 1   # the failed image has no sha
+
+
+def test_compare_pairs_duplicate_photos_one_to_one(report):
+    """Two copies of one photo (same sha256) at different paths: each pairs with its own path, and
+    moved copies still pair one-to-one instead of all landing on the last copy."""
+    base = copy.deepcopy(report)
+    x, y = copy.deepcopy(base["images"][0]), copy.deepcopy(base["images"][0])
+    x["path"], y["path"] = "/dup/x.jpg", "/dup/y.jpg"
+    y["correct_top1"] = False
+    base["images"] = [x, y]
+    new = copy.deepcopy(base)
+    new["images"] = list(reversed(new["images"]))
+    pairs, only_base, only_new, key = bench.pair_images(base["images"], new["images"])
+    assert [(b["path"], n["path"]) for b, n in pairs] == [("/dup/y.jpg", "/dup/y.jpg"), ("/dup/x.jpg", "/dup/x.jpg")]
+    assert (only_base, only_new, key) == (0, 0, "sha256 2")
+    assert bench.compare(base, new)["pairing"]["broken"] == 0
+    for r in new["images"]:
+        r["path"] = "/moved" + r["path"]
+    pairs, only_base, only_new, _ = bench.pair_images(base["images"], new["images"])
+    assert len(pairs) == 2 and (only_base, only_new) == (0, 0)
+    assert {b["path"] for b, _ in pairs} == {"/dup/x.jpg", "/dup/y.jpg"}
 
 
 def test_compare_warns_on_groundtruth_change(report):
@@ -438,6 +492,8 @@ def test_scorecard_cli_tier_and_exit_codes(tmp_path, report, capsys):
     assert "| accuracy.golden.bird.top1 | Bird species Top-1 | 6 | >= 10.0% | 16.7% [3.0%, 56.4%] | wilson | FAIL |" in out
     assert "1 pass, 2 fail, 1 n/a" in out and "## Not measurable from a report" in out
     assert "| coverage.names.bird | Bird species in the name list | >= 11131 species |" in out
+    assert cli.main(["bench", "scorecard", str(path), "--standards", str(STANDARDS), "--tier", "gold"]) == 2
+    assert "no standards for tier 'gold'; known tiers: golden, smoke" in capsys.readouterr().err
     report["meta"]["tier"] = "smoke"                   # bench run/report --tier writes meta.tier
     path = bench.write_json(report, tmp_path / "r2.json")
     assert cli.main(["bench", "scorecard", str(path), "--standards", str(STANDARDS)]) == 0

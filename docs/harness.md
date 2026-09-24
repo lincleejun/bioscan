@@ -48,7 +48,7 @@ synonyms.csv edit changes truth labels; `compare` warns when the synonyms sha di
 
 **Tag → report.** Pushing a `v*` tag runs `models.yml`. It runs the real-model smoke, writes
 `models-report.json` (tier `smoke`) and compares it with `baselines/ci-smoke.json`. It publishes the
-report as the `bench-report-<tag>` artifact and prints it in the job log between
+report as the `bench-report-<tag>` artifact (characters an artifact name cannot hold, such as `/`, become `-`) and prints it in the job log between
 `===== BEGIN bioscan-report <tag> =====` and `===== END … =====`. For the golden set and the own RAW set,
 run on the Mac at the tag (below) and commit the reports as `golden-inat-<tag>` and `own-raw-<date>`.
 
@@ -125,7 +125,7 @@ keys:
 | `confident_error_rate` | At level species and wrong, divided by `n` |
 | `no_box_rate` | A result with no box, divided by `n` |
 | `failed_rate` | An error or no prediction at all, divided by `n` |
-| `ece` | Expected calibration error (10 equal-width bins) of `species.p_correct` against top-1 correctness. Null until the service emits `p_correct`; posteriors are not treated as calibrated |
+| `ece` | Expected calibration error (10 equal-width bins) of `species.p_correct` (clamped to 0-1; non-finite values ignored) against top-1 correctness. Null until the service emits `p_correct`; posteriors are not treated as calibrated |
 | `decode_ms_median`, `identify_ms_median` | Medians of `timing_ms.decode` / `timing_ms.identify` |
 | `images_per_s` | Wall throughput, `done.ok / (done.elapsed_ms / 1000)`. Only in `all`; null elsewhere |
 | `<rate>_ci` | Wilson 95% interval `[lo, hi]` for each of the ten rates above; null when its denominator is 0 |
@@ -153,6 +153,8 @@ One row per ground-truth row:
 | `correct_top1`, `correct_top5`, `correct_genus` | Scoring as in the metrics |
 | `p_visual`, `p_geo`, `posterior` | Of the first candidate |
 | `p_correct` | `species.p_correct` when the service emits it |
+| `truth_rank`, `truth_visual_rank` | Where the truth sits among the best box's candidates: rank by posterior (1 = top-1) and rank by p_visual among the listed candidates (ties share the better rank); null when it is not listed |
+| `truth_p_visual`, `truth_p_geo`, `truth_posterior` | The truth candidate's values; null when it is not listed |
 | `family_truth`, `family_pred` | Families of the truth and of the first candidate |
 | `in_list` | Truth is in the kind's name list; null when no list is known for the kind |
 | `place_known` | The ground truth has lat/lon, or the first candidate has a `p_geo` |
@@ -162,7 +164,7 @@ One row per ground-truth row:
 
 - **Metric deltas.** For every scope in both reports, each metric gives `base`, `new`, `delta`,
   `base_ci` and `new_ci`.
-- **Pairing.** Images pair by sha256, falling back to path, so moved folders still pair. The comparison
+- **Pairing.** Images pair by sha256, falling back to path, so moved folders still pair. When several images share a sha256 (duplicate photos), the copy at the same path pairs first and the remaining copies pair one-to-one in order. The comparison
   counts:
   - `fixed`: wrong before, right now;
   - `broken`: right before, wrong now;
@@ -215,6 +217,7 @@ order, and the first that matches wins:
 | `wrong_kind` | Best box's kind (bird/mammal/other) differs from the truth's | Two-way kind check in rules.judge |
 | `not_in_list` | Truth not in the kind's name list (or a box with no species where no list is known) | Name list, synonyms.csv |
 | `out_of_range` | Top-1 has p_geo < 0.01 where the place is known | Range veto in rules.py; prior labels, geo gaps |
+| `prior_suppressed` | The truth is first by p_visual among the candidates, but ranked below top-1 because its p_geo is lower than the top-1's | Geo gaps (`bioscan names geo-gaps` → a `birdnet` row in synonyms.csv), label map, prior floor |
 | `within_genus` | Right genus, wrong species | Detail copy, crop quality, prior between congeners |
 | `within_family` | Right family, wrong genus | Prior floor; grade to family when the genus is unsure |
 | `far_miss` | Anything else | The crop (wrong object boxed?), image quality |
@@ -229,7 +232,7 @@ For each class the analysis gives:
 - a fix pointer.
 
 It also counts the classes per scope and lists the top 15 truth → prediction confusion pairs.
-The class with the most images is printed first as **Fix next**. The JSON uses schema
+The largest primary class (overconfident excluded; ties go to the class checked first) is printed as **Fix next**. The JSON uses schema
 `bioscan-analysis`, version 1.
 
 ## scorecard: data/standards.toml
@@ -255,7 +258,7 @@ source = "URL or why there is none"
 
 - **Tier.** The scorecard applies the standards of one tier. The tier comes from `--tier`, else from
   the report's `meta.tier`, else from the ground truth's tier when it has exactly one. With none of
-  these, it exits 2.
+  these, it exits 2. A tier that no standard in the file uses also exits 2, with the known tiers listed.
 - **Geo mode.** A report run with `--no-geo` is held only to the `.nogeo` standards. A normal report
   skips them.
 - **Statistical rule** (docs/standards.md). A rate passes when its Wilson 95% bound clears the bar:
