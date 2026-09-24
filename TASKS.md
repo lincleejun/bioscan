@@ -70,7 +70,7 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
 - [x] owner's Mac: golden + own RAW baselines (2026-09-24: baselines/golden-inat-v1.{4,5}.json, own-raw-2026-09-24-v1.{4,5}.json; docs/2026-09-24-*.md) (`bioscan bench run ... --tier golden|own`), speed tier, RAW EXIF check
 - [ ] golden other-animal slice: ~16 CA reptile/amphibian/insect/spider species × 25 via `bioscan gt inat` (docs/standards.md); measures accuracy.golden.other.*
 - [ ] docs/standards.md status column: refresh after every Mac baseline (done 2026-09-24 for golden/own)
-- [ ] service shutdown leaves decode-pool workers alive after SIGTERM (found 2026-09-24 on the Mac); terminate the pool in the lifespan handler
+- [x] service shutdown leaves decode-pool workers alive after SIGTERM (found 2026-09-24 on the Mac); the lifespan handler now stops the pool (RunQueue.close), reproduced and verified with a real uvicorn + SIGTERM
 - [ ] Phase 0 speed benchmark (docs/strategy): 2,000 files, ARW/CR3/NEF at 24 and 45 MP, USB vs SSD; CR3/NEF need sample files the owner does not have yet
 
 - [ ] `bioscan report <preds.ndjson>`: reviewable HTML (thumbnails with boxes, grouped by top-1, species table, review.csv with a verdict column); prototype in runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW at Coyote Hills, owner reviewed: OK)
