@@ -139,6 +139,31 @@ With `--json` the service's NDJSON is written as is, one line per image, for dow
  "timing_ms":{"decode":650,"identify":210}}
 ```
 
+### Supported files
+
+`bioscan run` and `bioscan gt folders` scan for every extension below, in any case (`bioscan/formats.py` is the one list the scan and the decoder share); `--ext` narrows or widens it. GPS and capture time come from the file's EXIF and feed the location prior; a request's `lat`/`lon`/`taken_at` override them.
+
+| Format | Extensions | Decode | GPS + capture time | `jpg` preview | Checked on real camera files |
+|---|---|---|---|---|---|
+| Sony | `.arw` | rawpy (LibRaw) | TIFF IFDs | yes | decode: yes (own tier); EXIF: not recorded |
+| Nikon | `.nef` `.nrw` | rawpy | TIFF IFDs | yes | no |
+| Canon (older) | `.cr2` | rawpy | TIFF IFDs | yes | no |
+| Canon (R-series, M50, …) | `.cr3` | rawpy | CR3 `CMT1`/`CMT2`/`CMT4` boxes | yes | no |
+| Fujifilm | `.raf` | rawpy | EXIF of the embedded JPEG | yes | no |
+| OM System / Olympus | `.orf` | rawpy | TIFF IFDs (ORF header) | yes | no |
+| Panasonic | `.rw2` | rawpy | TIFF IFDs (RW2 header); else the embedded JpgFromRaw | yes | no |
+| Pentax, Samsung | `.pef` `.srw` | rawpy | TIFF IFDs | yes | no |
+| DNG | `.dng` | rawpy | TIFF IFDs | yes | no |
+| JPEG | `.jpg` `.jpeg` | Pillow | EXIF | yes | yes (iNat golden set) |
+| PNG, TIFF, WebP | only with `--ext` or a file path | Pillow | EXIF when present | yes | no |
+| HEIC / HEIF | not supported | no: Pillow needs the `pillow-heif` plugin; the image gets an `error` event | no | no | — |
+
+Every format's metadata reader is tested on small synthetic files (`tests/unit/test_raw_exif.py`); none of the new ones (CR3, RAF, ORF, RW2) has been run on a real camera file yet. Check your own files without starting the service; this reads metadata only:
+```sh
+uv run python -m bioscan.service.decode /path/to/card -r    # per file: ext, container, lat, lon, taken_at; then a count per extension
+```
+`taken_at` keeps the sub-second part when the camera writes one (`SubSecTimeOriginal`), so burst frames get distinct, ordered times: `2026-05-01T08:00:00.37-07:00`. `bioscan gt folders` reads DateTimeOriginal, SubSecTimeOriginal and OffsetTimeOriginal with `exiftool` (the CLI does not load Pillow) and writes them in the same form.
+
 ### Ports and environment variables
 
 | Name | Purpose | Default |
@@ -216,6 +241,7 @@ CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.ym
 ```
 bioscan/contract.py              single definition of /run events, product names and the identify payload (shared by CLI and service, stdlib only)
 bioscan/naming.py                name normalisation (scientific names; gt folder labels), synonyms.csv, stale-map check (stdlib only)
+bioscan/formats.py               supported photo extensions (decoder and folder scans share it), the folder scan (stdlib only)
 bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > default, once, for both entry points (stdlib only)
 bioscan/service/app.py           routes, request validation, allow-roots, NDJSON stream
 bioscan/service/run.py           a /run as events: chunks, per-chunk model turn, self-healing decode pool
@@ -225,7 +251,7 @@ bioscan/service/pipeline.py      identify orchestration (batched across images) 
 bioscan/service/rules.py         pure rules and thresholds: crop check, grading, quality, cropping
 bioscan/service/taxa.py          gate prompts, detector vocabularies, promotable class
 bioscan/service/settings.py      fingerprint of output-changing settings
-bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + EXIF + sha256
+bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + EXIF (every RAW container) + sha256
 bioscan/service/names.py         AviList / MDD lists, TreeOfLife mapping, text-vector cache
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/cli/                     main client render gt eval

@@ -8,7 +8,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-from bioscan import contract, serve_config
+from bioscan import contract, formats, serve_config
 from bioscan.cli import client, gt
 from bioscan.cli.render import Renderer
 
@@ -72,8 +72,8 @@ def build_payload(a) -> dict:
         raise SystemExit("--want jpg needs --jpg-out DIR")
     if (a.lat is None) != (a.lon is None):
         raise SystemExit("--lat and --lon go together")
-    exts = {e.strip().lower().lstrip(".") for e in a.ext.split(",")}
-    paths = [p for root in a.paths for p in gt.list_images(root, exts, a.recursive)]
+    exts = formats.parse_ext(a.ext)
+    paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)]
     if not paths:
         raise SystemExit("no images found")
     inputs = [{"path": p} for p in paths]
@@ -129,8 +129,7 @@ def cmd_run(a):
 # ---- gt / eval / names -------------------------------------------------------------
 
 def cmd_gt_folders(a):
-    exts = {e.strip().lower() for e in a.ext.split(",")}
-    counts = gt.gt_folders(a.dir, a.out, a.names or [], exts)
+    counts = gt.gt_folders(a.dir, a.out, a.names or [], formats.parse_ext(a.ext))
     for k, v in counts.items():
         print(f"{v:>5}  {k}")
     print(f"{sum(counts.values()):>5}  total -> {a.out}")
@@ -235,7 +234,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--no-species", action="store_true")
     s.add_argument("--jpg-out")
     s.add_argument("-r", "--recursive", action="store_true")
-    s.add_argument("--ext", default=gt.DEFAULT_EXT)
+    s.add_argument("--ext", default=formats.DEFAULT_EXT)
     s.set_defaults(func=cmd_run)
 
     g = sub.add_parser("gt", help="build ground-truth CSVs").add_subparsers(dest="gt_cmd", required=True)
@@ -243,7 +242,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("dir")
     s.add_argument("--out", default="groundtruth.csv")
     s.add_argument("--names", action="append", help="AviList/MDD CSV to match folder names against (repeatable)")
-    s.add_argument("--ext", default=gt.DEFAULT_EXT)
+    s.add_argument("--ext", default=formats.DEFAULT_EXT)
     s.set_defaults(func=cmd_gt_folders)
     s = g.add_parser("inat", help="download iNaturalist research-grade photos -> inat-tier CSV")
     s.add_argument("--place", default="california", help="name or numeric place_id")
