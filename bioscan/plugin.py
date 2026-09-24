@@ -99,6 +99,9 @@ class Stage(Protocol):
     def writes(self, opts: dict[str, Any]) -> list[str]: ...                # paths checked against allow-roots
     def reads_paths(self, opts: dict[str, Any]) -> list[str]: ...           # files it reads besides the inputs
     def settings(self) -> dict[str, Any]: ...                               # its output-changing constants
+    # what result.engine.plugins reports for it under these options ("v1@<model or head id>"), None
+    # for nothing; a stage whose output depends on a file (a trained head) says which one here
+    def plugin_id(self, opts: dict[str, Any]) -> str | None: ...
     def run(self, engine: Any, items: list[Item], opts: dict[str, Any]) -> list[Any]: ...  # output | Exception
 
 
@@ -116,6 +119,9 @@ class StageBase:
 
     def settings(self) -> dict[str, Any]:
         return {}
+
+    def plugin_id(self, opts: dict[str, Any]) -> str | None:
+        return None
 
 
 def each(items: list[Item], fn: Callable[[Item], Any]) -> list[Any]:

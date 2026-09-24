@@ -9,20 +9,24 @@ import pytest
 PATH = Path(__file__).resolve().parents[2] / "data" / "standards.toml"
 
 REQUIRED = {"id", "dimension", "title", "scope", "metric", "op", "community", "unit", "how", "source"}
-OPTIONAL = {"industry", "stretch"}          # TOML has no null: a missing key means null
+OPTIONAL = {"industry", "stretch", "tier", "profile"}   # TOML has no null: a missing key means null
 METRICS = {"n", "gate_acc", "detect_rate", "top1", "top5", "genus_acc", "coverage", "precision",
            "confident_error_rate", "no_box_rate", "failed_rate", "ece", "decode_ms_median",
            "identify_ms_median", "images_per_s"}
 RATES = METRICS - {"n", "decode_ms_median", "identify_ms_median", "images_per_s"}
 GEOTAG_RATES = {"within_100m_rate", "within_1km_rate", "no_fix_rate", "false_fix_rate", "cell_change_rate"}
 GEOTAG_METRICS = GEOTAG_RATES | {"n", "n_expected", "median_error_m", "p90_error_m", "offset_error_s"}
+AESTHETIC_RATES = {"precision_at_k"}
+AESTHETIC_METRICS = AESTHETIC_RATES | {"n", "spearman", "kendall", "plcc", "spearman_trip_mean", "ndcg_at_k"}
 DIMENSIONS = {"accuracy", "trust", "detection", "location", "directory", "speed", "coverage", "robustness",
-              "onboarding", "privacy", "reproducibility"}
+              "onboarding", "privacy", "reproducibility", "aesthetics"}
 SCOPES = {"all", "bird", "mammal", "other"}
 OPS = {">=", "<="}
-TIERS = {"smoke", "golden", "own", "public", "mac", "geotag"}
+TIERS = {"smoke", "golden", "own", "public", "mac", "geotag", "aesthetic_own"}
+PROFILES = {"full", "wildlife", "album"}
 VARIANTS = {"nogeo"}
-UNITS = {"fraction", "ms", "images/s", "images", "species", "formats", "minutes", "requests", "bool", "m", "s"}
+UNITS = {"fraction", "ms", "images/s", "images", "species", "formats", "minutes", "requests", "bool", "m", "s",
+         "correlation", "score"}
 
 
 def standards() -> list[dict]:
@@ -56,10 +60,15 @@ def test_fields(s):
     assert s["scope"] in SCOPES
     assert s["op"] in OPS
     assert s["unit"] in UNITS
-    assert s["metric"] in METRICS or s["metric"] == "manual" or (s["id"].split(".")[1] == "geotag"
-                                                                  and s["metric"] in GEOTAG_METRICS)
+    tier = s["id"].split(".")[1]
+    assert s["metric"] in METRICS or s["metric"] == "manual" or (tier == "geotag" and s["metric"] in GEOTAG_METRICS) \
+        or (tier == "aesthetic_own" and s["metric"] in AESTHETIC_METRICS)
+    if "profile" in s:
+        assert s["profile"] in PROFILES
+    if "tier" in s:                       # an explicit tier (aesthetic-own) is the id's segment with _ for -
+        assert isinstance(s["tier"], str) and s["tier"].replace("-", "_") == tier
     assert is_number(s["community"])
-    for k in OPTIONAL & keys:
+    for k in {"industry", "stretch"} & keys:
         assert is_number(s[k]), k
 
 
@@ -93,7 +102,7 @@ def test_bars_are_ordered(s):
 
 @pytest.mark.parametrize("s", standards(), ids=lambda s: s.get("id", "?"))
 def test_rates_are_fractions(s):
-    if s["metric"] in RATES | GEOTAG_RATES:
+    if s["metric"] in RATES | GEOTAG_RATES | AESTHETIC_RATES:
         assert s["unit"] == "fraction"
     if s["unit"] == "fraction":
         for k in ("industry", "community", "stretch"):

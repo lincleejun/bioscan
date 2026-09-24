@@ -23,7 +23,7 @@ geo = true
 
 [profile.album]
 description = "Culling an album: boxes for subject focus without species (BioCLIP never loads), plus the frame vector."
-stages = ["identify", "embed"]
+stages = ["identify", "embed", "aesthetics"]
 # will gain: the quality, scene and aesthetics stages, and the burst and select reducers (run by the CLI).
 
 [profile.album.options.identify]

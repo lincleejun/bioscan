@@ -9,10 +9,14 @@ HEAVY = ("numpy", "torch", "transformers", "open_clip", "PIL", "bioscan.service"
 
 
 def test_cli_modules_do_not_import_heavy_deps(tmp_path):
-    code = ("import sys; import bioscan.cli.main, bioscan.cli.client, bioscan.cli.render, bioscan.cli.gt, "
+    code = ("import sys, tempfile; d0 = tempfile.mkdtemp(); import bioscan.cli.main, bioscan.cli.client, bioscan.cli.render, bioscan.cli.gt, "
             "bioscan.cli.eval, bioscan.cli.bench, bioscan.cli.geobench, bioscan.cli.geotag_cli, bioscan.geotag, "
+            "bioscan.cli.aesbench, bioscan.aesthetic, "
             "bioscan.contract, bioscan.naming, bioscan.formats, "
             "bioscan.plugin, bioscan.plugins, bioscan.profile, bioscan.cli.config; bioscan.contract.PRODUCTS; "
+            # `bioscan aesthetic ratings` reads XMP and scores heads without numpy
+            "bioscan.cli.main.parser().parse_args(['aesthetic', 'eval', d0, '--out', d0, '--no-curve']); "
+            "bioscan.aesthetic.ratings_from_folder(d0); "
             "bioscan.profile.resolve(bioscan.profile.builtin(), 'album'); "
             # what `bioscan run --profile` and `bioscan config show` do before any request is sent
             "import tempfile, pathlib; d = tempfile.mkdtemp(); pathlib.Path(d, 'a.jpg').touch(); "
@@ -23,11 +27,11 @@ def test_cli_modules_do_not_import_heavy_deps(tmp_path):
     env = {"HOME": str(tmp_path), "PATH": os.environ.get("PATH", "")}       # no developer bioscan.toml
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=tmp_path,
                          env=env).stdout.strip()
-    assert "run order embed, identify" in out and out.splitlines()[-1] == "[]", out
+    assert "run order aesthetics, embed, identify" in out and out.splitlines()[-1] == "[]", out
 
 
 def test_products_come_from_the_plugin_manifests():
     from bioscan import contract
     from bioscan.plugins import BUILTIN
 
-    assert contract.PRODUCTS == tuple(m.name for m in BUILTIN) == ("identify", "embed", "jpg", "geotag")
+    assert contract.PRODUCTS == tuple(m.name for m in BUILTIN) == ("identify", "embed", "jpg", "geotag", "aesthetics")

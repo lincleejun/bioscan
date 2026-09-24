@@ -908,3 +908,71 @@ stretch = 1
 unit = "bool"
 how = "tag run of the harness publishes report.json + scorecard with the release"
 source = "no competitor publishes a reproducible report (docs/strategy/2026-09-24-opportunities.md)"
+
+# ---------------------------------------------------------------- aesthetics (owner's ratings, album)
+# Tier `aesthetic-own`, profile `album`: `bioscan aesthetic eval <ratings> --out DIR` scores the
+# served aesthetic score (the blend when a personal head is given, else the general head) against
+# the owner's Lightroom stars and picks; `bioscan bench scorecard DIR/report.json` holds it to these
+# bars. Agreement with one photographer, not "aesthetic accuracy". Score a personal head only on trips
+# it was not fitted on (the report flags in-sample heads); the learning curve is always held out.
+# Bars are first guesses until the first real eval: nobody publishes agreement with one owner's stars.
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.spearman"
+dimension = "aesthetics"
+title = "Aesthetic score vs the owner's stars: Spearman rank correlation (all rated frames)"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "spearman"
+op = ">="
+community = 0.30
+stretch = 0.50
+unit = "correlation"
+how = "bioscan aesthetic eval <ratings folder or CSV> --out runs/<tag>-aesthetic (service running); bioscan bench scorecard runs/<tag>-aesthetic/report.json; judged on the lower 95% bound"
+source = "no published figure for one photographer's stars; generic heads reach SRCC 0.67-0.82 on AVA's own test split (pyiqa IAA benchmark, a different task): https://raw.githubusercontent.com/chaofengc/IQA-PyTorch/main/tests/IAA_benchmark_results.csv"
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.kendall"
+dimension = "aesthetics"
+title = "Aesthetic score vs the owner's stars: Kendall tau-b"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "kendall"
+op = ">="
+community = 0.20
+stretch = 0.35
+unit = "correlation"
+how = "bioscan aesthetic eval <ratings> --out runs/<tag>-aesthetic; bioscan bench scorecard runs/<tag>-aesthetic/report.json"
+source = "no published figure; tau-b runs at about two thirds of Spearman's rho on the same ranking"
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.ndcg_at_k"
+dimension = "aesthetics"
+title = "Top of each trip by aesthetic score: NDCG@10 against stars (mean over trips)"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "ndcg_at_k"
+op = ">="
+community = 0.70
+stretch = 0.85
+unit = "score"
+how = "bioscan aesthetic eval <ratings> --out runs/<tag>-aesthetic (k 10, gain 2^stars - 1); bioscan bench scorecard runs/<tag>-aesthetic/report.json"
+source = "no published figure; a random order already scores well above 0 on star ratings, so this bar is provisional until compared with random order on the first real eval"
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.precision_at_k"
+dimension = "aesthetics"
+title = "Picks found: of the top-k frames per trip (k = the owner's picks there), share the owner picked"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "precision_at_k"
+op = ">="
+community = 0.30
+stretch = 0.50
+unit = "fraction"
+how = "bioscan aesthetic eval <ratings> --out runs/<tag>-aesthetic (picks: explicit, else stars >= 4); the report shows the random-order share next to it; bioscan bench scorecard runs/<tag>-aesthetic/report.json"
+source = "no published figure; Lightroom's Assisted Culling and Aftershoot publish no pick precision"
