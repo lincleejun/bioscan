@@ -113,7 +113,11 @@ jobs:
           key: photos-${{ hashFiles('tests/models/sample.csv') }}
           restore-keys: photos-
       - name: Real-model smoke
-        run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs
+        # tee: the album candidate report printed later can push pytest's output past what a log
+        # tail shows; the last step prints the failures again
+        run: |
+          set -o pipefail
+          HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs 2>&1 | tee pytest-models.log
       - name: Job summary
         if: always()
         # also printed to the log so the numbers are readable wherever the summary is not
@@ -203,3 +207,8 @@ jobs:
             bench-scorecard-album.md
             bench-analyze.md
           if-no-files-found: ignore
+      - name: Real-model test failures (repeated last, so a log tail shows them)
+        if: always()
+        run: |
+          test -f pytest-models.log || exit 0
+          grep -E "^(FAILED|ERROR) |^E  |^_{5,} .* _{5,}$|^=+ .*(passed|failed|error).* =+$" pytest-models.log | tail -n 300 || true

@@ -532,8 +532,10 @@ def test_album_every_photo_gets_a_result(album):
     assert len(rows) >= 60, f"only {len(rows)} album photos (too few sources with a box clear of the edges)"
     assert not [e for e in evs if e["type"] == "error"] and evs[-1]["ok"] == len(rows)
     res = next(e for e in evs if e["type"] == "result")
-    assert list(res["products"]) == ["identify", "embed", "quality", "scene"]
-    assert set(res["engine"]["plugins"]) == {"quality", "scene"}
+    assert list(res["products"]) == ["identify", "embed", "aesthetics", "quality", "scene"]
+    # aesthetics names its head ("v1@none" while no general head is committed); quality and scene
+    # report their settings fingerprints
+    assert set(res["engine"]["plugins"]) == {"aesthetics", "quality", "scene"}
 
 
 def test_album_floors(album):
