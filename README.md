@@ -420,7 +420,7 @@ bioscan/service/app.py           routes, request validation, allow-roots, NDJSON
 bioscan/service/run.py           a /run as events: chunks, per-chunk model turn, self-healing decode pool
 bioscan/service/engine.py        device choice, lazy model loading via Loaders (tests inject fake adapters), per-kind priors
 bioscan/plugin.py                what a stage plugin declares (Manifest) and implements (Stage); the run plan (stdlib only)
-bioscan/plugins/<name>/          built-in stages identify, embed, jpg: stdlib manifest in __init__.py, service code in stage.py
+bioscan/plugins/<name>/          built-in stages identify, embed, jpg, geotag: stdlib manifest in __init__.py, service code in stage.py
 bioscan/service/stages.py        the stages in the service: options merged and checked, /products, paths for allow-roots
 bioscan/service/pipeline.py      identify orchestration (batched across images) behind the Models protocol
 bioscan/service/rules.py         pure rules and thresholds: crop check, grading, quality, cropping

@@ -11,6 +11,11 @@ on:
     tags: ["v*"]
     paths:
       - "bioscan/service/**"
+      - "bioscan/plugins/**"
+      - "bioscan/plugin.py"
+      - "bioscan/profile.py"
+      - "bioscan/profiles.toml"
+      - "bioscan/geotag.py"
       - "bioscan/contract.py"
       - "bioscan/naming.py"
       - "bioscan/serve_config.py"
@@ -25,6 +30,11 @@ on:
   pull_request:
     paths:
       - "bioscan/service/**"
+      - "bioscan/plugins/**"
+      - "bioscan/plugin.py"
+      - "bioscan/profile.py"
+      - "bioscan/profiles.toml"
+      - "bioscan/geotag.py"
       - "bioscan/contract.py"
       - "bioscan/naming.py"
       - "bioscan/serve_config.py"

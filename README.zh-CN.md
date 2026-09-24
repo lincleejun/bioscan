@@ -380,7 +380,7 @@ bioscan/service/app.py           路由、请求校验、允许目录、NDJSON �
 bioscan/service/run.py           一次 /run 的事件流：分 chunk、按 chunk 的模型轮次、解码进程池自愈
 bioscan/service/engine.py        设备选择、经 Loaders 惰性加载模型（测试注入假适配器）、每类先验
 bioscan/plugin.py                stage 插件的声明（Manifest）与实现接口（Stage）；运行计划（仅标准库）
-bioscan/plugins/<name>/          内置 stage：identify、embed、jpg；__init__.py 是标准库 manifest，stage.py 是服务端代码
+bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag；__init__.py 是标准库 manifest，stage.py 是服务端代码
 bioscan/service/stages.py        服务端的 stage：选项合并与校验、/products、allow-roots 路径
 bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
 bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值

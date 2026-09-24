@@ -128,16 +128,13 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
       (tests/bioscan_test_env.py)
 - [x] W6 merged (e66c0ac) and the step-5 `geotag` stage built (bioscan/plugins/geotag; wildlife = geotag + identify;
       `run --gpx` maps onto it with a geotag profile, else the CLI-side path as before; tests/unit/test_geotag_stage.py).
-      The design as planned:
-      `bioscan/plugins/geotag/__init__.py` MANIFEST (reads `time`, provides `place`, thread `cpu`, models none,
-      options gpx / max_gap_s / camera_utc_offset with defaults); `stage.py` Stage: `check` (types, offset format),
-      `reads_paths(opts)` = the GPX files (app.outside_roots checks them against allow-roots), `settings()` = its
-      constants, `run` sets `item.facts["place"] = (lat, lon)` only when `item.lat` is None (request and EXIF win) and
-      returns `{"place_source": "gpx", ...}` or None. identify reads `place`, so the plan runs geotag first and
-      Item.lat/lon pick the fact up. Add it to plugins.BUILTIN after jpg (report order), to `wildlife` stages in
-      profiles.toml, never to `full`; `run --gpx` sets options.geotag.gpx and adds geotag to `want`.
-- [ ] A6 note: harness meta.profile (eval already writes "profile" in the preds meta line)
-- [ ] A6 harness: meta.profile, plugin_metrics, standards `profile` field
+      As built: MANIFEST reads `time`, provides `place`, thread cpu, no models; options gpx / offset /
+      camera_utc_offset / max_gap_s / max_span_m / max_still_s / extrapolate_s; `reads_paths` = the GPX files
+      (allow-roots). `run` sets `item.facts["place"]` only when the request and EXIF have no location and returns
+      `{"place_source": "request" | "exif" | "gpx" | "none"}` (None only without a track). In plugins.BUILTIN after jpg,
+      in `wildlife`, never in `full`. `run --gpx` uses the stage only when the profile includes geotag; otherwise the
+      CLI geotags locally as in W6. The clock offset is always decided in the CLI for the whole folder.
+- [ ] A6 harness: meta.profile (eval already writes "profile" in the preds meta line), plugin_metrics, standards `profile` field
 - [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
 - [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
 - [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
