@@ -22,7 +22,7 @@ from bioscan.service.rules import MIN_CROP, crop_with_context, dedupe, judge, qu
 
 MAX_CANDIDATES = 1000
 DEFAULTS: dict[str, dict[str, Any]] = {
-    "identify": {"top_k": 5, "geo": True, "species": True, "candidates": []},
+    "identify": {"top_k": 5, "geo": True, "species": True, **pipeline.SWITCHES, "candidates": []},
     "embed": {"format": "list"},
     "jpg": {"out_dir": "/tmp/bioscan-jpg"},
 }
@@ -31,17 +31,21 @@ PRODUCTS: dict[str, Any] = {
     "identify": {
         "description": "Scene gate (SigLIP2), animal boxes (OWLv2 + crop gate), per-box quality and species "
                        "(BioCLIP 2.5 Huge zero-shot against AviList for birds, MDD for mammals and the "
-                       "TreeOfLife-200M all-taxa list for other animals; optional BirdNET geo prior for birds).",
+                       "TreeOfLife-200M all-taxa list for other animals; optional BirdNET geo prior for birds "
+                       "and mammals, range veto, kind check).",
         "options": {"top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
                     "geo": {"type": "boolean", "default": True},
                     "species": {"type": "boolean", "default": True},
+                    # accuracy fixes, on by default; false switches one off to measure it (README)
+                    **{k: {"type": "boolean", "default": v} for k, v in pipeline.SWITCHES.items()},
                     "candidates": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_CANDIDATES,
                                    "default": [],
                                    "description": "Optional. Rank species only among these taxa: scientific names "
                                                   "or any higher taxon (genus, family, order, class), matched "
-                                                  "across every loaded name list; a box takes the kind of the "
-                                                  "list its top-1 comes from. Empty = all taxa. Names no list "
-                                                  "knows are a 400."}},
+                                                  "across every loaded name list. Only lists with a matching row "
+                                                  "compete: the kind check picks among them (off: the box keeps "
+                                                  "its kind if its list has one, else the list with the most "
+                                                  "evidence). Empty = all taxa. Names no list knows are a 400."}},
         "output": contract.IDENTIFY_OUTPUT,          # the payload's fields live in bioscan/contract.py
     },
     "embed": {
@@ -62,7 +66,7 @@ def _check_identify(o: dict[str, Any]) -> None:
     top_k = o["top_k"]
     if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 50:
         raise ValueError("options.identify.top_k must be an integer 1-50")
-    for key in ("geo", "species"):
+    for key in ("geo", "species", *pipeline.SWITCHES):
         if not isinstance(o[key], bool):
             raise ValueError(f"options.identify.{key} must be a boolean")
     c = o["candidates"]

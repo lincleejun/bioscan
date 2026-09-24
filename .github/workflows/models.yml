@@ -1,9 +1,14 @@
 name: models
 
 # Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo, + the all-taxa list) on CPU over 95 iNaturalist photos.
-# Report: the job summary and the `models-report` artifact.
+# Report: the job summary, the job log and the `models-report` artifact. The harness step compares the
+# run's report.json with baselines/ci-smoke.json under baselines/budget.toml (docs/harness.md).
+# Branch pushes and PRs run when a listed path changes; a `v*` tag push always runs (GitHub does not
+# evaluate path filters for tags) and publishes its report as the `bench-report-<tag>` artifact.
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
     paths:
       - "bioscan/service/**"
       - "bioscan/contract.py"
@@ -11,6 +16,9 @@ on:
       - "bioscan/serve_config.py"
       - "tests/models/**"
       - "data/names/**"
+      - "bioscan/cli/eval.py"
+      - "bioscan/cli/bench.py"
+      - "baselines/**"
       - "uv.lock"
       - "pyproject.toml"
       - ".github/workflows/models.yml"
@@ -22,6 +30,9 @@ on:
       - "bioscan/serve_config.py"
       - "tests/models/**"
       - "data/names/**"
+      - "bioscan/cli/eval.py"
+      - "bioscan/cli/bench.py"
+      - "baselines/**"
       - "uv.lock"
       - "pyproject.toml"
       - ".github/workflows/models.yml"
@@ -84,6 +95,49 @@ jobs:
         if: always()
         # also printed to the log so the numbers are readable wherever the summary is not
         run: test -f models-report.md && tee -a "$GITHUB_STEP_SUMMARY" < models-report.md || true
+      - name: Harness compare with baselines/ci-smoke.json
+        if: always()
+        # Markdown goes to the log and the summary (artifact download is not always possible).
+        # No baseline yet: print the report between markers so it can be committed as one, and pass.
+        run: |
+          if [ ! -f models-report.json ]; then echo "no models-report.json (the smoke did not get far enough)"; exit 0; fi
+          uv run bioscan bench analyze models-report.json --md bench-analyze.md > /dev/null
+          if [ -f baselines/ci-smoke.json ]; then
+            set +e
+            uv run bioscan bench compare baselines/ci-smoke.json models-report.json \
+              --budget baselines/budget.toml --md bench-compare.md --json bench-compare.json > /dev/null
+            rc=$?
+            set -e
+            # compare exits 2 without writing markdown when the reports cannot be compared
+            if [ -f bench-compare.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-compare.md; fi
+          else
+            rc=0
+            echo "baselines/ci-smoke.json does not exist yet: candidate baseline follows" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "===== BEGIN bioscan-report ci-smoke candidate ====="
+            cat models-report.json
+            echo "===== END bioscan-report ci-smoke candidate ====="
+          fi
+          if [ -f bench-analyze.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-analyze.md; fi
+          exit $rc
+      - name: Tag report
+        if: always() && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # artifact names may not contain "/" (and a few other characters): sanitise the tag
+          echo "BENCH_ARTIFACT=bench-report-$(printf '%s' "$GITHUB_REF_NAME" | tr '/\:<>|*?"' '---------')" >> "$GITHUB_ENV"
+          test -f models-report.json || exit 0
+          echo "===== BEGIN bioscan-report ${GITHUB_REF_NAME} ====="
+          cat models-report.json
+          echo "===== END bioscan-report ${GITHUB_REF_NAME} ====="
+      - uses: actions/upload-artifact@v4
+        if: always() && startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: ${{ env.BENCH_ARTIFACT }}
+          path: |
+            models-report.json
+            bench-compare.md
+            bench-compare.json
+            bench-analyze.md
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -91,4 +145,8 @@ jobs:
           path: |
             models-report.md
             models-report.ndjson
+            models-report.json
+            bench-compare.md
+            bench-compare.json
+            bench-analyze.md
           if-no-files-found: ignore

@@ -11,8 +11,17 @@ mammals), which download.py builds into ~/.cache/bioscan/names; without it their
 unless BIOSCAN_REQUIRE_ALLTAXA=1 (CI), where that is a failure.
 Thresholds sit below what the first CI run measured: they catch a broken model, adapter or
 dependency upgrade, not a point of accuracy. The report (BIOSCAN_REPORT) has the real numbers.
+
+The v1.5 accuracy switches (range veto, kind check, mammal prior) are measured here too: the same
+photos are identified again with all three off, replaying the model outputs of the main run (so the
+second pass costs only the species matmuls), and the report gets an on/off table with every image
+whose answer changed. Switched on they may lose at most one Top-1 hit, and add at most one confident
+error, per kind (a tripwire; `bioscan bench compare` with its budgets is the gate). With the all-taxa
+list loaded the kind check also weighs it, so this table is where its effect on birds and mammals
+shows. models-report.json (the harness report) is written from the main, switches-on run.
 """
 import csv
+import hashlib
 import json
 import os
 import urllib.request
@@ -65,6 +74,59 @@ def fetch(row: dict) -> Path | None:
     return None
 
 
+class Replay:
+    """Model adapter proxy. mode "record": pass every call through and remember each image's answer
+    by its bytes; "replay": answer remembered images from memory (the rest pass through); "pass":
+    just pass through. Recording never changes an answer, so the main run is the plain pipeline."""
+    mode = "pass"
+
+    def __init__(self, inner):
+        self._inner, self._memory = inner, {}
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    @staticmethod
+    def key(image, *extra):
+        return (image.size, image.mode, hashlib.sha1(image.tobytes()).hexdigest(), *extra)
+
+    def _rows(self, images, keys, compute, stack):
+        if Replay.mode == "replay":
+            todo = [i for i, k in enumerate(keys) if k not in self._memory]
+            if todo:
+                for i, row in zip(todo, compute([images[i] for i in todo])):
+                    self._memory[keys[i]] = row
+            return stack([self._memory[k] for k in keys])
+        out = compute(images)
+        if Replay.mode == "record":
+            self._memory.update(zip(keys, out))
+        return out
+
+
+class ReplaySigLIP2(Replay):
+    def embed_images(self, images):
+        return self._rows(images, [self.key(im) for im in images], self._inner.embed_images, np.stack)
+
+
+class ReplayOWLv2(Replay):
+    def detect_batch(self, images, prompts, *, threshold, **kw):
+        return self._rows(images, [self.key(im, tuple(prompts), threshold) for im in images],
+                          lambda ims: self._inner.detect_batch(ims, prompts, threshold=threshold, **kw), list)
+
+    def detect(self, image, prompts, *, threshold):
+        return self.detect_batch([image], prompts, threshold=threshold)[0]
+
+
+class ReplayBioCLIP(Replay):
+    def encode_images(self, images):
+        import torch
+
+        return self._rows(images, [self.key(im) for im in images], self._inner.encode_images, torch.stack)
+
+
+STATE: dict = {}      # the main run's inputs, for the switches-off pass
+
+
 def small_lists(bioclip) -> dict:
     from bioscan.service import names
 
@@ -74,18 +136,19 @@ def small_lists(bioclip) -> dict:
         birds = [r for r in csv.DictReader(f) if r["scientific"].split(" ")[0] in genera]
     with open(HERE / "mammals.csv", newline="", encoding="utf-8") as f:
         mammals = list(csv.DictReader(f))
+    with open(ROOT / "data" / "names" / names.LISTS["mammal"].label_map, newline="", encoding="utf-8") as f:
+        mdd = {r["scientific"]: r for r in csv.DictReader(f)}
+    mammals = [{**r, **{k: mdd[r["scientific"]][k] for k in ("birdnet_label", "birdnet_how")}} for r in mammals]
 
     def build(list_id, kind, cls, recs):
         tax = [names._taxonomy(cls, r["order"], r["family"], *r["scientific"].split(" ", 1)) for r in recs]
         common = [r["common"] for r in recs]
         matrix = names.encode([names.tol_text(t, c) for t, c in zip(tax, common)], bioclip.model, bioclip.tokenizer,
                               bioclip.device)
-        labels = {}
-        if names.LISTS[kind].label_map:          # rows come from avilist_map.csv, BirdNET labels included
-            labels = {"birdnet": [r["birdnet_label"] for r in recs],
-                      "birdnet_how": [r["birdnet_how"] or "none" for r in recs]}
+        # BirdNET labels as the label maps give them (avilist_map.csv, mdd_map.csv), each list's policy
+        labels = {"birdnet": [r["birdnet_label"] for r in recs], "birdnet_how": [r["birdnet_how"] or "none" for r in recs]}
         return names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs),
-                              sha=f"test-{len(recs)}", **labels)
+                              sha=f"test-{len(recs)}", **labels, unlabelled=names.LISTS[kind].unlabelled)
 
     lists = {"bird": build("avilist-2025-test-subset", "bird", "Aves", birds),
              "mammal": build("mdd-test-subset", "mammal", "Mammalia", mammals)}
@@ -117,20 +180,48 @@ def run():
     device = engine_mod.pick_device()
     bioclip = BioCLIP(device)
     lists = small_lists(bioclip)
-    engine = engine_mod.Engine(device, engine_mod.Loaders(species=lambda device: (bioclip, lists)))
+    engine = engine_mod.Engine(device, engine_mod.Loaders(
+        siglip2=lambda d: ReplaySigLIP2(engine_mod._load_siglip2(d)),
+        owlv2=lambda d: ReplayOWLv2(engine_mod._load_owlv2(d)),
+        species=lambda device: (ReplayBioCLIP(bioclip), lists)))
     engine.ensure(["identify", "embed"])
     if os.environ.get("BIOSCAN_REQUIRE_GEO") == "1":
         assert engine.geo is not None, "BirdNET geo prior failed to load (BIOSCAN_REQUIRE_GEO=1)"
+        assert set(engine.priors) == {"bird", "mammal"}, engine.priors
 
     inputs = [{"path": str(p), "lat": float(r["lat"]), "lon": float(r["lon"]), "taken_at": r["taken_at"]}
               for r, p in have]
-    with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(4), chunk=16)) as c:
-        resp = c.post("/run", json={"inputs": inputs, "want": ["identify", "embed"]})
-        assert resp.status_code == 200, resp.text
-        events = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
-    gt = ev.normalise_truth([{"path": str(p), "scientific": r["scientific"], "tier": "inat-sample", "kind": r["kind"]}
+    Replay.mode = "record"
+    try:
+        with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(4), chunk=16)) as c:
+            resp = c.post("/run", json={"inputs": inputs, "want": ["identify", "embed"]})
+            assert resp.status_code == 200, resp.text
+            events = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    finally:
+        Replay.mode = "pass"
+    STATE["inputs"] = inputs
+    gt = ev.normalise_truth([{"path": str(p), "scientific": r["scientific"], "tier": "inat-sample", "kind": r["kind"],
+                              "lat": r["lat"], "lon": r["lon"]}
                              for r, p in have], names.read_synonyms(ev.SYNONYMS_CSV))
     return gt, events, engine
+
+
+def write_bench_report(path: Path, gt: list[dict], preds: dict, events: list[dict], engine) -> None:
+    """report.json (`bioscan bench`) of this run, which models.yml compares with baselines/ci-smoke.json.
+    Name-list membership and families come from the small in-memory lists this test built."""
+    from bioscan import naming
+    from bioscan.cli import bench
+    from bioscan.cli import eval as ev
+
+    lists = {kind: {naming.norm_binomial(s): t[4] for s, t in zip(nl.scientific, nl.taxonomy)}
+             for kind, nl in engine.names.items()}
+    done = next((e for e in reversed(events) if e["type"] == contract.DONE), None)
+    rep = bench.build_report(gt, preds, groundtruth=str(HERE / "sample.csv"),
+                             synonyms_sha256=bench.sha256_of(ev.SYNONYMS_CSV), done=done, lists=lists,
+                             complete=done is not None,
+                             tier="smoke", options={"want": ["identify", "embed"], "identify": "service defaults",
+                                      "synonyms": True, "device": engine.device})
+    bench.write_json(rep, path)
 
 
 @pytest.fixture(scope="module")
@@ -161,6 +252,7 @@ def metrics(run):
     if out:
         Path(out).write_text(report + "\n".join(per_image) + "\n")
         Path(out).with_suffix(".ndjson").write_text("".join(json.dumps(e) + "\n" for e in events))
+        write_bench_report(Path(out).with_suffix(".json"), gt, preds, events, engine)
     return {kind: v for (_tier, kind), v in m.items()}
 
 
@@ -191,7 +283,14 @@ def test_boxes_are_well_formed(run):
             if b["kind"] in engine.names:
                 assert sp["list"] == engine.names[b["kind"]].list_id
                 post = [c["posterior"] for c in sp["top"]]
-                assert post == sorted(post, reverse=True) and sp["level"] in ("species", "genus", "family", "unconfirmed")
+                assert post[1:] == sorted(post[1:], reverse=True) and sp["level"] in ("species", "genus", "family", "unconfirmed")
+                if post[0] < max(post):           # range veto: an in-range congener ahead of an out-of-range top
+                    from bioscan.service import rules
+
+                    vetoed = max(sp["top"], key=lambda c: c["posterior"])
+                    first = sp["top"][0]
+                    assert first["taxonomy"][5] == vetoed["taxonomy"][5] and sp["level"] != "species"
+                    assert vetoed["p_geo"] < rules.RANGE_EPS <= rules.RANGE_TAU <= first["p_geo"]
 
 
 @pytest.mark.parametrize("kind", ["bird", "mammal", "other_animal"])
@@ -268,12 +367,88 @@ def test_detail_path_with_real_models(run, tmp_path):
                     f"consistency check, not an accuracy one).\n")
 
 
-def test_every_map_label_exists_in_birdnet(run):
-    """avilist_map.csv birdnet_label values (some synced by hand after a synonyms.csv edit) must be
-    labels the real BirdNET model has, else that species silently gets no prior."""
+@pytest.mark.parametrize("label_map", ["avilist_map.csv", "mdd_map.csv"])
+def test_every_map_label_exists_in_birdnet(run, label_map):
+    """Label map birdnet_label values (some synced by hand after a synonyms.csv edit; mdd_map.csv
+    rebuilt from the label files offline) must be labels the real BirdNET model has, else that
+    species silently gets no prior. A lump's labels are joined by '|'."""
     _, _, engine = run
     labels = set(engine.geo.labels)
-    with open(ROOT / "data" / "names" / "avilist_map.csv", newline="", encoding="utf-8") as f:
-        missing = [(r["scientific"], r["birdnet_label"]) for r in csv.DictReader(f)
-                   if r["birdnet_label"] and r["birdnet_label"] not in labels]
+    with open(ROOT / "data" / "names" / label_map, newline="", encoding="utf-8") as f:
+        missing = [(r["scientific"], lab) for r in csv.DictReader(f)
+                   for lab in r["birdnet_label"].split("|") if lab and lab not in labels]
     assert not missing, missing[:10]
+
+
+SWITCHES_OFF = {"range_veto": False, "kind_check": False, "mammal_geo": False}
+
+
+@pytest.fixture(scope="module")
+def switched_off(run):
+    """The main run's photos again with the three accuracy switches off, the models' outputs replayed."""
+    from fastapi.testclient import TestClient
+
+    from bioscan.service.app import create_app
+
+    _, _, engine = run
+    Replay.mode = "replay"
+    try:
+        with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(4), chunk=16)) as c:
+            resp = c.post("/run", json={"inputs": STATE["inputs"], "want": ["identify"],
+                                        "options": {"identify": SWITCHES_OFF}})
+            assert resp.status_code == 200, resp.text
+    finally:
+        Replay.mode = "pass"
+    return [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+
+
+def _best(ev):
+    boxes = ((ev or {}).get("products") or {}).get("identify", {}).get("boxes") or []
+    best = max(boxes, key=lambda b: b["score"]) if boxes else None
+    sp = (best or {}).get("species") or {}
+    return (best or {}).get("kind", "–"), (sp.get("top") or [{}])[0].get("scientific", "–"), sp.get("level", "–")
+
+
+SWITCH_SLACK = 1    # images per kind and measure: ~38 photos a kind, one flip is noise; the harness budget gates
+
+
+def test_accuracy_switches_do_not_regress(run, switched_off):
+    """On (the main run) vs off: per kind, at most SWITCH_SLACK Top-1 hits lost and SWITCH_SLACK
+    confident errors (species-level wrong answers) added; a coarse tripwire only. The real gate is
+    `bioscan bench compare` against the committed baseline with its regression budgets. Every
+    changed image goes to the report with its before/after."""
+    from bioscan.cli import eval as ev
+
+    gt, events, engine = run
+    on, off = ev.load_preds(json.dumps(e) for e in events), ev.load_preds(json.dumps(e) for e in switched_off)
+    rows = ["", "## Accuracy switches: on vs off (range veto, kind check, mammal prior)", "",
+            "The kind check weighs every loaded list: " + ", ".join(k for k in ("bird", "mammal", "other_animal")
+                                                                   if k in engine.names) + ".", "",
+            "| kind | n | Top-1 off | Top-1 on | Top-5 off | Top-5 on | coverage off | coverage on | "
+            "confident errors off | confident errors on |", "|---|---|---|---|---|---|---|---|---|---|"]
+    worse = []
+    for kind in [k for k in ("bird", "mammal", "other_animal") if k in engine.names]:
+        items = [r for r in gt if r["kind"] == kind]
+        o = {name: [ev.outcome(r, preds.get(r["path"])) for r in items] for name, preds in (("off", off), ("on", on))}
+        hits = {k: sum(x["top1"] for x in v) for k, v in o.items()}
+        top5 = {k: sum(x["top5"] for x in v) for k, v in o.items()}
+        cov = {k: sum(x["species_level"] for x in v) for k, v in o.items()}
+        wrong = {k: sum(x["species_level"] and not x["top1"] for x in v) for k, v in o.items()}
+        rows.append(f"| {kind} | {len(items)} | {hits['off']} | {hits['on']} | {top5['off']} | {top5['on']} | "
+                    f"{cov['off']} | {cov['on']} | {wrong['off']} | {wrong['on']} |")
+        if hits["on"] < hits["off"] - SWITCH_SLACK or wrong["on"] > wrong["off"] + SWITCH_SLACK:
+            worse.append(f"{kind}: Top-1 {hits['off']} -> {hits['on']}, confident errors {wrong['off']} -> {wrong['on']}")
+    rows += ["", f"This test fails only past {SWITCH_SLACK} image per kind and measure (Top-1 lost, confident "
+             "error added); with ~38 photos a kind that is a tripwire, not a verdict. The gate is the harness: "
+             "`bioscan bench compare` against the committed baseline, within its regression budgets.",
+             "", "| truth | off: kind, top-1, level | on: kind, top-1, level |", "|---|---|---|"]
+    for r in gt:
+        a, b = _best(off.get(r["path"])), _best(on.get(r["path"]))
+        if a != b:
+            rows.append(f"| {r['scientific']} | {', '.join(a)} | {', '.join(b)} |")
+    report = os.environ.get("BIOSCAN_REPORT")
+    if report and Path(report).is_file():
+        with open(report, "a") as f:
+            f.write("\n".join(rows) + "\n")
+    assert all(e["type"] != "error" for e in switched_off)
+    assert not worse, worse

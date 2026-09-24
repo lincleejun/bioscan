@@ -1,0 +1,801 @@
+# bioscan standards: the targets `bioscan bench scorecard` reports against.
+# Human-readable version with reasons, current status and release stages: docs/standards.md.
+#
+# One [[standard]] per bar. Fields:
+#   id         <dimension>.<tier>.<scope>.<metric>[.<variant>] for report metrics;
+#              <dimension>.<name> for manual entries. Unique.
+#   dimension  accuracy | trust | detection | location | directory | speed | coverage |
+#              robustness | onboarding | privacy | reproducibility (= the id's first segment)
+#   title      one line
+#   scope      all | bird | mammal | other   (the report row the metric is read from)
+#   metric     a report key (n, gate_acc, detect_rate, top1, top5, genus_acc, coverage, precision,
+#              confident_error_rate, no_box_rate, failed_rate, ece, decode_ms_median,
+#              identify_ms_median, images_per_s) or "manual" (checked by hand, see docs/standards.md)
+#   op         ">=" (higher is better) or "<=" (lower is better)
+#   industry   what leaders achieve or claim; the key is OMITTED when there is no comparable number
+#              (TOML has no null: a missing `industry` or `stretch` means null)
+#   community  the bar for the v0.x community call ("try it and help identify")
+#   stretch    the bar we would call leading; omitted when there is none
+#   unit       fraction (rates 0-1) | ms | images/s | images | species | formats | minutes | requests | bool
+#   how        tier and command that measures it
+#   source     where the industry number comes from (URL), or why there is none
+#
+# Tiers (id's second segment): smoke = CI 77 iNat photos on reduced lists; golden = 1,625 iNat California
+# photos (+ an "other animals" slice still to be built); own = the owner's RAW set; public = the future
+# multi-region CC0/CC-BY set; mac = speed on Apple Silicon. Variant "nogeo" = a run with --no-geo.
+# A bar is met when the Wilson 95% bound clears it (lower bound for ">=", upper for "<="); smoke-tier
+# bars are regression guards judged on the point value. See docs/standards.md "Statistical rule".
+
+# ---------------------------------------------------------------- accuracy (golden tier, with GPS)
+
+[[standard]]
+id = "accuracy.golden.bird.top1"
+dimension = "accuracy"
+title = "Birds: top-1 species correct"
+scope = "bird"
+metric = "top1"
+op = ">="
+industry = 0.95
+community = 0.90
+stretch = 0.95
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "Merlin photo ID average 95% (vendor claim, no test set published): https://ebird.org/news/new-photo-id-model-in-merlin ; academic closed-set SOTA ~92% (TransFG CUB 91.7%, NABirds 90.8%): https://arxiv.org/abs/2103.07976"
+
+[[standard]]
+id = "accuracy.golden.bird.top5"
+dimension = "accuracy"
+title = "Birds: truth among the top-5 candidates"
+scope = "bird"
+metric = "top5"
+op = ">="
+industry = 0.96
+community = 0.95
+stretch = 0.98
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "Dongniao top-1 85% / top-5 96% (vendor claim): https://www.appinn.com/dongniao-wechat-miniapp/"
+
+[[standard]]
+id = "accuracy.golden.bird.genus_acc"
+dimension = "accuracy"
+title = "Birds: genus correct (whatever level was output)"
+scope = "bird"
+metric = "genus_acc"
+op = ">="
+community = 0.95
+stretch = 0.98
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "no leader publishes genus accuracy"
+
+[[standard]]
+id = "accuracy.golden.mammal.top1"
+dimension = "accuracy"
+title = "Mammals: top-1 species correct"
+scope = "mammal"
+metric = "top1"
+op = ">="
+industry = 0.887
+community = 0.85
+stretch = 0.92
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "iNaturalist CV 2.20 average accuracy 88.7%, all taxa (vendor claim): https://www.inaturalist.org/blog/107012-new-computer-vision-model-with-over-100k-taxa"
+
+[[standard]]
+id = "accuracy.golden.mammal.top5"
+dimension = "accuracy"
+title = "Mammals: truth among the top-5 candidates"
+scope = "mammal"
+metric = "top5"
+op = ">="
+community = 0.93
+stretch = 0.97
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "no leader publishes mammal top-5 on field photos"
+
+[[standard]]
+id = "accuracy.golden.mammal.genus_acc"
+dimension = "accuracy"
+title = "Mammals: genus correct (whatever level was output)"
+scope = "mammal"
+metric = "genus_acc"
+op = ">="
+community = 0.92
+stretch = 0.97
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "no leader publishes genus accuracy"
+
+[[standard]]
+id = "accuracy.golden.other.top1"
+dimension = "accuracy"
+title = "Other animals: top-1 species correct"
+scope = "other"
+metric = "top1"
+op = ">="
+industry = 0.887
+community = 0.60
+stretch = 0.80
+unit = "fraction"
+how = "golden other-animal slice (to be built with bioscan gt inat); bioscan bench run <gt> --out runs/<tag>-golden-other; row other"
+source = "iNaturalist CV 2.20 average accuracy 88.7%, all taxa (vendor claim): https://www.inaturalist.org/blog/107012-new-computer-vision-model-with-over-100k-taxa"
+
+[[standard]]
+id = "accuracy.golden.other.top5"
+dimension = "accuracy"
+title = "Other animals: truth among the top-5 candidates"
+scope = "other"
+metric = "top5"
+op = ">="
+community = 0.80
+stretch = 0.92
+unit = "fraction"
+how = "golden other-animal slice; bioscan bench run <gt> --out runs/<tag>-golden-other; row other"
+source = "no comparable published number"
+
+[[standard]]
+id = "accuracy.golden.other.genus_acc"
+dimension = "accuracy"
+title = "Other animals: genus correct (whatever level was output)"
+scope = "other"
+metric = "genus_acc"
+op = ">="
+community = 0.75
+stretch = 0.90
+unit = "fraction"
+how = "golden other-animal slice; bioscan bench run <gt> --out runs/<tag>-golden-other; row other"
+source = "no comparable published number"
+
+# ---------------------------------------------------------------- trust (golden tier)
+
+[[standard]]
+id = "trust.golden.bird.confident_error_rate"
+dimension = "trust"
+title = "Birds: graded species-level and wrong, per image"
+scope = "bird"
+metric = "confident_error_rate"
+op = "<="
+community = 0.03
+stretch = 0.01
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "no leader publishes wrong species-level answers per image"
+
+[[standard]]
+id = "trust.golden.mammal.confident_error_rate"
+dimension = "trust"
+title = "Mammals: graded species-level and wrong, per image"
+scope = "mammal"
+metric = "confident_error_rate"
+op = "<="
+community = 0.03
+stretch = 0.01
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "no leader publishes wrong species-level answers per image"
+
+[[standard]]
+id = "trust.golden.other.confident_error_rate"
+dimension = "trust"
+title = "Other animals: graded species-level and wrong, per image"
+scope = "other"
+metric = "confident_error_rate"
+op = "<="
+community = 0.05
+stretch = 0.02
+unit = "fraction"
+how = "golden other-animal slice; bioscan bench run <gt> --out runs/<tag>-golden-other; row other"
+source = "no leader publishes wrong species-level answers per image"
+
+[[standard]]
+id = "trust.golden.bird.precision"
+dimension = "trust"
+title = "Birds: top-1 correct among images graded species-level"
+scope = "bird"
+metric = "precision"
+op = ">="
+industry = 0.945
+community = 0.97
+stretch = 0.99
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "SpeciesNet 94.5% accuracy when it makes a species-level prediction, camera traps (vendor claim): https://research.google/blog/where-wild-things-roam-identifying-wildlife-with-speciesnet/"
+
+[[standard]]
+id = "trust.golden.bird.coverage"
+dimension = "trust"
+title = "Birds: share of images graded species-level"
+scope = "bird"
+metric = "coverage"
+op = ">="
+community = 0.85
+stretch = 0.92
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "SpeciesNet rolls up to genus/family when unsure but does not publish its species-level share: https://pypi.org/project/speciesnet/"
+
+[[standard]]
+id = "trust.golden.mammal.precision"
+dimension = "trust"
+title = "Mammals: top-1 correct among images graded species-level"
+scope = "mammal"
+metric = "precision"
+op = ">="
+industry = 0.945
+community = 0.97
+stretch = 0.99
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "SpeciesNet 94.5% accuracy when it makes a species-level prediction, camera traps (vendor claim): https://research.google/blog/where-wild-things-roam-identifying-wildlife-with-speciesnet/"
+
+[[standard]]
+id = "trust.golden.mammal.coverage"
+dimension = "trust"
+title = "Mammals: share of images graded species-level"
+scope = "mammal"
+metric = "coverage"
+op = ">="
+community = 0.80
+stretch = 0.90
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "SpeciesNet rolls up to genus/family when unsure but does not publish its species-level share: https://pypi.org/project/speciesnet/"
+
+[[standard]]
+id = "trust.golden.other.precision"
+dimension = "trust"
+title = "Other animals: top-1 correct among images graded species-level"
+scope = "other"
+metric = "precision"
+op = ">="
+community = 0.95
+stretch = 0.98
+unit = "fraction"
+how = "golden other-animal slice; bioscan bench run <gt> --out runs/<tag>-golden-other; row other"
+source = "no comparable published number"
+
+[[standard]]
+id = "trust.golden.other.coverage"
+dimension = "trust"
+title = "Other animals: share of images graded species-level"
+scope = "other"
+metric = "coverage"
+op = ">="
+community = 0.40
+stretch = 0.70
+unit = "fraction"
+how = "golden other-animal slice; bioscan bench run <gt> --out runs/<tag>-golden-other; row other"
+source = "no comparable published number"
+
+[[standard]]
+id = "trust.golden.all.ece"
+dimension = "trust"
+title = "Calibration: expected calibration error of the species-level confidence"
+scope = "all"
+metric = "ece"
+op = "<="
+community = 0.05
+stretch = 0.02
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row all"
+source = "no leader publishes calibration for photo species ID"
+
+# ---------------------------------------------------------------- detection (golden tier)
+
+[[standard]]
+id = "detection.golden.bird.gate_acc"
+dimension = "detection"
+title = "Birds: whole-frame gate says bird"
+scope = "bird"
+metric = "gate_acc"
+op = ">="
+community = 0.97
+stretch = 0.99
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "no leader publishes a bird/mammal gate; see detect_rate for animal-vs-blank"
+
+[[standard]]
+id = "detection.golden.bird.detect_rate"
+dimension = "detection"
+title = "Birds: at least one box of kind bird"
+scope = "bird"
+metric = "detect_rate"
+op = ">="
+industry = 0.994
+community = 0.97
+stretch = 0.99
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "SpeciesNet finds 99.4% of camera-trap images with animals (vendor claim; animal vs blank): https://research.google/blog/where-wild-things-roam-identifying-wildlife-with-speciesnet/"
+
+[[standard]]
+id = "detection.golden.bird.no_box_rate"
+dimension = "detection"
+title = "Birds: images with no box at all"
+scope = "bird"
+metric = "no_box_rate"
+op = "<="
+community = 0.02
+stretch = 0.01
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row bird"
+source = "no comparable published number"
+
+[[standard]]
+id = "detection.golden.mammal.gate_acc"
+dimension = "detection"
+title = "Mammals: whole-frame gate says mammal"
+scope = "mammal"
+metric = "gate_acc"
+op = ">="
+community = 0.93
+stretch = 0.97
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "no leader publishes a bird/mammal gate; see detect_rate for animal-vs-blank"
+
+[[standard]]
+id = "detection.golden.mammal.detect_rate"
+dimension = "detection"
+title = "Mammals: at least one box of kind mammal"
+scope = "mammal"
+metric = "detect_rate"
+op = ">="
+industry = 0.994
+community = 0.95
+stretch = 0.98
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "SpeciesNet finds 99.4% of camera-trap images with animals (vendor claim; animal vs blank): https://research.google/blog/where-wild-things-roam-identifying-wildlife-with-speciesnet/"
+
+[[standard]]
+id = "detection.golden.mammal.no_box_rate"
+dimension = "detection"
+title = "Mammals: images with no box at all"
+scope = "mammal"
+metric = "no_box_rate"
+op = "<="
+community = 0.03
+stretch = 0.01
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row mammal"
+source = "no comparable published number"
+
+[[standard]]
+id = "detection.golden.other.detect_rate"
+dimension = "detection"
+title = "Other animals: at least one box of kind other"
+scope = "other"
+metric = "detect_rate"
+op = ">="
+industry = 0.994
+community = 0.85
+stretch = 0.95
+unit = "fraction"
+how = "golden other-animal slice; bioscan bench run <gt> --out runs/<tag>-golden-other; row other"
+source = "SpeciesNet finds 99.4% of camera-trap images with animals (vendor claim; animal vs blank): https://research.google/blog/where-wild-things-roam-identifying-wildlife-with-speciesnet/"
+
+# ---------------------------------------------------------------- location-aware accuracy
+
+[[standard]]
+id = "location.golden.bird.top1.nogeo"
+dimension = "location"
+title = "Birds: top-1 with the location prior off"
+scope = "bird"
+metric = "top1"
+op = ">="
+industry = 0.75
+community = 0.85
+stretch = 0.90
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden-nogeo --no-geo (Mac); row bird"
+source = "derived: iNaturalist geomodel raised top-1 to 87% (+12 points), so vision alone ~75%, all taxa (vendor claim): https://www.inaturalist.org/blog/84677-introducing-the-inaturalist-geomodel"
+
+[[standard]]
+id = "location.golden.mammal.top1.nogeo"
+dimension = "location"
+title = "Mammals: top-1 with the location prior off"
+scope = "mammal"
+metric = "top1"
+op = ">="
+community = 0.80
+stretch = 0.88
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden-nogeo --no-geo (Mac); row mammal"
+source = "no comparable published number"
+
+[[standard]]
+id = "location.own.bird.top1.nogeo"
+dimension = "location"
+title = "Own RAW: top-1 with no coordinate"
+scope = "bird"
+metric = "top1"
+op = ">="
+community = 0.85
+stretch = 0.92
+unit = "fraction"
+how = "own: bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own-nogeo --no-geo (Mac); row bird"
+source = "no comparable published number"
+
+[[standard]]
+id = "location.geo_gain"
+dimension = "location"
+title = "Birds: top-1 gain from coordinates (golden, geo minus nogeo, same build)"
+scope = "bird"
+metric = "manual"
+op = ">="
+industry = 0.12
+community = 0.03
+stretch = 0.06
+unit = "fraction"
+how = "top1 of runs/<tag>-golden minus top1 of runs/<tag>-golden-nogeo, row bird"
+source = "iNaturalist geomodel: top-1 +12 points to 87%, all taxa (vendor claim): https://www.inaturalist.org/blog/84677-introducing-the-inaturalist-geomodel"
+
+# ---------------------------------------------------------------- directory-level acceptance test
+
+[[standard]]
+id = "directory.smoke.all.top1"
+dimension = "directory"
+title = "CI smoke folder (77 iNat, reduced lists): named correctly at species level"
+scope = "all"
+metric = "top1"
+op = ">="
+community = 0.85
+stretch = 0.90
+unit = "fraction"
+how = "smoke: CI models.yml, BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models (report via BIOSCAN_REPORT); regression guard, point value"
+source = "regression guard, not an accuracy claim: lists are reduced to the sampled genera"
+
+[[standard]]
+id = "directory.smoke.all.genus_acc"
+dimension = "directory"
+title = "CI smoke folder: genus or better correct"
+scope = "all"
+metric = "genus_acc"
+op = ">="
+community = 0.90
+stretch = 0.95
+unit = "fraction"
+how = "smoke: CI models.yml, BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models; regression guard, point value"
+source = "regression guard, not an accuracy claim"
+
+[[standard]]
+id = "directory.smoke.all.confident_error_rate"
+dimension = "directory"
+title = "CI smoke folder: species-level and wrong"
+scope = "all"
+metric = "confident_error_rate"
+op = "<="
+community = 0.07
+stretch = 0.03
+unit = "fraction"
+how = "smoke: CI models.yml, BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models; regression guard, point value"
+source = "regression guard, not an accuracy claim"
+
+[[standard]]
+id = "directory.golden.all.top1"
+dimension = "directory"
+title = "Golden folder (1,625 iNat, California): named correctly at species level"
+scope = "all"
+metric = "top1"
+op = ">="
+industry = 0.887
+community = 0.88
+stretch = 0.93
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row all"
+source = "iNaturalist CV 2.20 average accuracy 88.7%, all taxa (vendor claim): https://www.inaturalist.org/blog/107012-new-computer-vision-model-with-over-100k-taxa"
+
+[[standard]]
+id = "directory.golden.all.genus_acc"
+dimension = "directory"
+title = "Golden folder: genus or better correct"
+scope = "all"
+metric = "genus_acc"
+op = ">="
+community = 0.95
+stretch = 0.98
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row all"
+source = "no leader publishes genus accuracy"
+
+[[standard]]
+id = "directory.golden.all.confident_error_rate"
+dimension = "directory"
+title = "Golden folder: species-level and wrong"
+scope = "all"
+metric = "confident_error_rate"
+op = "<="
+community = 0.03
+stretch = 0.01
+unit = "fraction"
+how = "golden: bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden (Mac); row all"
+source = "no leader publishes wrong species-level answers per image"
+
+[[standard]]
+id = "directory.own.all.top1"
+dimension = "directory"
+title = "Own RAW folder: named correctly at species level (batch coordinate given)"
+scope = "all"
+metric = "top1"
+op = ">="
+community = 0.95
+stretch = 0.98
+unit = "fraction"
+how = "own: bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own --lat 37.4 --lon -122.1 (Mac); row all"
+source = "WildlifeAI claims 97.3% top-1 on its own 50k validation set (vendor claim, not comparable): https://github.com/NiyaNagi/WildlifeAI"
+
+[[standard]]
+id = "directory.own.all.genus_acc"
+dimension = "directory"
+title = "Own RAW folder: genus or better correct"
+scope = "all"
+metric = "genus_acc"
+op = ">="
+community = 0.98
+stretch = 0.99
+unit = "fraction"
+how = "own: bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own --lat 37.4 --lon -122.1 (Mac); row all"
+source = "no leader publishes genus accuracy"
+
+[[standard]]
+id = "directory.own.all.confident_error_rate"
+dimension = "directory"
+title = "Own RAW folder: species-level and wrong"
+scope = "all"
+metric = "confident_error_rate"
+op = "<="
+community = 0.03
+stretch = 0.01
+unit = "fraction"
+how = "own: bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own --lat 37.4 --lon -122.1 (Mac); row all"
+source = "no leader publishes wrong species-level answers per image"
+
+[[standard]]
+id = "directory.public.all.n"
+dimension = "directory"
+title = "Public multi-region folder: size (CC0/CC-BY, >= 5 regions)"
+scope = "all"
+metric = "n"
+op = ">="
+community = 5000
+stretch = 10000
+unit = "images"
+how = "public: set to be built (CC0/CC-BY only); bioscan bench run <public gt> --out runs/<tag>-public; row all"
+source = "sized so a 3-point margin clears 85% at the Wilson bound per region group; see docs/standards.md"
+
+[[standard]]
+id = "directory.public.all.top1"
+dimension = "directory"
+title = "Public multi-region folder: named correctly at species level"
+scope = "all"
+metric = "top1"
+op = ">="
+industry = 0.887
+community = 0.85
+stretch = 0.92
+unit = "fraction"
+how = "public: bioscan bench run <public gt> --out runs/<tag>-public (Mac); row all"
+source = "iNaturalist CV 2.20 average accuracy 88.7%, all taxa (vendor claim): https://www.inaturalist.org/blog/107012-new-computer-vision-model-with-over-100k-taxa"
+
+[[standard]]
+id = "directory.public.all.genus_acc"
+dimension = "directory"
+title = "Public multi-region folder: genus or better correct"
+scope = "all"
+metric = "genus_acc"
+op = ">="
+community = 0.93
+stretch = 0.97
+unit = "fraction"
+how = "public: bioscan bench run <public gt> --out runs/<tag>-public (Mac); row all"
+source = "no leader publishes genus accuracy"
+
+[[standard]]
+id = "directory.public.all.confident_error_rate"
+dimension = "directory"
+title = "Public multi-region folder: species-level and wrong"
+scope = "all"
+metric = "confident_error_rate"
+op = "<="
+community = 0.03
+stretch = 0.01
+unit = "fraction"
+how = "public: bioscan bench run <public gt> --out runs/<tag>-public (Mac); row all"
+source = "no leader publishes wrong species-level answers per image"
+
+# ---------------------------------------------------------------- speed (Apple Silicon)
+
+[[standard]]
+id = "speed.mac.all.images_per_s"
+dimension = "speed"
+title = "Throughput on 24 MP RAW, identify on, from SSD (30k photos in one night = 1.05/s)"
+scope = "all"
+metric = "images_per_s"
+op = ">="
+industry = 3.7
+community = 1.05
+stretch = 3.0
+unit = "images/s"
+how = "mac: bioscan bench run <2,000 x 24 MP ARW/CR3/NEF gt> --out runs/<tag>-speed on an M1-class Mac; done.elapsed_ms / ok"
+source = "unverified: Excire Foto ~10,000 photos analysed in ~45 min (user report, generic keywords, not species; search snippet, page blocked, likely https://www.digitalcameraworld.com/tech/software/excire-foto-2025-review)"
+
+[[standard]]
+id = "speed.mac.all.identify_ms_median"
+dimension = "speed"
+title = "Identify time per image, median (gate + detect + crop check + species)"
+scope = "all"
+metric = "identify_ms_median"
+op = "<="
+community = 250
+stretch = 120
+unit = "ms"
+how = "mac: same run as speed.mac.all.images_per_s"
+source = "no comparable published number"
+
+[[standard]]
+id = "speed.mac.all.decode_ms_median"
+dimension = "speed"
+title = "RAW decode + rotate + resize per image, median"
+scope = "all"
+metric = "decode_ms_median"
+op = "<="
+community = 700
+stretch = 300
+unit = "ms"
+how = "mac: same run as speed.mac.all.images_per_s"
+source = "no comparable published number"
+
+# ---------------------------------------------------------------- taxonomic coverage (manual)
+
+[[standard]]
+id = "coverage.names.bird"
+dimension = "coverage"
+title = "Bird species in the name list"
+scope = "bird"
+metric = "manual"
+op = ">="
+industry = 11000
+community = 11131
+unit = "species"
+how = "uv run bioscan names stats (AviList 2025 rows)"
+source = "Dongniao identifies 11,000+ bird species (vendor claim): https://apis.baidu.com/store/detail/ee97e453-2ce8-44b6-b04c-bd06fa484b5e"
+
+[[standard]]
+id = "coverage.names.mammal"
+dimension = "coverage"
+title = "Mammal species in the name list"
+scope = "mammal"
+metric = "manual"
+op = ">="
+industry = 2000
+community = 6904
+unit = "species"
+how = "uv run bioscan names stats (MDD v2.5 rows)"
+source = "SpeciesNet classifies up to ~2,000 categories, all taxa (vendor claim): https://research.google/blog/where-wild-things-roam-identifying-wildlife-with-speciesnet/"
+
+[[standard]]
+id = "coverage.names.other"
+dimension = "coverage"
+title = "Other animal species with a name (TreeOfLife-wide list)"
+scope = "other"
+metric = "manual"
+op = ">="
+industry = 100000
+community = 100000
+stretch = 300000
+unit = "species"
+how = "uv run bioscan names stats (other-animal list, work package W4)"
+source = "iNaturalist CV 2.20 covers over 100,000 taxa, all kingdoms (vendor claim): https://www.inaturalist.org/blog/107012-new-computer-vision-model-with-over-100k-taxa"
+
+[[standard]]
+id = "coverage.truth_share"
+dimension = "coverage"
+title = "Share of truth species (after synonyms) present in the name lists, every evaluated tier"
+scope = "all"
+metric = "manual"
+op = ">="
+community = 1.0
+stretch = 1.0
+unit = "fraction"
+how = "per tier: truth names normalised via data/names/synonyms.csv, looked up in the list for their kind"
+source = "a species that is not in the list can never be named; no leader publishes this"
+
+# ---------------------------------------------------------------- input robustness
+
+[[standard]]
+id = "robustness.golden.all.failed_rate"
+dimension = "robustness"
+title = "Images that failed (decode or identify error) in a run"
+scope = "all"
+metric = "failed_rate"
+op = "<="
+community = 0.001
+stretch = 0.0
+unit = "fraction"
+how = "golden and own: failed column of the bench report"
+source = "no comparable published number"
+
+[[standard]]
+id = "robustness.raw_formats"
+dimension = "robustness"
+title = "RAW formats whose GPS and capture time are read (of ARW CR2 CR3 NEF NRW DNG RAF ORF RW2 PEF SRW)"
+scope = "all"
+metric = "manual"
+op = ">="
+community = 11
+stretch = 12
+unit = "formats"
+how = "one sample file per format (unit test on real headers + owner's cameras); stretch adds HEIF"
+source = "leaders (Lightroom, digiKam via exiftool) read every mainstream body; no single number"
+
+[[standard]]
+id = "robustness.isolation"
+dimension = "robustness"
+title = "One unreadable or crashing file never fails the other images of a run"
+scope = "all"
+metric = "manual"
+op = ">="
+community = 1
+stretch = 1
+unit = "bool"
+how = "contract tests (per-image error isolation, decode-pool rebuild) pass"
+source = "baseline expectation for any batch tool"
+
+# ---------------------------------------------------------------- onboarding, privacy, reproducibility
+
+[[standard]]
+id = "onboarding.time_to_first_result"
+dimension = "onboarding"
+title = "Fresh Mac to first identified photo, following the README only (downloads included)"
+scope = "all"
+metric = "manual"
+op = "<="
+community = 30
+stretch = 10
+unit = "minutes"
+how = "a person who has not installed bioscan before, timed, on a 100 Mbit/s line; recorded in the release report"
+source = "Merlin and iNaturalist install from an app store in minutes; no published number"
+
+[[standard]]
+id = "privacy.outbound_requests"
+dimension = "privacy"
+title = "Network requests carrying photos or their metadata during a default run"
+scope = "all"
+metric = "manual"
+op = "<="
+community = 0
+stretch = 0
+unit = "requests"
+how = "run the golden tier with the network blocked (or a proxy log) and count outbound requests"
+source = "Nomen advertises everything runs on your machine (vendor claim): https://nomenapp.com/"
+
+[[standard]]
+id = "reproducibility.pinned"
+dimension = "reproducibility"
+title = "Every model, name list and prior pinned; revisions and settings fingerprint in each result"
+scope = "all"
+metric = "manual"
+op = ">="
+community = 1
+stretch = 1
+unit = "bool"
+how = "result.engine lists model revisions, name-list versions and settings; tests/unit and CI check the pins"
+source = "no leader publishes pinned model revisions with each result"
+
+[[standard]]
+id = "reproducibility.release_report"
+dimension = "reproducibility"
+title = "A published bench report (golden, own, smoke; later public) for every release tag"
+scope = "all"
+metric = "manual"
+op = ">="
+community = 1
+stretch = 1
+unit = "bool"
+how = "tag run of the harness publishes report.json + scorecard with the release"
+source = "no competitor publishes a reproducible report (docs/strategy/2026-09-24-opportunities.md)"

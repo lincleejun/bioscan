@@ -233,11 +233,19 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
 (ruff, pytest, golden equivalence where behaviour must not change, independent reviewer), then integrates.
 
 - [x] CLAUDE.md: common rules for every model (no model pin); product decisions recorded
-- [ ] W1 harness: `bioscan bench run | baseline | compare | analyze | scorecard`; report.json schema;
+- [x] W1 harness: `bioscan bench run | baseline | compare | analyze | scorecard`; report.json schema;
       regression budgets; CI smoke compares against a committed baseline; tag runs publish a report
-- [ ] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured)
-- [ ] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
-      (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off
+      (branch v15/w1-harness; docs/harness.md)
+  - [ ] after the first green models.yml run: commit its printed report as `baselines/ci-smoke.json`
+  - [ ] models.yml on a real push (tags + branches + paths, the compare step) is unverified until CI runs it
+- [x] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured);
+      tests/unit/test_standards.py (schema, mutation-checked: 7/7 broken copies fail); README links; CONTEXT terms
+      Found: most industry pages blocked by egress (numbers rest on search snippets, marked); Merlin does publish a
+      95% average (vendor claim); TOML has no null, so a missing industry/stretch key means null; the golden set
+      has no other-animal slice yet (v0.x gates other-animal confident errors on it); own set (404, 3 species)
+      is too small to prove 95% at the Wilson bound.
+- [x] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
+      (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off. Checklist: TASKS-w3.md
 - [ ] W4 all-taxa: other animals get species from the TreeOfLife-wide list by default; `candidates` option
   (branch v15/w4-alltaxa)
   - [x] all-taxa list `tol200m-animalia` from TreeOfLife rows (Animalia, species level, minus Aves/Mammalia,
@@ -246,8 +254,112 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
   - [x] tests on fakes + golden (300 frames, before side from `git archive 0a66f72`)
   - [x] models.yml: 18 CC0/CC-BY other-animal photos ranked against the real all-taxa list, loose floors
   - [x] docs: README, README.zh-CN, data/README, CONTEXT
-  - [ ] first models.yml run: record real row count, memory, top-1; tighten other_animal floors
+  - [x] review fixes: eval report unchanged without candidates; all-taxa OOM on the device drops only that
+        list; candidates reweight through LocationPrior.posterior; fp16 error stated; --preds + --candidates refused
+  - [x] merged the integration branch (W1 W2 W3 W5); candidates path honours range veto, mammal prior and
+        kind check; kind check per list (no stacked matrix) with the all-taxa list as a kind
+  - [ ] first models.yml run: record real row count, memory, top-1; tighten other_animal floors; check that
+        the all-taxa kind check does not cost birds or mammals (on/off table)
   - [ ] plants/fungi: only with a gate class (owner decision), as a second AllTaxaSource
-- [ ] W5 RAW robustness: EXIF/GPS/time for CR3/RAF/ORF/RW2/PEF; SubSecTimeOriginal; one shared scan-extension list
+- [x] W5 RAW robustness: EXIF/GPS/time for CR3/RAF/ORF/RW2/PEF; SubSecTimeOriginal; one shared scan-extension list
+      (+ broken GPS -> None instead of NaN/out of range; per-CMT CR3 reads; details in TASKS-w5 below)
 - [ ] integration: behaviour-preserving parts first -> CI -> commit baseline from that run; then W3/W4 ->
       CI compare vs baseline (no regression beyond budget); final review; PR
+
+## W5 checklist (folded from TASKS-w5.md)
+
+
+Base: 0a66f72 (branch `v15/w5-raw`). Source of truth for this work package.
+
+## Setup / evidence
+- [x] baseline: ruff clean, pytest 160 passed / 8 skipped on base
+- [x] problems 1-3 reproduced on base (golden "before"): CR3/RAF/ORF/RW2 -> (None, None, None); SubSecTimeOriginal
+      ignored; CR2/NRW/ORF/PEF/RW2/SRW not scanned by `run` or `gt folders`
+- [x] golden "before" recorded from a clean `git archive 0a66f72` (read_exif over 76 inputs, decode over 128 files
+      with rawpy faked, 4 detail cases, 4 folder scans)
+
+## 1. EXIF/GPS/time for every supported RAW (stdlib + Pillow)
+- [x] TIFF-variant headers (ORF IIRO/IIRS/MMOR, RW2 IIU) parsed as TIFF; RW2 JpgFromRaw fallback
+- [x] CR3: ISOBMFF moov -> Canon uuid -> CMT1/CMT2/CMT4 (32- and 64-bit box sizes)
+- [x] RAF: embedded JPEG from the header (offset/length at 84)
+- [x] HEIC/HEIF: unsupported, documented (decode itself needs pillow-heif, a new dependency)
+- [x] rawpy check: `raw.other` has iso/shutter/aperture/focal/timestamp/shot_order/artist; no GPS, no offset, no
+      sub-seconds -> not used
+- [x] tests: synthetic fixture per container (tests/unit/raw_fixtures.py) + 17 broken inputs -> (None, None, None)
+- [x] real-file check: `uv run python -m bioscan.service.decode DIR -r`
+
+## 2. SubSecTimeOriginal
+- [x] fraction appended (`2026-05-01T08:00:00.37-07:00`); DateTime fallback pairs with SubSecTime; gt (exiftool) agrees
+- [x] consumers: geo.week_of reads [5:7]/[8:10] (test); eval passes GT taken_at through; render and the CLI do not
+      read it; not in the result event; datetime.fromisoformat parses the fraction
+
+## 3. One shared extension list
+- [x] `bioscan/formats.py` (stdlib): RAW_EXT, SCAN_EXT, DEFAULT_EXT, parse_ext, list_images, is_raw, subsec
+- [x] decode, `bioscan run`, `bioscan gt folders` use it; import-light test covers it
+- [x] test: lower, UPPER and Capitalised file of every extension scanned by both commands
+
+## 4. Behaviour preserved
+- [x] golden after vs before: 144 identical, 73 differ, all intended (new containers' lat/lon/taken_at, sub-second
+      fraction, added scan extensions); pixels, sizes, orientation, sha256 identical everywhere
+
+## 5. Docs
+- [x] README + README.zh-CN supported-files table, check command, sub-seconds; layout lines
+- [x] CONTEXT.md: Scan extensions, Container, Capture time
+- [x] design spec `--ext` default
+
+## Wrap-up
+- [x] ruff + pytest green (200 passed, 8 skipped)
+- [x] self-review of diff against base
+- [ ] owner: run the check command over real CR3 / RAF / ORF / RW2 (and ARW / NEF) files on the Mac
+- [ ] CI (ci.yml, models.yml) on the pushed head: not pushed by this package
+
+## Review notes (orchestrator, after acceptance)
+- [x] ORF/RW2: IFDs parsed from the first 4 MB (no whole-file copy); JpgFromRaw sliced from the file by offset/count
+- [x] CR3: each CMT block parsed on its own; a corrupt one no longer loses the others
+- [x] gps_from_ifd: None for non-finite (0/0 rationals gave NaN on base) or out-of-range (|lat| > 90, |lon| > 180)
+- [x] formats.subsec decodes bytes as ASCII (NULs dropped; non-ASCII -> no fraction)
+- [x] golden re-run: 152 identical, 77 differ, all intended (adds cr3_bad_cmt1, rw2_far_preview, gpsbad_*)
+
+## Found
+- `gt folders --ext .arw` matched nothing (no dot stripping, unlike `run`); both now share `formats.parse_ext`.
+- `gt.read_exif` (own-tier CSV, `run --lat` default) uses exiftool, which already reads every format; left as is.
+
+## W3 checklist (folded from TASKS-w3.md)
+
+
+Checklist for this work package; the v1.5 section of TASKS.md links here.
+Scratch: `$SCRATCH/v15-w3/` (golden recordings, label rebuild, map build inputs, fake-model dry run).
+
+- [x] golden recording from a clean `git archive 0a66f72`: 300 random frames x 5 option sets, batched in random
+      chunks and one by one (asserted equal), test_batch-style stand-ins with matrix-aware BioCLIP -> sha 1d89c01b8af47833
+- [x] mdd_map.csv: BirdNET geo v3.0.4 mammal labels -> MDD v2.5 rows (1028 exact, 20 reviewed MDD synonyms;
+      4 lump rows); all 1,048 mammal labels used; label list rebuilt offline = birdnet 1.1.1's (all 10,383 bird map labels found)
+- [x] LocationPrior: several labels per row (max p); unlabelled policy zero | genus (+ UNLABELLED_NEUTRAL); `direct` mask
+- [x] names: mammal ListSource.label_map = mdd_map.csv, unlabelled policy per list; labels-only map leaves the cache key
+- [x] rules: range_veto (RANGE_EPS 0.01, RANGE_TAU 0.05; genus back-off never vetoes), species_level(species_ok), kind_of (KIND_SURE 0.75)
+- [x] pipeline: range veto, two-way kind check (iterates taxa.KIND_CHECK), mammal_geo switch; batched + one-frame paths
+- [x] switches as identify options (range_veto, kind_check, mammal_geo; default on); /products schema; eval `--identify-opt`
+- [x] fingerprint: new thresholds (auto), switches, prior switch, unlabelled policies, neutral constant, KIND_CHECK; info() priors per list
+- [x] tests: veto cases, kind switch both ways, thin margin, third list, batched == one-by-one (on and off), lumps,
+      genus back-off, bird posterior unchanged by the mammal prior, fingerprint moves, labels-only map, map build
+- [x] real-model smoke: mammal labels from mdd_map.csv; switches-off pass replaying the main run's model outputs;
+      on/off table + changed images in the report; fails on a lost Top-1 hit or an added confident error per kind.
+      Dry-run on fake models in the container (flow only; numbers meaningless)
+- [x] equivalence: switches OFF == base golden, byte-identical (sha 1d89c01b8af47833); ON diff summary (every change attributed)
+- [x] docs: README + README.zh-CN section and flags, CONTEXT.md terms, data/README (mdd_map inputs, reviewed synonyms)
+- [x] self-review against base
+- [x] orchestrator follow-ups: kind evidence from each list's top KIND_TOP rows (size-independent; padding test);
+      label map sha in info() `models.label_maps` and in the fingerprint; real-model on/off gate allows 1 image per
+      kind and measure (tripwire; harness budget is the gate). Switches-off golden still 1d89c01b8af47833
+- [ ] CI (ci.yml, models.yml) on the pushed head: orchestrator (this branch is not pushed)
+- [ ] Mac eval: `bioscan eval` golden set on, then each switch off (`--identify-opt NAME=false`)
+
+## Found
+- The range veto can rename a real vagrant to a local congener (level genus, never species); kept per spec, measurable.
+- Genus back-off inherits absence: *Lepus californicus* / *Sylvilagus audubonii* (golden, unlabelled) borrow the p_geo of
+  L. americanus/europaeus and S. floridanus/palustris, which are low in lowland California; hence a borrowed p_geo never vetoes.
+- Unlabelled AviList rows (zero policy) count as direct evidence of absence and can be vetoed; no golden or own-tier
+  bird species is unlabelled.
+- The kind check keeps a stacked bird+mammal matrix (18,035 x 1024 float32, ~74 MB) plus its device copy.
+  (Superseded at the W4 merge: each list is scored with its own matmul and `rules.kind_evidence_logits`; no
+  stacked matrix is kept.)

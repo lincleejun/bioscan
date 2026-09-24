@@ -1,12 +1,14 @@
 """The all-taxa list (names.load_all_taxa) and the candidates option (candidates.py), on stand-ins:
-the TreeOfLife files are small fakes in the documented row format, the models test_batch's."""
+the TreeOfLife files are small fakes in the documented row format; the models are test_batch's
+(extended to a 12-d space holding an all-taxa list) and test_accuracy's."""
 import dataclasses
 import json
 import logging
 
 import numpy as np
 import pytest
-from test_batch import FRAMES, OPTS, Models, frame, g, names
+from test_accuracy import Engine3, species, unit
+from test_batch import OPTS, SWITCHES_OFF, Models, frame, g
 from test_names import FakeModel, FakeTokenizer, setup
 
 from bioscan.service import candidates, pipeline, products
@@ -91,98 +93,190 @@ def test_engine_info_names_the_taxonomy():
     from bioscan.service.engine import Engine
 
     e = Engine("cpu")
-    e.names = {"other_animal": dataclasses.replace(names("other_animal", "Reptilia", "Anolis"), source="TreeOfLife-200M @ x")}
+    e.names = {"other_animal": dataclasses.replace(Models12().names["other_animal"], source="TreeOfLife-200M @ x")}
     info = e.info()["models"]
     assert info["names"] == {"other_animal": "other_animal-list@"} and info["taxonomy"] == {"other_animal": "TreeOfLife-200M @ x"}
 
 
 # ---- pipeline ------------------------------------------------------------------------------
 
-OTHER = frame((90, 20, 3), g(other_animal=0.9))           # crop gate sees a non-bird animal: stays other_animal
-C_OPTS = {**OPTS, "candidates": []}
+D12 = 12
 
 
-def with_other(models=None, offset=0.0):
-    m = models or Models()
-    other = names("other_animal", "Reptilia", "Anolis")
-    m.names["other_animal"] = dataclasses.replace(other, matrix=np.full((4, 4), offset, np.float32))
-    return m
+class Models12(Models):
+    """test_batch's Models in a 12-d space: birds e0-e3 (Buteo), mammals e4-e7 (Lynx) and, with
+    `other`, an all-taxa list e8-e11 (Anolis). A crop of colour (r, g, b) leans to row b % 12 and a
+    little to row r % 12; the crop gate says bird when g > 100 (test_batch)."""
+
+    def __init__(self, other=True):
+        super().__init__()
+        eye = np.eye(D12, dtype=np.float32)
+        self.names = {k: dataclasses.replace(nl, matrix=eye[first:first + 4])
+                      for (k, nl), first in zip(self.names.items(), (0, 4))}
+        if other:
+            sci = [f"Anolis s{i}" for i in range(4)]
+            self.names["other_animal"] = names_mod.NameList(
+                "other_animal-list", "other_animal", sci, [""] * 4,
+                [["Animalia", "Chordata", "Reptilia", "Squamata", "Dactyloidae", "Anolis", x] for x in sci],
+                eye[8:12], ["exact"] * 4)
+
+        class Bio:
+            @staticmethod
+            def _vecs(feats):
+                vecs = np.zeros((len(feats), D12))
+                for i, (r, _g, b) in enumerate(feats):
+                    vecs[i, b % D12] += 1.0
+                    vecs[i, r % D12] += 0.6
+                return vecs
+
+            def encode_images(self, crops):
+                return [c.getpixel((c.width // 2, c.height // 2)) for c in crops]
+
+            def logits(self, feats, matrix):
+                return 4.0 * self._vecs(feats) @ np.asarray(matrix, dtype=np.float64).T
+
+            def probs(self, feats, matrix):
+                z = np.exp(self.logits(feats, matrix))
+                return z / z.sum(axis=1, keepdims=True)
+
+        self.bioclip = Bio()
+
+
+BIRDLIKE = frame((204, 150, 1), g(bird=0.9), lat=37.0)       # Buteo s1, a little Buteo s0
+REPTILE_GATED_BIRD = frame((200, 150, 9), g(bird=0.9))       # a bird box whose evidence is Anolis
+BIRD_GATED_OTHER = frame((204, 20, 2), g(other_animal=0.9))  # an other_animal box whose evidence is Buteo
+MAMMALIAN = frame((208, 20, 5), g(mammal=0.9))               # Lynx s1, a little Lynx s0
+FRAMES12 = [BIRDLIKE, REPTILE_GATED_BIRD, BIRD_GATED_OTHER, MAMMALIAN]
+
+
+def run(models, f, **opts):
+    return pipeline.identify_many(models, [f], {**OPTS, **opts})[0]["boxes"]
+
+
+def kinds(models, f, **opts):
+    return {b["kind"] for b in run(models, f, **opts)}
 
 
 def test_other_animal_boxes_get_species_from_the_all_taxa_list():
-    out = pipeline.identify_many(with_other(), [OTHER], OPTS)[0]
-    assert out["boxes"] and all(b["kind"] == "other_animal" for b in out["boxes"])
-    sp = out["boxes"][0]["species"]
+    boxes = run(Models12(), BIRD_GATED_OTHER, **SWITCHES_OFF)
+    assert boxes and all(b["kind"] == "other_animal" for b in boxes)
+    sp = boxes[0]["species"]
     assert sp["list"] == "other_animal-list" and sp["top"][0]["scientific"].startswith("Anolis")
-    assert sp["top"][0]["p_geo"] is None                           # no location prior for the list
-    assert pipeline.identify_many(Models(), [OTHER], OPTS)[0]["boxes"][0]["species"] is None   # no list: null, as before
+    assert sp["top"][0]["p_geo"] is None                            # no location prior for the list
+    assert all(b["species"] is None for b in run(Models12(other=False), BIRD_GATED_OTHER, **SWITCHES_OFF))
 
 
-def top_names(out):
-    return [[c["scientific"] for c in b["species"]["top"]] for b in out["boxes"]]
+def test_the_all_taxa_list_joins_the_kind_check_both_ways():
+    m = Models12()
+    assert kinds(m, BIRDLIKE) == {"bird"}
+    assert kinds(m, REPTILE_GATED_BIRD) == {"other_animal"}         # bird-gated, reptile evidence
+    assert kinds(m, BIRD_GATED_OTHER) == {"bird"}                    # other_animal-gated, bird evidence
+    for b in run(m, REPTILE_GATED_BIRD):
+        assert b["species"]["list"] == "other_animal-list" and b["species"]["top"][0]["scientific"] == "Anolis s1"
+    assert kinds(m, REPTILE_GATED_BIRD, kind_check=False) == {"bird"}           # behind the switch
+    assert kinds(m, BIRD_GATED_OTHER, kind_check=False) == {"other_animal"}
+    # not loaded: W3's bird <-> mammal check as it was, other animals left alone
+    plain = Models12(other=False)
+    assert kinds(plain, REPTILE_GATED_BIRD) <= {"bird", "mammal"}
+    assert all(b["kind"] == "other_animal" and b["species"] is None for b in run(plain, BIRD_GATED_OTHER))
+
+
+def test_kind_check_evidence_per_list_equals_the_stacked_lists():
+    from bioscan.service import rules
+
+    rng = np.random.default_rng(5)
+    lists = {"bird": rng.normal(size=40) * 3, "mammal": rng.normal(size=7) * 3, "other_animal": rng.normal(size=900) * 3}
+    joint = np.concatenate(list(lists.values()))
+    probs = np.exp(joint - joint.max())
+    probs /= probs.sum()
+    ends = np.cumsum([len(v) for v in lists.values()])
+    rows_of = {k: slice(e - len(v), e) for (k, v), e in zip(lists.items(), ends)}
+    assert rules.kind_evidence_logits(lists) == pytest.approx(rules.kind_evidence(probs, rows_of), rel=1e-9)
+
+
+def top_names(boxes):
+    return [[c["scientific"] for c in b["species"]["top"]] for b in boxes]
 
 
 def test_candidates_restrict_ranking():
-    base = pipeline.identify_many(Models(), FRAMES[:1], OPTS)[0]
-    got = pipeline.identify_many(Models(), FRAMES[:1], {**OPTS, "candidates": ["Buteo s1", "buteo  S3"]})[0]
-    assert all(set(t) == {"Buteo s1", "Buteo s3"} for t in top_names(got))
-    for b0, b1 in zip(base["boxes"], got["boxes"]):
-        assert sum(c["posterior"] for c in b1["species"]["top"]) == pytest.approx(1, abs=1e-5)
-        assert b1["kind"] == b0["kind"] == "bird" and b1["species"]["list"] == "bird-list"
-        # the order among the allowed rows is the unrestricted order
-        allowed = [n for n in (c["scientific"] for c in b0["species"]["top"]) if n in ("Buteo s1", "Buteo s3")]
-        assert [c["scientific"] for c in b1["species"]["top"]][:len(allowed)] == allowed
+    boxes = run(Models12(), BIRDLIKE, candidates=["Buteo s1", "buteo  S3"])
+    assert boxes and all(set(t) == {"Buteo s1", "Buteo s3"} for t in top_names(boxes))
+    for b in boxes:
+        assert b["kind"] == "bird" and b["species"]["list"] == "bird-list"
+        assert sum(c["posterior"] for c in b["species"]["top"]) == pytest.approx(1, abs=1e-5)
+        assert b["species"]["top"][0]["scientific"] == "Buteo s1"
 
 
 def test_a_higher_taxon_matches_every_row_under_it():
-    base = pipeline.identify_many(Models(), FRAMES[:2], OPTS)
+    base = run(Models12(), BIRDLIKE)
     for taxon in ("Buteo", "Aves", "aves"):
-        got = pipeline.identify_many(Models(), FRAMES[:2], {**OPTS, "candidates": [taxon]})
-        assert [top_names(o) for o in got] == [top_names(o) for o in base]        # the whole bird list: same ranking
-        for o0, o1 in zip(base, got):
-            for b0, b1 in zip(o0["boxes"], o1["boxes"]):
-                for c0, c1 in zip(b0["species"]["top"], b1["species"]["top"]):
-                    assert c1["posterior"] == pytest.approx(c0["posterior"], abs=2e-6)
-                    assert c1["p_geo"] == c0["p_geo"]
+        got = run(Models12(), BIRDLIKE, candidates=[taxon])
+        assert top_names(got) == top_names(base)                      # the whole bird list: same ranking
+        for b0, b1 in zip(base, got):
+            assert b1["species"]["level"] == b0["species"]["level"]
+            for c0, c1 in zip(b0["species"]["top"], b1["species"]["top"]):
+                assert c1["posterior"] == pytest.approx(c0["posterior"], abs=2e-6)
+                assert c1["p_geo"] == c0["p_geo"]
 
 
 def test_candidates_decide_the_list_and_the_kind_follows():
-    out = pipeline.identify_many(Models(), FRAMES[:1], {**OPTS, "candidates": ["Lynx"]})[0]   # a bird-gated frame
-    assert out["gate"]["class"] == "bird" and out["boxes"]
-    for b in out["boxes"]:
-        assert b["kind"] == "mammal" and b["species"]["list"] == "mammal-list"
-        assert all(c["scientific"].startswith("Lynx") and c["p_geo"] is None for c in b["species"]["top"])
-    # two lists at once share one softmax: the closer list (higher logits) takes the box
-    m = with_other(offset=3.0)
-    mixed = pipeline.identify_many(m, FRAMES[:1], {**OPTS, "candidates": ["Buteo s0", "Anolis", "Lynx s2"]})[0]
-    for b in mixed["boxes"]:
-        assert b["kind"] == "other_animal" and b["species"]["list"] == "other_animal-list"
-        lists = {c["taxonomy"][2] for c in b["species"]["top"]}
-        assert lists <= {"Reptilia", "Aves", "Mammalia"} and "Reptilia" in lists
-        assert sum(c["p_visual"] for c in b["species"]["top"]) <= 1 + 1e-6
+    for check in (True, False):
+        boxes = run(Models12(), BIRDLIKE, candidates=["Lynx"], kind_check=check)   # a bird box, mammal candidates
+        assert boxes and all(b["kind"] == "mammal" and b["species"]["list"] == "mammal-list" for b in boxes)
+        assert all(c["scientific"].startswith("Lynx") for b in boxes for c in b["species"]["top"])
 
 
-def test_candidates_with_a_prior_keep_each_lists_visual_share():
-    """Bird rows get the location prior inside the birds' share; the mammal row's share is visual."""
-    out = pipeline.identify_many(Models(), FRAMES[:1], {**OPTS, "candidates": ["Buteo s0", "Buteo s2", "Lynx s1"],
-                                                        "top_k": 3})[0]
-    for b in out["boxes"]:
-        top = {c["scientific"]: c for c in b["species"]["top"]}
-        birds = [top[n] for n in ("Buteo s0", "Buteo s2")]
-        assert all(c["p_geo"] is not None for c in birds) and top["Lynx s1"]["p_geo"] is None
-        assert sum(c["posterior"] for c in birds) == pytest.approx(sum(c["p_visual"] for c in birds), abs=1e-5)
-        assert top["Lynx s1"]["posterior"] == top["Lynx s1"]["p_visual"]
+def test_with_candidates_the_kind_check_compares_only_kinds_that_keep_rows():
+    m = Models12()
+    assert kinds(m, REPTILE_GATED_BIRD, candidates=["Buteo", "Lynx"]) <= {"bird", "mammal"}
+    assert "mammal" not in kinds(m, MAMMALIAN, candidates=["Buteo", "Anolis"])
+    # kind check on: the evidence among the candidate kinds decides; off: the box keeps its kind
+    # while its list keeps a row
+    assert kinds(m, REPTILE_GATED_BIRD, candidates=["Buteo s0", "Anolis"]) == {"other_animal"}
+    assert kinds(m, REPTILE_GATED_BIRD, candidates=["Buteo s0", "Anolis"], kind_check=False) == {"bird"}
 
 
-def test_batched_equals_one_by_one_with_candidates(monkeypatch):
+def test_candidates_use_the_lists_location_prior():
+    m = Models12()
+    boxes = run(m, BIRDLIKE, candidates=["Buteo s0", "Buteo s2"], range_veto=False)
+    prior = m.priors["bird"]
+    g_all = prior.p_geo(BIRDLIKE.lat, BIRDLIKE.lon, BIRDLIKE.taken_at)
+    z = m.bioclip.logits([(204, 150, 1)], m.names["bird"].matrix)[0][[0, 2]]
+    p = np.exp(z - z.max()) / np.exp(z - z.max()).sum()
+    want = prior.posterior(p, g_all[[0, 2]])
+    for b in boxes:
+        got = {c["scientific"]: c for c in b["species"]["top"]}
+        assert got["Buteo s0"]["posterior"] == pytest.approx(want[0], abs=1e-6)
+        assert got["Buteo s2"]["p_geo"] == pytest.approx(g_all[2], abs=1e-6)
+    off = run(m, BIRDLIKE, candidates=["Buteo s0", "Buteo s2"], geo=False)
+    assert all(c["p_geo"] is None for b in off for c in b["species"]["top"])
+
+
+def test_candidates_keep_the_range_veto_and_the_mammal_prior():
+    raven = Engine3(lambda c: unit([0.1, 1.0, 0, 0, 0, 0]))             # looks most like sierramadrensis
+    on = species(raven, "bird", candidates=["Corvus"])["species"]
+    assert [c["scientific"] for c in on["top"][:2]] == ["Corvus corax", "Corvus sierramadrensis"]
+    assert on["level"] == "genus"
+    off = species(raven, "bird", candidates=["Corvus"], range_veto=False)["species"]
+    assert off["top"][0]["scientific"] == "Corvus sierramadrensis" and off["level"] == "species"
+    hare = Engine3(lambda c: unit([0, 0, 0, 0.2, 0.1, 1.0]))            # an unlabelled Lepus: genus back-off
+    top = species(hare, "mammal", candidates=["Lepus", "Phoca"])["species"]["top"]
+    from bioscan.service.adapters import geo
+
+    assert top[0]["scientific"] == "Lepus californicus" and top[0]["p_geo"] == geo.UNLABELLED_NEUTRAL
+    top = species(hare, "mammal", candidates=["Lepus", "Phoca"], mammal_geo=False)["species"]["top"]
+    assert all(c["p_geo"] is None for c in top)
+
+
+@pytest.mark.parametrize("switches", [{}, SWITCHES_OFF], ids=["switches-on", "switches-off"])
+def test_batched_equals_one_by_one_with_candidates(monkeypatch, switches):
     monkeypatch.setattr(pipeline, "SPECIES_BATCH", 2)
-    frames = [*FRAMES, OTHER]
-    opts = {**OPTS, "candidates": ["Buteo s1", "Lynx", "Anolis"]}
-    batched = pipeline.identify_many(with_other(), frames, opts)
-    single = [pipeline.identify(with_other(), f.image, f.gate, f.lat, f.lon, f.taken_at, opts) for f in frames]
+    opts = {**OPTS, **switches, "candidates": ["Buteo s1", "Lynx", "Anolis"]}
+    batched = pipeline.identify_many(Models12(), FRAMES12, opts)
+    single = [pipeline.identify(Models12(), f.image, f.gate, f.lat, f.lon, f.taken_at, opts) for f in FRAMES12]
     assert batched == single
-    assert {b["kind"] for o in batched for b in o["boxes"]} >= {"bird", "mammal"}
-    off = pipeline.identify_many(with_other(), frames, {**opts, "species": False})
+    assert {b["kind"] for o in batched for b in o["boxes"]} >= {"bird", "mammal", "other_animal"}
+    off = pipeline.identify_many(Models12(), FRAMES12, {**opts, "species": False})
     assert all("species" not in b for o in off for b in o["boxes"])
 
 
@@ -190,7 +284,7 @@ def test_batched_equals_one_by_one_with_candidates(monkeypatch):
 
 class Loaded:
     def __init__(self):
-        self.names = with_other().names
+        self.names = Models12().names
 
 
 def test_unknown_candidates_are_named():
@@ -201,6 +295,9 @@ def test_unknown_candidates_are_named():
     products.check_loaded(Loaded(), ["identify"], products.resolve_options({"identify": {"candidates": ["O", "Lynx s0"]}}))
     products.check_loaded(Loaded(), ["embed"], opts)                     # identify not wanted: not checked
     assert candidates.unknown(Loaded().names, ["reptilia", "LYNX"]) == []
+    assert candidates.allowed(Loaded().names, []) is None
+    assert {k: v.tolist() for k, v in candidates.allowed(Loaded().names, ["Lynx s2", "Squamata"]).items()} == \
+        {"mammal": [2], "other_animal": [0, 1, 2, 3]}
 
 
 def test_products_describes_the_option():
@@ -221,23 +318,27 @@ def test_run_and_eval_pass_candidates(tmp_path, monkeypatch):
     assert cli.build_payload(a)["options"]["identify"]["candidates"] == ["Megascops kennicottii", "Strigidae", "Bubo"]
     assert "candidates" not in cli.build_payload(cli.parser().parse_args(["run", str(tmp_path)]))["options"]["identify"]
     _fake_service(monkeypatch, PREDS)
-    report, _ = ev.run_eval(_gt(tmp_path), str(tmp_path / "e"), False, "http://x", candidates=["Buteo", "Canis"])
+    assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "e"), "--candidates", "Buteo, Canis",
+                     "--identify-opt", "kind_check=false"]) == 0
     meta = json.loads((tmp_path / "e" / "preds.ndjson").read_text().splitlines()[0])
-    assert meta["options"]["identify"]["candidates"] == ["Buteo", "Canis"] and "- candidates: Buteo, Canis" in report
-    # without candidates the report is the base one: the same meta keys, in the same order, and no candidates line
+    assert meta["options"]["identify"] == {"top_k": 5, "geo": True, "kind_check": False, "candidates": ["Buteo", "Canis"]}
+    assert '- identify options: {"candidates": ["Buteo", "Canis"], "kind_check": false}' in \
+        (tmp_path / "e" / "report.md").read_text()
+    # without candidates the report is the base one: the same meta keys, in the same order
     report, _ = ev.run_eval(_gt(tmp_path), str(tmp_path / "f"), False, "http://x")
     keys = [line[2:].split(":")[0] for line in report.split("## ")[0].splitlines() if line.startswith("- ")]
     assert keys == ["groundtruth", "preds", "images", "geo", "preds schema", "complete", "synonyms", "generated",
                     "wall_s"] and "candidates" not in report
-    with pytest.raises(SystemExit, match="--preds"):
-        cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "g"), "--preds", str(tmp_path / "f" / "preds.ndjson"),
-                  "--candidates", "Buteo"])
+    for extra in (["--candidates", "Buteo"], ["--identify-opt", "kind_check=false"]):
+        with pytest.raises(SystemExit, match="--preds"):
+            cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "g"), "--preds",
+                      str(tmp_path / "f" / "preds.ndjson"), *extra])
 
 
 def test_all_taxa_list_that_does_not_fit_on_the_device_is_dropped(caplog):
     from bioscan.service import engine
 
-    lists = with_other().names
+    lists = Models12().names
 
     class Device:
         placed = []

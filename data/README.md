@@ -73,13 +73,19 @@
   - 未收：`Alces alces → Alces americanus`。MDD v2.5 只有 `Alces alces`，没有 americanus，真值 `Alces alces` 已直接对上。
 - `avilist_map.csv`（`uv run python scripts/build_name_map.py` 生成，需要 HF 缓存里的 TreeOfLife json 和 birdnet 包）：每个 AviList 种一行，`scientific, common, order, family, tol_name, tol_how, birdnet_label, birdnet_how`，`*_how` 取 `exact | synonym | none`。`birdnet_label` 是 BirdNET 原样的 `学名_俗名`，服务加载时建好"名单行号 → BirdNET 输出位置"索引，请求时一次数组查表得每行 `p_geo`（无标签的行为 0）。
 - `candidates.csv`（同一脚本生成，只供人审，不会自动采纳）：映射为 none 的种里，同属且种加词编辑距离 ≤ 2 的 TreeOfLife / BirdNET 名字。`candidate_in_avilist=True` 表示候选本身也是 AviList 的另一个种，多半是不同种。确认后把对应行抄进 `synonyms.csv` 再重跑脚本。
-- 哺乳只做 TreeOfLife 匹配（exact + tol/spelling 别名）和 eval 真值的 inat 别名，不做 BirdNET（哺乳无地理先验）。
+- `mdd_map.csv`（`uv run python scripts/build_name_map.py --list mammal --mdd-synonyms …/Species_Syn_Current_v2.5.csv` 生成，2026-09-24）：每个 MDD 种一行，`scientific, common, order, family, birdnet_label, birdnet_how`。只有 BirdNET 标签，没有 TreeOfLife 列：哺乳的 TreeOfLife 匹配仍在建缓存时现算，所以这个文件不进哺乳缓存的 key，加它不会重建缓存。
+  - 输入：BirdNET geo v3.0.4 的标签文件 `labels_raw-8250b457e45d.txt`（14082 行）与分类表 `taxonomy_v0.2-Jun2026.csv`（birdnet 1.1.1 下载到 `~/.local/share/birdnet/` 的同一对文件，Apache-2.0，见 geomodel 仓库 LICENSE-MODELS.md），按 birdnet 包的规则拼成 `学名_英文名` 标签；其中分类表 `class_name == mammalia` 的 1048 个（两文件 sha256 前缀即文件名里的 `8250b457e45d`、`98b27fc4a77c`）；MDD 仓库 `assets/data/MDD.zip` 里的 `MDD/Species_Syn_Current_v2.5.csv`（取自提交 `749c2de`，同一 zip 的 `MDD_v2.5_6904species.csv` 与上文 sha256 相同；sha256 `6467d05eef4a45fddf2cab97fcd6dd19aeb1b4da3d70ff6d23e92c99351cdfd4`）。离线构建时用 `--labels`（一行一个标签，模型原序）和 `--birdnet-taxonomy` 指定文件。
+  - 匹配：学名 `norm_binomial` 精确相等（1028 个标签）→ MDD 同义名表（原始组合名、规范化原始组合名、种加词放进现行属）→ 无。同义名得到两个 MDD 种时必须在脚本的 `REVIEWED` 里人工定，否则脚本报错。
+  - 同义名 20 个，已逐条人审（2026-09-24）：拼写 4 个（*Saguinus weddelli*→*weddellii*、*Hypsugo alaschanicus*→*alashanicus*、*Lophiomys imhausi*→*imhausii*、*Rattus lutreolus*→*R. lutreola*）；换属 5 个（*Tadarida aegyptiaca*→*Nyctinomus aegyptiacus*、*Pecari tajacu*→*Dicotyles tajacu*、*Bison bonasus*/*bison*→*Bos*、*Parotomys brantsii*→*Otomys brantsii*、*Pipistrellus abramus*→*Alionoctula abramus*）；MDD 并种 11 个（*Cebus yuracus*/*versicolor*/*cuscinus*/*aequatorialis*→*C. albifrons*、*C. imitator*→*C. capucinus*、*Cephalophorus harveyi*→*C. natalensis*、*Microtus miurus*→*M. abbreviatus*、*Plecturocebus discolor*→*P. cupreus*、*P. aureipalatii*→*P. toppini*、*Myotis dinellii*→*M. levis*）。有歧义的两个：*Rattus lutreolus*（同义名表还指向 *R. fuscipes*）取 *R. lutreola*；*Pipistrellus abramus*（还指向 *Alionoctula paterculus*）取 *A. abramus*。
+  - 一行多个标签（MDD 并了 BirdNET 分开的种）用 `|` 连接，先验取其中最大值：*Cebus albifrons*（4 个）、*Cebus capucinus*、*Plecturocebus cupreus*、*Plecturocebus toppini*（各 2 个）。
+  - 结果：1042 行有标签（exact 1028、synonym 14），1048 个哺乳标签全部用上；golden 集 23 种哺乳里 21 种有标签，*Lepus californicus*、*Sylvilagus audubonii* 按属回退。
+  - 没有标签的行按名单的 unlabelled policy 处理：哺乳为 `genus`（取同属有标签种的最大 p_geo，同属都没有时取 `geo.UNLABELLED_NEUTRAL` 0.05），鸟为 `zero`（按 0，行为不变）。属回退得到的 p_geo 不触发分布否决。
 
 覆盖率（2026-09-23）：
 
 | 名单 | 总数 | TreeOfLife exact / synonym / none | 官方向量覆盖 | BirdNET exact / synonym / none |
 |---|---|---|---|---|
 | avilist-2025 | 11131 | 9416 / 2 / 1713 | 84.6% | 10380 / 3 / 748（93.3%） |
-| mdd-2025 | 6904 | 3835 / 0 / 3069 | 55.5% | — |
+| mdd-2025 | 6904 | 3835 / 0 / 3069 | 55.5% | 1028 / 14 / 5862（15.1%，其余按属回退） |
 
 旧版 BirdNET 匹配另外用俗名兜底（多 15 种），新版只按学名 + 别名，暂未把俗名匹配搬进映射表。`candidates.csv` 当前 49 条（distance 1：11 条）。

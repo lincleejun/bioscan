@@ -2,6 +2,7 @@ import csv
 import json
 import plistlib
 
+from bioscan import formats
 from bioscan.cli import gt
 from bioscan.cli.main import build_payload, launchd_plist, parser
 
@@ -37,7 +38,7 @@ def test_gt_folders_writes_csv(tmp_path):
     (tmp_path / "Unknown").mkdir()
     (tmp_path / "Unknown" / "x.jpg").write_bytes(b"")
     out = tmp_path / "gt.csv"
-    counts = gt.gt_folders(str(tmp_path), str(out), [], set(gt.DEFAULT_EXT.split(",")))
+    counts = gt.gt_folders(str(tmp_path), str(out), [], formats.SCAN_EXT)
     assert counts == {"Red-Tailed-Hawk": 2, "Unknown": 1}
     rows = list(csv.DictReader(out.open()))
     assert list(rows[0]) == gt.OWN_FIELDS
@@ -50,6 +51,37 @@ def test_exif_time():
     assert gt.exif_time("2025:12:24 16:41:44", "-07:00") == "2025-12-24T16:41:44-07:00"
     assert gt.exif_time("2025:12:24 16:41:44", None) == "2025-12-24T16:41:44"
     assert gt.exif_time("0000:00:00", None) == ""
+    # exiftool -j gives SubSecTimeOriginal as a number when it has no leading zero, else a string
+    assert gt.exif_time("2025:12:24 16:41:44", "-07:00", 37) == "2025-12-24T16:41:44.37-07:00"
+    assert gt.exif_time("2025:12:24 16:41:44", "-07:00", "037") == "2025-12-24T16:41:44.037-07:00"
+    assert gt.exif_time("2025:12:24 16:41:44", None, "") == "2025-12-24T16:41:44"
+
+
+def test_every_supported_extension_is_scanned_in_any_case(tmp_path):
+    """One list (bioscan.formats) for the decoder and both folder scans: nothing it decodes is skipped."""
+    from bioscan.service import decode
+
+    (tmp_path / "Red-Tailed-Hawk").mkdir()
+    want = []
+    for ext in sorted(formats.SCAN_EXT):
+        for name in (f"a.{ext}", f"b.{ext.upper()}", f"c.{ext.capitalize()}"):
+            (tmp_path / "Red-Tailed-Hawk" / name).write_bytes(b"")
+            want.append(name)
+    for name in ("d.png", "e.tif", "f.heic", "g.mp4", "h.xmp", "._a.arw"):
+        (tmp_path / "Red-Tailed-Hawk" / name).write_bytes(b"")
+    assert formats.RAW_EXT <= formats.SCAN_EXT and set(formats.DEFAULT_EXT.split(",")) == formats.SCAN_EXT
+    assert {"cr2", "cr3", "nrw", "orf", "pef", "raf", "rw2", "srw"} <= formats.SCAN_EXT
+    assert decode.is_raw is formats.is_raw          # the decoder routes RAW by the same list
+    counts = gt.gt_folders(str(tmp_path), str(tmp_path / "gt.csv"), [], formats.parse_ext(formats.DEFAULT_EXT))
+    assert counts == {"Red-Tailed-Hawk": len(want)}
+    run = build_payload(parser().parse_args(["run", str(tmp_path), "-r"]))
+    assert sorted(i["path"].rsplit("/", 1)[1] for i in run["inputs"]) == sorted(want)
+    gt_default = parser().parse_args(["gt", "folders", str(tmp_path)]).ext
+    assert formats.parse_ext(gt_default) == formats.SCAN_EXT
+
+
+def test_parse_ext():
+    assert formats.parse_ext("ARW, .jpg,,CR3 ") == {"arw", "jpg", "cr3"}
 
 
 def test_inat_dry_run_urls():

@@ -176,7 +176,7 @@ bioscan serve --launchd                     打印 launchd plist 到 stdout
 bioscan health
 bioscan run <path...> [--want identify,embed,jpg] [--json] [--out FILE]
                       [--lat --lon] [--no-geo] [--top-k 5] [--no-species]
-                      [--jpg-out DIR] [-r] [--ext arw,dng,jpg,jpeg,raf,nef,cr3]
+                      [--jpg-out DIR] [-r] [--ext arw,cr2,cr3,dng,jpeg,jpg,nef,nrw,orf,pef,raf,rw2,srw]
 bioscan gt folders <dir> [--out groundtruth.csv]
 bioscan gt inat --place california --taxa taxa.csv --per-species 25 --out DIR
 bioscan eval <groundtruth.csv> --out DIR [--no-geo]
