@@ -21,7 +21,7 @@ from bioscan.service.rules import *  # noqa: F403 - rules and thresholds re-expo
 from bioscan.service.rules import MIN_CROP, crop_with_context, dedupe, judge, quality, species_crops  # noqa: F401
 
 DEFAULTS: dict[str, dict[str, Any]] = {
-    "identify": {"top_k": 5, "geo": True, "species": True},
+    "identify": {"top_k": 5, "geo": True, "species": True, **pipeline.SWITCHES},
     "embed": {"format": "list"},
     "jpg": {"out_dir": "/tmp/bioscan-jpg"},
 }
@@ -29,10 +29,13 @@ DEFAULTS: dict[str, dict[str, Any]] = {
 PRODUCTS: dict[str, Any] = {
     "identify": {
         "description": "Scene gate (SigLIP2), animal boxes (OWLv2 + crop gate), per-box quality and species "
-                       "(BioCLIP 2.5 Huge zero-shot, optional BirdNET geo prior for birds).",
+                       "(BioCLIP 2.5 Huge zero-shot, optional BirdNET geo prior for birds and mammals, "
+                       "range veto, kind check).",
         "options": {"top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
                     "geo": {"type": "boolean", "default": True},
-                    "species": {"type": "boolean", "default": True}},
+                    "species": {"type": "boolean", "default": True},
+                    # accuracy fixes, on by default; false switches one off to measure it (README)
+                    **{k: {"type": "boolean", "default": v} for k, v in pipeline.SWITCHES.items()}},
         "output": contract.IDENTIFY_OUTPUT,          # the payload's fields live in bioscan/contract.py
     },
     "embed": {
@@ -53,7 +56,7 @@ def _check_identify(o: dict[str, Any]) -> None:
     top_k = o["top_k"]
     if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 50:
         raise ValueError("options.identify.top_k must be an integer 1-50")
-    for key in ("geo", "species"):
+    for key in ("geo", "species", *pipeline.SWITCHES):
         if not isinstance(o[key], bool):
             raise ValueError(f"options.identify.{key} must be a boolean")
 

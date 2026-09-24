@@ -23,6 +23,15 @@ SECOND_PASS_FLOOR = 0.1
 SECOND_PASS_TOP = 3
 IOU_SAME = 0.5
 RESCUE = 0.25           # gate says none/person but bird+mammal+other_animal >= this: still look (first pass only)
+# Range veto: where the place is known and the list has a prior, a top candidate with p_geo below
+# RANGE_EPS cannot be graded species; a congener among the candidates with p_geo >= RANGE_TAU is
+# listed first instead. EPS: the geo model says "not here"; TAU: the geo-gaps "genus present" bar.
+RANGE_EPS = 0.01
+RANGE_TAU = 0.05
+# Kind check: the box's species evidence (BioCLIP over every kind-check list at once) outvotes the
+# gate and crop check; with less than KIND_SURE of the mass on the winning list, a box whose kind
+# moved is graded unconfirmed (any name above that would assert a kind the evidence cannot).
+KIND_SURE = 0.75
 
 
 def iou(a: tuple[float, ...], b: tuple[float, ...]) -> float:
@@ -74,14 +83,15 @@ def judge(kind: str, crop_gate: dict[str, float]) -> str | None:
     return kind
 
 
-def species_level(cands: list[dict[str, Any]]) -> str:
-    """species when top-1 is clear, else the genus or family the top-5 agree on, else unconfirmed."""
+def species_level(cands: list[dict[str, Any]], species_ok: bool = True) -> str:
+    """species when top-1 is clear (and `species_ok`), else the genus or family the top-5 agree on,
+    else unconfirmed."""
     if not cands:
         return "unconfirmed"
     ordered = sorted(cands, key=lambda c: -c["posterior"])
     p1 = ordered[0]["posterior"]
     p2 = ordered[1]["posterior"] if len(ordered) > 1 else 0.0
-    if p1 >= SPECIES_P and p1 - p2 >= SPECIES_MARGIN:
+    if species_ok and p1 >= SPECIES_P and p1 - p2 >= SPECIES_MARGIN:
         return "species"
     genus: dict[str, float] = defaultdict(float)
     family: dict[str, float] = defaultdict(float)
@@ -93,6 +103,30 @@ def species_level(cands: list[dict[str, Any]]) -> str:
     if max(family.values()) >= ROLLUP:
         return "family"
     return "unconfirmed"
+
+
+def range_veto(cands: list[dict[str, Any]], direct: list[bool] | None = None) -> tuple[list[dict[str, Any]], bool]:
+    """(candidates, vetoed). `cands` ranked by posterior; `direct[i]` says whether cands[i]'s p_geo
+    is evidence about that species itself (None = all are). Vetoed when the top one has a direct
+    p_geo (the place is known and its list has a prior) below RANGE_EPS: it may not be graded
+    species, and the first congener with a direct p_geo >= RANGE_TAU, if any, moves to the front.
+    The Raven ranked below a Philippine crow in California comes first again; the level is then
+    the genus the two share. A p_geo borrowed from the genus (unlabelled policy "genus") vetoes
+    nothing: a Californian jackrabbit is not absent because BirdNET's labelled hares are."""
+    direct = direct if direct is not None else [True] * len(cands)
+    if not cands or cands[0]["p_geo"] is None or not direct[0] or cands[0]["p_geo"] >= RANGE_EPS:
+        return cands, False
+    genus = cands[0]["taxonomy"][5]
+    mate = next((c for c, d in zip(cands[1:], direct[1:]) if d and c["taxonomy"][5] == genus
+                 and c["p_geo"] is not None and c["p_geo"] >= RANGE_TAU), None)
+    return ([mate, *(c for c in cands if c is not mate)] if mate else cands), True
+
+
+def kind_of(mass: dict[str, float]) -> tuple[str, bool]:
+    """(kind, sure) from the share of species evidence each kind-check list holds: the list with
+    the most, and whether that is at least KIND_SURE."""
+    kind = max(mass, key=lambda k: mass[k])
+    return kind, mass[kind] >= KIND_SURE
 
 
 def quality(image: Image.Image, bbox: tuple[float, ...]) -> contract.Quality:

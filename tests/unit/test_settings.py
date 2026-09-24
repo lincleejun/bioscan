@@ -1,5 +1,6 @@
 """Settings fingerprint: stable, and moves when any output-changing constant moves."""
-from bioscan.service import rules, settings, taxa
+from bioscan.service import names, pipeline, rules, settings, taxa
+from bioscan.service.adapters import geo
 
 
 def test_fingerprint_stable_and_sensitive(monkeypatch):
@@ -14,13 +15,34 @@ def test_fingerprint_stable_and_sensitive(monkeypatch):
 
 def test_snapshot_is_json_and_complete():
     snap = settings.snapshot()
-    assert set(snap) == {"rules", "gate_prompts", "vocab", "taxa", "geo", "max_edge"} and snap["rules"]["RESCUE"] == 0.25
+    assert set(snap) == {"rules", "gate_prompts", "vocab", "taxa", "geo", "switches", "prior_switch", "max_edge"}
+    assert snap["rules"]["RESCUE"] == 0.25
+    assert snap["geo"]["unlabelled"] == {"bird": "zero", "mammal": "genus"}
+    assert snap["switches"] == {"range_veto": True, "kind_check": True, "mammal_geo": True}
 
 
 def test_every_rules_threshold_is_in_the_fingerprint(monkeypatch):
     assert set(settings.snapshot()["rules"]) == {"VETO", "MAMMAL_SUPPORT", "BIRD_PROMOTE", "MIN_CROP", "SPECIES_P",
                                                  "SPECIES_MARGIN", "ROLLUP", "SECOND_PASS_FLOOR", "SECOND_PASS_TOP",
-                                                 "IOU_SAME", "RESCUE"}
+                                                 "IOU_SAME", "RESCUE", "RANGE_EPS", "RANGE_TAU", "KIND_SURE"}
     base = settings.fingerprint()
     monkeypatch.setattr(rules, "NEW_THRESHOLD", 0.42, raising=False)   # nobody listed it anywhere
     assert settings.snapshot()["rules"]["NEW_THRESHOLD"] == 0.42 and settings.fingerprint.__wrapped__() != base
+
+
+def test_accuracy_fixes_move_the_fingerprint(monkeypatch):
+    """Every v1.5 knob that changes identify output moves the fingerprint: ε, τ, the kind-check
+    margin, a list's unlabelled policy, the neutral constant, the kind-check lists, a switch default."""
+    base = settings.fingerprint()
+    changes = [lambda: monkeypatch.setattr(rules, "RANGE_EPS", 0.02),
+               lambda: monkeypatch.setattr(rules, "RANGE_TAU", 0.1),
+               lambda: monkeypatch.setattr(rules, "KIND_SURE", 0.6),
+               lambda: monkeypatch.setitem(names.LISTS, "mammal", names.LISTS["mammal"]._replace(unlabelled="zero")),
+               lambda: monkeypatch.setattr(geo, "UNLABELLED_NEUTRAL", 0.1),
+               lambda: monkeypatch.setattr(taxa, "KIND_CHECK", ("bird",)),
+               lambda: monkeypatch.setitem(pipeline.SWITCHES, "range_veto", False)]
+    for change in changes:
+        change()
+        assert settings.fingerprint.__wrapped__() != base
+        monkeypatch.undo()
+        assert settings.fingerprint.__wrapped__() == base

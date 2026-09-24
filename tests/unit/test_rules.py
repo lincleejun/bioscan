@@ -177,10 +177,15 @@ def test_softmax_gate():
 
 def test_resolve_options():
     o = products.resolve_options(None)
-    assert o["identify"] == {"top_k": 5, "geo": True, "species": True} and o["embed"]["format"] == "list"
+    # the three v1.5 accuracy switches are identify options, on by default
+    assert o["identify"] == {"top_k": 5, "geo": True, "species": True, "range_veto": True, "kind_check": True,
+                             "mammal_geo": True} and o["embed"]["format"] == "list"
     assert products.resolve_options({"identify": {"top_k": 3}})["identify"]["top_k"] == 3
+    assert products.resolve_options({"identify": {"kind_check": False}})["identify"]["kind_check"] is False
+    assert set(products.PRODUCTS["identify"]["options"]) == set(products.DEFAULTS["identify"])
     for bad in ({"identify": {"top_k": 0}}, {"identify": {"nope": 1}}, {"embed": {"format": "npy"}},
-                {"jpg": {"out_dir": "rel/dir"}}, {"video": {}}, {"identify": {"geo": "yes"}}):
+                {"jpg": {"out_dir": "rel/dir"}}, {"video": {}}, {"identify": {"geo": "yes"}},
+                {"identify": {"range_veto": 0}}, {"identify": {"mammal_geo": "false"}}):
         with pytest.raises(ValueError):
             products.resolve_options(bad)
 

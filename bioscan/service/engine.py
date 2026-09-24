@@ -137,7 +137,8 @@ class Engine:
         from bioscan.service.adapters import bioclip, owlv2, siglip2
 
         lists = {k: f"{nl.list_id}@{nl.sha}" for k, nl in self.names.items()}
-        priors = {k: b.name for k, b in self.priors.items()}
+        # every loaded name list, with its location prior's name or None (bird, mammal)
+        priors = {k: b.name for k, b in self.priors.items()} | {k: None for k in self.names if k not in self.priors}
         return {"version": bioscan.__version__, "settings": settings.fingerprint(),
                 "models": {"gate": f"{siglip2.MODEL_ID}@{siglip2.REVISION[:12]}",
                            "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
