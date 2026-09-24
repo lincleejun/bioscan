@@ -205,3 +205,21 @@ Kept as before (decided by the orchestrator; behaviour-preserving):
 Found:
 - Fingerprint scan counts numbers only; a future tuple threshold in rules.py would need adding by hand.
 - `pipeline.identify` (one-frame helper) is used only by unit tests.
+
+---
+
+# TASKS — v1.4 strategy research (2026-09-24)
+
+Result: docs/strategy/2026-09-24-opportunities.md (shareable page linked there). No code changed.
+- [x] round 1: 5 research agents (competitors, market, models, harness, product audit), sourced
+- [x] round 2: 5 proposal deep dives (P1 catalog writer, P2 licensable/mammal prior, P3 accuracy,
+      P4 store + agents, P5 packaging + GTM); key claims spot-checked (geo model URL in the installed
+      birdnet package; decode.read_exif TIFF-only EXIF path; CI per-image errors)
+- [x] verdict + phased roadmap with gates and kill criteria
+- [ ] owner decisions: BirdNET licence email; lift "no persistent state"; positioning; mammal unmapped-row policy
+- [ ] phase 0 (after decisions): Mac eval + speed benchmark; RAW EXIF / SubSec / scan-extension fixes
+
+Found:
+- README says the location prior is CC BY-NC-SA; the loaded artifact (geomodel v3.0.4) is Apache-2.0 per
+  its LICENSE-MODELS.md. README left as is until the BirdNET team confirms in writing.
+- README (89.8% bird Top-1) and docs/2026-09-23-baseline-results.md (85.7 -> 91.1%) disagree; a Mac eval decides.
