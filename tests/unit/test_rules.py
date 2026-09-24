@@ -204,8 +204,8 @@ def test_embed_formats():
 
 
 def test_parse_run():
-    inputs, want, _ = parse_run({"inputs": [{"path": "/a.ARW", "lat": 1}], "want": ["jpg", "identify"]})
-    assert want == ["identify", "jpg"] and inputs[0]["lon"] is None
+    inputs, plan = parse_run({"inputs": [{"path": "/a.ARW", "lat": 1}], "want": ["jpg", "identify"]})
+    assert plan.want == ("identify", "jpg") and inputs[0]["lon"] is None
     for bad in ({}, {"inputs": []}, {"inputs": [{"path": "a.ARW"}]}, {"inputs": [{"path": "/a"}], "want": []},
                 {"inputs": [{"path": "/a"}], "want": ["video"]}, {"inputs": [{"path": "/a", "lat": "x"}]}, []):
         with pytest.raises(ValueError):

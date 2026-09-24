@@ -11,7 +11,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -91,11 +91,22 @@ class Loaders:
     owlv2: Callable[[str], Any] = _load_owlv2           # device -> detector: detect, detect_batch
     species: Callable[[str], tuple[Any, dict[str, Any]]] = _load_species  # device -> (BioCLIP, {kind: NameList})
     geo: Callable[[], Any] = _load_geo                  # () -> location prior source (labels, probs) or None
+    # plugin models by name: device -> adapter. Overrides the loader a plugin manifest declares
+    # (Manifest.loaders), so tests fake a plugin model the way they fake the three above.
+    extra: dict[str, Callable[[str], Any]] = field(default_factory=dict)
 
 
-# Model name -> loader (an Engine method). Order is load order and the order of `loaded()`.
+# Model name -> loader (an Engine method). Order is load order and the order of `loaded()`; plugin
+# models (Loaders.extra, Manifest.loaders) load after these, by name.
 MODELS = {"siglip2": lambda e: e._load_siglip2(), "owlv2": lambda e: e._load_owlv2(),
           "bioclip": lambda e: e._load_bioclip()}
+
+
+def plugin_loaders() -> dict[str, str]:
+    """Model name -> "module:function" declared by the built-in plugin manifests."""
+    from bioscan.plugins import BUILTIN
+
+    return {name: ref for m in BUILTIN for name, ref in (m.loaders or {}).items()}
 
 
 class Engine:
@@ -109,23 +120,37 @@ class Engine:
         self.bioclip: Any = None
         self.names: dict[str, Any] = {}
         self.priors: dict[str, Any] = {}      # kind -> geo.LocationPrior
+        self.extra: dict[str, Any] = {}       # plugin model name -> its adapter, once loaded
         self._lock = threading.Lock()
 
     # ---- loading ----
     def loaded(self) -> list[str]:
-        return [n for n in MODELS if getattr(self, n) is not None]
+        return [n for n in MODELS if getattr(self, n) is not None] + sorted(self.extra)
+
+    def model(self, name: str) -> Any:
+        """A loaded model adapter by name (a plugin stage reaches its model here)."""
+        return getattr(self, name) if name in MODELS else self.extra[name]
 
     def ensure(self, models: Iterable[str]) -> None:
-        """Load the named models (MODELS keys: what a run's stages need, stages.models) that are not
-        loaded yet, in MODELS order. Raises on failure or an unknown name (-> 503)."""
+        """Load the named models that are not loaded yet (a run's Plan.models): the three built-in
+        ones in MODELS order, then plugin models by name from Loaders.extra, else the loader their
+        manifest declares. Raises on failure or an unknown name (-> 503)."""
         wanted = set(models)
-        unknown = wanted - set(MODELS)
+        declared = plugin_loaders()
+        unknown = wanted - set(MODELS) - set(self.loaders.extra) - set(declared)
         if unknown:
             raise ValueError(f"unknown models: {sorted(unknown)}")
         with self._lock:
             for name in MODELS:                       # registry order: gate, detector, species
                 if name in wanted and getattr(self, name) is None:
                     MODELS[name](self)
+            for name in sorted(wanted - set(MODELS)):
+                if name not in self.extra:
+                    from bioscan import plugin
+
+                    load = self.loaders.extra.get(name) or plugin.load(declared[name])
+                    log.info("loading %s on %s", name, self.device)
+                    self.extra[name] = load(self.device)
 
     def _load_siglip2(self) -> None:
         log.info("loading SigLIP2 on %s", self.device)

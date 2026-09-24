@@ -37,9 +37,13 @@ class Identify(StageBase):
         return settings.snapshot()
 
     def run(self, engine: Any, items: list[Item], o: dict[str, Any]) -> list[Any]:
-        return pipeline.identify_many(
+        outs = pipeline.identify_many(
             engine, [pipeline.Frame(it.dec.image, it.gate, it.lat, it.lon, it.taken_at, it.dec.detail)
                      for it in items], o)
+        for it, out in zip(items, outs):
+            if not isinstance(out, BaseException):
+                it.facts["boxes"] = out["boxes"]          # what identify provides to later stages
+        return outs
 
 
 STAGE = Identify()

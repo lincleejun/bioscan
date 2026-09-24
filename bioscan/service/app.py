@@ -7,7 +7,7 @@ import argparse
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Executor
 from pathlib import Path
 from typing import Any
@@ -15,16 +15,16 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from bioscan import contract, serve_config
+from bioscan import plugin, serve_config
+from bioscan.plugins import BUILTIN
 from bioscan.service import stages
 from bioscan.service.run import DecodePool, RunQueue
 
 log = logging.getLogger("bioscan")
-ORDER = contract.PRODUCTS
 
 
-def parse_run(body: Any) -> tuple[list[dict[str, Any]], list[str], dict[str, dict[str, Any]]]:
-    """Validates a /run body; ValueError -> 400."""
+def parse_run(body: Any, registry: Sequence[plugin.Manifest] = BUILTIN) -> tuple[list[dict[str, Any]], plugin.Plan]:
+    """Validates a /run body and plans the run over the stages of `registry`; ValueError -> 400."""
     if not isinstance(body, dict):
         raise ValueError("body must be a JSON object")
     inputs = body.get("inputs")
@@ -44,30 +44,31 @@ def parse_run(body: Any) -> tuple[list[dict[str, Any]], list[str], dict[str, dic
     want = body.get("want", ["identify"])
     if not isinstance(want, list) or not want or not all(isinstance(w, str) for w in want):
         raise ValueError("want must be a non-empty list of product names")
-    unknown = sorted(set(want) - set(ORDER))
+    unknown = sorted(set(want) - {m.name for m in registry})
     if unknown:
         raise ValueError(f"unknown products: {unknown}")
-    return clean, [p for p in ORDER if p in want], stages.resolve_options(body.get("options"))
+    return clean, plugin.plan(want, stages.resolve_options(body.get("options"), registry), registry)
 
 
-def outside_roots(inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
-                  roots: list[Path]) -> list[str]:
+def outside_roots(inputs: list[dict[str, Any]], plan: plugin.Plan, roots: list[Path]) -> list[str]:
     """Paths the request would read or write that are not inside one of `roots` (symlinks and
     `..` resolved first, so neither escapes). No roots = everything allowed."""
     if not roots:
         return []
-    paths = [inp["path"] for inp in inputs] + stages.paths(want, opts)
+    paths = [inp["path"] for inp in inputs] + stages.paths(plan)
     return [p for p in paths if not any(Path(p).resolve().is_relative_to(r) for r in roots)]
 
 
 def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None, chunk: int = serve_config.CHUNK,
                decode_workers: int = serve_config.DECODE_WORKERS, detail_edge: int | None = serve_config.DETAIL_EDGE,
-               allow_roots: list[str] | None = None) -> FastAPI:
+               allow_roots: list[str] | None = None, plugins: Sequence[plugin.Manifest] = BUILTIN) -> FastAPI:
+    """`plugins`: the stages this service offers (default the built-in ones; tests add toy stages)."""
     app = FastAPI(title="bioscan")
     runs = RunQueue(engine, decode_pool=decode_pool, decode_workers=decode_workers, chunk=chunk,
                     detail_edge=detail_edge)
     app.state.bioscan = runs
     roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
+    catalogue = stages.products(plugins)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -76,31 +77,31 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
 
     @app.get("/products")
     async def list_products() -> dict[str, Any]:
-        return stages.PRODUCTS
+        return catalogue
 
     @app.post("/run")
     async def run(request: Request) -> Any:
         try:
-            inputs, want, opts = parse_run(json.loads(await request.body()))
+            inputs, plan = parse_run(json.loads(await request.body()), plugins)
         except (ValueError, json.JSONDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-        denied = outside_roots(inputs, want, opts, roots)
+        denied = outside_roots(inputs, plan, roots)
         if denied:
             return JSONResponse({"error": f"paths outside the allowed roots: {denied[:5]}"
                                           + (f" (+{len(denied) - 5} more)" if len(denied) > 5 else "")},
                                 status_code=400)
         try:
-            await asyncio.get_running_loop().run_in_executor(None, engine.ensure, stages.models(want, opts))
+            await asyncio.get_running_loop().run_in_executor(None, engine.ensure, plan.models)
         except Exception as exc:  # noqa: BLE001
             log.exception("model load failed")
             return JSONResponse({"error": f"model load failed: {type(exc).__name__}: {exc}"}, status_code=503)
         try:
-            await asyncio.get_running_loop().run_in_executor(None, stages.check_loaded, engine, want, opts)
+            await asyncio.get_running_loop().run_in_executor(None, stages.check_loaded, engine, plan)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
 
         async def stream() -> AsyncIterator[bytes]:
-            async for ev in runs.events(inputs, want, opts, request.is_disconnected):
+            async for ev in runs.events(inputs, plan, request.is_disconnected):
                 yield (json.dumps(ev, ensure_ascii=False) + "\n").encode()
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
