@@ -32,6 +32,9 @@ def test_fakes_have_the_real_adapters_methods(fake, real, methods):
         assert have == want, f"{fake.__name__}.{name}{have} != {real.__name__}.{name}{want}"
 
 
+ALL = ("bioclip", "owlv2", "siglip2")
+
+
 def test_one_loader_per_adapter():
     assert [f.name for f in dataclasses.fields(Loaders)] == ["siglip2", "owlv2", "species", "geo"]
     assert list(MODELS) == ["siglip2", "owlv2", "bioclip"]
@@ -62,19 +65,21 @@ def test_production_species_loader_places_name_lists_at_load(monkeypatch):
     fail = True
     e = Engine("cpu", loaders)
     with pytest.raises(RuntimeError, match="out of memory"):
-        e.ensure(["identify"])
+        e.ensure(ALL)
     assert e.loaded() == ["siglip2", "owlv2"]            # species not marked loaded: the next request retries
     fail = False
-    e.ensure(["identify"])
+    e.ensure(ALL)
     assert e.loaded() == ["siglip2", "owlv2", "bioclip"] and placed == [(2, 4), (2, 4)]
 
 
 def test_loaded_engine_meets_app_and_identify():
     e = Fakes().engine()
-    e.ensure(["embed"])
-    assert e.loaded() == ["siglip2"]          # only what the products need
-    e.ensure(["identify"])
+    e.ensure({"siglip2"})
+    assert e.loaded() == ["siglip2"]          # only what was asked for
+    e.ensure({"bioclip", "owlv2", "siglip2"})
     assert e.loaded() == ["siglip2", "owlv2", "bioclip"] and e.device == "cpu"
+    with pytest.raises(ValueError, match="unknown models"):
+        e.ensure({"nima"})
     assert all(callable(getattr(e, m)) for m in ("loaded", "ensure", "info", "frame"))     # what app.py calls
     seam = [n for n in pipeline.Models.__annotations__]
     assert sorted(seam) == ["bioclip", "names", "owlv2", "priors", "siglip2"]

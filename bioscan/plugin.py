@@ -23,7 +23,8 @@ class Manifest:
     description: str                            # served by GET /products
     reads: tuple[str, ...] = ()                 # facts it needs: image, detail, time, place, vec, gate, ...
     provides: tuple[str, ...] = ()              # facts it adds for later stages
-    models: Callable[[dict[str, Any]], tuple[str, ...]] = lambda opts: ()   # model names under these options
+    # model names (engine.MODELS) needed under these options; a stage that reads vec/gate lists "siglip2"
+    models: Callable[[dict[str, Any]], tuple[str, ...]] = lambda opts: ()
     thread: Literal["model", "cpu"] = "cpu"     # the single model thread, or the CPU pool
     options: dict[str, Any] | None = None       # {name: JSON-schema-ish with "default"}, served by /products
     output: dict[str, Any] | None = None        # description of the output, served by /products

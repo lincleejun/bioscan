@@ -46,6 +46,16 @@ def check_loaded(engine: Any, want: list[str], opts: dict[str, dict[str, Any]]) 
         stage(name).check_loaded(engine, opts[name])
 
 
+def models(want: list[str], opts: dict[str, dict[str, Any]]) -> set[str]:
+    """The models the wanted stages need under these options (Manifest.models): Engine.ensure's input."""
+    return {model for name in want for model in BY_NAME[name].models(opts[name])}
+
+
+def detail(want: list[str]) -> bool:
+    """Whether a wanted stage reads the detail copy (so the run decodes one)."""
+    return any("detail" in BY_NAME[name].reads for name in want)
+
+
 def paths(want: list[str], opts: dict[str, dict[str, Any]]) -> list[str]:
     """Every path the wanted stages would write or read besides the inputs (for allow-roots)."""
     return [p for name in want for p in (*stage(name).writes(opts[name]), *stage(name).reads_paths(opts[name]))]

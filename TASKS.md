@@ -98,7 +98,7 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
 
 - [x] A0 golden-stream recording test (fake engine, 10 option sets + refusals + /health; /products JSON; fingerprint; eval + bench report on a preds file): tests/contract/test_golden_stream.py, goldens in tests/contract/golden/ recorded at b02f189
 - [x] A1 Product -> Manifest + Stage (bioscan/plugin.py, bioscan/plugins/{identify,embed,jpg}, service/stages.py); contract.PRODUCTS derived from plugins.BUILTIN
-- [ ] A2 models(opts): identify with species=false skips BioCLIP; detail decode keyed on `reads`
+- [x] A2 models(opts): identify with species=false (and no candidates) skips BioCLIP; Engine.ensure takes model names; detail decode keyed on `reads`
 - [ ] A3 Item.facts + topological plan from reads/provides; Loaders.extra
 - [ ] A4 profiles: bioscan/profile.py (stdlib), bioscan.toml, serve_config file layer, --profile / "profile"; full = today
 - [ ] W6 geotag from GPX (in progress, v16/w6-geotag) -> becomes the step-5 `geotag` stage after A4

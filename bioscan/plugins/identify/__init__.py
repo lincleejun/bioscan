@@ -25,7 +25,9 @@ MANIFEST = Manifest(
                 "and mammals, range veto, kind check).",
     reads=("image", "gate", "detail", "place", "time"),
     provides=("boxes",),
-    models=lambda opts: ("siglip2", "owlv2", "bioclip"),
+    # BioCLIP (and the name lists) only when species are named, or when candidates must be checked
+    # against the loaded lists (an unknown name stays a 400 with species off, as before)
+    models=lambda opts: ("siglip2", "owlv2", *(("bioclip",) if opts["species"] or opts["candidates"] else ())),
     thread="model",
     options={"top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
              "geo": {"type": "boolean", "default": True},

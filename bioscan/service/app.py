@@ -90,7 +90,7 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
                                           + (f" (+{len(denied) - 5} more)" if len(denied) > 5 else "")},
                                 status_code=400)
         try:
-            await asyncio.get_running_loop().run_in_executor(None, engine.ensure, want)
+            await asyncio.get_running_loop().run_in_executor(None, engine.ensure, stages.models(want, opts))
         except Exception as exc:  # noqa: BLE001
             log.exception("model load failed")
             return JSONResponse({"error": f"model load failed: {type(exc).__name__}: {exc}"}, status_code=503)

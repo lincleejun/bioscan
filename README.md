@@ -150,6 +150,7 @@ bioscan run DIR --want jpg --jpg-out /tmp/jpg          # upright JPG, long edge 
 bioscan run DIR --lat 37.4 --lon -122.1                # batch default coordinate for images without EXIF GPS (the location prior matters)
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
+The service loads only the models a run's stages need under its options: `--want embed` loads SigLIP2 alone, and `--no-species` (identify option `species: false`, with no `candidates`) loads SigLIP2 and OWLv2 but never BioCLIP or the name lists, so a service that has only served such runs reports no name lists in `result.engine.models.names`.
 
 Terminal output is one line per image, then a summary (the grade is printed as 种 / 属 / 科 = species / genus / family):
 ```

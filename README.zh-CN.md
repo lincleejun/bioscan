@@ -134,6 +134,7 @@ bioscan run DIR --want jpg --jpg-out /tmp/jpg          # 旋正、长边 2048 �
 bioscan run DIR --lat 37.4 --lon -122.1                # EXIF 无坐标时整批默认坐标（地理先验很重要）
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
+服务只加载本次运行的 stage 在其选项下需要的模型：`--want embed` 只加载 SigLIP2；`--no-species`（identify 选项 `species: false`，且没有 `candidates`）加载 SigLIP2 和 OWLv2，从不加载 BioCLIP 与名表，所以只处理过这类运行的服务在 `result.engine.models.names` 里没有名表。
 
 终端输出一张一行，末尾汇总：
 ```

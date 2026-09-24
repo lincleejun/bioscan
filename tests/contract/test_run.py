@@ -225,7 +225,7 @@ def test_requests_are_serialised_and_queued(tmp_path):
 def test_disconnect_stops_after_current_chunk(tmp_path):
     fakes = Fakes()
     engine = fakes.engine()
-    engine.ensure(["identify"])          # what POST /run does before RunQueue.events
+    engine.ensure(stages.models(["identify"], stages.resolve_options(None)))   # what POST /run does first
     paths = [make_jpg(tmp_path / f"{i}.jpg") for i in range(6)]
     checks = []
 
@@ -365,3 +365,28 @@ def test_decode_pool_rebuild_only_replaces_the_broken_executor():
     fut.result(timeout=5)                                    # not cancelled
     assert not run_mod.DecodePool(executor=broken).rebuild(broken)   # a caller's executor is never rebuilt
     made[1].shutdown()
+
+
+@pytest.mark.parametrize("options, loaded", [
+    ({"species": False}, ["siglip2", "owlv2"]),
+    ({"species": False, "candidates": ["Strigidae"]}, ["siglip2", "owlv2", "bioclip"]),   # checked against the lists
+    ({}, ["siglip2", "owlv2", "bioclip"]),
+])
+def test_species_off_does_not_load_bioclip(tmp_path, options, loaded):
+    """identify's models depend on its options: with species off (and no candidates to check)
+    BioCLIP and the name lists never load; a cold engine then reports no name lists."""
+    fakes = Fakes()
+    engine = fakes.engine()
+    p = make_jpg(tmp_path / "a.jpg")
+    with client_for(engine) as c:
+        ev = events(c.post("/run", json={"inputs": [{"path": p}], "options": {"identify": options}}))
+        assert c.get("/health").json()["models_loaded"] == loaded
+    assert engine.loaded() == loaded and ev[-1]["ok"] == 1
+    if "bioclip" not in loaded:
+        assert fakes.crops == [] and "species" not in ev[1]["products"]["identify"]["boxes"][0]
+        assert ev[1]["engine"]["models"]["names"] == {}
+
+
+def test_embed_alone_loads_only_siglip2(client, engine, tmp_path):
+    events(client.post("/run", json={"inputs": [{"path": make_jpg(tmp_path / "a.jpg")}], "want": ["embed"]}))
+    assert engine.loaded() == ["siglip2"]

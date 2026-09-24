@@ -1,6 +1,6 @@
 """Model registry: device choice, lazy loading, the whole-frame pass. One instance per process.
 
-app.py asks it for `ensure`, `loaded` and `device`, the run module (run.py) for `frame` and `info`;
+app.py asks it for `ensure` (the model names the run's stages need), `loaded` and `device`, the run module (run.py) for `frame` and `info`;
 identify (pipeline.py) reads its three model adapters and the data they need (`siglip2`, `owlv2`, `bioclip`, `names`, `priors`). The
 adapters are built by `Loaders`: the real models in production, fixed-answer fakes in the contract
 tests, so those tests run this class and the whole identify pipeline for real.
@@ -10,22 +10,17 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 import bioscan
-from bioscan.plugins import BY_NAME
 
 log = logging.getLogger("bioscan.engine")
 
 SIGLIP_BATCH = 32
-
-# What each product needs loaded under its default options, from the plugin manifests.
-NEEDS = {name: m.models(m.defaults) for name, m in BY_NAME.items()}
-
 
 def pick_device() -> str:
     import torch
@@ -120,11 +115,16 @@ class Engine:
     def loaded(self) -> list[str]:
         return [n for n in MODELS if getattr(self, n) is not None]
 
-    def ensure(self, want: list[str]) -> None:
-        """Load whatever `want` needs that is not loaded yet. Raises on failure (-> 503)."""
+    def ensure(self, models: Iterable[str]) -> None:
+        """Load the named models (MODELS keys: what a run's stages need, stages.models) that are not
+        loaded yet, in MODELS order. Raises on failure or an unknown name (-> 503)."""
+        wanted = set(models)
+        unknown = wanted - set(MODELS)
+        if unknown:
+            raise ValueError(f"unknown models: {sorted(unknown)}")
         with self._lock:
             for name in MODELS:                       # registry order: gate, detector, species
-                if name in {m for p in want for m in NEEDS[p]} and getattr(self, name) is None:
+                if name in wanted and getattr(self, name) is None:
                     MODELS[name](self)
 
     def _load_siglip2(self) -> None:

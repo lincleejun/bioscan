@@ -87,13 +87,13 @@ class RunQueue:
         contract.PRODUCTS order and resolved options. Per chunk: decode errors, then one progress
         per product, then each image's result or product errors. A client that went away is
         noticed between chunks, so the current chunk always finishes and `done` is not sent. The
-        larger species image is decoded only when identify is wanted."""
+        larger species image is decoded only when a wanted stage reads "detail"."""
         t0 = time.perf_counter()
         total, ok, failed = len(inputs), 0, 0
         done = dict.fromkeys(want, 0)
         info = {**self.engine.info(), "detail_edge": self.detail_edge}
         chunks = [inputs[i:i + self.chunk] for i in range(0, total, self.chunk)]
-        edge = self.detail_edge if "identify" in want else None
+        edge = self.detail_edge if stages.detail(want) else None
 
         ex, pending = self._submit(chunks[0], edge)
         try:
