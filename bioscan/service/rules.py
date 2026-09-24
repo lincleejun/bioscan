@@ -31,8 +31,8 @@ RANGE_TAU = 0.05
 # Kind check: the box's species evidence (BioCLIP over every kind-check list) outvotes the gate and
 # crop check. Each kind's evidence is the probability of its KIND_TOP best rows, the same number for
 # every list: that removes most of the size effect between the curated lists (AviList 11k, MDD 7k),
-# but not between them and the ~470k-row all-taxa list, whose best rows sit higher by chance alone
-# (expected top-5 of N random scores: ~3.5 sd at 7-11k, ~4.5 sd at 470k). Hence the all-taxa list
+# but not between them and the ~366k-row all-taxa list, whose best rows sit higher by chance alone
+# (expected top-5 of N random scores: ~3.5 sd at 7-11k, ~4.4 sd at 366k). Hence the all-taxa list
 # only competes for other_animal boxes (taxa.ONE_WAY). With less than KIND_SURE of the evidence on
 # the winning kind, a box whose kind moved is graded unconfirmed (any name above that would assert
 # a kind the evidence cannot).
@@ -151,7 +151,7 @@ def kind_evidence_logits(logits: dict[str, np.ndarray]) -> dict[str, float]:
 
 
 def _top(z: np.ndarray) -> np.ndarray:
-    """The KIND_TOP highest values, ascending (a partition first: the all-taxa list has ~470k rows)."""
+    """The KIND_TOP highest values, ascending (a partition first: the all-taxa list has ~366k rows)."""
     return np.sort(np.partition(z, -KIND_TOP)[-KIND_TOP:] if len(z) > KIND_TOP else z)
 
 

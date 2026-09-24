@@ -43,6 +43,62 @@ def test_rows_are_species_level_animals_outside_the_curated_classes():
     assert names_mod.all_taxa_rows(TOL) == KEPT
 
 
+# Rows shaped the way a backbone without Reptilia (or with gaps) may give them: the smoke set's six
+# reptiles and its fish were missing from the first real build (CI, 365,973 species).
+ODD = [
+    [["Animalia", "Chordata", "", "Squamata", "Viperidae", "Crotalus", "oreganus"], "Western rattlesnake"],   # 0
+    [["Animalia", "Chordata", None, "Testudines", "Emydidae", "Trachemys", "scripta"], "Pond slider"],       # 1
+    [["Animalia", "Chordata", "Squamata", "", "Colubridae", "Thamnophis", "sirtalis"], ""],                  # 2 order as class
+    [["", "Chordata", "", "Perciformes", "Pomacentridae", "Hypsypops", "rubicundus"], "Garibaldi"],          # 3 no kingdom
+    [["Metazoa", "Chordata", "", "Squamata", "Anguidae", "Elgaria", "multicarinata"], ""],                  # 4 Metazoa
+    [["animalia ", "Chordata", "", "Squamata", "Phrynosomatidae", "Sceloporus", "Sceloporus occidentalis"], ""],  # 5
+    [["Animalia", "Chordata", "", "Passeriformes", "Corvidae", "Corvus", "corax"], "Common raven"],          # 6 bird, no class
+    [["Animalia", "Chordata", "Aves", "Passeriformes", "Corvidae", "Pica", "pica"], ""],                    # 7 curated class
+    [["Animalia", "Chordata", "MAMMALIA", "Carnivora", "Felidae", "Lynx", "rufus"], ""],                    # 8 curated, any case
+    [["", "Tracheophyta", "", "Rosales", "Rosaceae", "Rosa", "canina"], ""],                                # 9 no kingdom, plant
+    [["Fungi", "Basidiomycota", "", "Agaricales", "Amanitaceae", "Amanita", "muscaria"], ""],               # 10 fungus
+    [["Animalia", "Chordata", "", "Squamata", "Viperidae", "Crotalus", ""], ""],                            # 11 genus row
+    [["Animalia", "Chordata", "", "Squamata", "Colubridae", "", "catenifer"], ""],                          # 12 no genus
+    [["Animalia", "Chordata", "", "Squamata", "Colubridae", "Pituophis", "catenifer sayi"], ""],            # 13 subspecies
+    [["Animalia", "Chordata", "Reptilia", "Squamata"], ""],                                                 # 14 short
+]
+
+
+def test_filter_keeps_classless_reptiles_and_fish_and_drops_the_rest():
+    reasons: dict[str, int] = {}
+    got = names_mod.all_taxa_select(ODD, reasons=reasons)
+    assert list(got) == [0, 1, 2, 3, 4, 5]
+    assert got[0] == ["Animalia", "Chordata", "", "Squamata", "Viperidae", "Crotalus", "Crotalus oreganus"]
+    assert got[3][0] == "Animalia" and got[3][6] == "Hypsypops rubicundus"        # empty kingdom, animal phylum
+    assert got[4][0] == "Metazoa" and got[5][6] == "Sceloporus occidentalis"      # genus repeated in the epithet
+    assert reasons == {"no class, curated order": 1, "curated class (Aves/Mammalia)": 2,
+                       "no kingdom, phylum not animal": 1, "not an animal": 1, "no epithet (higher rank)": 1,
+                       "no genus": 1, "infraspecific or unparsed epithet": 1, "not 7 ranks": 1}
+    assert sum(reasons.values()) + len(got) == len(ODD)
+    # the candidates index finds them by order and by the kingdom stored for an empty one
+    nl = names_mod.NameList("x", "other_animal", [t[6] for t in got.values()], [""] * 6, list(got.values()),
+                            np.zeros((6, 2), np.float32), ["exact"] * 6)
+    assert candidates.allowed({"other_animal": nl}, ["Squamata"])["other_animal"].tolist() == [0, 2, 4, 5]
+    assert candidates.allowed({"other_animal": nl}, ["Animalia"])["other_animal"].tolist() == [0, 1, 2, 3, 5]
+
+
+def test_census_explains_the_build():
+    c = names_mod.all_taxa_census(ODD, species=["Crotalus oreganus", "Pituophis catenifer", "Corvus corax", "Nope nope"])
+    assert c["rows"] == len(ODD) and c["kept"] == 6 and c["dropped"]["no genus"] == 1
+    assert dict(c["by_kingdom_class"])[("Animalia", "(empty)")] == 6
+    assert c["species"]["Crotalus oreganus"]["rows"][0]["kept"][6] == "Crotalus oreganus"
+    assert c["species"]["Crotalus oreganus"]["genus_rows"] == 2
+    assert [r["kept"] for r in c["species"]["Pituophis catenifer"]["rows"]] == [None]    # the subspecies row only
+    assert c["species"]["Corvus corax"]["rows"][0]["kept"] is None
+    assert c["species"]["Nope nope"] == {"rows": [], "genus_rows": 0, "genus_example": None}
+
+
+def test_filter_change_moves_the_list_sha(monkeypatch):
+    sha = names_mod.all_taxa_sha()
+    monkeypatch.setattr(names_mod, "ALL_TAXA_VERSION", "1")                         # the filter before the fix
+    assert names_mod.all_taxa_sha() != sha
+
+
 @pytest.mark.parametrize("dim_major", [True, False])
 def test_load_all_taxa_builds_float16_and_caches(tmp_path, dim_major, monkeypatch):
     monkeypatch.setattr(names_mod, "_GATHER_BLOCK", 3)        # cross block boundaries on 1024 dims

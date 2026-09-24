@@ -299,28 +299,114 @@ def label_map_sha(path: Path | None) -> str:
 def _has_tol(amap: dict[str, dict[str, str]]) -> bool:
     """True when the map fixes each row's TreeOfLife name (avilist_map.csv); labels-only maps do not."""
     return bool(amap) and "tol_name" in next(iter(amap.values()))
-ALL_TAXA_VERSION = "1"            # bump when the row filter, dedupe or file layout below changes
+ALL_TAXA_VERSION = "2"            # bump when the row filter, dedupe or file layout below changes
 _GATHER_BLOCK = 64               # dimensions (dim-major file) or 64k rows (row-major) read at a time
+# Kingdom names that mean animals, and the phyla that make a row with an empty kingdom an animal row.
+ANIMAL_KINGDOMS = ("animalia", "metazoa")
+ANIMAL_PHYLA = ("chordata", "arthropoda", "mollusca", "annelida", "cnidaria", "echinodermata", "platyhelminthes",
+                "nematoda", "porifera", "bryozoa", "rotifera", "tardigrada", "nemertea", "brachiopoda", "ctenophora",
+                "onychophora", "chaetognatha", "sipuncula", "acanthocephala", "nematomorpha", "priapulida",
+                "hemichordata", "entoprocta", "phoronida", "gastrotricha", "kinorhyncha", "xenacoelomorpha")
+# Why a TreeOfLife row is left out (all_taxa_select's `reasons`), in the order the rules are tried.
+DROP_REASONS = ("not 7 ranks", "not an animal", "no kingdom, phylum not animal", "curated class (Aves/Mammalia)",
+                "no class, curated order", "no genus", "no epithet (higher rank)", "infraspecific or unparsed epithet",
+                "duplicate binomial")
+
+
+def _rank(x) -> str:
+    return x.strip() if isinstance(x, str) else ""
+
+
+def all_taxa_select(tol_names, src: AllTaxaSource = ALL_TAXA, reasons: dict[str, int] | None = None
+                    ) -> dict[int, list[str]]:
+    """{TreeOfLife row index: its 7-rank taxonomy as the list stores it}, in file order. The rule:
+
+    - 7 ranks (kingdom .. species epithet); a null rank reads as empty. Intermediate ranks (phylum,
+      class, order, family) may be empty: some backbones leave reptiles and fish without a class.
+    - An animal: kingdom Animalia or Metazoa (any case); an empty kingdom counts when the phylum is
+      an animal phylum (ANIMAL_PHYLA), and is stored as Animalia so candidates can name it.
+    - Not a curated class (`src.exclude`: Aves, Mammalia, any case). A row with an empty class is
+      also left out when its order is one TreeOfLife files under those classes (a bird or mammal
+      that lost its class must not re-enter by the back door).
+    - Species level: a genus and a one-word epithet. An epithet that repeats the genus ("Crotalus
+      oreganus" in the epithet column) is read as its second word; any other multi-word epithet is
+      infraspecific or unparsed and left out, as are rows without genus or epithet (higher ranks).
+    - A binomial listed more than once keeps one row, the first with a common name, else the first:
+      duplicates would split one species' probability between rows.
+
+    `reasons`, when given, counts every left-out row under its DROP_REASONS entry."""
+    drop = reasons if reasons is not None else {}
+    kingdoms = {k.lower() for k in src.kingdoms}
+    animals = "animalia" in kingdoms
+    kingdoms |= set(ANIMAL_KINGDOMS) if animals else set()
+    exclude = {c.lower() for c in src.exclude}
+    ranks_of = [[_rank(x) for x in tax] if isinstance(tax, (list, tuple)) else [] for tax, _c in tol_names]
+    curated_orders = {r[3].lower() for r in ranks_of if len(r) == 7 and r[2].lower() in exclude and r[3]}
+    keep: dict[str, tuple[int, list[str]]] = {}
+    for i, r in enumerate(ranks_of):
+        if len(r) != 7:
+            why = "not 7 ranks"
+        elif r[0] and r[0].lower() not in kingdoms:
+            why = "not an animal"
+        elif not r[0] and not (animals and r[1].lower() in ANIMAL_PHYLA):
+            why = "no kingdom, phylum not animal"
+        elif r[2].lower() in exclude:
+            why = "curated class (Aves/Mammalia)"
+        elif not r[2] and r[3].lower() in curated_orders:
+            why = "no class, curated order"
+        else:
+            genus, words = r[5], r[6].split()
+            if len(words) == 2 and words[0].lower() == genus.lower():
+                words = words[1:]
+            why = ("no genus" if not genus else "no epithet (higher rank)" if not words
+                   else "infraspecific or unparsed epithet" if len(words) > 1 or " " in genus else "")
+        if why:
+            drop[why] = drop.get(why, 0) + 1
+            continue
+        tax = [r[0] or src.kingdoms[0], *r[1:5], genus, f"{genus} {words[0]}"]
+        key = norm_binomial(tax[6])
+        j = keep.get(key)
+        if j is None or (_rank(tol_names[i][1]) and not _rank(tol_names[j[0]][1])):
+            keep[key] = (i, tax)
+        if j is not None:
+            drop["duplicate binomial"] = drop.get("duplicate binomial", 0) + 1
+    return dict(sorted(keep.values()))
 
 
 def all_taxa_rows(tol_names, src: AllTaxaSource = ALL_TAXA) -> list[int]:
-    """Indexes into TreeOfLife's names of the rows the all-taxa list keeps, in file order: 7 ranks,
-    kingdom in `src.kingdoms`, class not in `src.exclude`, a genus and a one-word epithet (species
-    level; higher-rank and infraspecific rows are left out). A binomial listed more than once keeps
-    one row, the first with a common name, else the first: duplicates would split one species'
-    probability between rows."""
-    keep: dict[str, int] = {}
-    for i, (tax, common) in enumerate(tol_names):
-        if len(tax) != 7 or tax[0] not in src.kingdoms or tax[2] in src.exclude:
+    """Indexes into TreeOfLife's names of the rows the all-taxa list keeps (all_taxa_select)."""
+    return list(all_taxa_select(tol_names, src))
+
+
+def all_taxa_census(tol_names, src: AllTaxaSource = ALL_TAXA, species: list[str] = ()) -> dict:
+    """What the all-taxa build sees, for CI logs: rows per (kingdom, class or "(empty)"), rows left
+    out per reason, the list size, and for each of `species` every TreeOfLife row whose genus and
+    epithet (or epithet column alone) spell it or a subspecies of it, raw, with the taxonomy the list keeps for it (None
+    = left out), plus how many rows carry its genus and one of them raw."""
+    census: dict[tuple[str, str], int] = {}
+    rows = [[_rank(x) for x in tax] if isinstance(tax, (list, tuple)) else [] for tax, _c in tol_names]
+    for r in rows:
+        key = (r[0] if r else "", (r[2] if len(r) > 2 else "") or "(empty)")
+        census[key] = census.get(key, 0) + 1
+    reasons: dict[str, int] = {}
+    kept = all_taxa_select(tol_names, src, reasons)
+    wanted = {norm_binomial(s): s for s in species}
+    genera = {k.split(" ")[0]: s for k, s in wanted.items()}
+    found: dict[str, dict] = {s: {"rows": [], "genus_rows": 0, "genus_example": None} for s in species}
+    for i, r in enumerate(rows):
+        if len(r) < 2:
             continue
-        genus, epithet = (tax[5] or "").strip(), (tax[6] or "").strip()
-        if not genus or not epithet or " " in epithet:
-            continue
-        key = norm_binomial(f"{genus} {epithet}")
-        j = keep.get(key)
-        if j is None or (common and not tol_names[j][1]):
-            keep[key] = i
-    return sorted(keep.values())
+        name = norm_binomial(f"{r[-2]} {r[-1]}")
+        hit = (wanted.get(name) or wanted.get(norm_binomial(r[-1]))
+               or wanted.get(" ".join(name.split(" ")[:2])))                        # a subspecies row counts too
+        if hit is not None:
+            found[hit]["rows"].append({"row": i, "raw": list(tol_names[i]), "kept": kept.get(i)})
+        g = genera.get(norm_binomial(r[-2]))
+        if g is not None:
+            found[g]["genus_rows"] += 1
+            found[g]["genus_example"] = found[g]["genus_example"] or list(tol_names[i])
+    return {"rows": len(tol_names), "by_kingdom_class": sorted(census.items(), key=lambda kv: -kv[1]),
+            "dropped": {k: reasons.get(k, 0) for k in DROP_REASONS}, "kept": len(kept), "species": found}
 
 
 def _gather16(vecs: np.ndarray, idx: np.ndarray) -> np.ndarray:
@@ -360,13 +446,14 @@ def load_all_taxa(cache_dir: Path = CACHE_DIR, *, tol_files: tuple[Path, Path] |
     path, sha = all_taxa_path(cache_dir, src), all_taxa_sha(src)
     if not (path.is_file() and not _stale(path)):
         names, vecs = tol if tol is not None else _read_tol(tol_files)
-        keep = all_taxa_rows(names, src)
-        if not keep:
+        reasons: dict[str, int] = {}
+        selected = all_taxa_select(names, src, reasons)
+        if not selected:
             return None
-        log.info("%s: taking %d TreeOfLife rows (of %d)", src.list_id, len(keep), len(names))
-        ranks = [[(t or "").strip() for t in names[i][0]] for i in keep]      # a rank may be null
-        taxonomy = [[*r[:6], f"{r[5]} {r[6]}"] for r in ranks]
-        blob = json.dumps({"scientific": [t[6] for t in taxonomy], "common": [(names[i][1] or "").strip() for i in keep],
+        keep, taxonomy = list(selected), list(selected.values())
+        log.info("%s: taking %d TreeOfLife rows (of %d); left out: %s", src.list_id, len(keep), len(names),
+                 {k: v for k, v in reasons.items() if v})
+        blob = json.dumps({"scientific": [t[6] for t in taxonomy], "common": [_rank(names[i][1]) for i in keep],
                            "taxonomy": taxonomy}, ensure_ascii=False).encode()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")

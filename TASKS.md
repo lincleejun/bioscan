@@ -265,6 +265,12 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
   - [x] integration review: top-5 kind evidence is biased by list size (expected top-5 of N random scores
         ~3.5 sd at 7-11k rows, ~4.5 sd at 470k); the all-taxa list now competes only for other_animal boxes
         (taxa.ONE_WAY), in the candidates path too
+  - [x] final review (CI run 35951065079): real list 365,973 species, no smoke reptile and not the fish in
+        it -> 22% confident errors. Filter made robust (empty intermediate ranks, empty or Metazoa kingdom,
+        genus repeated in the epithet, curated orders without a class), ALL_TAXA_VERSION 2 (new sha),
+        census printed by tests/models/download.py
+  - [ ] next CI run: read the census (cause confirmed?), the new list size, other-animal floors and
+        confident errors; update README / data/README / standards with the measured size
   - [ ] next step: a size-corrected kind statistic (subtract sigma_k * E[top-5 of N_k normals] per list; see the
         integration reviewer's fix.py) evaluated on real photos (on/off table, then eval) before it replaces
         the one-way rule
