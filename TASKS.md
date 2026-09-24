@@ -396,3 +396,12 @@ Scratch: `$SCRATCH/v15-w3/` (golden recordings, label rebuild, map build inputs,
       coverage for Cervus, genus back-off constant
 - [ ] kind check against the all-taxa list: size-corrected top-5 statistic (reviewer fix.py), evaluate on real photos
 - [ ] owner's Mac: golden + own RAW baselines (`bioscan bench run ... --tier golden|own`), speed tier, RAW EXIF check
+
+## 7. Mac 本地跑 v1.4 / v1.5 数据（2026-09-24，owner 的操作清单）
+- [x] git pull（875dc7a）+ uv sync
+- [x] tests/models/download.py：all-taxa 366,460 种，float16 716 MiB，缓存 763 MiB
+- [x] decode 元数据检查：ARW 29 / DNG 2 / RAF 263 / JPG 274 全部读到拍摄时间，均无 GPS；本机无 CR3/ORF/RW2/NEF
+- [x] v1.4 基线：worktree .worktrees/v14 @ 91b6bd6（PR #5 内 W1 合并、W3/W4 规则前，带 bench）→ bench run golden/own
+- [x] v1.5：main → bench run golden/own
+- [x] bench compare / analyze / scorecard
+- [ ] 报告：Blocked on me / Changed / Found / Left
