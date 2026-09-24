@@ -28,11 +28,14 @@ RESCUE = 0.25           # gate says none/person but bird+mammal+other_animal >= 
 # listed first instead. EPS: the geo model says "not here"; TAU: the geo-gaps "genus present" bar.
 RANGE_EPS = 0.01
 RANGE_TAU = 0.05
-# Kind check: the box's species evidence (BioCLIP over every kind-check list at once) outvotes the
-# gate and crop check. Each kind's evidence is the probability of its KIND_TOP best rows, the same
-# number for every list, so a list's size cannot buy it the vote. With less than KIND_SURE of that
-# evidence on the winning kind, a box whose kind moved is graded unconfirmed (any name above that
-# would assert a kind the evidence cannot).
+# Kind check: the box's species evidence (BioCLIP over every kind-check list) outvotes the gate and
+# crop check. Each kind's evidence is the probability of its KIND_TOP best rows, the same number for
+# every list: that removes most of the size effect between the curated lists (AviList 11k, MDD 7k),
+# but not between them and the ~470k-row all-taxa list, whose best rows sit higher by chance alone
+# (expected top-5 of N random scores: ~3.5 sd at 7-11k, ~4.5 sd at 470k). Hence the all-taxa list
+# only competes for other_animal boxes (taxa.ONE_WAY). With less than KIND_SURE of the evidence on
+# the winning kind, a box whose kind moved is graded unconfirmed (any name above that would assert
+# a kind the evidence cannot).
 KIND_TOP = 5
 KIND_SURE = 0.75
 

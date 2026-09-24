@@ -261,6 +261,12 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
   - [ ] first models.yml run: record real row count, memory, top-1; tighten other_animal floors; check that
         the all-taxa kind check does not cost birds or mammals (on/off table)
   - [ ] plants/fungi: only with a gate class (owner decision), as a second AllTaxaSource
+  - [x] integration review: top-5 kind evidence is biased by list size (expected top-5 of N random scores
+        ~3.5 sd at 7-11k rows, ~4.5 sd at 470k); the all-taxa list now competes only for other_animal boxes
+        (taxa.ONE_WAY), in the candidates path too
+  - [ ] next step: a size-corrected kind statistic (subtract sigma_k * E[top-5 of N_k normals] per list; see the
+        integration reviewer's fix.py) evaluated on real photos (on/off table, then eval) before it replaces
+        the one-way rule
 - [x] W5 RAW robustness: EXIF/GPS/time for CR3/RAF/ORF/RW2/PEF; SubSecTimeOriginal; one shared scan-extension list
       (+ broken GPS -> None instead of NaN/out of range; per-CMT CR3 reads; details in TASKS-w5 below)
 - [ ] integration: behaviour-preserving parts first -> CI -> commit baseline from that run; then W3/W4 ->
