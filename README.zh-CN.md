@@ -206,7 +206,7 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 |---|---|---|---|---|
 | `full` | identify（`want` 要时加 embed、jpg） | 默认 | SigLIP2、OWLv2、BioCLIP | 不加：不带 profile 的请求就是它，任何文件都改不了 |
 | `wildlife` | geotag、identify | 物种、位置先验与各项准确率修正全开（`top_k` 5，`geo` true）；`geotag.gpx`（或 `run --gpx`）给出轨迹前 geotag 什么都不做 | SigLIP2、OWLv2、BioCLIP | 暂无 |
-| `album` | identify、embed | identify `species: false` | SigLIP2、OWLv2（从不加载 BioCLIP） | `quality`、`scene`、`aesthetics` stage；`burst`、`select` reducer（在 CLI 端跑） |
+| `album` | identify、embed、aesthetics、quality、scene；reducer burst、select（由 `bioscan cull` 在 CLI 端跑，服务从不跑） | identify `species: false`；aesthetics `head: builtin`；scene 标签；burst、select 的阈值 | SigLIP2、OWLv2（从不加载 BioCLIP） | 暂无计划 |
 
 ```sh
 bioscan run DIR --profile album                  # 用 profile 的 stage 与选项；命令行参数仍优先
@@ -243,7 +243,8 @@ candidates = ["Strigidae", "Accipitridae"]
 - **服务端**用它自己的文件（启动时读一次）展开请求里的 `"profile"`。不带 `"profile"` 的请求永远是 `full`：`default_profile` 和 `$BIOSCAN_PROFILE` 只作用于 CLI，HTTP 客户端看不到变化。
 - **错误**：未知的键、profile、stage 或选项都会报错并指出是哪个文件（请求里则是 400）。用户文件里写 `[profile.full]` 会被拒绝。选项的取值由服务检查。`bioscan serve --launchd` 把命令行参数、否则文件里 `[serve]` 的值写进 plist，并通过 `BIOSCAN_CONFIG` 让服务读当前目录的 `bioscan.toml`。
 - **信任**：运行目录下的 `./bioscan.toml` 会被自动读取，只在你信任其文件的目录里运行 bioscan：它可以设 `serve.host = "0.0.0.0"`、`allow_roots`，或让 jpg 写到某个 `out_dir`；`bioscan config show` 会列出读到的每个文件及其设置的每个值。
-- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag` 的顺序列出。
+- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag, aesthetics, quality, scene` 的顺序列出。v1.7 起新建的 stage 在运行包含它们时，把所用的东西写进 `result.engine.plugins`：输出依赖某个头文件的 stage 写该文件（aesthetics：`v1@<head id>`，`head: off` 时不写），否则写 `v<版本>@<设置指纹>`（quality、scene）。
+- **Reducer**：`reducers = ["burst", "select"]` 指的是在一次运行的全部结果上跑的无模型单元，只在 CLI（`bioscan cull`、`bench`）或离线跑，从不在服务里跑，服务保持无状态。它们的选项和 stage 的写在一起（`[profile.album.options.select] per_category = 20`）；/run 请求不能设置它们。
 
 ### 用 GPX 轨迹补 GPS
 
@@ -285,6 +286,47 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 
   各场景明细见 docs/2026-09-24-geotag-synthetic.md。
 
+### 美学评分（album）
+
+`aesthetics` stage 用一个小的线性**头**（head）给每帧打美学分，输入是整帧 pass 已经算好的 SigLIP2 向量：不加新模型，权重只有几 kB，每个 chunk 在 CPU 线程池上做一次矩阵乘。它在 `album` profile 里（`full`、`wildlife` 都不含），而且**只用来排序，从不剔除或删除任何一帧**；`select` reducer（见下文“相册挑片”）会读 `products.aesthetics.score`，在连拍组或类别内排序。
+
+- **输出** `products.aesthetics`：`score`（0-1，即下面的混合分，不截断）、`general`、`personal`（没有个人头时为 null）、`head_id`（`name:sha12`，混合时为 `+name:sha12~blend`）。缺少通用头文件时 score 为 null，并有一条 `note` 说明原因；运行不会因此失败。
+- **通用头**：`data/aesthetic/eva-head-v1.json`，在 **EVA** 上拟合的岭回归头（4070 张照片，每张 30 票以上，平均分 0-10）。**尚未提交**：由 `aesthetic` workflow 或在 Mac 上训练（命令见 `data/aesthetic/README.md`）；在那之前 album 运行报告 `score: null`。
+- **个人头**：用你自己的评分拟合，向通用头收缩，再按 `blend`（个人头权重，默认 0.5）与通用头混合：
+
+  ```sh
+  bioscan aesthetic ratings ~/Pictures/Album                     # 按行程列出 XMP（旁车或内嵌）里的星级/色标
+  bioscan aesthetic train --ratings ~/Pictures/Album --embeddings ~/.cache/bioscan/album-vec.ndjson
+  #   -> ~/.config/bioscan/aesthetic-personal.json（岭回归，alpha 由按行程分折的 5 折交叉验证选出）
+  bioscan run ~/Pictures/Album --profile album                   # 只用通用头，除非 profile 指定你的头：
+  ```
+
+  ```toml
+  [profile.album.options.aesthetics]
+  head = "/Users/me/.config/bioscan/aesthetic-personal.json"   # builtin | 绝对路径 | off
+  blend = 0.5
+  ```
+
+  评分取 Lightroom 1-5 星（`xmp:Rating`；按 XMP 规范，0 或缺失 = 未评分，跳过；拒绝标记 -1 保留为拒绝，等级低于 1 星），有色标和 `xmpDM:pick` 时一并读取；旁车文件优先于内嵌 XMP。Lightroom Classic 的旗标（pick）存在目录库里、不写进 XMP，需要的话用 CSV（`path,rating,pick,trip`）提供。CLI 从不加载模型：向量来自正在运行的服务的 `embed` 产物（`--embeddings FILE` 可缓存）。头文件路径要在服务的 allow-roots 之内。
+- **与你的一致程度**：`bioscan aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/bioscan/aesthetic-personal.json` 写出 report.json 和 report.md：与星级的 Spearman、Kendall；按行程对照你的 pick 的 NDCG@10 和 precision@k（k = 该行程里你的 pick 数，并列出随机顺序的期望值）；以及 50/100/200/500/1000 条评分下个人头、通用头、混合的**学习曲线**，始终按行程（文件夹）划分，连拍不会同时出现在训练和测试两侧。`bioscan bench scorecard runs/aes/report.json` 按 `aesthetic-own` 标准判定（docs/standards.md 第 13 节）。**美学相关数字都还没有实测，以上一律未验证。**
+- **许可**：EVA 的标注是 **CC0 1.0**（见其仓库的 LICENSE）。图片是来自 dpchallenge.com 的 AVA 照片，版权属于原摄影师：bioscan 只用它们计算向量，从不再分发。头权重在本地或本仓库 CI 中训练，头文件记录数据、许可、样本数、日期、种子和交叉验证结果。**从不使用 AVA 评分，也不分发任何 AVA 训练的权重。**个人头用你自己对自己照片的评分拟合，只留在你的机器上。
+
+### 相册挑片（cull）
+
+`bioscan cull` 把一个文件夹整理成可审阅的结果：带原因的规则淘汰、连拍组及其最佳一张、每个场景类别里最好的照片。它先让服务跑 `album` profile，再在本地跑 `burst` 和 `select` 两个 reducer。它从不删除、移动或评分任何照片：淘汰只是列出来。
+
+```sh
+bioscan cull ~/Pictures/2026-05-trip -r --html review.html --csv selection.csv --link-dir picks --per-category 20
+bioscan cull --preds cull.ndjson --html review.html      # 用保存的 --json 结果离线重跑（例如换阈值）
+```
+
+- **淘汰**（`quality`，只按规则，每张给出原因）：`soft_subject`（主体框发虚而画面别处清晰：对焦跑到了背景上）、`motion_or_defocus`（画面里没有清晰的地方：手抖、运动模糊或整体失焦，也包括柔和虚化背景前发虚的主体）、`overexposed`（主体 8% 像素过曝，或主体偏亮且 4% 过曝）、`underexposed`（整幅偏暗且主体也暗；只是黑色的鸟不算）、`subject_cut`（框碰到画面边缘且不是满画幅特写）、`subject_too_small`（不到画面的 0.5%）、`no_subject`（门类判断有动物，检测却没框出）。这里的清晰度是主体框中心区域的“再模糊”测度；所有阈值都是 `bioscan/plugins/quality/stage.py` 里的常量，并进入该 stage 的指纹。主体是 identify 的最佳框，没有动物的照片（风景、人像）按整幅画面判断。`select` 在 `night` 类别里豁免 `underexposed`。
+- **场景**（`scene`）：在服务已算好的整幅 SigLIP2 向量上做零样本分类：landscape、people、wildlife（门类判断里 bird + mammal 的份额）、macro、architecture、food、night、other。标签和提示词可用 `[profile.album.options.scene.labels]` 修改。风景照还会给出地平线倾斜角（只报告，不淘汰）。
+- **连拍**（`burst`）：同一台相机（EXIF 的 Make 与 Model）、按亚秒拍摄时间相隔不超过 1.5 s、整幅向量余弦不低于 0.92 的帧连成一组。
+- **挑选**（`select`）：每组连拍的最佳一张依次看：未被淘汰、主体清晰度（与最清晰一张相差 0.03 以内算一样）、没被切、曝光在 ±0.2 以内，有美学分时再看美学分（只调整顺序，从不淘汰）。然后每个类别取前 `per_category` 张（默认 10；`--per-category`，0 表示全部），跳过与已选照片向量相似度达 0.95 的近重复。每张照片得到一个状态：`pick`、`spare`（超出前 N 的可留照片）、`duplicate` 或 `reject`。
+- **输出**：`--csv`（每张一行：状态、keep、类别、名次、原因、连拍组、组内名次、重复自、清晰度、美学分、拍摄时间；失败的照片也在内）、`--link-dir`（每张入选照片在 `<dir>/<类别>/` 下建符号链接，从不覆盖已有文件）、`--html`（审阅页：各类别的入选、备选、连拍组、按原因分组的淘汰和失败；缩略图是服务写到 `<页面>-files/` 的旋正 JPEG，所以该目录要在服务的 allow-roots 里；`--no-thumbs` 不生成）、`--json`（带 `products.burst`、`products.select` 的结果，`cull --preds` 与 `bench report` 可读回）。
+- **准确率**：在真实相册上未验证。CI 在用冒烟图片合成的淘汰集上测量规则与 reducer（docs/harness.md“Album tier”，docs/standards.md §14）；暂不写 XMP 评分或标签。
+
 ### HTTP API
 
 ```sh
@@ -294,7 +336,7 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
 `want` 可以省略：这时运行其 profile 的 stage（默认 `full`：identify）。`"want": null` 返回 400，除非请求体同时给了 `"profile"`，那时等同于省略。
-响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`，`identify` 产物（gate、boxes、quality、species、候选）也定义在那里；`result`、`done` 带 `schema: 1`。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
+响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`，`identify` 产物（gate、boxes、quality、species、候选）也定义在那里；`result`、`done` 带 `schema: 1`。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`；运行里有依赖训练文件的 stage 时，`engine.plugins` 写明用的是哪个文件（`{"aesthetics": "v1@eva-head-v1:<sha12>+…"}`）。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
 
 CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。`run --json` 过去总是返回 0，现在也按这套退出码返回，脚本里若把非 0 当失败需留意。eval 的学名比较改用与 synonyms 查找相同的归一化（忽略连字符与大小写），旧报告的 Top-1/Top-5 可能因此有细微差别。
 
@@ -325,7 +367,7 @@ bioscan bench scorecard runs/<new>/report.json                                  
 bioscan bench geotag runs/geotag-synth                                                  # 在合成轨迹上评 GPX 定位
 ```
 - **基线流程**：今天跑一遍，用 `bench baseline` 存成基线并提交；之后换模型或改代码，再跑一遍，用 `bench compare` 对照基线。
-- **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行。
+- **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行；`meta.profile`，以及 `plugin_metrics`：各插件自己的指标（album 层级按原因的淘汰精确率与召回率、keepers lost、连拍成对 F1、场景准确率），带 Wilson 区间，预算与标准都可以引用。
 - **compare** 按 sha256（其次路径）配对图片。指标、按种变化和回退预算（`baselines/budget.toml`）都只按配对上的图片算，测试集加了新图不算回退，新图单独列出。它统计修好/改坏的图并给出精确 McNemar p 值，列出改坏图片的证据。退出码：0 预算内，1 超预算，2 无法对照。
 - **analyze** 把每个错答归入一个失败类：门漏判、检测漏框、类别错、不在名录、分布外、被地点先验压下、同属错、同科错、远错；另标出定到种却错的答案。每类附例图和该改哪段代码的提示。
 
@@ -365,7 +407,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
 
-CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。
+CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。随后用其中 24 张合成相册淘汰集跑 album profile，把 `models-report-album.json` 对照 `baselines/ci-album.json`（预算 `baselines/budget-album.toml`；该基线提交前 job 只打印候选报告）。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。`aesthetic.yml` 只按需运行（Actions 页面，或推送 `aesthetic-head-*` tag）：用 CPU 训练 EVA 通用头，并把头文件以 base64 打印到日志（见 data/aesthetic/README.md）。
 
 ## 布局
 
@@ -380,7 +422,8 @@ bioscan/service/app.py           路由、请求校验、允许目录、NDJSON �
 bioscan/service/run.py           一次 /run 的事件流：分 chunk、按 chunk 的模型轮次、解码进程池自愈
 bioscan/service/engine.py        设备选择、经 Loaders 惰性加载模型（测试注入假适配器）、每类先验
 bioscan/plugin.py                stage 插件的声明（Manifest）与实现接口（Stage）；运行计划（仅标准库）
-bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag；__init__.py 是标准库 manifest，stage.py 是服务端代码
+bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag、aesthetics、quality、scene；__init__.py 是标准库 manifest，
+                                 stage.py 是服务端代码；reducer manifest：burst、select
 bioscan/service/stages.py        服务端的 stage：选项合并与校验、/products、allow-roots 路径
 bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
 bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
@@ -390,8 +433,16 @@ bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF�
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/geotag.py                GPX 解析、拍摄时间转 UTC、时钟偏差、轨迹插值、XMP 旁车文件（纯标准库）
+bioscan/aesthetic.py             美学头文件、XMP/CSV 评分、按行程分折、排序指标（纯标准库）
+bioscan/aesthetic_fit.py         岭回归头、交叉验证、向先验收缩、学习曲线（numpy；只在训练或算曲线时导入）
+bioscan/cull.py                  burst、select reducer，挑片记录，album 层级的评测行函数（纯标准库）
 bioscan/cli/                     main client render gt eval bench config（profile）geotag_cli（geotag、run --gpx）geobench（bench geotag）
+                                 aesbench（bioscan aesthetic ratings|train|eval）
+                                 cull（bioscan cull：reducer、CSV、符号链接、HTML 审阅页）
 scripts/geotag_synth.py          用 golden 集合成 GPX 场景，供 bench geotag 使用
+scripts/train_aesthetic_head.py  EVA 通用美学头，进程内用服务的 decode 与 SigLIP2
+scripts/cull_synth.py            用带主体框的照片合成相册集（带标签的淘汰图、连拍）
+data/aesthetic/                  通用美学头（训练出来之前只有 README）及其来源说明
 data/names/                      AviList 为准的名字映射表
 docs/                            设计 spec、实施计划、评测结果
 ```

@@ -136,8 +136,72 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
       `{"place_source": "request" | "exif" | "gpx" | "none"}` (None only without a track). In plugins.BUILTIN after jpg,
       in `wildlife`, never in `full`. `run --gpx` uses the stage only when the profile includes geotag; otherwise the
       CLI geotags locally as in W6. The clock offset is always decided in the CLI for the whole folder.
-- [ ] A6 harness: meta.profile (eval already writes "profile" in the preds meta line), plugin_metrics, standards `profile` field
-- [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
-- [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
+- [x] A6 harness (branch v17/c1-cull): meta.profile + meta.reducers, `plugin_metrics[plugin][scope]` and `plugin_images`
+      from `Manifest.metrics` (plugin.Metric: stdlib row functions; rate / median / pair_* with Wilson intervals), plugin
+      rules in budgets, standards `profile` (default wildlife; no profile or full = wildlife) and `plugin`; schema v1
+      additive (A0 golden bench-report.json unchanged); docs/harness.md
+- [x] C1 cull plugins (branch v17/c1-cull): `quality` stage (CPU; re-blur measure on the subject core and frame tiles,
+      rules.quality sharpness/exposure, clipped shares, area, cut, thirds/centre; reasons soft_subject, motion_or_defocus,
+      overexposed, underexposed, subject_cut, subject_too_small, no_subject), `scene` stage (SigLIP2 zero-shot on the
+      frame vector, wildlife from the gate, labels as options, horizon tilt for landscapes), reducers `burst` + `select`
+      (bioscan/cull.py, stdlib), `bioscan cull` (CSV, symlinks, HTML review, NDJSON; --preds offline), album profile =
+      identify (species off) + embed + quality + scene + burst/select; result.engine.plugins fingerprints for new stages
+      only; decode reads EXIF Make/Model
+- [x] C1 evaluation: scripts/cull_synth.py (labelled rejects + bursts, seeded), album tier metrics, tests/models album
+      smoke with loose floors (models-report-album.json), baselines/budget-album.toml, models.yml compare step,
+      data/standards.toml album rows (profile album, plugin metrics), docs/standards.md §14
+- [ ] first models.yml run on v17/c1-cull: commit the printed candidate as baselines/ci-album.json (owner approves), tighten
+      ALBUM_FLOORS in tests/models, fill "Now" in docs/standards.md §14; until then every album number is unverified
+- [ ] quality thresholds were calibrated on 1/f-noise surrogates only (SOFT_BLUR 0.45, SHARP_ELSEWHERE 0.38, exposure
+      limits): re-check on the CI smoke set and a real album; expect keepers_lost from tight iNat crops (subject_cut)
+- [ ] cull speed on the Mac: quality measured ~70-110 ms per 2048 px frame on the container CPU (synthetic); scene adds
+      one matrix product per chunk; measure with a real folder (album tier throughput)
+- [ ] XMP ratings / colour labels for picks and rejects behind a flag, never overwriting an existing sidecar (as geotag --xmp)
+- [ ] motion vs defocus as separate reasons (per-axis re-blur anisotropy) if the owner wants the split; today
+      motion_or_defocus means "nothing in the frame is sharp" and a soft subject on smooth bokeh lands there
+- [ ] horizon tilt: measured for landscapes only and reported; decide whether a tilt over N degrees becomes a flag
+- [ ] next composition checks from the research doc: headroom, lead room (OWLv2 "head"/"eye" query), eye focus
+- [ ] `bioscan report` (TASKS above) can reuse cull's HTML writer (bioscan/cli/cull.py write_html)
+- [ ] mixed cameras whose clocks disagree: bursts are per camera already; a per-camera clock offset would align them
+- [x] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
+      (branch v17/c2-aesthetic; details and next steps in "v1.7 C2" below)
+- [x] C1 + C2 merged: BUILTIN (identify, embed, jpg, geotag, aesthetics, quality, scene); album = identify (species
+      off) + embed + aesthetics + quality + scene, reducers burst + select; `select` reads `products.aesthetics.score`
+      (reorders within a burst and a category only); result.engine.plugins from one rule (stages.fingerprints:
+      Stage.plugin_id, else the settings fingerprint of a `fingerprinted` manifest); standards §13 aesthetics, §14 culling
 - [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
       synthetic reject set (blur / cut-off / exposure degradations of iNat photos) for the rule stages
+
+## v1.7 C2: aesthetic head on SigLIP2 (branch v17/c2-aesthetic, 2026-09-24)
+Goal: rank album frames by an aesthetic score from the SigLIP2 frame vector bioscan already computes; general head
+from EVA (CC0 annotations), personalised with the owner's Lightroom stars. Reorders only, never deletes.
+Decisions (owner): EVA general head + owner ratings; AVA-trained weights never distributed; aesthetics only reorders.
+Assumptions taken: the head file is JSON (stdlib-readable by the CLI, diffable, base64-able from a CI log) with
+provenance inside it, not .npz + a separate JSON; ridge on centred vectors with one global scale (keeps the
+embedding's geometry); `head` = builtin | absolute path to a personal head (blended with the builtin) | off;
+`engine.plugins` appears only when a stage names a trained file (existing goldens stay byte-identical).
+- [x] `bioscan/aesthetic.py` (stdlib): head format + sha check, scoring/blend, XMP (sidecar, darktable sidecar,
+      embedded) and CSV ratings, trip folds, Spearman / Kendall tau-b / NDCG@k / precision@k, EVA reader (pinned commit)
+- [x] `bioscan/aesthetic_fit.py` (numpy, lazy): ridge + K-fold CV over alphas, pull toward a prior head, learning curve
+- [x] `bioscan/plugins/aesthetics`: reads vec, provides aesthetic, CPU thread, siglip2 only; `{score, general,
+      personal, head_id[, note]}`; missing/damaged builtin -> score null + note; appended to BUILTIN and to `album`
+- [x] `Stage.plugin_id` + `result.engine.plugins` (additive; only stages that report one); `settings()` has the builtin sha
+- [x] `bioscan aesthetic ratings|train|eval` (bioscan/cli/aesbench.py; vectors through the service's embed, cache file)
+- [x] report `bioscan-aesthetic-report` v1 read by `bench scorecard`; standards tier `aesthetic-own` (profile album, 4 bars)
+- [x] `scripts/train_aesthetic_head.py` (EVA download at the pinned commit, service decode + Engine.frame, fit, base64)
+- [x] `.github/workflows/aesthetic.yml` (workflow_dispatch or tag `aesthetic-head-*`; CPU; base64 head in the log)
+- [x] tests: stage on fake vectors, head load/validate/sha, planted-signal fit, XMP parsing, trip folds, learning curve,
+      CLI train/eval on a fake service, script end to end on a fake engine and a fake download; tests/models check that
+      training vectors == served vectors; A0 goldens byte-identical (only products-added.json gained the entry)
+- [x] docs: README (EN + zh-CN), CONTEXT (aesthetic head, general/personal head, rating, trip, learning curve),
+      docs/standards.md §13, docs/harness.md, data/aesthetic/README.md, data/README.md
+Next:
+- [ ] run `aesthetic.yml` (or the Mac command in data/aesthetic/README.md), review the EVA CV SRCC, commit
+      data/aesthetic/eva-head-v1.json; runtime in CI to be recorded (estimate 15-25 min)
+- [ ] owner: `bioscan aesthetic ratings` on 2-3 rated trips; if Lightroom picks matter, export them as a CSV
+      (Lightroom Classic does not write pick flags to XMP)
+- [ ] owner's Mac: `bioscan aesthetic eval` with the learning curve on those trips; set the aesthetic-own bars from
+      the first real numbers (NDCG@10 against its random-order value) and commit an `aesthetic-own` report
+- [ ] choose the default `blend` from the learning curve (0.5 is a guess)
+- [x] C1 merge: `select` reads `products.aesthetics.score`; resolve the album line in profiles.toml and BUILTIN order
+- [ ] per-category heads or a small MLP only if the learning curve shows the linear head saturating

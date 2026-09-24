@@ -1,8 +1,11 @@
 name: models
 
-# Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo, + the all-taxa list) on CPU over 95 iNaturalist photos.
-# Report: the job summary, the job log and the `models-report` artifact. The harness step compares the
-# run's report.json with baselines/ci-smoke.json under baselines/budget.toml (docs/harness.md).
+# Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo, + the all-taxa list) on CPU over 95 iNaturalist photos,
+# then the album profile (aesthetics, quality, scene, burst, select) on a synthetic reject set made from them,
+# and the aesthetic head on the real SigLIP2 vectors (tests/models/test_aesthetic_models.py).
+# Report: the job summary, the job log and the `models-report` artifact. The harness steps compare the
+# run's report.json with baselines/ci-smoke.json under baselines/budget.toml, and the album report with
+# baselines/ci-album.json under baselines/budget-album.toml (docs/harness.md).
 # Branch pushes and PRs run when a listed path changes; a `v*` tag push always runs (GitHub does not
 # evaluate path filters for tags) and publishes its report as the `bench-report-<tag>` artifact.
 on:
@@ -19,6 +22,11 @@ on:
       - "bioscan/contract.py"
       - "bioscan/naming.py"
       - "bioscan/serve_config.py"
+      - "bioscan/aesthetic*.py"
+      - "scripts/train_aesthetic_head.py"
+      - "bioscan/cull.py"
+      - "scripts/cull_synth.py"
+      - "data/standards.toml"
       - "tests/models/**"
       - "data/names/**"
       - "bioscan/cli/eval.py"
@@ -38,6 +46,11 @@ on:
       - "bioscan/contract.py"
       - "bioscan/naming.py"
       - "bioscan/serve_config.py"
+      - "bioscan/aesthetic*.py"
+      - "scripts/train_aesthetic_head.py"
+      - "bioscan/cull.py"
+      - "scripts/cull_synth.py"
+      - "data/standards.toml"
       - "tests/models/**"
       - "data/names/**"
       - "bioscan/cli/eval.py"
@@ -100,7 +113,11 @@ jobs:
           key: photos-${{ hashFiles('tests/models/sample.csv') }}
           restore-keys: photos-
       - name: Real-model smoke
-        run: HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs
+        # tee: the album candidate report printed later can push pytest's output past what a log
+        # tail shows; the last step prints the failures again
+        run: |
+          set -o pipefail
+          HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs 2>&1 | tee pytest-models.log
       - name: Job summary
         if: always()
         # also printed to the log so the numbers are readable wherever the summary is not
@@ -129,6 +146,30 @@ jobs:
           fi
           if [ -f bench-analyze.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-analyze.md; fi
           exit $rc
+      - name: Harness compare with baselines/ci-album.json (album profile, synthetic reject set)
+        if: always()
+        # Same pattern as the smoke: no baseline yet prints the candidate between markers and passes.
+        # The scorecard of the album tier goes to the summary; its bars do not gate (the floors in
+        # tests/models do; the budget below does once the baseline exists).
+        run: |
+          if [ ! -f models-report-album.json ]; then echo "no models-report-album.json (the album smoke did not run)"; exit 0; fi
+          uv run bioscan bench scorecard models-report-album.json --md bench-scorecard-album.md > /dev/null || true
+          if [ -f bench-scorecard-album.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-scorecard-album.md; fi
+          if [ -f baselines/ci-album.json ]; then
+            set +e
+            uv run bioscan bench compare baselines/ci-album.json models-report-album.json \
+              --budget baselines/budget-album.toml --md bench-compare-album.md --json bench-compare-album.json > /dev/null
+            rc=$?
+            set -e
+            if [ -f bench-compare-album.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-compare-album.md; fi
+          else
+            rc=0
+            echo "baselines/ci-album.json does not exist yet: candidate baseline follows" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "===== BEGIN bioscan-report ci-album candidate ====="
+            cat models-report-album.json
+            echo "===== END bioscan-report ci-album candidate ====="
+          fi
+          exit $rc
       - name: Tag report
         if: always() && startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -144,8 +185,10 @@ jobs:
           name: ${{ env.BENCH_ARTIFACT }}
           path: |
             models-report.json
+            models-report-album.json
             bench-compare.md
             bench-compare.json
+            bench-compare-album.md
             bench-analyze.md
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
@@ -156,7 +199,16 @@ jobs:
             models-report.md
             models-report.ndjson
             models-report.json
+            models-report-album.json
             bench-compare.md
             bench-compare.json
+            bench-compare-album.md
+            bench-compare-album.json
+            bench-scorecard-album.md
             bench-analyze.md
           if-no-files-found: ignore
+      - name: Real-model test failures (repeated last, so a log tail shows them)
+        if: always()
+        run: |
+          test -f pytest-models.log || exit 0
+          grep -E "^(FAILED|ERROR) |^E  |^_{5,} .* _{5,}$|^=+ .*(passed|failed|error).* =+$" pytest-models.log | tail -n 300 || true

@@ -544,6 +544,174 @@ unit = "s"
 how = "bioscan bench geotag runs/geotag-synth; row all (scenarios offset37, dst from GPS photos; wrongtz from a clock photo)"
 source = "no published figure; 10 s is about 14 m at walking pace"
 
+# ---------------------------------------------------------------- culling (album profile, synthetic tier)
+# Tier `album`, profile `album`: scripts/cull_synth.py degrades the CI smoke photos into labelled
+# rejects (subject blur and smear, frame shake, cut-off crops, +-2 EV, shrunk subjects) and bursts;
+# tests/models runs them through the album profile and the reducers (models-report-album.json).
+# Values come from report.json plugin_metrics[plugin][scope]; judged on the observed value (a
+# synthetic regression tier, like smoke). No culling tool publishes reject precision or recall, so
+# there is no industry bar; these are ours: losing a keeper costs more than reviewing a reject.
+
+[[standard]]
+id = "culling.album.all.keepers_lost"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: keep-labelled photos a rule rejects"
+scope = "all"
+metric = "keepers_lost"
+op = "<="
+community = 0.05
+stretch = 0.01
+unit = "fraction"
+how = "tests/models album smoke (models-report-album.json), or bench run <set>/groundtruth-album.csv --profile album --tier album"
+source = "no published figure: Lightroom Assisted Culling and Aftershoot publish none; research doc 2026-09-24-culling-aesthetics.md makes this the budget metric"
+
+[[standard]]
+id = "culling.album.all.reject_recall"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: degraded photos rejected (any reason)"
+scope = "all"
+metric = "reject_recall"
+op = ">="
+community = 0.70
+stretch = 0.90
+unit = "fraction"
+how = "album smoke, plugin_metrics.quality.all"
+source = "no published figure; synthetic degradations are clearer than real ones, so this is a floor, not a claim"
+
+[[standard]]
+id = "culling.album.all.reject_precision"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: rejected photos that are degraded"
+scope = "all"
+metric = "reject_precision"
+op = ">="
+community = 0.80
+stretch = 0.95
+unit = "fraction"
+how = "album smoke, plugin_metrics.quality.all (a real original the rules reject counts against it)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.album.soft.reject_recall"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: blurred subjects and shaken frames rejected as soft (soft_subject or motion_or_defocus)"
+scope = "soft"
+metric = "reject_recall"
+op = ">="
+community = 0.70
+stretch = 0.90
+unit = "fraction"
+how = "album smoke, plugin_metrics.quality.soft (variants blur, smear, shake)"
+source = "no published figure; subject-focus scoring is what Lightroom and Aftershoot sell, without numbers"
+
+[[standard]]
+id = "culling.album.overexposed.reject_recall"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: +2 EV photos rejected as overexposed"
+scope = "overexposed"
+metric = "reject_recall"
+op = ">="
+community = 0.80
+stretch = 0.95
+unit = "fraction"
+how = "album smoke, plugin_metrics.quality.overexposed"
+source = "no published figure"
+
+[[standard]]
+id = "culling.album.underexposed.reject_recall"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: -2 EV photos rejected as underexposed"
+scope = "underexposed"
+metric = "reject_recall"
+op = ">="
+community = 0.80
+stretch = 0.95
+unit = "fraction"
+how = "album smoke, plugin_metrics.quality.underexposed"
+source = "no published figure"
+
+[[standard]]
+id = "culling.album.subject_cut.reject_recall"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: crops that cut 40% of the subject off rejected as subject_cut"
+scope = "subject_cut"
+metric = "reject_recall"
+op = ">="
+community = 0.60
+stretch = 0.90
+unit = "fraction"
+how = "album smoke, plugin_metrics.quality.subject_cut (needs the detector to box the partial subject)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.album.subject_too_small.reject_recall"
+tier = "album"
+profile = "album"
+plugin = "quality"
+dimension = "culling"
+title = "Album: subjects shrunk to 0.3% of the frame rejected as subject_too_small"
+scope = "subject_too_small"
+metric = "reject_recall"
+op = ">="
+community = 0.50
+stretch = 0.80
+unit = "fraction"
+how = "album smoke, plugin_metrics.quality.subject_too_small (a subject the detector misses is not rejected)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.album.all.burst_pair_f1"
+tier = "album"
+profile = "album"
+plugin = "burst"
+dimension = "culling"
+title = "Album: burst grouping, pairwise F1 against the synthetic bursts"
+scope = "all"
+metric = "burst_pair_f1"
+op = ">="
+community = 0.80
+stretch = 0.95
+unit = "fraction"
+how = "album smoke, plugin_metrics.burst.all (bursts: 4 frames shifted by up to 2%, 0.2 s apart)"
+source = "no published figure for burst grouping; embedding-cosine near-duplicate detection is the common method (thresholds 0.93-0.95, unverified snippets)"
+
+[[standard]]
+id = "culling.album.all.scene_acc"
+tier = "album"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Album: scene label correct (the smoke photos are all wildlife)"
+scope = "all"
+metric = "scene_acc"
+op = ">="
+community = 0.80
+stretch = 0.95
+unit = "fraction"
+how = "album smoke, plugin_metrics.scene.all; one label only until an album with scene labels exists"
+source = "no published figure; SigLIP2 zero-shot is reported lower than published (unverified forum thread)"
+
 # ---------------------------------------------------------------- directory-level acceptance test
 
 [[standard]]
@@ -908,3 +1076,71 @@ stretch = 1
 unit = "bool"
 how = "tag run of the harness publishes report.json + scorecard with the release"
 source = "no competitor publishes a reproducible report (docs/strategy/2026-09-24-opportunities.md)"
+
+# ---------------------------------------------------------------- aesthetics (owner's ratings, album)
+# Tier `aesthetic-own`, profile `album`: `bioscan aesthetic eval <ratings> --out DIR` scores the
+# served aesthetic score (the blend when a personal head is given, else the general head) against
+# the owner's Lightroom stars and picks; `bioscan bench scorecard DIR/report.json` holds it to these
+# bars. Agreement with one photographer, not "aesthetic accuracy". Score a personal head only on trips
+# it was not fitted on (the report flags in-sample heads); the learning curve is always held out.
+# Bars are first guesses until the first real eval: nobody publishes agreement with one owner's stars.
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.spearman"
+dimension = "aesthetics"
+title = "Aesthetic score vs the owner's stars: Spearman rank correlation (all rated frames)"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "spearman"
+op = ">="
+community = 0.30
+stretch = 0.50
+unit = "correlation"
+how = "bioscan aesthetic eval <ratings folder or CSV> --out runs/<tag>-aesthetic (service running); bioscan bench scorecard runs/<tag>-aesthetic/report.json; judged on the lower 95% bound"
+source = "no published figure for one photographer's stars; generic heads reach SRCC 0.67-0.82 on AVA's own test split (pyiqa IAA benchmark, a different task): https://raw.githubusercontent.com/chaofengc/IQA-PyTorch/main/tests/IAA_benchmark_results.csv"
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.kendall"
+dimension = "aesthetics"
+title = "Aesthetic score vs the owner's stars: Kendall tau-b"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "kendall"
+op = ">="
+community = 0.20
+stretch = 0.35
+unit = "correlation"
+how = "bioscan aesthetic eval <ratings> --out runs/<tag>-aesthetic; bioscan bench scorecard runs/<tag>-aesthetic/report.json"
+source = "no published figure; tau-b runs at about two thirds of Spearman's rho on the same ranking"
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.ndcg_at_k"
+dimension = "aesthetics"
+title = "Top of each trip by aesthetic score: NDCG@10 against stars (mean over trips)"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "ndcg_at_k"
+op = ">="
+community = 0.70
+stretch = 0.85
+unit = "score"
+how = "bioscan aesthetic eval <ratings> --out runs/<tag>-aesthetic (k 10, gain 2^stars - 1); bioscan bench scorecard runs/<tag>-aesthetic/report.json"
+source = "no published figure; a random order already scores well above 0 on star ratings, so this bar is provisional until compared with random order on the first real eval"
+
+[[standard]]
+id = "aesthetics.aesthetic_own.all.precision_at_k"
+dimension = "aesthetics"
+title = "Picks found: of the top-k frames per trip (k = the owner's picks there), share the owner picked"
+tier = "aesthetic-own"
+profile = "album"
+scope = "all"
+metric = "precision_at_k"
+op = ">="
+community = 0.30
+stretch = 0.50
+unit = "fraction"
+how = "bioscan aesthetic eval <ratings> --out runs/<tag>-aesthetic (picks: explicit, else stars >= 4); the report shows the random-order share next to it; bioscan bench scorecard runs/<tag>-aesthetic/report.json"
+source = "no published figure; Lightroom's Assisted Culling and Aftershoot publish no pick precision"

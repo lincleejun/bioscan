@@ -240,7 +240,7 @@ A **profile** is a named request template: the stages a run wants and their opti
 |---|---|---|---|---|
 | `full` | identify (embed, jpg when `want` asks) | defaults | SigLIP2, OWLv2, BioCLIP | nothing: it is what a request without a profile gets, and no file can change it |
 | `wildlife` | geotag, identify | species, location prior and every accuracy fix on (`top_k` 5, `geo` true); geotag does nothing until `geotag.gpx` (or `run --gpx`) names a track | SigLIP2, OWLv2, BioCLIP | nothing planned |
-| `album` | identify, embed | identify `species: false` | SigLIP2, OWLv2 (BioCLIP never loads) | `quality`, `scene`, `aesthetics` stages; `burst` and `select` reducers, run by the CLI |
+| `album` | identify, embed, aesthetics, quality, scene; reducers burst, select (run by `bioscan cull`, never the service) | identify `species: false`; aesthetics `head: builtin`; scene labels; burst and select limits | SigLIP2, OWLv2 (BioCLIP never loads) | nothing planned |
 
 ```sh
 bioscan run DIR --profile album                  # the profile's stages and options; flags still win
@@ -277,7 +277,8 @@ candidates = ["Strigidae", "Accipitridae"]
 - **The service** expands a request's `"profile"` with its own files (read once at start). A request without `"profile"` always gets `full`: `default_profile` and `$BIOSCAN_PROFILE` are the CLI's, so HTTP clients see no change.
 - **Errors**: an unknown key, profile, stage or option is an error naming the file (a 400 for a request). `[profile.full]` in a user file is refused. Option values are checked by the service. `bioscan serve --launchd` bakes the flags, else the file's `[serve]` values, into the plist and points the job at this folder's `bioscan.toml` through `BIOSCAN_CONFIG`.
 - **Trust**: `./bioscan.toml` is read automatically from the folder you run in, so only run bioscan in folders whose file you trust: it can set `serve.host = "0.0.0.0"`, `allow_roots`, or a jpg `out_dir` to write to; `bioscan config show` lists every file read and the value each one set.
-- **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options and the check of their values; the service code in `stage.py`, imported only for the stages in a run's plan). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are listed in the order `identify, embed, jpg, geotag`.
+- **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options and the check of their values; the service code in `stage.py`, imported only for the stages in a run's plan). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are listed in the order `identify, embed, jpg, geotag, aesthetics, quality, scene`. Stages built since v1.7 report what they ran with in `result.engine.plugins` when a run includes them: the head a stage's output depends on (aesthetics: `v1@<head id>`, nothing with `head: off`), else `v<version>@<settings fingerprint>` (quality, scene).
+- **Reducers**: `reducers = ["burst", "select"]` names model-free units that run over a whole run's results in the CLI (`bioscan cull`, `bench`) or offline, never in the service, which stays stateless. Their options live beside the stages' (`[profile.album.options.select] per_category = 20`); a /run body may not set them.
 
 ### Geotag from a GPX track
 
@@ -319,6 +320,70 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates f
 
   The per-scenario table is in docs/2026-09-24-geotag-synthetic.md.
 
+### Aesthetics (album)
+
+The `aesthetics` stage gives each frame an aesthetic score from a small linear **head** on the SigLIP2 frame vector that the frame pass already computes: no new model, a few kB of weights, one matmul per chunk on the CPU pool. It is in the `album` profile (never in `full` or `wildlife`), and **it only reorders frames: it never rejects or deletes one**; the `select` reducer ([Culling an album](#culling-an-album)) reads `products.aesthetics.score` to rank within a burst or a category.
+
+- **Output** `products.aesthetics`: `score` (0-1, the blend below; not clipped), `general`, `personal` (null without a personal head), `head_id` (`name:sha12`, `+name:sha12~blend` when blended). Without the general head file the score is null and a `note` says why; the run never fails for it.
+- **General head**: `data/aesthetic/eva-head-v1.json`, a ridge head fitted on **EVA** (4,070 photos, 30+ votes each, mean score 0-10). **Not committed yet**: it is trained by the `aesthetic` workflow or on a Mac (commands in `data/aesthetic/README.md`); until then album runs report `score: null`.
+- **Personal head**: fitted on your own ratings, pulled toward the general head, and blended with it by `blend` (the personal weight, default 0.5):
+
+  ```sh
+  bioscan aesthetic ratings ~/Pictures/Album                     # stars/labels from XMP (sidecars or embedded), per trip
+  bioscan aesthetic train --ratings ~/Pictures/Album --embeddings ~/.cache/bioscan/album-vec.ndjson
+  #   -> ~/.config/bioscan/aesthetic-personal.json (ridge, alpha by 5-fold CV over trips)
+  bioscan run ~/Pictures/Album --profile album                   # general head only, unless the profile names yours:
+  ```
+
+  ```toml
+  [profile.album.options.aesthetics]
+  head = "/Users/me/.config/bioscan/aesthetic-personal.json"   # builtin | an absolute path | off
+  blend = 0.5
+  ```
+
+  Ratings are Lightroom stars 1-5 (`xmp:Rating`; 0 or missing = unrated and skipped, as the XMP spec says; a reject, -1, is kept as a reject, graded below one star), with the colour label and `xmpDM:pick` where a tool writes them; a sidecar wins over embedded XMP. Lightroom Classic keeps pick flags in its catalogue, not in XMP, so give picks through a CSV (`path,rating,pick,trip`) if you want them. The CLI never loads a model: vectors come from the running service's `embed` product (`--embeddings FILE` keeps them). The head path is checked against the service's allow-roots.
+- **How well it agrees with you**: `bioscan aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/bioscan/aesthetic-personal.json` writes report.json and report.md: Spearman and Kendall against your stars, NDCG@10 and precision@k against your picks per trip (k = your picks in that trip, next to what a random order gets), and a **learning curve** at 50/100/200/500/1,000 ratings for personal vs general vs blended heads, always split by trip (folder) so a burst never sits on both sides. `bioscan bench scorecard runs/aes/report.json` holds it to the `aesthetic-own` standards (docs/standards.md §13). **No aesthetic number has been measured yet: every claim here is unverified.**
+- **Licences.** EVA's annotations are **CC0 1.0** (its repository's LICENSE). Its images are AVA photos from dpchallenge.com whose copyright stays with the photographers: bioscan uses them only to compute vectors and never redistributes them. The head weights are trained locally or in this repository's CI, and the head file records its data, licence, n, date, seed and CV numbers. **AVA scores and AVA-trained weights are never used or distributed.** A personal head is fitted on your own ratings of your own photos and stays on your machine.
+
+### Culling an album
+
+`bioscan cull` sorts a folder for review: rule-based rejects with their reasons, bursts with their best frame, and
+the best photos per scene category. It runs the `album` profile through the service, then the `burst` and `select`
+reducers here. It never deletes, moves or rates anything: rejects are listed, not removed.
+
+```sh
+bioscan cull ~/Pictures/2026-05-trip -r --html review.html --csv selection.csv --link-dir picks --per-category 20
+bioscan cull --preds cull.ndjson --html review.html      # again, offline, from a saved --json run (e.g. new limits)
+```
+
+- **Rejects** (`quality`, rules only, each with a reason): `soft_subject` (the subject box is soft while something
+  else in the frame is sharp: focus landed elsewhere), `motion_or_defocus` (nothing in the frame is sharp: shake,
+  motion, or focus missed everything, which includes a soft subject against smooth bokeh), `overexposed` (8% of the
+  subject blown, or a bright subject with 4% blown), `underexposed` (the whole frame dark and the subject too; a dark
+  bird alone is not a reject), `subject_cut` (the box touches the frame edge and is not frame-filling),
+  `subject_too_small` (under 0.5% of the frame) and `no_subject` (the gate sees an animal, the detector boxes none).
+  Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
+  `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
+  without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for `night`.
+- **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes: landscape, people,
+  wildlife (the gate's bird + mammal share), macro, architecture, food, night, other. Change the labels and prompts with
+  `[profile.album.options.scene.labels]`. Landscapes also get a horizon tilt (reported, not a reject).
+- **Bursts** (`burst`): frames of one camera (EXIF Make and Model) at most 1.5 s apart, using the sub-second capture
+  time, whose frame vectors have cosine at least 0.92.
+- **Selection** (`select`): the best frame of each burst: not rejected, subject sharpness (within 0.03 of the sharpest
+  counts as equal), not cut off, exposure within ±0.2, then the aesthetic score when a run has one (it only reorders,
+  never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category, skipping a
+  photo whose frame vector is 0.95 alike to one already picked. Each photo gets a status: `pick`, `spare` (a keeper
+  past the top N), `duplicate` or `reject`.
+- **Outputs**: `--csv` (one row per photo: status, keep, category, rank, reasons, burst, burst rank, duplicate of,
+  sharpness, aesthetic, capture time; failed photos too), `--link-dir` (a symlink per pick in `<dir>/<category>/`,
+  never replacing a file), `--html` (a page with picks per category, spares, bursts, rejects by reason and failures;
+  thumbnails are upright JPEGs the service writes to `<page>-files/`, so that folder must be under the service's
+  allow-roots; `--no-thumbs` skips them), `--json` (the results with `products.burst` and `products.select`, which
+  `cull --preds` and `bench report` read back).
+- **Accuracy**: unverified on real albums. CI measures the rules and reducers on a synthetic reject set made from the
+  smoke photos (docs/harness.md "Album tier", docs/standards.md §14); XMP ratings or labels are not written yet.
+
 ### HTTP API
 
 ```sh
@@ -328,7 +393,7 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
 `want` may be left out: a request then runs its profile's stages (`full`, the default: identify). `"want": null` is a 400 unless the body names a `"profile"`, where it means the same as leaving it out.
-The response is an NDJSON stream of `progress` / `result` / `error` / `done` events, defined in `bioscan/contract.py` together with the `identify` payload (gate, boxes, quality, species, candidates); `result` and `done` carry `schema: 1`. Concurrent requests take turns on the models one chunk at a time (a one-image request waits for at most one chunk); within a chunk every model stage is batched across images, and CPU decoding overlaps inference. `result.engine` holds the model versions, the name-list versions, `settings` (a fingerprint of rule thresholds, prompts and vocabularies: if it changes, results are not directly comparable) and `detail_edge`. The full contract is in section 4 of `docs/superpowers/specs/2026-09-22-bioscan-design.md`.
+The response is an NDJSON stream of `progress` / `result` / `error` / `done` events, defined in `bioscan/contract.py` together with the `identify` payload (gate, boxes, quality, species, candidates); `result` and `done` carry `schema: 1`. Concurrent requests take turns on the models one chunk at a time (a one-image request waits for at most one chunk); within a chunk every model stage is batched across images, and CPU decoding overlaps inference. `result.engine` holds the model versions, the name-list versions, `settings` (a fingerprint of rule thresholds, prompts and vocabularies: if it changes, results are not directly comparable) and `detail_edge`; when a run includes a stage that depends on a trained file, `engine.plugins` names it (`{"aesthetics": "v1@eva-head-v1:<sha12>+…"}`). The full contract is in section 4 of `docs/superpowers/specs/2026-09-22-bioscan-design.md`.
 
 CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.
 
@@ -362,7 +427,10 @@ bioscan bench geotag runs/geotag-synth                                          
   - the run's git sha, engine, settings fingerprint and ground-truth sha;
   - every metric per scope (`all`, `bird`, `mammal`, `other`, and per tier) with Wilson 95% intervals;
   - per-species and per-family tables;
-  - one row per image.
+  - one row per image;
+  - `meta.profile`, and `plugin_metrics`: each plugin's own metrics (the album tier's reject precision and recall per
+    reason, keepers lost, burst pairwise F1, scene accuracy), with Wilson intervals, which budgets and standards may
+    name.
 - **compare** pairs images by sha256 and counts fixed and broken images, with an exact McNemar p-value. Metrics, species changes and the budget use the paired images only, so a test set that gains photos never counts as a regression; new images are listed separately. It lists species regressions and broken images with their evidence, and checks `baselines/budget.toml`. It exits 0 within budget, 1 over budget and 2 when the reports can't be compared.
 - **analyze** puts every wrong answer into a failure class: gate miss, detector miss, wrong kind, not in list, out of range, suppressed by the location prior, within genus, within family or far miss. It also flags overconfident answers. Each class comes with examples and a pointer to the code to fix.
 - **CI.** `models.yml` compares every real-model smoke with `baselines/ci-smoke.json`. A `v*` tag publishes the smoke report.
@@ -405,7 +473,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # needs a running service and your own tests/smoke/*.ARW
 ```
 
-CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job.
+CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job. It then runs the album profile on a synthetic reject set made from 24 of the photos and compares `models-report-album.json` with `baselines/ci-album.json` under `baselines/budget-album.toml` (until that baseline is committed, the job prints the candidate). `aesthetic.yml` runs only on demand (Actions tab, or a pushed `aesthetic-head-*` tag): it trains the EVA general head on CPU and prints the head file base64 in the log (data/aesthetic/README.md).
 
 ## Layout
 
@@ -420,7 +488,8 @@ bioscan/service/app.py           routes, request validation, allow-roots, NDJSON
 bioscan/service/run.py           a /run as events: chunks, per-chunk model turn, self-healing decode pool
 bioscan/service/engine.py        device choice, lazy model loading via Loaders (tests inject fake adapters), per-kind priors
 bioscan/plugin.py                what a stage plugin declares (Manifest) and implements (Stage); the run plan (stdlib only)
-bioscan/plugins/<name>/          built-in stages identify, embed, jpg, geotag: stdlib manifest in __init__.py, service code in stage.py
+bioscan/plugins/<name>/          built-in stages identify, embed, jpg, geotag, aesthetics, quality, scene: stdlib manifest in
+                                 __init__.py, service code in stage.py; reducer manifests burst, select
 bioscan/service/stages.py        the stages in the service: options merged and checked, /products, paths for allow-roots
 bioscan/service/pipeline.py      identify orchestration (batched across images) behind the Models protocol
 bioscan/service/rules.py         pure rules and thresholds: crop check, grading, quality, cropping
@@ -431,9 +500,17 @@ bioscan/service/names.py         AviList / MDD lists, the TreeOfLife all-taxa li
 bioscan/service/candidates.py    the candidates option: taxon index, the rows each list keeps
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/geotag.py                GPX parsing, capture time -> UTC, clock offset, track interpolation, XMP sidecars (stdlib only)
+bioscan/aesthetic.py             aesthetic head files, XMP/CSV ratings, trip folds, ranking metrics (stdlib only)
+bioscan/aesthetic_fit.py         ridge heads, CV, prior pull, learning curve (numpy; imported only to train or for the curve)
+bioscan/cull.py                  the burst and select reducers, cull records, the album tier's metric rows (stdlib only)
 bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
                                  config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
+                                 aesbench (bioscan aesthetic ratings|train|eval)
+                                 cull (bioscan cull: reducers, CSV, symlinks, HTML review)
 scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
+scripts/train_aesthetic_head.py  the EVA general head, in-process with the service's decode and SigLIP2
+scripts/cull_synth.py            synthetic album set (labelled rejects, bursts) from photos with a subject box
+data/aesthetic/                  the general aesthetic head (README until it is trained) and its provenance
 baselines/                       committed reports compared against, and the regression budget
 data/names/                      name mapping tables keyed on AviList
 docs/                            design spec, implementation plan, evaluation results

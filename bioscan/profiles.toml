@@ -4,8 +4,9 @@
 # wildlife and album or add profiles, key by key. `full` is fixed: it is what a /run request
 # without "profile" gets, which is the behaviour before profiles existed.
 #
-# Keys per profile: description, stages (the default `want`), reducers (none exist yet),
-# options.<stage>.<option>. See README "Profiles and bioscan.toml".
+# Keys per profile: description, stages (the default `want`), reducers (burst, select: run by the
+# CLI or offline over the results, never by the service), options.<stage or reducer>.<option>.
+# See README "Profiles and bioscan.toml" and "Culling an album".
 
 [profile.full]
 description = "The contract as before profiles: identify by default; embed and jpg when want asks for them."
@@ -22,9 +23,9 @@ top_k = 5
 geo = true
 
 [profile.album]
-description = "Culling an album: boxes for subject focus without species (BioCLIP never loads), plus the frame vector."
-stages = ["identify", "embed"]
-# will gain: the quality, scene and aesthetics stages, and the burst and select reducers (run by the CLI).
+description = "Culling an album: boxes for subject focus without species (BioCLIP never loads), the frame vector, an aesthetic score (it only reorders, never rejects), technical quality with reject reasons and a scene category; bioscan cull then groups bursts and selects the best per category."
+stages = ["identify", "embed", "aesthetics", "quality", "scene"]
+reducers = ["burst", "select"]
 
 [profile.album.options.identify]
 species = false

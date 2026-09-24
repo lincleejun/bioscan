@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan import contract, plugin
+from bioscan.service import stages
 from bioscan.service.decode import Decoded, timed_decode
 
 log = logging.getLogger("bioscan")
@@ -92,6 +93,9 @@ class RunQueue:
         want = plan.want
         done = dict.fromkeys(want, 0)
         info = {**self.engine.info(), "detail_edge": self.detail_edge}
+        fps = stages.fingerprints(plan)
+        if fps:                      # only runs with a stage that reports one (built after A0): older streams stay byte-identical
+            info["plugins"] = fps
         chunks = [inputs[i:i + self.chunk] for i in range(0, total, self.chunk)]
         edge = self.detail_edge if plan.detail else None
 
