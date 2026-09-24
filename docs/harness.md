@@ -48,8 +48,11 @@ profile's stages must include identify, which is what the harness scores; eval s
 `--no-geo` / `--identify-opt` override the profile. The preds meta line records `"profile"` and the expanded
 `options`, so report.json's `meta.options` shows what ran. Without `--profile`, `BIOSCAN_PROFILE` or a
 `default_profile`, the request is byte for byte the one eval sent before profiles, so existing baselines stay
-comparable. Compare runs of different profiles only when you mean to: `album` switches species off. A
-`meta.profile` field and per-plugin metrics come with harness step A6.
+comparable. Compare runs of different profiles only when you mean to: `album` switches species off, and
+`compare` warns when `meta.profile` differs. `meta.profile` records the profile, and each plugin's own
+metrics (`quality`, `burst`, `scene`, ...) go to [`plugin_metrics`](#plugin_metrics-and-plugin_images). A
+profile with reducers (album: burst, select) also records them in the preds meta line, and the report runs
+them over the results before scoring, as `bioscan cull` does.
 
 **Rescore without the service.** A preds file carries everything:
 `bioscan bench report runs/x/preds.ndjson data/inat/groundtruth-inat.csv --tier golden`. Rescoring after a
@@ -88,11 +91,15 @@ bioscan bench baseline runs/$(date +%F)-own/report.json --name own-raw-$(date +%
 
 ```json
 {"schema": "bioscan-report", "version": 1,
- "meta": {...}, "metrics": {...}, "per_species": {...}, "per_family": {...}, "images": [...]}
+ "meta": {...}, "metrics": {...}, "per_species": {...}, "per_family": {...}, "images": [...],
+ "plugin_metrics": {...}, "plugin_images": [...]}
 ```
 
 A reader refuses any other `schema` or `version`. Adding a key is not a version bump. Removing a key,
-or changing what one means, is.
+or changing what one means, is. `plugin_metrics`, `plugin_images`, `meta.profile` and `meta.reducers` were
+added in v1.7 (A6) without a bump: `bench report` on an existing preds file gives the same `metrics`,
+`per_species`, `per_family` and `images` as before (the A0 golden `tests/contract/golden/bench-report.json`
+holds them to that), and an older report without the new keys still loads, compares and scores.
 
 ### meta
 
@@ -112,6 +119,8 @@ or changing what one means, is.
 | `complete` | The service's `done` event is in the preds file (null for a file without a meta line) |
 | `done` | `{ok, failed, elapsed_ms}` of that event |
 | `name_lists` | Kinds with a name list for `in_list` |
+| `profile` | The profile the run expanded (`--profile`, from the preds meta line); null for a run without one, which the scorecard treats as `wildlife` |
+| `reducers` | `{reducer: options}` run over the results before scoring (from the preds meta line; album: burst, select); null when none ran |
 
 The engine is read from the `result` events, because the preds meta line is written before the service
 answers.
@@ -170,6 +179,28 @@ One row per ground-truth row:
 | `place_known` | The ground truth has lat/lon, or the first candidate has a `p_geo` |
 | `decode_ms`, `identify_ms` | Timings |
 
+### plugin_metrics and plugin_images
+
+A plugin (stage or reducer) declares its harness metrics in its manifest, `Manifest.metrics`: a tuple of
+`plugin.Metric(name, kind, row, lower_is_better)`. `row` is a standard-library function
+(`"package.module:function"`) that maps one ground-truth row and that image's result event (with the reducers'
+products added; an error event, or None when missing) to `{scope: value}`. An image adds nothing to a scope
+where the value is None, so a plugin that did not run, or a ground truth without its columns, leaves no trace.
+
+`plugin_images` keeps the values per image: `[{path, sha256, tier, values: {plugin: {metric: {scope: value}}}}]`,
+only for images with a value. `plugin_metrics[plugin][scope]` aggregates them; scope `all` comes first, then the
+others in name order. Each scope has `n` (images with any value of that plugin there) and, per metric:
+
+| kind | `<metric>` | `<metric>_ci` | `<metric>_n` |
+|---|---|---|---|
+| `rate` | share of True among the values | Wilson 95% interval | values counted (the denominator) |
+| `median` | median of the numbers | – | values counted |
+| `pair_precision`, `pair_recall` | each value is `[truth group, predicted group]`; over every pair of images, pairs in both groups ÷ pairs in the predicted (precision) or the truth (recall) group | Wilson 95% over the pairs | predicted or truth pairs |
+| `pair_f1` | harmonic mean of the two | – | images |
+
+Rates are fractions 0–1 rounded to 6 places, like `metrics`. The built-in metrics (album tier) are defined in
+[Album tier](#album-tier-culling-bench---profile-album).
+
 ## compare
 
 - **Paired images only.** Metrics, species changes and the budget are computed over the images the
@@ -194,8 +225,12 @@ One row per ground-truth row:
 - **Species.** Regressions and improvements count top-1 hits per truth over the paired images.
 - **Evidence.** `broken` and `fixed` list each image with its truth and its old and new answers: top-1,
   level, box kind, gate, p_visual, p_geo and posterior.
+- **Plugin metrics** (`plugin_metrics`). The same deltas for every plugin metric, `{plugin: {scope: {metric:
+  {base, new, delta, base_ci, new_ci}}}}` plus `n`, recomputed over the `plugin_images` entries the two
+  reports share (paired as below). Plugins and scopes on one side only are left out.
 - **Warnings.** The comparison warns when any of these differ between the reports: settings
-  fingerprint, engine, ground-truth sha, synonyms sha or request options.
+  fingerprint, engine (which includes `engine.plugins`, each new stage's version and settings
+  fingerprint), ground-truth sha, synonyms sha, request options, profile or reducer options.
 - **Exit 2.** The reports cannot be compared when either is unreadable or has the wrong schema, when no
   image pairs, or when the budget file is invalid.
 
@@ -217,11 +252,18 @@ max_lost = 1                         # no species may lose more than this many t
 
 [images]
 max_broken = 5                       # optional: at most this many broken images in total
+
+[[rule]]
+plugin = "quality"                   # a plugin rule: metric is one of that plugin's Manifest.metrics
+metric = "keepers_lost"
+scopes = ["all"]                     # default for a plugin rule: all; any plugin_metrics scope works
+max_rise_pts = 2.0                   # *_pts for its rates (rate, pair_*), *_pct for anything
 ```
 
 Every rule reads the paired-image metrics (`images_per_s`: whole-run), and `max_lost` / `max_broken`
-count paired images only. A metric that is null in either report is skipped. Unknown sections or keys
-are an error (exit 2).
+count paired images only. A plugin rule reads the paired plugin metrics. A metric that is null in either
+report, or a scope one of them lacks, is skipped. Unknown sections, keys, plugins or plugin metrics are an
+error (exit 2).
 The committed budget suits the 95-image CI smoke (42 birds, 35 mammals, 18 other animals). For its reasoning, see the comments in the file.
 
 ## analyze: failure classes
@@ -263,6 +305,7 @@ W2 owns the content; this is the schema the reader enforces.
 [[standard]]
 id = "accuracy.golden.bird.top1"      # <dimension>.<tier>.<scope>.<metric>[.nogeo]; unique
 tier = "golden"                       # optional: default is the id's second segment
+profile = "wildlife"                  # optional: default wildlife; the report's meta.profile must match
 dimension = "accuracy"
 title = "Birds: top-1 species correct"
 scope = "bird"                        # all | bird | mammal | other
@@ -279,13 +322,19 @@ source = "URL or why there is none"
 - **Tier.** The scorecard applies the standards of one tier. The tier comes from `--tier`, else from
   the report's `meta.tier`, else from the ground truth's tier when it has exactly one. With none of
   these, it exits 2. A tier that no standard in the file uses also exits 2, with the known tiers listed.
+- **Profile.** A standard has a `profile` (default `wildlife`) and applies only to a report of that profile
+  (`meta.profile`). A report without a profile, or with `full`, counts as `wildlife`: both score identify
+  with the contract's defaults, which is what every standard before v1.7 was written for.
+- **Plugin standards.** With `plugin = "<name>"`, `metric` is one of that plugin's metrics and `scope` one of
+  its `plugin_metrics` scopes (any string, e.g. a reject reason); the value and interval come from
+  `plugin_metrics[plugin][scope]`. Rates (`rate`, `pair_*` kinds) take unit `"fraction"`.
 - **Geo mode.** A report run with `--no-geo` is held only to the `.nogeo` standards. A normal report
   skips them.
 - **Statistical rule** (docs/standards.md). A rate passes when its Wilson 95% bound clears the bar:
   the lower bound for `>=`, the upper bound for `<=`. Two cases are judged on the observed value
   instead:
-  - the smoke tier, whose bars are regression guards;
-  - metrics without an interval, i.e. speeds.
+  - the smoke and album tiers, whose bars are regression guards;
+  - metrics without an interval, i.e. speeds, medians and `pair_f1`.
 - **Gap.** The gap is the judged value minus the bar for `>=`, and the bar minus it for `<=`. A
   negative gap is short of the bar.
 - **Missing values.** A metric that is null (`ece` without `p_correct`, an empty scope) shows as `n/a`
