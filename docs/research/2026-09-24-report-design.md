@@ -47,6 +47,7 @@ For unattended runs, `bioscan summarize` also prints one line (`1,424 photos · 
      "taxonomy": ["Animalia", …, "Megascops kennicottii"], "list": "avilist-2025",
      "images": 12, "boxes": 12, "posterior": {"max": 0.97, "median": 0.91},
      "best": {"sha256": "…", "path": "…", "box": 0},       // highest posterior × sharpness until C1 picks it
+     "members": [{"sha256": "…", "path": "…", "box": 0, "posterior": 0.97}],  // every box, so any one can be corrected
      "first_taken_at": "…", "last_taken_at": "…"}],
   "review": [                           // boxes (or frames) that need a person, grouped so one decision covers many
     {"sha256": "…", "path": "…", "box": 1, "kind": "bird", "level": "genus",
@@ -81,19 +82,28 @@ Choices, each derivable from today's payload (bioscan/contract.py) with no new m
 - **No embeddings, no thumbnails** in the JSON. Paths and sha256 are enough; `bioscan report` makes the
   thumbnails (from the `jpg` product when present, else the embedded preview).
 
-## 3. Feedback: yes, but only on the review queue
+## 3. Feedback: asked on the review queue, possible everywhere
 
-The page is interactive in one place. Everything else is read-only.
+The page asks for a verdict only in the review queue, but any box on it can be corrected and any photo marked
+for deletion. A confident result can still be wrong (owner, 2026-09-24: "what if the avocets are Snowy Egrets?"),
+and those are the most valuable corrections: the pipeline did not know it was unsure.
 
 - Most runs will not be looked at (owner direction), so feedback cannot be a chore over every photo. The review
   queue is the exception list: in the Coyote Hills run that would be a few dozen boxes, not 1,424 photos.
 - A verdict is worth more than a glance: each one is a ground-truth row for the owner's own tier, which is the
   data the harness is short of (standards: own-tier numbers; culling research §5 wants owner labels too).
-- Verdicts per item: **Confirm** (the suggested name is right), **Correct to…** (type a name; checked against the
-  loaded lists by `bioscan gt review`, not by the page), **Not an animal**, **Skip**. A group has "Confirm all".
+- Two separate questions, never mixed:
+  - **Name** (per box): **Confirm**, **Correct to…** (type a name; checked against the loaded lists by
+    `bioscan gt review`, not by the page), **Not an animal**, **Skip**. A review group has "Confirm all".
+  - **Keep** (per photo): **Mark for deletion**. It is not a name verdict: a correct name on a blurry frame is
+    still a correct name, and an uncertain name is no reason to delete a photo.
+- Correcting outside the queue: open a taxon to see its members, then either correct one frame or pick frames
+  and "Move to…" another name. Moving all of a taxon is the same action with every frame picked.
+- Nothing is ever deleted by bioscan. `bioscan gt review` writes the deletion marks as a rejected label in XMP
+  sidecars (the culling research's "mark, never delete"); the owner deletes in Lightroom or Finder.
 - `review.json`: `{"schema": 1, "kind": "bioscan.review", "summary_sha256": "…", "verdicts": [{"sha256", "box",
-  "verdict": "confirm|correct|not_animal|skip", "name", "note"}]}`. Keyed by sha256 and box id, so renamed or
-  moved files still match.
+  "verdict": "confirm|correct|not_animal|skip", "name", "note"}], "reject": [{"sha256", "path"}]}`. Keyed by
+  sha256 and box id, so renamed or moved files still match.
 - The page keeps a draft in the browser's local storage and saves `review.json` next to the report with a
   button (a Blob download, which works for a local file). `bioscan gt review report/review.json` turns it into
   ground-truth rows; writing them into `data/groundtruth-own.csv` is committed data and needs the owner's
