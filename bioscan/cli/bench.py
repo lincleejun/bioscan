@@ -49,6 +49,11 @@ EXAMPLES = 5
 
 EXIT_OK, EXIT_OVER, EXIT_INCOMPARABLE = 0, 1, 2
 
+# `bench geotag` (bioscan.cli.geobench): its own report schema, scored by the same scorecard.
+GEOTAG_SCHEMA = "bioscan-geotag-report"
+GEOTAG_RATES = ("within_100m_rate", "within_1km_rate", "no_fix_rate", "false_fix_rate", "cell_change_rate")
+GEOTAG_METRICS = ("n", "n_expected", "median_error_m", "p90_error_m", *GEOTAG_RATES, "offset_error_s")
+
 
 class BenchError(Exception):
     """A file the harness cannot use (unreadable, wrong schema, invalid budget or standards)."""
@@ -341,13 +346,13 @@ def write_json(obj: dict, path: str | Path) -> Path:
     return p
 
 
-def load_report(path: str | Path) -> dict:
+def load_report(path: str | Path, schemas: tuple[str, ...] = (REPORT_SCHEMA,)) -> dict:
     try:
         rep = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise BenchError(f"{path}: cannot read report ({e})") from e
-    if not isinstance(rep, dict) or rep.get("schema") != REPORT_SCHEMA:
-        raise BenchError(f"{path}: not a {REPORT_SCHEMA} file")
+    if not isinstance(rep, dict) or rep.get("schema") not in schemas:
+        raise BenchError(f"{path}: not a {' or '.join(schemas)} file")
     if rep.get("version") != REPORT_VERSION:
         raise BenchError(f"{path}: report version {rep.get('version')!r}, this bioscan reads {REPORT_VERSION}")
     return rep
@@ -815,9 +820,10 @@ def read_standards(path: str | Path) -> list[dict]:
             raise BenchError(f"{where}: op must be >= or <=")
         if s["metric"] == MANUAL:
             continue
-        if s["metric"] not in METRICS:
-            raise BenchError(f"{where}: metric must be one of {', '.join(METRICS)} or {MANUAL}")
-        if (s["metric"] in FRACTIONS) != (s["unit"] == "fraction"):
+        if s["metric"] not in METRICS and s["metric"] not in GEOTAG_METRICS:
+            raise BenchError(f"{where}: metric must be one of {', '.join(METRICS)}, a geotag metric "
+                             f"({', '.join(GEOTAG_METRICS[1:])}) or {MANUAL}")
+        if (s["metric"] in FRACTIONS or s["metric"] in GEOTAG_RATES) != (s["unit"] == "fraction"):
             raise BenchError(f"{where}: rate metrics take unit \"fraction\" (0-1), other metrics may not")
         if standard_tier(s) is None:
             raise BenchError(f"{where}: no tier (add `tier`, or use an id <dimension>.<tier>.<scope>.<metric>)")
@@ -983,7 +989,7 @@ def cmd_analyze(a) -> int:
 
 
 def cmd_scorecard(a) -> int:
-    rep = load_report(a.report)
+    rep = load_report(a.report, (REPORT_SCHEMA, GEOTAG_SCHEMA))
     standards = read_standards(a.standards or STANDARDS_TOML)
     tier = a.tier or report_tier(rep)
     if not tier:
@@ -1054,3 +1060,7 @@ def add_parser(sub) -> None:
     s.add_argument("--tier", help="standards tier to apply (smoke, golden, own, public, mac); default: the report's")
     s.add_argument("--md", help="also write the markdown here")
     s.set_defaults(func=cmd_scorecard)
+
+    from bioscan.cli import geobench  # imports this module; registered last to avoid a cycle
+
+    geobench.add_parser(b)

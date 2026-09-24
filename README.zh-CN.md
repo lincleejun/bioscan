@@ -192,6 +192,45 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 | `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | 物种裁切用细节图的长边；≤2048 关闭（回到 2048 图上裁） | 3072 |
 | `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | 只允许读写这些目录下的文件（可重复；环境变量用 `:` 分隔）；不设则不限制，监听非本机地址时会告警 | 不限 |
 
+### 用 GPX 轨迹补 GPS
+
+多数相机不写 GPS。如果出行时用手表或手机记录了轨迹并导出 GPX，bioscan 可以按拍摄时间把每张照片放到轨迹上，作用相当于 Lightroom 地图模块的"自动标记照片"。位置很重要：golden 集上鸟类 Top-1 无坐标 83.3%、有坐标 89.8%（见 README 结果；两数在 docs/standards.md 第 4 节有争议）。GPX 坐标本身带来的提升尚未验证，要等 docs/harness.md 里的 Mac 运行。
+```sh
+bioscan geotag DIR --gpx hike.gpx --tz America/Los_Angeles --csv geo.csv   # path,lat,lon,source,dt_s,err_m,utc,ele
+bioscan geotag DIR --gpx a.gpx --gpx b.gpx --offset +00:01:23 --xmp       # 相机快 83 秒；写 <stem>.xmp 旁车文件
+bioscan geotag DIR --gpx hike.gpx --clock DIR/DSC0001.ARW=2026-05-01T08:00:13   # 一张拍手表的照片，表上是 08:00:13
+bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图用自己的坐标（EXIF GPS 仍然优先）
+```
+- **来源**：每张图的来源是以下三种之一：
+  - `exif`：文件本身有 GPS，EXIF 永远优先；
+  - `gpx`：由轨迹定位；
+  - `none`：在轨迹之外，或没有拍摄时间。
+
+  CSV 还给出 `dt_s`（离最近轨迹点的秒数）、`err_m`（误差估计；合成集上约 3/4 的定位落在其内）和校正后的 UTC 时间。
+- **时间**：GPX 是 UTC，相机是本地钟点。文件有 OffsetTimeOriginal 就用它；否则按 `--tz` 解读。`--tz` 可以是固定偏移，也可以是时区名，时区名会按每个日期套用正确的夏令时。默认用本机时区。负值要写成 `--tz=-07:00`、`--offset=-3600`，否则 argparse 会把它当成选项。
+- **相机时钟偏差**（相机时间减真实时间）按以下顺序取第一个可用的：
+  1. `--offset`；
+  2. 拍钟照片：`--clock 照片=时间`，写钟面显示的时间，按该照片的时区解读；
+  3. 目录里已有 GPS 的照片（手机照片、带 GPS 连接的相机）：找出让这些照片落在轨迹上的偏差。若它们离轨迹超过 100 m 就放弃；若多个偏差同样吻合，优先整刻钟加小漂移（即时区、夏令时错误）；
+  4. 以上都没有则为 0。
+
+  一次运行只用一个偏差，所以请一台相机一次。多数照片落在轨迹外时会告警并给出差多少；整小时通常是时区设错。
+- **定位规则**：相邻轨迹点相隔不超过 `--max-gap` 秒（默认 1800）时，按时间线性插值。间隔更长时，只有两端相距不超过 `--max-span` 米（默认 200，即站着不动、手表自动暂停）才插值。轨迹外不定位；加 `--extrapolate N` 时，在 N 秒内沿用首/末点。
+- **XMP**：`--xmp` 写 `<stem>.xmp`，内含 XMP 的 `exif:GPSLatitude`/`GPSLongitude`。Lightroom、Capture One、Bridge 对 RAW 读这个旁车文件；Lightroom 不读 JPEG 的旁车文件。已有旁车文件（`<stem>.xmp`，或 darktable 的 `<name>.<ext>.xmp`）的照片一律跳过：bioscan 从不修改或合并已有旁车文件，也从不写照片文件本身。需要改已有文件时，请用 CSV 配合 exiftool。
+- **多条轨迹**：多个 `--gpx` 文件、多个分段会合并成一条按时间排序的轨迹。第二台设备同时记录，只是多了点。
+- **精度**：在用 golden 集合成的轨迹上测得（`bioscan bench geotag`，见 docs/harness.md）：
+
+  | 指标 | 汇总结果 |
+  |---|---|
+  | 误差中位数 | 7.2 m |
+  | 误差 p90 | 17 m |
+  | 100 m 内 | 97.2% |
+  | 未定位 | 0.1% |
+  | 误定位 | 0% |
+  | 时钟偏差误差 | 中位数 1 秒 |
+
+  各场景明细见 docs/2026-09-24-geotag-synthetic.md。
+
 ### HTTP API
 
 ```sh
@@ -228,6 +267,7 @@ bioscan bench baseline runs/<date>-golden/report.json --name golden-inat-<tag>  
 bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json          # 超出预算退出码 1
 bioscan bench analyze runs/<new>/report.json                                            # 失败分类，下一步修什么
 bioscan bench scorecard runs/<new>/report.json                                          # 对照 data/standards.toml
+bioscan bench geotag runs/geotag-synth                                                  # 在合成轨迹上评 GPX 定位
 ```
 - **基线流程**：今天跑一遍，用 `bench baseline` 存成基线并提交；之后换模型或改代码，再跑一遍，用 `bench compare` 对照基线。
 - **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行。
@@ -290,7 +330,9 @@ bioscan/service/settings.py      影响输出的设置指纹
 bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF（各 RAW 容器）+ sha256
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
-bioscan/cli/                     main client render gt eval
+bioscan/geotag.py                GPX 解析、拍摄时间转 UTC、时钟偏差、轨迹插值、XMP 旁车文件（纯标准库）
+bioscan/cli/                     main client render gt eval bench geotag_cli（geotag、run --gpx）geobench（bench geotag）
+scripts/geotag_synth.py          用 golden 集合成 GPX 场景，供 bench geotag 使用
 data/names/                      AviList 为准的名字映射表
 docs/                            设计 spec、实施计划、评测结果
 ```

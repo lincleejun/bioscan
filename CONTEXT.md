@@ -180,6 +180,37 @@ Twelve hex characters over the output-changing constants (thresholds, prompts, v
 unlabelled policies, accuracy option defaults, max edge);
 the configured detail edge is reported beside it as `engine.detail_edge`.
 
+## Geotagging
+
+**Track**:
+Every timed point of one or more GPX files and their segments, merged in time order (`geotag.Track`); GPX times are UTC.
+_Avoid_: route (a GPX `rte` has no times), log
+
+**Outing**:
+One photographer's photos of one trip with one camera and the track(s) recorded alongside: the unit `bioscan geotag`
+works on (one clock offset, one `--tz`), and a group in the synthetic scenarios (same observer and day).
+_Avoid_: session, hike
+
+**Clock offset**:
+Camera time minus true time, in seconds (a camera 37 s fast has +37). Given (`--offset`), read from a clock photo, or
+estimated from reference photos; the corrected capture time is camera UTC minus it.
+_Avoid_: time shift, drift (drift is only the slow part)
+
+**Reference photo**:
+A photo of the outing that already has GPS (phone, camera GPS link); the clock offset is estimated from where it sits on the track.
+
+**Clock photo**:
+A photo of a clock (GPS watch, phone) with the true time it shows (`--clock PHOTO=TIME`); gives the clock offset directly.
+
+**Fix**:
+One photo's geotag result: lat, lon, source (`exif`, `gpx` or `none`), seconds to the nearest track point and an error
+estimate (`geotag.Fix`). "No fix" means source none.
+_Avoid_: match, hit
+
+**Fix rule**:
+When the track gives a position: linear between neighbouring points up to the max gap apart, or across a longer gap
+whose ends are within the max span (the device stood still); none outside the track unless extrapolation holds an end.
+
 ## Standards and releases
 
 **Standard**:
@@ -189,7 +220,7 @@ _Avoid_: KPI, target (alone)
 
 **Tier**:
 One test folder a standard is judged on: `smoke` (CI, 95 photos: 42 birds, 35 mammals, 18 other animals; reduced lists), `golden` (1,625 iNat California),
-`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed).
+`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed), `geotag` (synthetic GPX scenarios built from golden).
 _Avoid_: dataset (alone), split
 
 **Community bar**:

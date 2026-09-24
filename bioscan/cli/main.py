@@ -9,7 +9,7 @@ import urllib.error
 from pathlib import Path
 
 from bioscan import contract, formats, serve_config
-from bioscan.cli import bench, client, gt
+from bioscan.cli import bench, client, geotag_cli, gt
 from bioscan.cli.render import Renderer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -79,12 +79,18 @@ def build_payload(a) -> dict:
     if not paths:
         raise SystemExit("no images found")
     inputs = [{"path": p} for p in paths]
+    if getattr(a, "gpx", None):
+        # Per-file coordinates from the track, only for images without EXIF GPS (EXIF wins).
+        placed = geotag_cli.run_coordinates(paths, a)
+        for inp in inputs:
+            if inp["path"] in placed:
+                inp["lat"], inp["lon"] = placed[inp["path"]]
     if a.lat is not None:
         # Request coordinates override EXIF on the service side, so only fill images whose
         # EXIF has none -- that keeps "EXIF wins" semantics for the batch default.
         exif = gt.read_exif(paths)  # all blank without exiftool -> every image gets the default
         for inp in inputs:
-            if exif.get(inp["path"], {}).get("lat", "") == "":
+            if exif.get(inp["path"], {}).get("lat", "") == "" and "lat" not in inp:
                 inp["lat"], inp["lon"] = a.lat, a.lon
     options: dict = {}
     if "identify" in want:
@@ -257,8 +263,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--want", default="identify", help="comma list of identify,embed,jpg")
     s.add_argument("--json", action="store_true", help="write raw NDJSON")
     s.add_argument("--out", help="write to FILE instead of stdout")
-    s.add_argument("--lat", type=float)
+    s.add_argument("--lat", type=float, help="batch coordinate for images with no EXIF GPS and no --gpx fix")
     s.add_argument("--lon", type=float)
+    s.add_argument("--gpx", action="append", help="GPX track (repeatable): per-image coordinates for images "
+                                                  "without EXIF GPS, as `bioscan geotag` places them")
+    geotag_cli.add_track_options(s)
     s.add_argument("--no-geo", action="store_true")
     s.add_argument("--top-k", type=int, default=5)
     s.add_argument("--no-species", action="store_true")
@@ -295,6 +304,7 @@ def parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_eval)
 
     bench.add_parser(sub)
+    geotag_cli.add_parser(sub)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)

@@ -50,6 +50,7 @@ must clear it, not just the observed rate.
 | `own` | owner's telephoto RAW, folder-name truth, `data/groundtruth-own.csv` (288 Western Screech-Owl, 85 Red-tailed Hawk, 31 Steller's Jay) | 404 | full lists | private | owner's Mac | the real use case |
 | `public` | **to build**: ≥ 5 regions, CC0/CC BY only, one observation per photo, ≤ 5 per observer, sequestered test split | ≥ 5,000 | full lists | CC0 / CC BY, redistributable | owner's Mac; published | claim we can show others |
 | `mac` | 2,000 RAW files, ARW + CR3 + NEF, 24 MP (plus 45 MP), from SSD and USB disk | 2,000 | full lists | private | M1-class Mac | speed |
+| `geotag` | synthetic GPX tracks through the golden photos' true positions, 7 scenarios (`scripts/geotag_synth.py`, seed 7) | 1,624 photos × 7 | none (no models) | derived from golden; tracks are generated, not shipped | anywhere, seconds to a minute | GPX geotagging ([section 12](#12-geotag-from-a-gpx-track-synthetic-tier)) |
 
 The golden set is 89% CC BY-NC. That is fine for measuring but not for publishing the photos. This is
 why the public tier is CC0/CC BY only.
@@ -289,6 +290,34 @@ Opt-in features that fetch data (for example `bioscan gt inat`) are outside a de
 | Models, lists and prior pinned; revisions and settings fingerprint in each result | none of the competitors publishes this | **yes** | yes | yes: SigLIP2, OWLv2, BioCLIP and TreeOfLife revisions are pinned, and `result.engine` carries the models, name-list versions, settings fingerprint and detail edge (v1.2 A) | a number is only worth something if someone else can get it again |
 | A published bench report for every release tag | none of the competitors publishes one [^strategy] | **yes** | yes | no (the W1 harness publishes on tag runs) | the community call rests on numbers anyone can check |
 
+## 12. Geotag from a GPX track (synthetic tier)
+
+The `geotag` tier is not a photo folder. `scripts/geotag_synth.py` (seed 7) builds GPX tracks through the golden set's
+true positions and capture times in seven scenarios: perfect, camera 37 s fast, camera 1 h fast (DST), wrong
+timezone, dropouts, photos outside the track, and several files. `bioscan bench geotag` then scores
+`bioscan.geotag` against the truth (docs/harness.md). Scope `all` pools the scenarios. Errors count only the photos
+whose true time is inside the track; a photo there without a fix is a miss.
+
+| Standard | Industry bar | Community | Stretch | Now (2026-09-24, seed 7) | Why this bar |
+|---|---|---|---|---|---|
+| Median position error | none found for track geotagging; the synthetic GPS noise (σ 3–10 m per axis) is the floor | **≤ 15 m** | ≤ 10 m | 7.2 m | a site-level caption; far inside the prior's cell |
+| 90th-percentile position error | none | **≤ 100 m** | ≤ 30 m | 17 m | a tenth of the prior's 0.01° cell |
+| Placed within 100 m | none | **≥ 95%** | ≥ 98% | 97.2% [96.8, 97.5] | trail- or site-level captions |
+| Placed within 1 km | none | **≥ 98%** | ≥ 99.5% | 99.8% | the location prior sees the right place |
+| No fix inside the track | none | **≤ 5%** | ≤ 1% | 0.1% | a track should place what it covers |
+| Fix outside the track | none | **≤ 2%** | ≤ 0.5% | 0.0% | a wrong place is worse than none for the prior |
+| Fix in a different prior cell than the truth | none | **≤ 5%** | ≤ 2% | 2.0% | the BirdNET prior is looked up at 2-decimal lat/lon |
+| Recovered clock-offset error (median) | none | **≤ 10 s** | ≤ 2 s | 1.0 s | 10 s is about 14 m at walking pace |
+
+How measured:
+```sh
+uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7
+bioscan bench geotag runs/geotag-synth        # prints the tier's scorecard; exit 1 when a bar is missed
+```
+The numbers are synthetic: they show that the method works under the modelled noise, gaps and clock errors, not
+how a real watch behaves under trees or in canyons. The effect on species ID needs the Mac runs in
+docs/harness.md ("Downstream"); until then it is **unverified**.
+
 ## Release stages
 
 ### Always: every push
@@ -353,7 +382,10 @@ the scorecard shows how far away they are.
 - **Manual entries.** `metric = "manual"` (id `<dimension>.<name>`) covers standards that are not a
   report key: list sizes, truth share, RAW formats, isolation, onboarding, privacy, pinning, the
   release report and the geo gain. The scorecard lists them as "check by hand".
-- **Units.** Rates are fractions (0–1). Speeds are in `ms` or `images/s`.
+- **Units.** Rates are fractions (0–1). Speeds are in `ms` or `images/s`. Geotag errors are in `m`, clock offsets in `s`.
+- **Geotag metrics.** The `geotag` tier reads a `bench geotag` report, whose metrics differ from a species report:
+  `median_error_m`, `p90_error_m`, `within_100m_rate`, `within_1km_rate`, `no_fix_rate`, `false_fix_rate`,
+  `cell_change_rate`, `offset_error_s` (docs/harness.md defines them).
 
 ## Industry references: what we could verify
 

@@ -226,6 +226,45 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
 - Within the chosen list, `p_visual` is the softmax over its matching rows; the location prior (birds, and mammals with `mammal_geo`), the range veto and the grade then work on those rows as they do on a whole list. `species.list` names the list, and every candidate in `top` comes from it.
 - Empty or absent means all taxa. A name no loaded list knows is a 400 that lists the unknown names. `bioscan eval --candidates …` passes the option through and records it in the preds meta line and the report (with `--preds`, which rescores a finished run, it is refused).
 
+### Geotag from a GPX track
+
+Most camera bodies write no GPS. If you record the outing with a watch or phone and export a GPX track, bioscan places each photo on the track at its capture time. This does the same job as Lightroom's "auto-tag photos" map module. The location matters: on the golden set, bird top-1 is 83.3% without coordinates and 89.8% with them (README results; the two numbers are disputed in docs/standards.md §4, and the GPX effect itself is unverified until the Mac run in docs/harness.md).
+```sh
+bioscan geotag DIR --gpx hike.gpx --tz America/Los_Angeles --csv geo.csv   # path,lat,lon,source,dt_s,err_m,utc,ele
+bioscan geotag DIR --gpx a.gpx --gpx b.gpx --offset +00:01:23 --xmp       # camera 83 s fast; write <stem>.xmp sidecars
+bioscan geotag DIR --gpx hike.gpx --clock DIR/DSC0001.ARW=2026-05-01T08:00:13   # a photo of the watch showing 08:00:13
+bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates for identify (EXIF GPS still wins)
+```
+- **Sources.** Each photo gets one of `exif`, `gpx` or `none`:
+  - `exif`: the file already has GPS. EXIF always wins.
+  - `gpx`: the track placed the photo.
+  - `none`: the photo is outside the track or has no capture time.
+
+  The CSV also gives `dt_s` (seconds to the nearest track point), `err_m` (an estimate of the error; about 3 fixes in 4 fall within it on the synthetic set) and the corrected UTC time.
+- **Time.** GPX times are UTC; camera times are local wall time. A file's OffsetTimeOriginal is used when present. Otherwise the time is read in `--tz`: a fixed offset, or a zone name, which applies the right DST for each date. The default is this computer's zone. Write negative values with `=`, e.g. `--tz=-07:00` and `--offset=-3600`, or argparse takes them for options.
+- **Clock offset** (camera time minus true time). It comes from the first of these that applies:
+  1. `--offset`;
+  2. a photo of a clock: `--clock PHOTO=TIME`, the time the clock shows, read in the photo's zone;
+  3. an estimate from photos in the folder that already have GPS (a phone photo, or a camera with a GPS link). The estimate finds the offset at which those photos sit on the track. It is rejected when they sit more than 100 m off, and when several offsets fit equally well it prefers whole quarter-hours plus drift (timezone and DST mistakes);
+  4. otherwise 0.
+
+  The offset is applied once per run, so run one camera at a time. When most photos fall outside the track, a warning says how far off they are; a whole number of hours means a timezone mistake.
+- **Fix rule.** The position is linear in time between neighbouring track points up to `--max-gap` seconds apart (default 1800). Across a longer gap, it is linear only when the gap's ends are within `--max-span` metres of each other (default 200: the watch auto-paused while you stood still). Outside the track there is no fix, unless you allow `--extrapolate N`: then the first or last point is held for N seconds.
+- **XMP.** `--xmp` writes `<stem>.xmp` holding `exif:GPSLatitude`/`GPSLongitude` in XMP. This is the sidecar Lightroom, Capture One and Bridge read for RAW files; Lightroom ignores sidecars of JPEGs. A photo that already has a sidecar (`<stem>.xmp`, or darktable's `<name>.<ext>.xmp`) is left alone: bioscan never edits or merges an existing sidecar, and never writes into the photo file. Use the CSV with exiftool if you need to change existing files.
+- **Several tracks.** Several `--gpx` files and segments merge into one time-ordered track. A second device recording at the same time just adds points.
+- **Accuracy.** Measured on synthetic tracks built from the golden set (`bioscan bench geotag`, docs/harness.md):
+
+  | Measure | Pooled result |
+  |---|---|
+  | Median error | 7.2 m |
+  | p90 error | 17 m |
+  | Within 100 m | 97.2% |
+  | No fix | 0.1% |
+  | False fix | 0% |
+  | Clock-offset error | 1 s (median) |
+
+  The per-scenario table is in docs/2026-09-24-geotag-synthetic.md.
+
 ### HTTP API
 
 ```sh
@@ -262,6 +301,7 @@ bioscan bench baseline runs/<date>-golden/report.json --name golden-inat-<tag>  
 bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json          # exit 1 over budget
 bioscan bench analyze runs/<new>/report.json                                            # failure classes, what to fix next
 bioscan bench scorecard runs/<new>/report.json                                          # against data/standards.toml
+bioscan bench geotag runs/geotag-synth                                                  # GPX geotagging on synthetic tracks
 ```
 - **report.json** (`bioscan-report` v1) holds:
   - the run's git sha, engine, settings fingerprint and ground-truth sha;
@@ -331,7 +371,10 @@ bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + 
 bioscan/service/names.py         AviList / MDD lists, the TreeOfLife all-taxa list, TreeOfLife mapping, text-vector cache
 bioscan/service/candidates.py    the candidates option: taxon index, the rows each list keeps
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
+bioscan/geotag.py                GPX parsing, capture time -> UTC, clock offset, track interpolation, XMP sidecars (stdlib only)
 bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
+                                 geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
+scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 baselines/                       committed reports compared against, and the regression budget
 data/names/                      name mapping tables keyed on AviList
 docs/                            design spec, implementation plan, evaluation results
