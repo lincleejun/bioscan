@@ -1,6 +1,6 @@
 """Fingerprint of every setting that changes identify output without changing a model: rule
-thresholds, gate prompts, detector words, the geo formula and unlabelled policies, the accuracy
-switches' defaults, image sizes. Reported in `info()` so a
+thresholds, gate prompts, detector words, the geo formula, unlabelled policies and label map
+contents, the accuracy switches' defaults, image sizes. Reported in `info()` so a
 result cache (or a person comparing two runs) can tell when results are no longer comparable."""
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any
 
 
 def snapshot() -> dict[str, Any]:
+    from bioscan import naming
     from bioscan.service import decode, names, pipeline, rules, taxa
     from bioscan.service.adapters import geo
 
@@ -21,7 +22,10 @@ def snapshot() -> dict[str, Any]:
             "taxa": {"not_animal": list(taxa.NOT_ANIMAL), "promote_to": taxa.PROMOTE_TO,
                      "kind_check": list(taxa.KIND_CHECK)},
             "geo": {"model": list(geo.GEO_MODEL), "floor": geo.GEO_FLOOR, "neutral": geo.UNLABELLED_NEUTRAL,
-                    "unlabelled": {kind: src.unlabelled for kind, src in names.LISTS.items()}},
+                    "unlabelled": {kind: src.unlabelled for kind, src in names.LISTS.items()},
+                    # the committed label maps' content: editing mdd_map.csv moves answers but not the list sha
+                    "label_maps": {kind: names.label_map_sha(naming.DATA_DIR / naming.NAMES_DIR / src.label_map)
+                                   for kind, src in names.LISTS.items() if src.label_map}},
             "switches": pipeline.SWITCHES, "prior_switch": pipeline.PRIOR_SWITCH, "max_edge": decode.MAX_EDGE}
 
 

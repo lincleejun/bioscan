@@ -21,6 +21,9 @@ Scratch: `$SCRATCH/v15-w3/` (golden recordings, label rebuild, map build inputs,
 - [x] equivalence: switches OFF == base golden, byte-identical (sha 1d89c01b8af47833); ON diff summary (every change attributed)
 - [x] docs: README + README.zh-CN section and flags, CONTEXT.md terms, data/README (mdd_map inputs, reviewed synonyms)
 - [x] self-review against base
+- [x] orchestrator follow-ups: kind evidence from each list's top KIND_TOP rows (size-independent; padding test);
+      label map sha in info() `models.label_maps` and in the fingerprint; real-model on/off gate allows 1 image per
+      kind and measure (tripwire; harness budget is the gate). Switches-off golden still 1d89c01b8af47833
 - [ ] CI (ci.yml, models.yml) on the pushed head: orchestrator (this branch is not pushed)
 - [ ] Mac eval: `bioscan eval` golden set on, then each switch off (`--identify-opt NAME=false`)
 

@@ -61,7 +61,8 @@ _Avoid_: geo filter, out-of-range filter
 
 **Kind check**:
 Scoring a box's species features against every kind-check list at once (`taxa.KIND_CHECK`) and giving
-the box the kind whose list holds most of the visual mass, whatever the gate and crop check said;
+the box the kind whose best `rules.KIND_TOP` names hold most of the visual probability (list size does
+not count), whatever the gate and crop check said;
 a box that moved on a thin margin (`rules.KIND_SURE`) gets level unconfirmed. Identify option `kind_check`.
 _Avoid_: second crop check, reclassify
 

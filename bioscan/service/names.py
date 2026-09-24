@@ -52,6 +52,7 @@ class NameList:
     birdnet: list[str] = field(default_factory=list)
     birdnet_how: list[str] = field(default_factory=list)
     unlabelled: str = "zero"     # location prior for a row with no label: zero | genus (geo.LocationPrior)
+    label_map_sha: str = ""      # label_map_sha(label map file) the labels came from; "" = no map
 
 
 def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> list[str]:
@@ -266,6 +267,13 @@ def _read_label_map(data_dir: Path, src: ListSource, kind: str, synonyms) -> tup
     return amap, map_path
 
 
+def label_map_sha(path: Path | None) -> str:
+    """12 hex characters of sha256 over a label map file; "" when there is none. Reported in
+    engine info() and part of settings.fingerprint(): a labels-only map (mdd_map.csv) is not in the
+    list sha, yet editing it changes answers."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12] if path is not None and path.is_file() else ""
+
+
 def _has_tol(amap: dict[str, dict[str, str]]) -> bool:
     """True when the map fixes each row's TreeOfLife name (avilist_map.csv); labels-only maps do not."""
     return bool(amap) and "tol_name" in next(iter(amap.values()))
@@ -303,7 +311,8 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
         if amap:
             m = [amap.get(r[0], {}) for r in rows]
             labels = {"birdnet": [x.get("birdnet_label", "") for x in m],
-                      "birdnet_how": [x.get("birdnet_how") or "none" for x in m]}
+                      "birdnet_how": [x.get("birdnet_how") or "none" for x in m],
+                      "label_map_sha": label_map_sha(map_path)}
         out[kind] = NameList(src.list_id, kind, **cols, sha=sha, **labels, unlabelled=src.unlabelled)
     for s in stats(out).values():
         log.info("names %s: %d species, TreeOfLife %s, BirdNET %s", s["list_id"], s["total"], s["tol"], s["birdnet"])

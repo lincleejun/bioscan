@@ -29,8 +29,11 @@ RESCUE = 0.25           # gate says none/person but bird+mammal+other_animal >= 
 RANGE_EPS = 0.01
 RANGE_TAU = 0.05
 # Kind check: the box's species evidence (BioCLIP over every kind-check list at once) outvotes the
-# gate and crop check; with less than KIND_SURE of the mass on the winning list, a box whose kind
-# moved is graded unconfirmed (any name above that would assert a kind the evidence cannot).
+# gate and crop check. Each kind's evidence is the probability of its KIND_TOP best rows, the same
+# number for every list, so a list's size cannot buy it the vote. With less than KIND_SURE of that
+# evidence on the winning kind, a box whose kind moved is graded unconfirmed (any name above that
+# would assert a kind the evidence cannot).
+KIND_TOP = 5
 KIND_SURE = 0.75
 
 
@@ -122,9 +125,19 @@ def range_veto(cands: list[dict[str, Any]], direct: list[bool] | None = None) ->
     return ([mate, *(c for c in cands if c is not mate)] if mate else cands), True
 
 
+def kind_evidence(probs: np.ndarray, rows_of: dict[str, slice]) -> dict[str, float]:
+    """Each kind's share of the evidence from one box's probabilities over the stacked kind-check
+    lists (`rows_of` = each list's rows): the sum of its KIND_TOP highest, normalised over kinds.
+    Equivalent to comparing log-sum-exp of each list's top KIND_TOP logits; rows beyond a list's
+    best KIND_TOP never count, so padding a list with irrelevant names changes nothing."""
+    top = {k: float(np.sort(probs[rows])[-KIND_TOP:].sum()) for k, rows in rows_of.items()}
+    total = sum(top.values())
+    return {k: v / total if total > 0 else 1.0 / len(top) for k, v in top.items()}
+
+
 def kind_of(mass: dict[str, float]) -> tuple[str, bool]:
-    """(kind, sure) from the share of species evidence each kind-check list holds: the list with
-    the most, and whether that is at least KIND_SURE."""
+    """(kind, sure) from the share of species evidence each kind-check list holds (kind_evidence):
+    the list with the most, and whether that is at least KIND_SURE."""
     kind = max(mass, key=lambda k: mass[k])
     return kind, mass[kind] >= KIND_SURE
 

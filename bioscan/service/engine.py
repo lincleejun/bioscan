@@ -133,18 +133,21 @@ class Engine:
         return bird.source if bird is not None else None
 
     def info(self) -> dict[str, Any]:
-        from bioscan.service import settings
+        from bioscan.service import names, settings
         from bioscan.service.adapters import bioclip, owlv2, siglip2
 
         lists = {k: f"{nl.list_id}@{nl.sha}" for k, nl in self.names.items()}
         # every loaded name list, with its location prior's name or None (bird, mammal)
         priors = {k: b.name for k, b in self.priors.items()} | {k: None for k in self.names if k not in self.priors}
+        # the label map each list's BirdNET labels came from (file@sha12): mdd_map.csv is not in the list sha
+        label_maps = {k: f"{names.LISTS[k].label_map}@{nl.label_map_sha}" for k, nl in self.names.items()
+                      if getattr(nl, "label_map_sha", "") and k in names.LISTS}
         return {"version": bioscan.__version__, "settings": settings.fingerprint(),
                 "models": {"gate": f"{siglip2.MODEL_ID}@{siglip2.REVISION[:12]}",
                            "detect": f"{owlv2.MODEL_ID}@{owlv2.REVISION[:12]}",
                            "species": f"{bioclip.MODEL_ID.removeprefix('hf-hub:')}@{bioclip.REVISION[:12]}",
                            "names": lists,
-                           "geo": priors.get("bird"), "priors": priors}}
+                           "geo": priors.get("bird"), "priors": priors, "label_maps": label_maps}}
 
     # ---- inference ----
     def frame(self, images: list[Any]) -> tuple[np.ndarray, list[dict[str, float]]]:

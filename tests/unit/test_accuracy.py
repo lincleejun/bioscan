@@ -1,5 +1,6 @@
 """v1.5 accuracy fixes, each behind an identify switch: the range veto (rules.range_veto), the
 two-way kind check (pipeline) and the mammal location prior with genus back-off (geo.LocationPrior)."""
+import dataclasses
 from types import SimpleNamespace
 
 import numpy as np
@@ -198,6 +199,29 @@ def test_kind_check_needs_two_lists_and_leaves_other_animals_alone():
     assert box == {"kind": "other_animal", "species": None}
 
 
+def test_list_size_does_not_buy_the_kind():
+    """Pad the bird list with 3,000 near-duplicate names the crop looks nothing like: a skunk-ish
+    crop stays mammal. Summed mass over whole lists would have handed it to the birds."""
+    rng = np.random.default_rng(0)
+    pad = [unit(E[0] * 0.2 + E[5] * -1.0 + 0.01 * rng.normal(size=DIM)) for _ in range(3000)]
+    padded_birds = name_list("bird", "Aves", BIRDS.scientific + [f"Padus s{i}" for i in range(3000)],
+                             BIRDS.birdnet + [""] * 3000, np.vstack([BIRDS.matrix, pad]))
+    feature = unit([0, 0, 0.9, 1.0, 0, 0])                                 # skunk a bit more than owl
+    plain = Engine3(lambda c: feature)
+    padded = Engine3(lambda c: feature, lists={"bird": padded_birds, "mammal": MAMMALS})
+    for eng in (plain, padded):
+        box = species(eng, "bird")
+        assert box["kind"] == "mammal" and box["species"]["top"][0]["scientific"] == "Spilogale gracilis"
+    union = np.vstack([padded_birds.matrix, MAMMALS.matrix])
+    joint = Engine3._softmax(feature[None, :] @ union.T)[0]
+    rows_of = {"bird": slice(0, len(padded_birds.matrix)), "mammal": slice(len(padded_birds.matrix), len(union))}
+    assert joint[rows_of["bird"]].sum() > joint[rows_of["mammal"]].sum()   # the old statistic: bird
+    plain_joint = Engine3._softmax(feature[None, :] @ np.vstack([BIRDS.matrix, MAMMALS.matrix]).T)[0]
+    # the same evidence padded or not (up to the two pad rows that fill this 3-name list's top 5)
+    assert rules.kind_evidence(joint, rows_of) == pytest.approx(
+        rules.kind_evidence(plain_joint, {"bird": slice(0, 3), "mammal": slice(3, 6)}), abs=0.01)
+
+
 def test_a_third_list_joins_the_kind_check(monkeypatch):
     reptiles = name_list("reptile", "Reptilia", ["Crotalus oreganus"], [""], [unit([0, 0, 0, 0, 0.2, 1.0])])
     lists = {"bird": BIRDS, "mammal": MAMMALS, "reptile": reptiles}
@@ -244,6 +268,13 @@ def test_info_reports_a_prior_per_list():
                                 species=lambda d: (SimpleNamespace(), lists), geo=lambda: GeoSource()))
     eng._load_bioclip()
     assert eng.info()["models"]["priors"] == {"bird": geo.PRIOR_NAME, "mammal": geo.PRIOR_NAME}
+    assert eng.info()["models"]["geo"] == geo.PRIOR_NAME                  # the v1.4 field, unchanged
+    assert eng.info()["models"]["label_maps"] == {}                       # these lists came from no map file
+    tagged = {"bird": BIRDS, "mammal": dataclasses.replace(MAMMALS, label_map_sha="0123456789ab")}
+    eng = Engine("cpu", Loaders(siglip2=lambda d: None, owlv2=lambda d: None,
+                                species=lambda d: (SimpleNamespace(), tagged), geo=lambda: GeoSource()))
+    eng._load_bioclip()
+    assert eng.info()["models"]["label_maps"] == {"mammal": "mdd_map.csv@0123456789ab"}
     assert eng.priors["mammal"].unlabelled == "genus" and eng.priors["bird"].unlabelled == "zero"
     eng = Engine("cpu", Loaders(siglip2=lambda d: None, owlv2=lambda d: None,
                                 species=lambda d: (SimpleNamespace(), lists), geo=lambda: None))

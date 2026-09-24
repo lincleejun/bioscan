@@ -24,10 +24,30 @@ def test_snapshot_is_json_and_complete():
 def test_every_rules_threshold_is_in_the_fingerprint(monkeypatch):
     assert set(settings.snapshot()["rules"]) == {"VETO", "MAMMAL_SUPPORT", "BIRD_PROMOTE", "MIN_CROP", "SPECIES_P",
                                                  "SPECIES_MARGIN", "ROLLUP", "SECOND_PASS_FLOOR", "SECOND_PASS_TOP",
-                                                 "IOU_SAME", "RESCUE", "RANGE_EPS", "RANGE_TAU", "KIND_SURE"}
+                                                 "IOU_SAME", "RESCUE", "RANGE_EPS", "RANGE_TAU", "KIND_TOP", "KIND_SURE"}
     base = settings.fingerprint()
     monkeypatch.setattr(rules, "NEW_THRESHOLD", 0.42, raising=False)   # nobody listed it anywhere
     assert settings.snapshot()["rules"]["NEW_THRESHOLD"] == 0.42 and settings.fingerprint.__wrapped__() != base
+
+
+def test_label_map_contents_move_the_fingerprint(monkeypatch, tmp_path):
+    """Editing mdd_map.csv changes mammal answers without touching the list sha: the fingerprint
+    carries each committed label map's sha."""
+    import shutil
+
+    from bioscan import naming
+
+    snap = settings.snapshot()["geo"]["label_maps"]
+    assert set(snap) == {"bird", "mammal"} and all(len(v) == 12 for v in snap.values())
+    data = tmp_path / "data"
+    shutil.copytree(naming.DATA_DIR / naming.NAMES_DIR, data / naming.NAMES_DIR)
+    monkeypatch.setattr(naming, "DATA_DIR", data)
+    base = settings.fingerprint.__wrapped__()
+    assert base == settings.fingerprint()                                # same bytes, same fingerprint
+    mdd = data / naming.NAMES_DIR / "mdd_map.csv"
+    mdd.write_text(mdd.read_text().replace("Ursus arctos_Brown Bear", "", 1))
+    assert settings.snapshot()["geo"]["label_maps"]["mammal"] != snap["mammal"]
+    assert settings.fingerprint.__wrapped__() != base
 
 
 def test_accuracy_fixes_move_the_fingerprint(monkeypatch):

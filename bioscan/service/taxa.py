@@ -24,8 +24,8 @@ GATE_PROMPTS: dict[str, list[str]] = {
 NOT_ANIMAL = ("person", "none")          # a crop gate this sure of these vetoes a box (rules.VETO)
 PROMOTE_TO = "bird"                      # the crop gate may turn any other animal box into this kind
 # Kinds whose name lists compete in the kind check (pipeline): a box of one of these kinds moves to
-# whichever of their lists holds most of its species evidence. A list joins by adding its kind
-# here; an all-taxa list must not (it overlaps every other list).
+# whichever of their lists holds the strongest species evidence (rules.kind_evidence: each list's
+# best rows, so list size does not count). A list joins by adding its kind here.
 KIND_CHECK = ("bird", "mammal")
 
 # gate class -> {prompt: first-pass floor}

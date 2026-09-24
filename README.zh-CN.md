@@ -76,10 +76,10 @@ RAW/JPG ─ decode ─▶ 旋正 2048 图 + EXIF(GPS, 时间) + sha256 （identi
 | 选项 | 作用 | 常量 |
 |---|---|---|
 | `range_veto` | **分布否决**（range veto）：地点已知且名单有地理先验时，top-1 自身的 p_geo < ε 就不能定到种；若返回的候选里有同属且 p_geo ≥ τ 的种，把它排到第一（`top` 唯一不按后验排序的情况），级别按属/科累加定。解决加州渡鸦被认成菲律宾乌鸦。借自同属的 p_geo（见下）不触发否决。 | `rules.RANGE_EPS` ε = 0.01，`rules.RANGE_TAU` τ = 0.05 |
-| `kind_check` | **类别核对**（kind check）：每个框已算好的 BioCLIP 特征再与鸟+哺乳合并名单打一次分，框的类别取视觉概率质量更多的那张名单，可以推翻门和裁切复判（门判哺乳的猫头鹰不再被叫成臭鼬）。改了类别但优势不足 0.75 的定为 `unconfirmed`。按视觉质量而不是后验比较，因为两张名单的先验覆盖不同。`other_animal` 框不参与。 | `rules.KIND_SURE` = 0.75；参与的名单见 `taxa.KIND_CHECK` |
+| `kind_check` | **类别核对**（kind check）：每个框已算好的 BioCLIP 特征再与鸟+哺乳合并名单打一次分，框的类别取最好 5 个名字视觉概率之和更高的那张名单（每张名单取同样个数，名单长不占便宜），可以推翻门和裁切复判（门判哺乳的猫头鹰不再被叫成臭鼬）。改了类别但优势不足 0.75 的定为 `unconfirmed`。按视觉质量而不是后验比较，因为两张名单的先验覆盖不同。`other_animal` 框不参与。 | `rules.KIND_TOP` = 5，`rules.KIND_SURE` = 0.75；参与的名单见 `taxa.KIND_CHECK` |
 | `mammal_geo` | **哺乳地理先验**：服务已加载的 BirdNET geo 模型也给 1,048 种哺乳打分，`data/names/mdd_map.csv` 把它们对到 MDD 行。没有标签的 MDD 行取同属有标签种里最高的 p_geo（**属回退**，unlabelled policy `genus`），同属都没标签时取 0.05。鸟保持原规则：无标签为 0（policy `zero`）。 | `geo.UNLABELLED_NEUTRAL` = 0.05；每张名单的 `names.LISTS[...].unlabelled` |
 
-所有阈值、无标签策略和选项默认值都在 settings 指纹里。三项全关时 identify 输出与 v1.4 相同（在 300 帧替身模型录制、5 组选项上逐字节比对过）。测某一项：同一份真值跑两遍对比报告，例如 `bioscan eval GT.csv --out runs/x-no-veto --identify-opt range_veto=false`；HTTP 里传 `"options":{"identify":{"kind_check":false}}`。CI 的真模型冒烟把样本照片开、关各跑一遍，报告（`models-report`）里附开/关对照表和每张变了答案的图；任一类别丢了 Top-1 命中或多了定到种的错误就失败。
+所有阈值、无标签策略、标签映射表内容和选项默认值都在 settings 指纹里；`result.engine.models.label_maps` 给出每张映射表及其 sha。三项全关时 identify 输出与 v1.4 相同（在 300 帧替身模型录制、5 组选项上逐字节比对过）。测某一项：同一份真值跑两遍对比报告，例如 `bioscan eval GT.csv --out runs/x-no-veto --identify-opt range_veto=false`；HTTP 里传 `"options":{"identify":{"kind_check":false}}`。CI 的真模型冒烟把样本照片开、关各跑一遍，报告（`models-report`）里附开/关对照表和每张变了答案的图；任一类别丢了一张以上 Top-1 命中、或多了一张以上定到种的错误才失败：每类约 38 张，这只是绊线，真正的关卡是 `bioscan bench compare` 对照已提交基线的回退预算。
 
 模型与数据：
 

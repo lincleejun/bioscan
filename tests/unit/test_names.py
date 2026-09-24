@@ -300,6 +300,9 @@ def test_labels_only_mdd_map_keeps_the_matrix_and_its_key(tmp_path, caplog):
     assert after["mammal"].unlabelled == "genus" and after["bird"].unlabelled == "zero"
     assert "stale name map" not in caplog.text
     assert after["bird"].sha == before["bird"].sha
+    # provenance: the map's own sha travels with the list (engine info, settings fingerprint)
+    assert before["mammal"].label_map_sha == "" and len(after["mammal"].label_map_sha) == 12
+    assert after["mammal"].label_map_sha == names.label_map_sha(data / "names" / "mdd_map.csv")
 
 
 def _build_name_map():

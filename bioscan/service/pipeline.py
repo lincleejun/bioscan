@@ -21,6 +21,7 @@ from bioscan.service.rules import (
     crop_with_context,
     dedupe,
     judge,
+    kind_evidence,
     kind_of,
     quality,
     range_veto,
@@ -157,9 +158,10 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
 
     Kind check (switch "kind_check"): a box of a KIND_CHECK kind is also scored against all those
     lists stacked into one (one extra matmul on the features already computed) and takes the kind
-    whose list holds most of that visual probability; a box that moves on less than KIND_SURE of it
-    is graded unconfirmed. The visual mass decides, not the posterior: the lists differ in prior
-    coverage and unlabelled policy, so their posteriors do not compare across lists."""
+    whose best KIND_TOP rows hold most of that visual probability (rules.kind_evidence: list size
+    does not count); a box that moves on less than KIND_SURE of it is graded unconfirmed. Visual
+    evidence decides, not the posterior: the lists differ in prior coverage and unlabelled policy,
+    so their posteriors do not compare across lists."""
     by_kind: dict[str, list[tuple[int, int]]] = defaultdict(list)
     for fi, (_f, boxes, _b) in enumerate(work):
         for bi, b in enumerate(boxes):
@@ -184,7 +186,7 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
             if kind in rivals and len(rivals) > 1:
                 union, rows_of = _union(engine.names, rivals)
                 joint = np.asarray(engine.bioclip.probs(feats, union), dtype=np.float64)
-                final = [kind_of({k: float(j[rows].sum()) for k, rows in rows_of.items()}) for j in joint]
+                final = [kind_of(kind_evidence(j, rows_of)) for j in joint]
                 for other in dict.fromkeys(k for k, _sure in final if k != kind):
                     probs[other] = engine.bioclip.probs(feats, engine.names[other].matrix)
             for n, ((fi, bi), (k, sure)) in enumerate(zip(part, final)):
