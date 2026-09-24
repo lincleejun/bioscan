@@ -70,6 +70,12 @@ Both markdowns go to the job log and the job summary. When `baselines/ci-smoke.j
 yet, the step prints the new report between `===== BEGIN bioscan-report ci-smoke candidate =====` and
 `===== END … =====` and passes. Commit that JSON as `baselines/ci-smoke.json`.
 
+**Inference cache.** Branch and PR runs replay model outputs from earlier runs (keyed by the exact
+pixels and prompts a model gets; the cache is keyed on `bioscan/service/adapters/*.py` and `uv.lock`), so
+they compute only what reaches a model differently; the report's "Model time" section says how much. Their
+`identify_ms` and `images_per_s` are then not the models' speed. A `v*` tag and a `models` dispatch with
+`cold` run every model: take baselines from those.
+
 ### Mac commands (owner)
 
 ```sh

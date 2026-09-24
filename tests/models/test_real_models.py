@@ -19,11 +19,20 @@ whose answer changed. Switched on they may lose at most one Top-1 hit, and add a
 error, per kind (a tripwire; `bioscan bench compare` with its budgets is the gate). With the all-taxa
 list loaded the kind check also weighs it, so this table is where its effect on birds and mammals
 shows. models-report.json (the harness report) is written from the main, switches-on run.
+
+Inference cache (BIOSCAN_INFER_CACHE, a file; models.yml keeps it between runs): every model answer
+this module computes is stored by the exact pixels (and prompts) handed to the model, and the next
+run replays what it finds there. A change to decoding, crops or prompts misses and runs the model;
+models.yml keys the cache on the adapters (model revisions) and uv.lock, so a model or dependency
+change starts empty, and a `v*` tag or a `cold` dispatch runs without it. The report's "Model time"
+section says what was computed and what was replayed.
 """
 import csv
 import hashlib
 import json
 import os
+import pickle
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -74,14 +83,26 @@ def fetch(row: dict) -> Path | None:
     return None
 
 
+INFER_CACHE = os.environ.get("BIOSCAN_INFER_CACHE") or None
+CACHE_VERSION = 1                     # bump when a key or a stored row changes shape
+MEMORY: dict[str, dict] = {}          # proxy -> key -> answer (what the inference cache holds)
+USED: dict[str, set] = {}             # proxy -> keys this session read or wrote (all the cache keeps)
+TIMES: dict[str, list[float]] = {}    # proxy -> [images computed, seconds computing, images replayed]
+# with the inference cache every call replays what it can; without it only the switches-off pass does
+IDLE = "replay" if INFER_CACHE else "pass"
+
+
 class Replay:
     """Model adapter proxy. mode "record": pass every call through and remember each image's answer
-    by its bytes; "replay": answer remembered images from memory (the rest pass through); "pass":
-    just pass through. Recording never changes an answer, so the main run is the plain pipeline."""
-    mode = "pass"
+    by its bytes; "replay": answer remembered images from memory (the rest pass through and are
+    remembered); "pass": just pass through. Recording never changes an answer, so without the
+    inference cache the main run is the plain pipeline."""
+    mode = IDLE
 
     def __init__(self, inner):
-        self._inner, self._memory = inner, {}
+        name = type(self).__name__
+        self._inner, self._memory = inner, MEMORY.setdefault(name, {})
+        self._used, self._times = USED.setdefault(name, set()), TIMES.setdefault(name, [0, 0.0, 0])
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -90,16 +111,26 @@ class Replay:
     def key(image, *extra):
         return (image.size, image.mode, hashlib.sha1(image.tobytes()).hexdigest(), *extra)
 
-    def _rows(self, images, keys, compute, stack):
+    def _timed(self, compute, images):
+        t0 = time.perf_counter()
+        out = compute(images)
+        self._times[0] += len(images)
+        self._times[1] += time.perf_counter() - t0
+        return out
+
+    def _rows(self, images, keys, compute, stack, keep=lambda row: row):
         if Replay.mode == "replay":
             todo = [i for i, k in enumerate(keys) if k not in self._memory]
             if todo:
-                for i, row in zip(todo, compute([images[i] for i in todo])):
-                    self._memory[keys[i]] = row
+                for i, row in zip(todo, self._timed(compute, [images[i] for i in todo])):
+                    self._memory[keys[i]] = keep(row)
+            self._times[2] += len(keys) - len(todo)
+            self._used.update(keys)
             return stack([self._memory[k] for k in keys])
-        out = compute(images)
+        out = self._timed(compute, images)
         if Replay.mode == "record":
-            self._memory.update(zip(keys, out))
+            self._memory.update((k, keep(row)) for k, row in zip(keys, out))
+            self._used.update(keys)
         return out
 
 
@@ -121,7 +152,58 @@ class ReplayBioCLIP(Replay):
     def encode_images(self, images):
         import torch
 
-        return self._rows(images, [self.key(im) for im in images], self._inner.encode_images, torch.stack)
+        # kept as numpy rows: a pickled tensor row would carry its whole batch's storage
+        return self._rows(images, [self.key(im) for im in images], self._inner.encode_images,
+                          lambda rows: torch.from_numpy(np.stack(rows)).to(self._inner.device),
+                          keep=lambda row: row.cpu().numpy().copy())
+
+
+def encode_names(texts: list[str], bioclip) -> np.ndarray:
+    """names.encode with the BioCLIP text tower, through the inference cache when it is on."""
+    from bioscan.service import names
+
+    key = hashlib.sha1("\0".join(texts).encode()).hexdigest()
+    memory, used = MEMORY.setdefault("text", {}), USED.setdefault("text", set())
+    times = TIMES.setdefault("text", [0, 0.0, 0])
+    if INFER_CACHE and key in memory:
+        times[2] += len(texts)
+    else:
+        t0 = time.perf_counter()
+        memory[key] = names.encode(texts, bioclip.model, bioclip.tokenizer, bioclip.device)
+        times[0] += len(texts)
+        times[1] += time.perf_counter() - t0
+    used.add(key)
+    return memory[key]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def infer_cache():
+    """Loads the inference cache before the module's first model call and saves what this session
+    used after its last; then adds the "Model time" section to the report."""
+    path = Path(INFER_CACHE) if INFER_CACHE else None
+    if path is not None and path.is_file():
+        with open(path, "rb") as f:
+            saved = pickle.load(f)
+        if saved.get("version") == CACHE_VERSION:
+            for name, memory in saved["memory"].items():
+                MEMORY.setdefault(name, {}).update(memory)
+    yield
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        keep = {name: {k: MEMORY[name][k] for k in used} for name, used in USED.items()}
+        with open(path.with_suffix(".tmp"), "wb") as f:
+            pickle.dump({"version": CACHE_VERSION, "memory": keep}, f, protocol=pickle.HIGHEST_PROTOCOL)
+        path.with_suffix(".tmp").replace(path)
+    report = os.environ.get("BIOSCAN_REPORT")
+    if report and Path(report).is_file():
+        rows = ["", "## Model time", "",
+                f"Inference cache: {'on (' + str(path.name) + ')' if path else 'off'}. Computed = the model ran; "
+                "replayed = the answer came from the cache or the main run. With replays, the report's "
+                "identify ms and images/s are not the models' speed.", "",
+                "| model call | images computed | seconds computing | images replayed |", "|---|---|---|---|"]
+        rows += [f"| {name} | {n} | {s:.0f} | {r} |" for name, (n, s, r) in TIMES.items()]
+        with open(report, "a") as f:
+            f.write("\n".join(rows) + "\n")
 
 
 STATE: dict = {}      # the main run's inputs, for the switches-off pass
@@ -143,8 +225,7 @@ def small_lists(bioclip) -> dict:
     def build(list_id, kind, cls, recs):
         tax = [names._taxonomy(cls, r["order"], r["family"], *r["scientific"].split(" ", 1)) for r in recs]
         common = [r["common"] for r in recs]
-        matrix = names.encode([names.tol_text(t, c) for t, c in zip(tax, common)], bioclip.model, bioclip.tokenizer,
-                              bioclip.device)
+        matrix = encode_names([names.tol_text(t, c) for t, c in zip(tax, common)], bioclip)
         # BirdNET labels as the label maps give them (avilist_map.csv, mdd_map.csv), each list's policy
         labels = {"birdnet": [r["birdnet_label"] for r in recs], "birdnet_how": [r["birdnet_how"] or "none" for r in recs]}
         return names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs),
@@ -191,14 +272,14 @@ def run():
 
     inputs = [{"path": str(p), "lat": float(r["lat"]), "lon": float(r["lon"]), "taken_at": r["taken_at"]}
               for r, p in have]
-    Replay.mode = "record"
+    Replay.mode = "replay" if INFER_CACHE else "record"
     try:
         with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(4), chunk=16)) as c:
             resp = c.post("/run", json={"inputs": inputs, "want": ["identify", "embed"]})
             assert resp.status_code == 200, resp.text
             events = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
     finally:
-        Replay.mode = "pass"
+        Replay.mode = IDLE
     STATE["inputs"] = inputs
     gt = ev.normalise_truth([{"path": str(p), "scientific": r["scientific"], "tier": "inat-sample", "kind": r["kind"],
                               "lat": r["lat"], "lon": r["lon"]}
@@ -398,7 +479,7 @@ def switched_off(run):
                                         "options": {"identify": SWITCHES_OFF}})
             assert resp.status_code == 200, resp.text
     finally:
-        Replay.mode = "pass"
+        Replay.mode = IDLE
     return [json.loads(line) for line in resp.text.splitlines() if line.strip()]
 
 

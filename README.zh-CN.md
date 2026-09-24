@@ -365,7 +365,7 @@ uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest te
 uv run python tests/smoke/run_smoke.py --url ...  # 需起服务，tests/smoke/*.ARW 自备
 ```
 
-CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。
+CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.yml` 在改动服务代码、真模型测试、名字数据或依赖的 push / PR 上，用 CPU 跑真模型冒烟（权重与图片有缓存），指标写进 job summary；每次还用 `bioscan bench compare` 把本次 report.json 对照 `baselines/ci-smoke.json`（预算见 `baselines/budget.toml`），超出预算 job 失败。模型输出在两次运行之间缓存（按 adapter 与 `uv.lock` 分键），只重算送进模型的内容有变化的部分；`v*` tag 或勾选 `cold` 的手动运行会跑全部模型。推 `v*` tag 时同样运行，并把报告作为 artifact 发布、打印到日志。
 
 ## 布局
 
