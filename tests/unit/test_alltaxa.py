@@ -146,7 +146,8 @@ BIRDLIKE = frame((204, 150, 1), g(bird=0.9), lat=37.0)       # Buteo s1, a littl
 REPTILE_GATED_BIRD = frame((200, 150, 9), g(bird=0.9))       # a bird box whose evidence is Anolis
 BIRD_GATED_OTHER = frame((204, 20, 2), g(other_animal=0.9))  # an other_animal box whose evidence is Buteo
 MAMMALIAN = frame((208, 20, 5), g(mammal=0.9))               # Lynx s1, a little Lynx s0
-FRAMES12 = [BIRDLIKE, REPTILE_GATED_BIRD, BIRD_GATED_OTHER, MAMMALIAN]
+OTHER = frame((200, 20, 9), g(other_animal=0.9))             # an other_animal box whose evidence is Anolis
+FRAMES12 = [BIRDLIKE, REPTILE_GATED_BIRD, BIRD_GATED_OTHER, MAMMALIAN, OTHER]
 
 
 def run(models, f, **opts):
@@ -166,19 +167,44 @@ def test_other_animal_boxes_get_species_from_the_all_taxa_list():
     assert all(b["species"] is None for b in run(Models12(other=False), BIRD_GATED_OTHER, **SWITCHES_OFF))
 
 
-def test_the_all_taxa_list_joins_the_kind_check_both_ways():
+def test_the_all_taxa_list_joins_the_kind_check_one_way():
+    """other_animal boxes may move to bird or mammal; bird and mammal boxes never move to other_animal
+    (the all-taxa list's size would win it every such box: taxa.ONE_WAY)."""
     m = Models12()
     assert kinds(m, BIRDLIKE) == {"bird"}
-    assert kinds(m, REPTILE_GATED_BIRD) == {"other_animal"}         # bird-gated, reptile evidence
-    assert kinds(m, BIRD_GATED_OTHER) == {"bird"}                    # other_animal-gated, bird evidence
-    for b in run(m, REPTILE_GATED_BIRD):
-        assert b["species"]["list"] == "other_animal-list" and b["species"]["top"][0]["scientific"] == "Anolis s1"
-    assert kinds(m, REPTILE_GATED_BIRD, kind_check=False) == {"bird"}           # behind the switch
-    assert kinds(m, BIRD_GATED_OTHER, kind_check=False) == {"other_animal"}
+    assert kinds(m, BIRD_GATED_OTHER) == {"bird"}                    # other_animal-gated, strong bird evidence
+    assert kinds(m, OTHER) == {"other_animal"}
+    for b in run(m, BIRD_GATED_OTHER):
+        assert b["species"]["list"] == "bird-list" and b["species"]["top"][0]["scientific"] == "Buteo s2"
+    assert kinds(m, REPTILE_GATED_BIRD) <= {"bird", "mammal"}        # reptile evidence, but never other_animal
+    assert kinds(m, BIRD_GATED_OTHER, kind_check=False) == {"other_animal"}      # behind the switch
     # not loaded: W3's bird <-> mammal check as it was, other animals left alone
     plain = Models12(other=False)
-    assert kinds(plain, REPTILE_GATED_BIRD) <= {"bird", "mammal"}
+    assert run(plain, REPTILE_GATED_BIRD) == run(m, REPTILE_GATED_BIRD)
     assert all(b["kind"] == "other_animal" and b["species"] is None for b in run(plain, BIRD_GATED_OTHER))
+
+
+def test_a_huge_all_taxa_list_never_takes_a_bird_box():
+    """Pad the all-taxa list with 20,000 rows scattered around a bird crop's feature: each looks a bit
+    like it, so that list's best five beat the four-row bird list's. The bird box stays a bird."""
+    m = Models12()
+    rng = np.random.default_rng(1)
+    feature = m.bioclip._vecs([(204, 150, 1)])[0]
+    pad = feature / np.linalg.norm(feature) * 0.9 + rng.normal(scale=0.05, size=(20000, D12))
+    other = m.names["other_animal"]
+    m.names["other_animal"] = dataclasses.replace(
+        other, matrix=np.vstack([other.matrix, pad]).astype(np.float32),
+        scientific=other.scientific + [f"Padus s{i}" for i in range(20000)],
+        common=other.common + [""] * 20000, tol_how=other.tol_how + ["exact"] * 20000,
+        taxonomy=other.taxonomy + [["Animalia", "Arthropoda", "Insecta", "O", "F", "Padus", f"Padus s{i}"]
+                                   for i in range(20000)])
+    from bioscan.service import rules
+
+    z = {k: m.bioclip.logits([(204, 150, 1)], nl.matrix)[0] for k, nl in m.names.items()}
+    assert rules.kind_of(rules.kind_evidence_logits(z)) == ("other_animal", True)   # two-way, it would win
+    assert kinds(m, BIRDLIKE) == {"bird"}
+    for b in run(m, BIRDLIKE):
+        assert b["species"]["list"] == "bird-list" and b["species"]["level"] != "unconfirmed"
 
 
 def test_kind_check_evidence_per_list_equals_the_stacked_lists():
@@ -230,10 +256,20 @@ def test_with_candidates_the_kind_check_compares_only_kinds_that_keep_rows():
     m = Models12()
     assert kinds(m, REPTILE_GATED_BIRD, candidates=["Buteo", "Lynx"]) <= {"bird", "mammal"}
     assert "mammal" not in kinds(m, MAMMALIAN, candidates=["Buteo", "Anolis"])
-    # kind check on: the evidence among the candidate kinds decides; off: the box keeps its kind
-    # while its list keeps a row
-    assert kinds(m, REPTILE_GATED_BIRD, candidates=["Buteo s0", "Anolis"]) == {"other_animal"}
-    assert kinds(m, REPTILE_GATED_BIRD, candidates=["Buteo s0", "Anolis"], kind_check=False) == {"bird"}
+    # a bird box with bird and all-taxa candidates competes among birds only, on or off
+    for check in (True, False):
+        assert kinds(m, REPTILE_GATED_BIRD, candidates=["Buteo s0", "Anolis"], kind_check=check) == {"bird"}
+    # ... and with mammal and all-taxa candidates, among mammals only
+    assert kinds(m, REPTILE_GATED_BIRD, candidates=["Lynx s0", "Anolis"]) == {"mammal"}
+    # no bird or mammal candidate: the all-taxa list is its only option
+    for check in (True, False):
+        boxes = run(m, REPTILE_GATED_BIRD, candidates=["Anolis"], kind_check=check)
+        assert boxes and all(b["kind"] == "other_animal" and b["species"]["list"] == "other_animal-list"
+                             for b in boxes)
+    # an other_animal box competes with every list that keeps a row, and may still move to bird
+    assert kinds(m, BIRD_GATED_OTHER, candidates=["Buteo", "Anolis"]) == {"bird"}
+    assert kinds(m, BIRD_GATED_OTHER, candidates=["Buteo", "Anolis"], kind_check=False) == {"other_animal"}
+    assert kinds(m, OTHER, candidates=["Buteo", "Anolis"]) == {"other_animal"}
 
 
 def test_candidates_use_the_lists_location_prior():

@@ -29,7 +29,7 @@ from bioscan.service.rules import (
     species_crops,
     species_level,
 )
-from bioscan.service.taxa import KIND_CHECK, VOCAB
+from bioscan.service.taxa import KIND_CHECK, ONE_WAY, VOCAB
 
 CROP_BATCH = 32          # crop-gate crops per SigLIP2 call
 SPECIES_BATCH = 16       # species crops per BioCLIP call
@@ -119,6 +119,12 @@ def _prior(engine: Models, kind: str, opts: dict[str, Any]) -> Any:
     return engine.priors.get(kind)
 
 
+def _rivals_for(kind: str, kinds: list[str]) -> list[str]:
+    """The lists among `kinds` a box of `kind` may move to: a one-way list (taxa.ONE_WAY, the all-taxa
+    list) only for boxes of its own kind; its size would win it every other box."""
+    return [k for k in kinds if k not in ONE_WAY or k == kind]
+
+
 def _logits(engine: Models, feats: Any, kind: str, rows: np.ndarray | None) -> np.ndarray:
     """(boxes, rows) scaled similarities of one list, its own matmul (never stacked with another
     list); `rows` = the rows candidates leave it, None = all."""
@@ -157,12 +163,15 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
     (rules.kind_evidence_logits: list size does not count); a box that moves on less than
     KIND_SURE of it is graded unconfirmed. Visual evidence decides, not the posterior: the lists
     differ in prior coverage and unlabelled policy, so their posteriors do not compare across
-    lists. The all-taxa list (other_animal) takes part only when it is loaded.
+    lists. The all-taxa list (other_animal) takes part only when it is loaded, and only for
+    other_animal boxes (taxa.ONE_WAY): bird and mammal boxes compare bird and mammal only.
 
     Candidates (option "candidates"): only lists with a matching row compete, and only their
-    matching rows; every box is named, whatever its kind. Kind check on: the kind check above over
-    those lists and rows. Off: the box keeps its kind when its list has a matching row, else it goes
-    to the competing list with the most evidence (the caller said the answer is there; not graded
+    matching rows; every box is named, whatever its kind. A bird or mammal box competes among the
+    bird and mammal lists with a match; only when neither has one do the others (the all-taxa list)
+    compete for it, as its only option. Kind check on: the kind check above over those lists and
+    rows. Off: the box keeps its kind when its list has a matching row, else it goes to the
+    competing list with the most evidence (the caller said the answer is there; not graded
     unconfirmed for it). p_visual is the softmax over the matching rows; the prior, range veto and
     level then work within them as they do on a whole list."""
     allowed = candidates.allowed(engine.names, opts.get("candidates") or [])
@@ -190,8 +199,9 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
             feats = engine.bioclip.encode_images(crops)
             probs = {kind: engine.bioclip.probs(feats, engine.names[kind].matrix)}
             final = [(kind, True)] * len(part)
-            if kind in rivals and len(rivals) > 1:
-                logits = {k: _logits(engine, feats, k, None) for k in rivals}
+            mine = _rivals_for(kind, rivals)
+            if kind in mine and len(mine) > 1:
+                logits = {k: _logits(engine, feats, k, None) for k in mine}
                 final = [kind_of(kind_evidence_logits({k: z[n] for k, z in logits.items()})) for n in range(len(part))]
                 for other in dict.fromkeys(k for k, _sure in final if k != kind):
                     probs[other] = engine.bioclip.probs(feats, engine.names[other].matrix)
@@ -218,17 +228,18 @@ def _species_among(engine: Models, work: list[tuple[Frame, list[dict[str, Any]],
         return p_geo[kind, fi]
 
     for kind, refs in by_kind.items():
+        compete = _rivals_for(kind, list(allowed)) or list(allowed)     # nothing else matches: the only option
         for part in _batches(refs, SPECIES_BATCH):
             crops = [species_crops(work[fi][0].image, [work[fi][2][bi]], work[fi][0].detail)[0] for fi, bi in part]
             feats = engine.bioclip.encode_images(crops)
-            logits = {k: _logits(engine, feats, k, rows) for k, rows in allowed.items()}
+            logits = {k: _logits(engine, feats, k, allowed[k]) for k in compete}
             for n, (fi, bi) in enumerate(part):
                 mass = kind_evidence_logits({k: z[n] for k, z in logits.items()})
                 if check:
                     k, sure = kind_of(mass)
                     unsure = k != kind and not sure
                 else:
-                    k, unsure = (kind if kind in allowed else kind_of(mass)[0]), False
+                    k, unsure = (kind if kind in compete else kind_of(mass)[0]), False
                 z = logits[k][n]
                 row = np.exp(z - z.max())
                 box = work[fi][1][bi]

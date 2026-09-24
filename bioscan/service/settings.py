@@ -20,7 +20,7 @@ def snapshot() -> dict[str, Any]:
                   if k.isupper() and isinstance(v, (int, float)) and not isinstance(v, bool)}
     return {"rules": thresholds, "gate_prompts": taxa.GATE_PROMPTS, "vocab": taxa.VOCAB,
             "taxa": {"not_animal": list(taxa.NOT_ANIMAL), "promote_to": taxa.PROMOTE_TO,
-                     "kind_check": list(taxa.KIND_CHECK)},
+                     "kind_check": list(taxa.KIND_CHECK), "one_way": list(taxa.ONE_WAY)},
             "geo": {"model": list(geo.GEO_MODEL), "floor": geo.GEO_FLOOR, "neutral": geo.UNLABELLED_NEUTRAL,
                     "unlabelled": {kind: src.unlabelled for kind, src in names.LISTS.items()},
                     # the committed label maps' content: editing mdd_map.csv moves answers but not the list sha

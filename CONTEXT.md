@@ -75,7 +75,7 @@ _Avoid_: geo filter, out-of-range filter
 
 **Kind check**:
 Scoring a box's species features against every loaded kind-check list (`taxa.KIND_CHECK`: bird, mammal
-and the all-taxa list when loaded; each list its own matmul) and giving the box the kind whose best
+and, for other_animal boxes only, the all-taxa list when loaded; each list its own matmul) and giving the box the kind whose best
 `rules.KIND_TOP` names hold most of the visual evidence (list size does not count), whatever the gate
 and crop check said;
 a box that moved on a thin margin (`rules.KIND_SURE`) gets level unconfirmed. Identify option `kind_check`.
