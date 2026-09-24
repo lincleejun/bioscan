@@ -235,7 +235,12 @@ local data on the Mac. Parallel agents in worktrees from the v1.5 base commit; o
 - [x] CLAUDE.md: common rules for every model (no model pin); product decisions recorded
 - [ ] W1 harness: `bioscan bench run | baseline | compare | analyze | scorecard`; report.json schema;
       regression budgets; CI smoke compares against a committed baseline; tag runs publish a report
-- [ ] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured)
+- [x] W2 standards: docs/standards.md + data/standards.toml (industry bar, community bar, our status, how measured);
+      tests/unit/test_standards.py (schema, mutation-checked: 7/7 broken copies fail); README links; CONTEXT terms
+      Found: most industry pages blocked by egress (numbers rest on search snippets, marked); Merlin does publish a
+      95% average (vendor claim); TOML has no null, so a missing industry/stretch key means null; the golden set
+      has no other-animal slice yet (v0.x gates other-animal confident errors on it); own set (404, 3 species)
+      is too small to prove 95% at the Wilson bound.
 - [ ] W3 accuracy: out-of-range veto; two-way kind check (bird <-> mammal); mammal location prior
       (mdd_map.csv from geomodel v3.0.4 labels) with genus back-off
 - [ ] W4 all-taxa: other animals get species from the TreeOfLife-wide list by default; `candidates` option
