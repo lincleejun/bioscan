@@ -46,7 +46,7 @@ class NameList:
     taxonomy: list[list[str]]    # 7 levels: kingdom .. species (binomial)
     matrix: np.ndarray           # (N, 1024) float32, L2-normalised
     tol_how: list[str]           # exact | synonym (official TreeOfLife vector) | none (self-encoded)
-    sha: str = ""                # list hash (CSV + map + synonyms + list_id + cache version), the cache key
+    sha: str = ""                # list hash (CSV + TreeOfLife map + synonyms + list_id + cache version), the cache key
     # BirdNET (location-prior) label per row, "" = none, "A|B" = a lump (geo.LABEL_SEP), and how it
     # matched (exact | synonym | none). Both empty when the list's label map is missing.
     birdnet: list[str] = field(default_factory=list)
