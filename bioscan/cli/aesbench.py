@@ -173,7 +173,7 @@ def cmd_train(a) -> int:
     else:
         rows = _ratings(a.ratings)
         paths, ys, groups = [r.path for r in rows], [r.rating for r in rows], [r.trip for r in rows]
-        name, lo, hi, target = a.name or f"personal-{today}", 0.0, 5.0, "the owner's stars, 0-5 (reject = 0)"
+        name, lo, hi, target = a.name or f"personal-{today}", 0.0, 5.0, "the owner's stars 1-5; a reject is graded 0; unrated frames are left out"
         prior = _prior(a.prior)
         out = a.out or str(aes.PERSONAL_HEAD.expanduser())
         prov = {"data": f"the owner's ratings from {os.path.abspath(a.ratings)} ({len(set(groups))} trips)",

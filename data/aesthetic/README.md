@@ -17,7 +17,7 @@ JSON, `format: "bioscan-aesthetic-head"`, `version: 1` (bioscan/aesthetic.py):
 | `embedding` | the model@revision the vectors came from; a head for another embedding is refused |
 | `dim`, `weights`, `bias`, `mean`, `std` | score = bias + weights · (vec − mean) / std, 768 of each; 7 significant digits |
 | `target` | `lo`, `hi`: the rating range that maps to 0 and 1 (EVA: 0 and 10), and what it is |
-| `provenance` | data, licence, citation, n, date, seed, alpha, 5-fold CV SRCC/PLCC (with every alpha tried) |
+| `provenance` | data, licence, citation, n, date, seed, alpha, 5-fold CV SRCC/PLCC (with every alpha tried; the reported CV is the best alpha's on the same folds that chose it, not nested CV, so it reads slightly optimistic) |
 | `sha` | sha256 of the canonical JSON of everything else; checked on load, so an edited file is refused |
 
 The sha appears in `result.products.aesthetics.head_id`, `result.engine.plugins.aesthetics` and the

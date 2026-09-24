@@ -101,6 +101,29 @@ def test_parse_xmp_forms():
     assert aes.parse_xmp(xmp(rating=2, pick=1)) == {"rating": 2.0, "pick": 1, "label": ""}
     assert aes.parse_xmp(xmp(rating=-1)) == {"rating": 0.0, "pick": -1, "label": ""}      # Lightroom/Bridge reject
     assert aes.parse_xmp(xmp(label="Green"))["rating"] is None                            # unrated
+    assert aes.parse_xmp(xmp(rating=0, label="Red"))["rating"] is None                   # 0 = unrated (XMP spec)
+    assert aes.parse_xmp(xmp(rating=0, pick=-1)) == {"rating": 0.0, "pick": -1, "label": ""}   # a reject flag
+    assert aes.parse_xmp(xmp(rating=0, pick=1))["rating"] is None                        # a pick gives no grade
+
+
+def test_stars_rule():
+    assert aes.stars_of(3, 0) == (3.0, 0) and aes.stars_of(5, 1) == (5.0, 1)
+    assert aes.stars_of(0, 0) is None and aes.stars_of(None, 0) is None and aes.stars_of(None, 1) is None
+    assert aes.stars_of(-1, 0) == aes.stars_of(None, -1) == aes.stars_of(0, -1) == (aes.REJECT_GRADE, -1)
+    assert aes.stars_of(2, -1) == (2.0, -1)          # stars and a reject flag: the stars stay, the flag too
+
+
+def test_folder_rating_zero_is_skipped_and_reject_kept(tmp_path):
+    """JPEGs with embedded xmp:Rating 0 yield no ratings; -1 is kept as a reject, apart from unrated."""
+    for i in range(3):
+        jpeg_with_xmp(tmp_path / f"zero{i}.jpg", xmp(rating=0))
+    assert aes.ratings_from_folder(str(tmp_path)) == []
+    rej = jpeg_with_xmp(tmp_path / "rejected.jpg", xmp(rating=-1))
+    two = jpeg_with_xmp(tmp_path / "two.jpg", xmp(rating=2))
+    rows = {r.path: r for r in aes.ratings_from_folder(str(tmp_path))}
+    assert set(rows) == {rej, two}
+    assert (rows[rej].rating, rows[rej].pick) == (aes.REJECT_GRADE, -1) and (rows[two].rating, rows[two].pick) == (2, 0)
+    assert aes.picks_of(list(rows.values())) == [False, False]
     assert aes.parse_xmp("<x:xmpmeta><broken") is None and aes.parse_xmp("no packet") is None
 
 
@@ -139,10 +162,13 @@ def test_ratings_from_folder_sidecar_and_embedded(tmp_path):
 
 def test_ratings_from_csv(tmp_path):
     csv = tmp_path / "r.csv"
-    csv.write_text("path,rating,pick,trip\nimg/a.jpg,4,1,\n/abs/b.jpg,-1,,t2\n/abs/c.jpg,,,t2\n")
+    csv.write_text("path,rating,pick,trip\nimg/a.jpg,4,1,\n/abs/b.jpg,-1,,t2\n/abs/c.jpg,,,t2\n"
+                   "/abs/d.jpg,0,,t2\n/abs/e.jpg,0,-1,t2\n/abs/f.jpg,,1,t2\n")
     rows = aes.read_ratings(str(csv))
+    # the XMP rule: 0 / blank = unrated (skipped), -1 or a reject flag = reject, a pick alone gives no grade
     assert [(r.path, r.rating, r.pick, r.trip) for r in rows] == [(str(tmp_path / "img" / "a.jpg"), 4.0, 1, "img"),
-                                                                  ("/abs/b.jpg", 0.0, -1, "t2")]
+                                                                  ("/abs/b.jpg", 0.0, -1, "t2"),
+                                                                  ("/abs/e.jpg", 0.0, -1, "t2")]
     (tmp_path / "bad.csv").write_text("file,stars\nx,1\n")
     with pytest.raises(ValueError, match="needs columns path,rating"):
         aes.read_ratings(str(tmp_path / "bad.csv"))

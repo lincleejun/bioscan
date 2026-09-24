@@ -218,11 +218,28 @@ def vector_of(embed: dict[str, Any]) -> list[float]:
 @dataclass
 class Rating:
     path: str                   # absolute image path
-    rating: float               # stars 0-5 (a Lightroom/Bridge reject, -1, counts as 0 and pick -1)
+    rating: float               # stars 1-5, or REJECT_GRADE (0) for a reject (then pick is -1): see stars_of
     pick: int = 0               # 1 picked, -1 rejected, 0 unknown
     label: str = ""             # Lightroom colour label ("Red", ...), "" when none
     trip: str = "."             # the split group: first folder under the ratings root, or the CSV's trip
     source: str = ""            # sidecar | embedded | csv
+
+
+REJECT_GRADE = 0.0      # a rejected frame's grade: below 1 star; unrated frames never get it (they are skipped)
+
+
+def stars_of(rating: float | None, pick: int) -> tuple[float, int] | None:
+    """The rating rule for one frame, XMP and CSV alike: (grade, pick), or None = unrated.
+
+    xmp:Rating 1-5 = stars. 0 or missing = unrated (the XMP spec): skipped, unless the frame is
+    rejected. -1 (the Lightroom/Bridge reject), or a reject pick flag (-1) without stars, = a
+    reject: grade REJECT_GRADE, pick -1, kept apart from unrated. A pick flag (1) without stars
+    gives no grade, so that frame is skipped too."""
+    if (rating is not None and rating < 0) or (not rating and pick == -1):
+        return REJECT_GRADE, -1
+    if rating is None or rating == 0:
+        return None
+    return float(rating), pick
 
 
 NS = {"x": "adobe:ns:meta/", "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
@@ -242,8 +259,9 @@ def _xmp_value(root: ET.Element, ns: str, name: str) -> str | None:
 
 
 def parse_xmp(text: str | bytes) -> dict[str, Any] | None:
-    """{rating, pick, label} from one XMP packet; rating None when the packet has none; None when
-    the packet is not XML. xmp:Rating -1 (Lightroom/Bridge reject) -> rating 0, pick -1.
+    """{rating, pick, label} from one XMP packet, graded by `stars_of`: rating None when the frame
+    is unrated (xmp:Rating 0 or missing, not rejected); None when the packet is not XML.
+    xmp:Rating -1 (Lightroom/Bridge reject) -> rating REJECT_GRADE, pick -1.
     xmpDM:pick (1 / -1) is read where a tool writes it; Lightroom Classic keeps its pick flags
     in the catalogue, so they only arrive through a CSV."""
     if isinstance(text, bytes):
@@ -272,9 +290,10 @@ def parse_xmp(text: str | bytes) -> dict[str, Any] | None:
             p = max(-1, min(1, int(float(pick))))
         except ValueError:
             p = 0
-    if r is not None and r < 0:
-        r, p = 0.0, -1
-    return {"rating": r, "pick": p, "label": label}
+    graded = stars_of(r, p)
+    if graded is None:
+        return {"rating": None, "pick": p, "label": label}
+    return {"rating": graded[0], "pick": graded[1], "label": label}
 
 
 def sidecar_of(path: str) -> Path | None:
@@ -318,7 +337,8 @@ def trip_of(path: str, root: str) -> str:
 
 
 def ratings_from_folder(root: str, exts: Iterable[str] = formats.SCAN_EXT) -> list[Rating]:
-    """Every image under `root` (recursive) whose XMP has a rating; unrated images are skipped."""
+    """Every image under `root` (recursive) whose XMP rates it (1-5 stars, or a reject); unrated
+    images (xmp:Rating 0 or missing) are skipped."""
     out = []
     for p in formats.list_images(root, set(exts), recursive=True):
         got = read_xmp_rating(p)
@@ -331,8 +351,10 @@ def ratings_from_folder(root: str, exts: Iterable[str] = formats.SCAN_EXT) -> li
 
 
 def ratings_from_csv(path: str) -> list[Rating]:
-    """CSV with `path,rating` and optional `pick` (1/0/-1), `label`, `trip` columns. Relative paths
-    are taken from the CSV's folder; without `trip`, the trip is the image's parent folder name."""
+    """CSV with `path,rating` and optional `pick` (1/0/-1), `label`, `trip` columns, graded by the
+    same rule as XMP (`stars_of`): 1-5 stars; 0 or blank = unrated, skipped unless pick is -1;
+    -1 = reject. Relative paths are taken from the CSV's folder; without `trip`, the trip is the
+    image's parent folder name."""
     base = Path(path).resolve().parent
     out = []
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -340,18 +362,18 @@ def ratings_from_csv(path: str) -> list[Rating]:
         if not reader.fieldnames or not {"path", "rating"} <= set(reader.fieldnames):
             raise ValueError(f"{path}: needs columns path,rating (got {reader.fieldnames})")
         for i, r in enumerate(reader, start=2):
-            if not (r.get("rating") or "").strip():
-                continue
             try:
-                rating = float(r["rating"])
-                pick = int(float(r.get("pick") or 0))
+                stars = float(r["rating"]) if (r.get("rating") or "").strip() else None
+                flag = max(-1, min(1, int(float(r.get("pick") or 0))))
             except ValueError:
                 raise ValueError(f"{path}:{i}: rating and pick must be numbers") from None
-            if rating < 0:
-                rating, pick = 0.0, -1
+            graded = stars_of(stars, flag)
+            if graded is None:
+                continue
+            rating, pick = graded
             p = Path(r["path"]).expanduser()
             p = p if p.is_absolute() else base / p
-            out.append(Rating(str(p), rating, max(-1, min(1, pick)), (r.get("label") or "").strip(),
+            out.append(Rating(str(p), rating, pick, (r.get("label") or "").strip(),
                               (r.get("trip") or "").strip() or p.parent.name, "csv"))
     return out
 

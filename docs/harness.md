@@ -408,8 +408,10 @@ bioscan aesthetic eval ~/Pictures/Album --out runs/$D-aesthetic --embeddings run
 bioscan bench scorecard runs/$D-aesthetic/report.json                    # tier aesthetic-own (docs/standards.md §13)
 ```
 
-**Ground truth.** A folder of rated images (`xmp:Rating` in `<stem>.xmp`, `<name>.<ext>.xmp` or embedded;
-unrated files are skipped; a reject, -1, is 0 stars) or a CSV `path,rating[,pick,label,trip]`. The **trip** of
+**Ground truth.** A folder of rated images (`xmp:Rating` in `<stem>.xmp`, `<name>.<ext>.xmp` or embedded) or a
+CSV `path,rating[,pick,label,trip]`, both read by one rule (`aesthetic.stars_of`, the XMP spec): 1-5 = stars;
+**0 or missing = unrated, skipped**; -1, or a reject pick flag without stars, = a **reject**, kept with grade 0
+(below one star) and pick -1; a pick flag without stars gives no grade and is skipped. The **trip** of
 an image is its first folder under the root (the CSV's `trip`, else its parent folder). Picks are the explicit
 pick flags when any row has one (`xmpDM:pick`, or the CSV), else stars >= `--pick-min` (4).
 
@@ -443,4 +445,5 @@ Fit on some trips, evaluate on others, or read the learning curve, which always 
 vectors, alpha by 5-fold CV over trips, pulled toward `--prior builtin|PATH|none`; default output
 `~/.config/bioscan/aesthetic-personal.json`), `--eva DIR` the general head from an EVA checkout. The EVA head is
 normally made by `scripts/train_aesthetic_head.py` in CI or on the Mac (data/aesthetic/README.md). Every fit is
-deterministic from its inputs and `--seed`.
+deterministic from its inputs and `--seed`. The CV score in a head's provenance is the best alpha's mean over the
+same folds that chose it (not nested CV), so it reads slightly optimistic.

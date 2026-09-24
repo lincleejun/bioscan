@@ -22,6 +22,9 @@ on:
         required: false
         default: "0"
 
+permissions:
+  contents: read
+
 jobs:
   eva-head:
     runs-on: ubuntu-latest
@@ -56,16 +59,26 @@ jobs:
           key: eva-fb40a9f-${{ hashFiles('bioscan/service/adapters/siglip2.py', 'bioscan/service/decode.py') }}
           restore-keys: eva-fb40a9f-
       - name: Train the EVA head
+        shell: bash
         env:
           HF_HUB_OFFLINE: "1"
+          # inputs reach the script as data (env), never pasted into the shell text
+          LIMIT: ${{ inputs.limit }}
+          SEED: ${{ inputs.seed }}
         run: |
-          extra=""
-          if [ -n "${{ inputs.limit }}" ]; then extra="--limit ${{ inputs.limit }}"; fi
+          set -euo pipefail
+          extra=()
+          if [ -n "${LIMIT:-}" ]; then
+            [[ "$LIMIT" =~ ^[0-9]+$ ]] || { echo "limit must be a whole number, got '$LIMIT'"; exit 1; }
+            extra=(--limit "$LIMIT")
+          fi
+          seed="${SEED:-0}"
+          [[ "$seed" =~ ^[0-9]+$ ]] || { echo "seed must be a whole number, got '$seed'"; exit 1; }
           # vectors depend on the model and the decode: a restore-key hit with other sources re-embeds
           key="$(sha256sum bioscan/service/adapters/siglip2.py bioscan/service/decode.py | sha256sum | cut -c1-16)"
           uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva \
-            --embeddings ~/.cache/bioscan/eva/embeddings-$key.ndjson --device cpu --seed "${{ inputs.seed || '0' }}" \
-            --out eva-head-v1.json --print-base64 $extra | tee train.log
+            --embeddings ~/.cache/bioscan/eva/embeddings-$key.ndjson --device cpu --seed "$seed" \
+            --out eva-head-v1.json --print-base64 "${extra[@]}" | tee train.log
           grep -E "CV SRCC|^head " train.log >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()

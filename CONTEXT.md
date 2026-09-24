@@ -277,8 +277,10 @@ general head; the stage blends the two by `blend`, the personal head's weight. S
 _Avoid_: user model, fine-tune (the backbone is never trained)
 
 **Rating**:
-The owner's judgement of one frame: Lightroom stars 0-5 from `xmp:Rating` (a reject, -1, counts as 0) or a CSV,
-with a pick flag and colour label where known. Pick = explicit pick flag, else stars >= 4.
+The owner's judgement of one frame: Lightroom stars 1-5 from `xmp:Rating` or a CSV, with a pick flag and colour
+label where known. As the XMP spec says, Rating 0 or missing means **unrated**: the frame is skipped. Rating -1
+(or a reject pick flag without stars) is a **reject**: kept, with grade 0 (below one star) and pick -1, apart
+from unrated frames. A pick flag without stars gives no grade. Pick = explicit pick flag, else stars >= 4.
 _Avoid_: label (that is Lightroom's colour label), score (that is the head's output)
 
 **Trip**:

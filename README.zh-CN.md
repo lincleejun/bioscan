@@ -306,7 +306,7 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
   blend = 0.5
   ```
 
-  评分取 Lightroom 星级（`xmp:Rating`；拒绝标记 -1 按 0 星计），有色标和 `xmpDM:pick` 时一并读取；旁车文件优先于内嵌 XMP。Lightroom Classic 的旗标（pick）存在目录库里、不写进 XMP，需要的话用 CSV（`path,rating,pick,trip`）提供。CLI 从不加载模型：向量来自正在运行的服务的 `embed` 产物（`--embeddings FILE` 可缓存）。头文件路径要在服务的 allow-roots 之内。
+  评分取 Lightroom 1-5 星（`xmp:Rating`；按 XMP 规范，0 或缺失 = 未评分，跳过；拒绝标记 -1 保留为拒绝，等级低于 1 星），有色标和 `xmpDM:pick` 时一并读取；旁车文件优先于内嵌 XMP。Lightroom Classic 的旗标（pick）存在目录库里、不写进 XMP，需要的话用 CSV（`path,rating,pick,trip`）提供。CLI 从不加载模型：向量来自正在运行的服务的 `embed` 产物（`--embeddings FILE` 可缓存）。头文件路径要在服务的 allow-roots 之内。
 - **与你的一致程度**：`bioscan aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/bioscan/aesthetic-personal.json` 写出 report.json 和 report.md：与星级的 Spearman、Kendall；按行程对照你的 pick 的 NDCG@10 和 precision@k（k = 该行程里你的 pick 数，并列出随机顺序的期望值）；以及 50/100/200/500/1000 条评分下个人头、通用头、混合的**学习曲线**，始终按行程（文件夹）划分，连拍不会同时出现在训练和测试两侧。`bioscan bench scorecard runs/aes/report.json` 按 `aesthetic-own` 标准判定（docs/standards.md 第 13 节）。**美学相关数字都还没有实测，以上一律未验证。**
 - **许可**：EVA 的标注是 **CC0 1.0**（见其仓库的 LICENSE）。图片是来自 dpchallenge.com 的 AVA 照片，版权属于原摄影师：bioscan 只用它们计算向量，从不再分发。头权重在本地或本仓库 CI 中训练，头文件记录数据、许可、样本数、日期、种子和交叉验证结果。**从不使用 AVA 评分，也不分发任何 AVA 训练的权重。**个人头用你自己对自己照片的评分拟合，只留在你的机器上。
 
