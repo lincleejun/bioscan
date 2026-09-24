@@ -376,3 +376,23 @@ Scratch: `$SCRATCH/v15-w3/` (golden recordings, label rebuild, map build inputs,
 - The kind check keeps a stacked bird+mammal matrix (18,035 x 1024 float32, ~74 MB) plus its device copy.
   (Superseded at the W4 merge: each list is scored with its own matmul and `rules.kind_evidence_logits`; no
   stacked matrix is kept.)
+
+## v1.5 final CI (models run 35953188230 on 19c81b9) — green, compare within budget
+- Paired 77 images vs baselines/ci-smoke.json: top1 87.0 -> 89.6 (bird 88.1 -> 90.5, mammal 85.7 -> 88.6),
+  confident errors 6.5% -> 3.9% (bird 7.1 -> 2.4), coverage 93.5 -> 90.9 (bird 95.2 -> 90.5: species -> genus
+  where evidence is thin), detect mammal 91.4 -> 94.3; fixed 3 (Phoca, Circus hudsonius, Ursus americanus),
+  broken 1 (Cervus canadensis -> Odocoileus by the mammal prior; class prior_suppressed). McNemar p 0.625.
+- Other animals (18 new, not budgeted): top1 50%, coverage 72%, confident errors 22%. All 11 amphibians/insects/
+  spiders right; the 6 reptiles + 1 fish are not in TreeOfLife-200M's BioCLIP 2.5 vectors at all (census: 0 rows,
+  0 congeners) -> all-taxa list 366,460 species, float16 716 MiB.
+
+## Next (found by the harness; each needs its own CI compare)
+- [ ] not_in_list (7): a self-encoded reptile + fish list (Reptile Database / Eschmeyer's Catalog or GBIF
+      checklists, encoded with BioCLIP's text tower like the AviList/MDD rows without ToL vectors); until then
+      consider capping other_animal boxes whose kind lacks coverage at genus/unconfirmed
+- [ ] out_of_range (3): the range veto only reorders within the returned top-k; search the whole list for an
+      in-range congener (Corvus corax case)
+- [ ] prior_suppressed (1): Cervus canadensis lost to the mammal prior (p_geo of Cervus?) -> inspect mdd_map / geomodel
+      coverage for Cervus, genus back-off constant
+- [ ] kind check against the all-taxa list: size-corrected top-5 statistic (reviewer fix.py), evaluate on real photos
+- [ ] owner's Mac: golden + own RAW baselines (`bioscan bench run ... --tier golden|own`), speed tier, RAW EXIF check
