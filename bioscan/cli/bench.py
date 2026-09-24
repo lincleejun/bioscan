@@ -345,7 +345,10 @@ def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str |
     if reducers:
         from bioscan import cull
 
-        preds = {e["path"]: e for e in cull.apply(list(preds.values()), reducers)}
+        try:
+            preds = {e["path"]: e for e in cull.apply(list(preds.values()), reducers)}
+        except ValueError as e:
+            raise BenchError(f"reducers {sorted(reducers)} (preds meta line): {e}") from e
     registry = metric_registry() if registry is None else registry
     lists = lists or {}
     families = {k: v for nl in lists.values() for k, v in nl.items() if v}

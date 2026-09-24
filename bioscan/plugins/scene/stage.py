@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 from bioscan.plugin import Item, StageBase, each
-from bioscan.plugins.scene import LANDSCAPE
+from bioscan.plugins.scene import LANDSCAPE, MANIFEST
 from bioscan.service.adapters.siglip2 import MODEL_NAME
 
 LOGIT_SCALE = 100.0          # when the text model reports none (SigLIP2's learned scale is used when it does)
@@ -88,8 +88,11 @@ class Scene(StageBase):
         self._lock = threading.Lock()
 
     def settings(self) -> dict[str, Any]:
-        return {"model": MODEL_NAME, **{k: v for k, v in globals().items() if k.isupper()
-                                        and isinstance(v, (int, float)) and not isinstance(v, bool)}}
+        """The constants here and the default labels and gate classes (a request that sets its own
+        sends them as options, which the preds meta line records)."""
+        return {"model": MODEL_NAME, "defaults": MANIFEST.defaults,
+                **{k: v for k, v in globals().items() if k.isupper() and isinstance(v, (int, float))
+                   and not isinstance(v, bool)}}
 
     def matrix(self, engine: Any, labels: dict[str, list[str]]) -> np.ndarray:
         key = (id(engine.siglip2), tuple((k, tuple(v)) for k, v in labels.items()))

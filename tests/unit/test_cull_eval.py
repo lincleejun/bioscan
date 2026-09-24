@@ -129,6 +129,12 @@ def test_album_metrics_on_crafted_results():
     assert "### plugin quality" in bench.summary_md(rep)
 
 
+def test_bad_reducers_in_a_meta_line_are_a_bench_error():
+    rows, preds = album_run()
+    with pytest.raises(bench.BenchError, match="preds meta line"):
+        bench.build_report(rows, preds, preds_meta={"reducers": {"select": {"per_category": -1}}})
+
+
 def test_wildlife_ground_truth_measures_no_album_metric():
     rows = [{"path": "x", "scientific": "Megascops asio", "kind": "bird", "tier": "golden"}]
     assert bench.build_report(rows, {"x": result("x", 0.0)})["plugin_metrics"] == {}

@@ -310,7 +310,7 @@ def parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("run", help="identify/embed/jpg over files or directories")
     s.add_argument("paths", nargs="+")
-    s.add_argument("--want", help="comma list of identify,embed,jpg,geotag; default: the profile's stages (full: identify)")
+    s.add_argument("--want", help=f"comma list of {','.join(PRODUCTS)}; default: the profile's stages (full: identify)")
     s.add_argument("--profile", help=PROFILE_HELP)
     s.add_argument("--json", action="store_true", help="write raw NDJSON")
     s.add_argument("--out", help="write to FILE instead of stdout")
