@@ -163,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     y = fit.np.asarray([s for _, s, _ in eva])
     prov = {**aes.EVA_PROVENANCE, "date": time.strftime("%Y-%m-%d", time.gmtime()),
             "vectors": "in-process bioscan.service decode + Engine.frame (scripts/train_aesthetic_head.py)",
-            "votes_per_image_min": min(n for _, _, n in eva), "limit": a.limit}
+            "votes_per_image_min": min(n for _, _, n in eva), "limit": a.limit,
+            "held_out": aes.eva_holdout_provenance()}
     doc, summary = fit.train_head(X, y, name=a.name, lo=0.0, hi=10.0, target="EVA mean general score, 0-10",
                                   provenance=prov, k=a.folds, seed=a.seed)
     path = aes.write_head(doc, a.out)

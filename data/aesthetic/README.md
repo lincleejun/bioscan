@@ -39,6 +39,24 @@ stage's `settings()`.
 A personal head (`bioscan aesthetic train --ratings`) is fitted on the owner's own ratings and
 stays on the owner's machine (`~/.config/bioscan/aesthetic-personal.json`); it is never committed.
 
+## Held out: the public golden set (`eva-golden-v1.csv`)
+
+100 EVA images the crowd agrees on, 20 per star, **never fitted on**: `bioscan.aesthetic.read_eva` leaves them out
+of every general-head fit, and the head's provenance records `held_out` (file, 100 images, sha256). They are the
+public half of the aesthetic golden set (docs/research/2026-09-24-aesthetic-golden-set.md, §4.5): how far a scorer
+agrees with EVA's raters, next to how far it agrees with the owner.
+
+Chosen by `scripts/eva_golden.py select` from `votes_filtered.csv` at the pinned commit, seed 7:
+- **Star bands** on the mean general score, with gaps: 1 = below 4.5, 2 = 5.0-5.5, 3 = 5.9-6.3, 4 = 6.7-7.1,
+  5 = 7.5 and up.
+- **Consensus**: inside a band, only images whose score sd is at or below that band's median. Low-scored images
+  draw more disagreement, so one global limit would empty the low bands.
+- Every image has 30-46 votes. The columns are image_id, stars, mean, sd, votes, and the means of the four
+  attribute ratings (visual, composition, quality, semantic).
+
+The list is frozen: `select` refuses to overwrite it, and a new list is a new version (and a new head). Only ids
+and CC0 scores are committed; `eva_golden.py build --eva DIR --out DIR` links the photos from a local EVA checkout.
+
 ## How to produce it
 
 The vectors go through the service's own code: `bioscan.service.decode` (the 2048 px image) and

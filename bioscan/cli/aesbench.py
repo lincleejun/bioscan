@@ -169,7 +169,8 @@ def cmd_train(a) -> int:
         name, lo, hi, target = a.name or "eva-head-v1", 0.0, 10.0, "EVA mean general score, 0-10"
         prior = None
         out = a.out or str(aes.BUILTIN_HEAD)
-        prov = {**aes.EVA_PROVENANCE, "date": today, "vectors": f"bioscan service /run embed ({a.url})"}
+        prov = {**aes.EVA_PROVENANCE, "date": today, "vectors": f"bioscan service /run embed ({a.url})",
+                "held_out": aes.eva_holdout_provenance()}
     else:
         rows = _ratings(a.ratings)
         paths, ys, groups = [r.path for r in rows], [r.rating for r in rows], [r.trip for r in rows]

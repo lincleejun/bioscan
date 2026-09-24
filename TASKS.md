@@ -218,7 +218,10 @@ Decisions (owner): build on the C1/C2 branch; deliver design + runnable scorer (
 - [x] tests/unit/test_aes_golden.py (perfect vs inverted scorer, missing = miss, name-dependent score, slice lean,
       reasons/dims, bioscan run output, validation, compare + budget exit 1, planting)
 - [x] docs: harness.md, README (EN + zh-CN), CONTEXT (aesthetic golden set, shot group, drop reason, planted copy, residual)
+- [x] public half: 100 EVA images the crowd agrees on (20 per star), `data/aesthetic/eva-golden-v1.csv`
+      (scripts/eva_golden.py); held out of every general-head fit (`read_eva`), recorded in the head's provenance
 Next:
+- [ ] train eva-head-v1 (aesthetic.yml or the Mac), which now excludes the 100; score it on the EVA golden folder
 - [ ] owner: build aes-golden-v1 (targets in the design doc §4.2), freeze it, run the EVA head as the first baseline
 - [ ] adapters writing scores files for Q-ReAlign 0.8B/4B and a Qwen3-VL (mlx-vlm) judge; local evaluation only
 - [ ] standards bars for the golden set after the first real run (group top-1 vs random, keepers lost @20 %)

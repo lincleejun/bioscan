@@ -146,6 +146,22 @@ ranking, pair, group or cull metrics.
   are absolute. Reports and baselines of this tier stay on the owner's machine, like the personal head,
   unless the owner decides otherwise.
 
+### 4.5 The public half: EVA held out (built)
+
+Owner decision (2026-09-24): a second, public golden set from EVA, the one aesthetic dataset whose scores bioscan may
+use (CC0). It measures agreement with EVA's raters, not with the owner, so it sits beside the owner's set and never
+replaces it. EVA's images are photo-contest entries with little wildlife, so it checks general aesthetics only.
+
+- `data/aesthetic/eva-golden-v1.csv`: 100 images, 20 per star, each with at least 30 votes. Star bands on the mean
+  score have gaps between them. Only images whose raters agree better than their band's median are used (data/aesthetic/README.md).
+- **Held out before the general head was trained**: `read_eva` skips them in every fit, and the head's provenance
+  records the list's sha256. Testing the EVA head on EVA images it was fitted on would read high.
+- Build and score it: `scripts/eva_golden.py build --eva ~/.cache/bioscan/eva --out ~/aes-golden-eva`, then
+  `bench aesthetic score` as for any golden folder. There are no shot groups, so the pair and group metrics come
+  out empty. The four attribute means can check a scorer's sub-scores by hand.
+- With 100 images a Spearman is good to about ±0.2: enough to catch a broken or random scorer, not to split two
+  close ones.
+
 ## 5. The checks (`bioscan bench aesthetic score`)
 
 A missing, failed or non-finite score counts as the **lowest** score everywhere, never as a skip.

@@ -40,6 +40,7 @@ EMBEDDING = "google/siglip2-base-patch16-224@75de2d55ec2d"
 DIM = 768
 AESTHETIC_DIR = naming.DATA_DIR / "aesthetic"
 BUILTIN_HEAD = AESTHETIC_DIR / "eva-head-v1.json"           # the committed general head (absent until trained)
+EVA_HOLDOUT = AESTHETIC_DIR / "eva-golden-v1.csv"           # EVA images never fitted on: the public golden set
 PERSONAL_HEAD = Path("~/.config/bioscan/aesthetic-personal.json")   # `bioscan aesthetic train` default output
 DIGITS = 7                                                  # significant digits kept in a head file
 EMBED_SCAN_BYTES = 16 * 2**20                               # embedded XMP is looked for in this much of a file
@@ -414,10 +415,31 @@ EVA_PROVENANCE = {
 }
 
 
-def read_eva(root: str | Path) -> list[tuple[str, float, int]]:
+def eva_holdout(path: str | Path = EVA_HOLDOUT) -> set[str]:
+    """Image ids of the public golden set (scripts/eva_golden.py); empty when the file is absent."""
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            return {r["image_id"].strip() for r in csv.DictReader(f)}
+    except FileNotFoundError:
+        return set()
+
+
+def eva_holdout_provenance(path: str | Path = EVA_HOLDOUT) -> dict[str, Any] | None:
+    """What a general head was not fitted on: the held-out list, its size and sha256 (None when absent)."""
+    p = Path(path)
+    if not p.is_file():
+        return None
+    return {"file": f"data/aesthetic/{p.name}", "images": len(eva_holdout(p)),
+            "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+
+
+def read_eva(root: str | Path, exclude: set[str] | None = None) -> list[tuple[str, float, int]]:
     """(image path, mean score 0-10, votes) per EVA image with filtered votes, sorted by image id.
-    `root` is an EVA checkout: data/votes_filtered.csv ('='-delimited) and the unzipped images."""
+    `root` is an EVA checkout: data/votes_filtered.csv ('='-delimited) and the unzipped images.
+    Images in `exclude` (default: the public golden set, `eva_holdout()`) are left out, so no
+    general head is ever fitted on the images it is tested on."""
     root = Path(root)
+    exclude = eva_holdout() if exclude is None else exclude
     votes: dict[str, list[float]] = {}
     with open(root / EVA_VOTES, newline="", encoding="utf-8", errors="replace") as f:
         for r in csv.DictReader(f, delimiter="="):
@@ -427,6 +449,8 @@ def read_eva(root: str | Path) -> list[tuple[str, float, int]]:
                 continue
     out = []
     for iid in sorted(votes, key=lambda s: (len(s), s)):
+        if iid in exclude:
+            continue
         p = root / EVA_IMAGES / f"{iid}.jpg"
         if p.is_file():
             out.append((str(p.resolve()), sum(votes[iid]) / len(votes[iid]), len(votes[iid])))
