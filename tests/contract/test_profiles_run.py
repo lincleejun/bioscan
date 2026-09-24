@@ -13,7 +13,7 @@ def test_album_profile_runs_without_bioclip(client, engine, tmp_path):
     p = make_jpg(tmp_path / "a.jpg")
     ev = events(client.post("/run", json={"inputs": [{"path": p}], "profile": "album"}))
     res = next(e for e in ev if e["type"] == "result")
-    assert list(res["products"]) == ["identify", "embed", "aesthetics"]
+    assert list(res["products"]) == ["identify", "embed", "aesthetics", "quality", "scene"]
     assert "species" not in res["products"]["identify"]["boxes"][0]
     assert engine.loaded() == ["siglip2", "owlv2"]
     ev = events(client.post("/run", json={"inputs": [{"path": p}], "profile": "album", "want": ["identify"],

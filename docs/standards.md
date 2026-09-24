@@ -52,6 +52,7 @@ must clear it, not just the observed rate.
 | `mac` | 2,000 RAW files, ARW + CR3 + NEF, 24 MP (plus 45 MP), from SSD and USB disk | 2,000 | full lists | private | M1-class Mac | speed |
 | `aesthetic-own` | the owner's rated frames (Lightroom stars / picks from XMP or a CSV), split by trip folder; profile `album` | the owner's (the learning curve needs 1,000+) | none | private | owner's Mac, service running | aesthetic ranking ([section 13](#13-aesthetics-agreement-with-the-owner-album)) |
 | `geotag` | synthetic GPX tracks through the golden photos' true positions, 7 scenarios (`scripts/geotag_synth.py`, seed 7) | 1,624 photos × 7 | none (no models) | derived from golden; tracks are generated, not shipped | anywhere: about 65 s to generate (~750 MB) and 80–85 s to score (measured 64 s + 82–85 s) | GPX geotagging ([section 12](#12-geotag-from-a-gpx-track-synthetic-tier)) |
+| `album` | synthetic reject set from 24 smoke photos (`scripts/cull_synth.py`, seed 7): originals, 7 degradations each, bursts; profile `album` | about 220 | none needed (species off) | derived from smoke; generated at test time, not shipped | CI `models.yml`, CPU | culling rules and reducers ([section 14](#14-culling-album-profile-synthetic-tier)) |
 
 The golden set is 89% CC BY-NC. That is fine for measuring but not for publishing the photos. This is
 why the public tier is CC0/CC BY only.
@@ -328,7 +329,7 @@ The `aesthetic-own` tier (profile `album`) is the owner's own rated frames: Ligh
 **agreement with one photographer**, not "aesthetic accuracy". A personal head must be judged on trips
 it was not fitted on: the report flags an in-sample head, and the learning curve always holds trips out.
 Aesthetics only reorders frames, so none of these bars can cost a keeper; the keeper-loss bars belong
-to the rule stages (C1).
+to the rule stages ([section 14](#14-culling-album-profile-synthetic-tier)).
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
@@ -348,6 +349,36 @@ Every bar here is a first guess: no aesthetic number has been measured on the ow
 general head itself is not trained yet (data/aesthetic/README.md).
 
 [^pyiqa-iaa]: pyiqa's aesthetics benchmark (LAION v2 0.665, TOPIQ-IAA 0.791, Q-Align 0.822 SRCC on AVA): https://raw.githubusercontent.com/chaofengc/IQA-PyTorch/main/tests/IAA_benchmark_results.csv
+
+## 14. Culling: album profile (synthetic tier)
+
+The `album` tier scores the album profile's rules and reducers, not species: `quality` reject reasons, `burst`
+grouping and `scene` labels, from report.json's `plugin_metrics` (docs/harness.md, "Album tier"). Its standards carry
+`profile = "album"` and `plugin`, and are judged on the observed value, as a regression tier like smoke. The set is
+synthetic (`scripts/cull_synth.py` over the CI smoke photos): the degradations are cleaner than real blur or bad
+exposure, so a pass shows the rules see what they are built for, not how they do on a real album. No culling tool
+(Lightroom Assisted Culling, Aftershoot, Narrative Select, FilterPixel, Excire) publishes reject precision, recall or
+keepers lost, so there is no industry bar. The community bars are ours; keepers lost is the one that matters most:
+losing a keeper costs more than reviewing a reject.
+
+| Standard | Industry bar | Community | Stretch | Now | Why this bar |
+|---|---|---|---|---|---|
+| Keep-labelled photos a rule rejects | none published | **≤ 5%** | ≤ 1% | unmeasured (first CI run) | rejects must be conservative |
+| Degraded photos rejected, any reason | none published | **≥ 70%** | ≥ 90% | unmeasured | most technical failures caught before review |
+| Rejected photos that are degraded | none published | **≥ 80%** | ≥ 95% | unmeasured | a reject list worth trusting |
+| Soft subjects and shaken frames rejected as soft | none published | **≥ 70%** | ≥ 90% | unmeasured | subject focus is what wildlife cullers sell |
+| +2 EV rejected as overexposed; −2 EV as underexposed | none published | **≥ 80%** each | ≥ 95% | unmeasured | two stops is a clear miss |
+| Crops cutting 40% of the subject rejected as cut | none published | **≥ 60%** | ≥ 90% | unmeasured | needs the detector to box a partial animal |
+| Subjects at 0.3% of the frame rejected as too small | none published | **≥ 50%** | ≥ 80% | unmeasured | a subject the detector misses is not rejected |
+| Burst grouping, pairwise F1 | none published; cosine near-duplicate detection is the usual method (thresholds 0.93–0.95, unverified) | **≥ 80%** | ≥ 95% | unmeasured | one pick per burst |
+| Scene label correct (the smoke photos are all wildlife) | none; SigLIP2 zero-shot is reported below its paper (unverified) | **≥ 80%** | ≥ 95% | unmeasured | one label only until an album with scene labels exists |
+
+How measured: CI `models.yml` (tests/models, `models-report-album.json`), or on any photos with boxes:
+```sh
+uv run python scripts/cull_synth.py --preds runs/src.ndjson --out runs/album-synth --seed 7
+bioscan bench run runs/album-synth/groundtruth-album.csv --profile album --tier album --out runs/album
+bioscan bench scorecard runs/album/report.json
+```
 
 ## Release stages
 
@@ -401,9 +432,11 @@ the scorecard shows how far away they are.
 ## Machine-readable form
 
 `data/standards.toml` has one `[[standard]]` per bar, with these fields: `id`, `dimension`, `title`,
-`scope` (all|bird|mammal|other), `metric`, `op` (">=" or "<="), `industry`, `community`, `stretch`,
-`unit`, `how` and `source`, and optionally `tier` (when it is not the id's second segment, e.g.
-`aesthetic-own`) and `profile` (the profile the tier runs under, e.g. `album`).
+`scope` (all|bird|mammal|other; a plugin's scope with `plugin`), `metric`, `op` (">=" or "<="), `industry`,
+`community`, `stretch`, `unit`, `how` and `source`, and optionally `tier` (when it is not the id's second segment,
+e.g. `aesthetic-own`), `profile` (the profile the tier runs under, e.g. `album`; default `wildlife`, and a report
+of `full` or without a profile is held to the wildlife standards) and `plugin` (the metric is one that plugin
+declares, read from report.json `plugin_metrics`).
 `tests/unit/test_standards.py` checks the schema.
 
 - **Nulls.** TOML has no null, so a missing `industry` or `stretch` key means null (no comparable
@@ -416,6 +449,10 @@ the scorecard shows how far away they are.
   report key: list sizes, truth share, RAW formats, isolation, onboarding, privacy, pinning, the
   release report and the geo gain. The scorecard lists them as "check by hand".
 - **Units.** Rates are fractions (0–1). Speeds are in `ms` or `images/s`. Geotag errors are in `m`, clock offsets in `s`.
+- **Profiles and plugin metrics.** An optional `profile` (default `wildlife`) says which profile's reports a
+  standard applies to (a report without a profile, or `full`, counts as `wildlife`). With `plugin = "<name>"` the
+  metric is one that plugin declares and is read from report.json's `plugin_metrics[plugin][scope]`; the scope may
+  then be any of its scopes, such as a reject reason. The album tier's standards use both (section 14).
 - **Geotag metrics.** The `geotag` tier reads a `bench geotag` report, whose metrics differ from a species report:
   `median_error_m`, `p90_error_m`, `within_100m_rate`, `within_1km_rate`, `no_fix_rate`, `false_fix_rate`,
   `cell_change_rate`, `offset_error_s` (docs/harness.md defines them).

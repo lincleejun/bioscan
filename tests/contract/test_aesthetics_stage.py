@@ -146,8 +146,28 @@ def test_stage_settings_and_facts(heads, tmp_path):
     assert out[1]["general"] == pytest.approx(g.predict([0.0] * 767 + [1.0]), abs=1e-4)
 
 
-def test_album_profile_run_has_the_product_last(tmp_path, no_builtin):
+def test_album_profile_run_has_the_product(tmp_path, no_builtin):
     with client_for(Fakes().engine()) as c:
         res = result(c, {"inputs": [{"path": make_jpg(tmp_path / "a.jpg")}], "profile": "album"})
-    assert list(res[0]["products"]) == ["identify", "embed", "aesthetics"]
+    assert list(res[0]["products"]) == ["identify", "embed", "aesthetics", "quality", "scene"]
     assert res[0]["products"]["aesthetics"]["score"] is None
+
+
+def test_engine_plugins_head_id_wins_then_fingerprints_in_report_order(client, tmp_path, heads):
+    """stages.fingerprints: aesthetics names its head (plugin_id), quality and scene report their
+    settings fingerprint, in plan.want (report) order; aesthetics with head off reports nothing."""
+    from bioscan.plugins.quality import stage as quality_stage
+    from bioscan.plugins.scene import stage as scene_stage
+
+    g, _ = heads
+    p = make_jpg(tmp_path / "a.jpg")
+    want = ["identify", "scene", "aesthetics", "quality"]
+    res = result(client, {"inputs": [{"path": p}], "want": want, "options": {"identify": {"species": False}}})
+    fps = {"quality": plugin.fingerprint(1, quality_stage.STAGE.settings()),
+           "scene": plugin.fingerprint(1, scene_stage.STAGE.settings())}
+    # report (BUILTIN) order, whatever order the request named them in
+    assert list(res[0]["engine"]["plugins"].items()) == [("aesthetics", f"v1@{g.id}"), ("quality", fps["quality"]),
+                                                          ("scene", fps["scene"])]
+    res = result(client, {"inputs": [{"path": p}], "want": ["identify", "aesthetics", "quality"],
+                          "options": {"identify": {"species": False}, "aesthetics": {"head": "off"}}})
+    assert res[0]["engine"]["plugins"] == {"quality": fps["quality"]}

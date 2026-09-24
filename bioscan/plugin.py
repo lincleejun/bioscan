@@ -9,7 +9,9 @@ docs/research/2026-09-24-plugin-architecture.md."""
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib
+import json
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
@@ -19,6 +21,35 @@ FRAME_FACTS = ("vec", "gate")       # what the shared whole-frame SigLIP2 pass p
 # capture time and place (request, else EXIF), and the frame pass. A stage may still provide one of
 # them (geotag provides "place" for photos without one); readers then run after it.
 BASE_FACTS = ("image", "detail", "time", "place", *FRAME_FACTS)
+
+# How the harness aggregates a metric's per-image values (docs/harness.md, "plugin_metrics"):
+# rate: True/False per image, k/n with a Wilson interval; median: numbers; pair_*: each image gives
+# (truth group, predicted group), scored over all pairs of images (burst grouping).
+MetricKind = Literal["rate", "median", "pair_precision", "pair_recall", "pair_f1"]
+FRACTION_KINDS = ("rate", "pair_precision", "pair_recall", "pair_f1")
+
+
+@dataclass(frozen=True)
+class Metric:
+    """One harness metric a plugin declares. `row` ("package.module:function", standard library
+    only) maps (ground-truth row, the image's result/error event or None) to {scope: value}; a
+    scope with value None, or an empty dict, means the image does not count there. bench fills
+    report.json's plugin_metrics[plugin][scope] from these."""
+    name: str                               # unique across plugins: budget rules and standards name it
+    kind: MetricKind = "rate"
+    row: str = ""
+    lower_is_better: bool = False
+    description: str = ""
+
+    @property
+    def fraction(self) -> bool:
+        """0-1 like the report's rates (percentage-point budgets and unit "fraction" apply)."""
+        return self.kind in FRACTION_KINDS
+
+
+def fingerprint(version: int, settings: dict[str, Any]) -> str:
+    """`v<version>@<12 hex of sha256 over the settings>`: what result.engine.plugins reports."""
+    return f"v{version}@" + hashlib.sha256(json.dumps(settings, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
 @dataclass(frozen=True)
@@ -40,6 +71,16 @@ class Manifest:
     # checks (and may normalise) the merged options, stdlib only: ValueError -> 400. Lives in the
     # manifest so a request is validated without importing any stage's service code.
     check: Callable[[dict[str, Any]], None] = lambda opts: None
+    # "reducer": a model-free unit over a run's results, run by the CLI or offline (bioscan.cull),
+    # never by the service; it is not in BUILTIN and not served by /products
+    kind: Literal["stage", "reducer"] = "stage"
+    metrics: tuple[Metric, ...] = ()            # what `bioscan bench` reports for it (plugin_metrics)
+    # report fingerprint(version, Stage.settings()) in result.engine.plugins when a run plans this
+    # stage and its Stage.plugin_id(opts) is None (plugin_id wins; stages.fingerprints). Stages built
+    # after A0 set it (quality, scene); identify, embed, jpg and geotag leave it off, so their
+    # streams stay byte-identical (identify's settings are engine.settings). aesthetics leaves it
+    # off too: its plugin_id names the head it ran on, and with head "off" it reports nothing.
+    fingerprinted: bool = False
 
     @property
     def defaults(self) -> dict[str, Any]:
@@ -100,7 +141,8 @@ class Stage(Protocol):
     def reads_paths(self, opts: dict[str, Any]) -> list[str]: ...           # files it reads besides the inputs
     def settings(self) -> dict[str, Any]: ...                               # its output-changing constants
     # what result.engine.plugins reports for it under these options ("v1@<model or head id>"), None
-    # for nothing; a stage whose output depends on a file (a trained head) says which one here
+    # for nothing; a stage whose output depends on a file (a trained head) says which one here. It
+    # wins over Manifest.fingerprinted (service.stages.fingerprints)
     def plugin_id(self, opts: dict[str, Any]) -> str | None: ...
     def run(self, engine: Any, items: list[Item], opts: dict[str, Any]) -> list[Any]: ...  # output | Exception
 

@@ -231,6 +231,92 @@ def metrics_for(rows: list[dict], images_per_s: float | None = None) -> dict:
     return m
 
 
+# ---- plugin metrics (report.json plugin_metrics / plugin_images) ------------------------------
+
+def metric_registry() -> dict[str, tuple]:
+    """plugin name -> its declared plugin.Metric tuple, for every built-in stage and reducer that has any."""
+    from bioscan.plugins import BUILTIN, REDUCERS
+
+    return {m.name: m.metrics for m in (*BUILTIN, *REDUCERS) if m.metrics}
+
+
+def _metric(registry: dict[str, tuple], plugin: str, name: str):
+    return next((m for m in registry.get(plugin, ()) if m.name == name), None)
+
+
+def plugin_values(truth: dict, pev: dict | None, registry: dict[str, tuple]) -> dict:
+    """{plugin: {metric: {scope: value}}} of one image from each Metric.row; scopes with value None
+    and empty metrics are left out."""
+    from bioscan import plugin
+
+    out: dict[str, dict] = {}
+    for name, metrics in registry.items():
+        for m in metrics:
+            got = plugin.load(m.row)(truth, pev) or {}
+            got = {s: (list(v) if isinstance(v, tuple) else v) for s, v in got.items() if v is not None}
+            if got:
+                out.setdefault(name, {})[m.name] = got
+    return out
+
+
+def _pairs(values: list) -> tuple[int, int, int]:
+    """(true-positive pairs, truth pairs, predicted pairs) over (truth group, predicted group) per
+    image: every pair of images is in the same truth group, the same predicted group, both or neither."""
+    both, truth, pred = Counter(), Counter(), Counter()
+    for t, p in values:
+        both[(t, p)] += 1
+        truth[t] += 1
+        pred[p] += 1
+
+    def pairs(c: Counter) -> int:
+        return sum(n * (n - 1) // 2 for n in c.values())
+    return pairs(both), pairs(truth), pairs(pred)
+
+
+def _aggregate(m, values: list) -> dict:
+    """One metric of one scope: `<name>`, `<name>_ci` (fractions with a denominator) and `<name>_n`."""
+    if m.kind == "rate":
+        k, n = sum(bool(v) for v in values), len(values)
+        return {m.name: round(k / n, 6) if n else None, m.name + "_ci": wilson(k, n), m.name + "_n": n}
+    if m.kind == "median":
+        return {m.name: _median(values), m.name + "_n": len(values)}
+    tp, t, p = _pairs(values)
+    if m.kind == "pair_precision":
+        return {m.name: round(tp / p, 6) if p else None, m.name + "_ci": wilson(tp, p), m.name + "_n": p}
+    if m.kind == "pair_recall":
+        return {m.name: round(tp / t, 6) if t else None, m.name + "_ci": wilson(tp, t), m.name + "_n": t}
+    prec, rec = (tp / p if p else None), (tp / t if t else None)
+    f1 = None if prec is None or rec is None else (2 * prec * rec / (prec + rec) if prec + rec else 0.0)
+    return {m.name: None if f1 is None else round(f1, 6), m.name + "_n": len(values)}
+
+
+def plugin_metrics_for(entries: list[dict], registry: dict[str, tuple]) -> dict:
+    """plugin_metrics from plugin_images entries: {plugin: {scope: {n, <metric>, <metric>_ci,
+    <metric>_n}}}, scope `all` first. `n` is the images with any value of the plugin in that scope."""
+    values: dict[str, dict[str, dict[str, list]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    counts: dict[str, Counter] = defaultdict(Counter)
+    for e in entries:
+        for plugin, per_metric in (e.get("values") or {}).items():
+            scopes = set()
+            for metric, per_scope in per_metric.items():
+                for scope, v in per_scope.items():
+                    values[plugin][scope][metric].append(tuple(v) if isinstance(v, list) else v)
+                    scopes.add(scope)
+            for scope in scopes:
+                counts[plugin][scope] += 1
+    out: dict[str, dict] = {}
+    for plugin in sorted(values):
+        scopes = sorted(values[plugin], key=lambda s: (s != "all", s))
+        out[plugin] = {}
+        for scope in scopes:
+            row: dict[str, Any] = {"n": counts[plugin][scope]}
+            for m in registry.get(plugin, ()):
+                if m.name in values[plugin][scope]:
+                    row |= _aggregate(m, values[plugin][scope][m.name])
+            out[plugin][scope] = row
+    return out
+
+
 def _git() -> tuple[str | None, bool | None]:
     try:
         sha = subprocess.run(["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
@@ -249,9 +335,25 @@ def sha256_of(path) -> str | None:
 def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str | None = None,
                  synonyms_sha256: str | None = None, preds_meta: dict | None = None, done: dict | None = None,
                  lists: dict[str, dict[str, str]] | None = None, preds_path: str | None = None,
-                 complete: bool | None = None, options: dict | None = None, tier: str | None = None) -> dict:
+                 complete: bool | None = None, options: dict | None = None, tier: str | None = None,
+                 profile: str | None = None, reducers: dict[str, dict] | None = None,
+                 registry: dict[str, tuple] | None = None) -> dict:
     """report.json from ground-truth rows (already synonym-normalised) and preds (path -> event).
-    `tier` names the standards tier the run belongs to (smoke, golden, own, public, mac), for the scorecard."""
+    `tier` names the standards tier the run belongs to (smoke, golden, own, public, mac, album), for
+    the scorecard. `profile` (default: the preds meta line's) goes to meta.profile. `reducers`
+    ({name: options}, default: the preds meta line's) run over the results first (bioscan.cull), so
+    their products reach the plugin metrics; `registry` (plugin -> Metric tuple) defaults to the
+    built-in plugins' metrics."""
+    preds_meta = preds_meta or {}
+    reducers = reducers if reducers is not None else preds_meta.get("reducers") or None
+    if reducers:
+        from bioscan import cull
+
+        try:
+            preds = {e["path"]: e for e in cull.apply(list(preds.values()), reducers)}
+        except ValueError as e:
+            raise BenchError(f"reducers {sorted(reducers)} (preds meta line): {e}") from e
+    registry = metric_registry() if registry is None else registry
     lists = lists or {}
     families = {k: v for nl in lists.values() for k, v in nl.items() if v}
     for pev in preds.values():                       # the candidates' own taxonomy fills in the rest
@@ -261,7 +363,11 @@ def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str |
                 if len(tax) > 4 and tax[4]:
                     families.setdefault(naming.norm_binomial(c.get("scientific")), tax[4])
     images = [image_row(r, preds.get(r["path"]), lists, families) for r in rows]
-    preds_meta = preds_meta or {}
+    plugin_images = []
+    for r, img in zip(rows, images):
+        values = plugin_values(r, preds.get(r["path"]), registry) if registry else {}
+        if values:
+            plugin_images.append({"path": img["path"], "sha256": img["sha256"], "tier": img["tier"], "values": values})
     elapsed, ok = (done or {}).get("elapsed_ms"), (done or {}).get("ok")
     ips = round(ok / (elapsed / 1000), 4) if elapsed and ok else None
     metrics = {s: metrics_for([r for r in images if s == "all" or r["scope"] == s], ips if s == "all" else None)
@@ -288,11 +394,14 @@ def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str |
         "preds_schema": preds_meta.get("schema"), "complete": complete,
         "done": {k: done.get(k) for k in ("ok", "failed", "elapsed_ms")} if done else None,
         "name_lists": sorted(lists),
+        "profile": profile if profile is not None else preds_meta.get("profile"),
+        "reducers": reducers or None,
     }
     return {"schema": REPORT_SCHEMA, "version": REPORT_VERSION, "meta": meta, "metrics": metrics,
             "per_species": _table(images, lambda r: r["truth"], with_kind=True),
             "per_family": _table(images, lambda r: r["family_truth"] or "(unknown)"),
-            "images": images}
+            "images": images,
+            "plugin_metrics": plugin_metrics_for(plugin_images, registry), "plugin_images": plugin_images}
 
 
 def _table(images: list[dict], key, with_kind: bool = False) -> dict:
@@ -393,7 +502,33 @@ def summary_md(rep: dict) -> str:
     keys = [k for k in METRICS if k != "n"]
     lines = ["| scope | n | " + " | ".join(keys) + " |", "|---" * (len(keys) + 2) + "|"]
     lines += [f"| {s} | {m[s]['n']} | " + " | ".join(fmt(k, m[s][k]) for k in keys) + " |" for s in scopes]
-    return "\n".join(lines)
+    extra = plugin_md(rep.get("plugin_metrics") or {})
+    return "\n".join(lines) + ("\n\n" + extra if extra else "")
+
+
+def _pfmt(m, v) -> str:
+    if v is None:
+        return "–"
+    return f"{v * 100:.1f}%" if m is not None and m.fraction else f"{v:.3g}"
+
+
+def plugin_md(pm: dict, registry: dict[str, tuple] | None = None) -> str:
+    """plugin_metrics as one table per plugin: a row per scope, rates in % with their Wilson interval."""
+    registry = metric_registry() if registry is None else registry
+    out = []
+    for plugin, scopes in pm.items():
+        names = [m.name for m in registry.get(plugin, ()) if any(m.name in s for s in scopes.values())]
+        out += [f"### plugin {plugin}", "", "| scope | n | " + " | ".join(names) + " |", "|---" * (len(names) + 2) + "|"]
+        for scope, row in scopes.items():
+            cells = []
+            for name in names:
+                m = _metric(registry, plugin, name)
+                ci = row.get(name + "_ci")
+                cells.append(_pfmt(m, row.get(name)) + (fmt_ci(name, ci) if ci else "")
+                             + (f" (n {row[name + '_n']})" if name in row else ""))
+            out.append(f"| {scope} | {row['n']} | " + " | ".join(cells) + " |")
+        out.append("")
+    return "\n".join(out).rstrip()
 
 
 # ---- budget ----------------------------------------------------------------------------------
@@ -401,9 +536,11 @@ def summary_md(rep: dict) -> str:
 RULE_LIMITS = ("max_drop_pts", "max_rise_pts", "max_drop_pct", "max_rise_pct")
 
 
-def read_budget(path: str | Path) -> dict:
-    """baselines/budget.toml: `[[rule]]` (metric, scopes, one limit, min_n), `[species] max_lost`,
-    `[images] max_broken`. Raises BenchError on anything it does not understand."""
+def read_budget(path: str | Path, registry: dict[str, tuple] | None = None) -> dict:
+    """baselines/budget.toml: `[[rule]]` (metric, scopes, one limit, min_n; `plugin` names a
+    plugin whose metric it is), `[species] max_lost`, `[images] max_broken`. Raises BenchError on
+    anything it does not understand."""
+    registry = metric_registry() if registry is None else registry
     try:
         with open(path, "rb") as f:
             raw = tomllib.load(f)
@@ -417,14 +554,24 @@ def read_budget(path: str | Path) -> dict:
         raise BenchError(f"{path}: rules are [[rule]] tables (an array), not one [rule]")
     for i, r in enumerate(rules):
         where = f"{path}: rule {i + 1}"
-        if r.get("metric") not in METRICS or r.get("metric") == "n":
+        if "plugin" in r:
+            if r["plugin"] not in registry:
+                raise BenchError(f"{where}: plugin must be one of {', '.join(registry) or '(none with metrics)'}")
+            m = _metric(registry, r["plugin"], r.get("metric"))
+            if m is None:
+                raise BenchError(f"{where}: metric must be one of plugin {r['plugin']}'s: "
+                                 f"{', '.join(x.name for x in registry[r['plugin']])}")
+            fraction = m.fraction
+        elif r.get("metric") not in METRICS or r.get("metric") == "n":
             raise BenchError(f"{where}: metric must be one of {', '.join(METRICS[1:])}")
+        else:
+            fraction = r["metric"] in FRACTIONS
         limits = [k for k in RULE_LIMITS if k in r]
         if len(limits) != 1:
             raise BenchError(f"{where}: needs exactly one of {', '.join(RULE_LIMITS)}")
-        if limits[0].endswith("_pts") and r["metric"] not in FRACTIONS:
+        if limits[0].endswith("_pts") and not fraction:
             raise BenchError(f"{where}: *_pts limits are for rates; use *_pct for {r['metric']}")
-        extra = set(r) - {"metric", "scopes", "min_n", "note", *RULE_LIMITS}
+        extra = set(r) - {"metric", "plugin", "scopes", "min_n", "note", *RULE_LIMITS}
         if extra:
             raise BenchError(f"{where}: unknown keys {sorted(extra)}")
     for sect, key in (("species", "max_lost"), ("images", "max_broken")):
@@ -439,10 +586,12 @@ def check_budget(cmp: dict, budget: dict) -> list[dict]:
     for r in budget.get("rule", []):
         metric, (limit_key,) = r["metric"], [k for k in RULE_LIMITS if k in r]
         limit = float(r[limit_key])
-        for scope in r.get("scopes", SCOPES):
-            row = cmp["metrics"].get(scope, {}).get(metric)
-            n = min(cmp["metrics"].get(scope, {}).get("n", {}).get(x) or 0 for x in ("base", "new")) \
-                if scope in cmp["metrics"] else 0
+        source = (cmp.get("plugin_metrics") or {}).get(r["plugin"], {}) if "plugin" in r else cmp["metrics"]
+        label = f"{r['plugin']}.{metric}" if "plugin" in r else metric
+        for scope in r.get("scopes", ["all"] if "plugin" in r else SCOPES):
+            row = source.get(scope, {}).get(metric)
+            n = min(source.get(scope, {}).get("n", {}).get(x) or 0 for x in ("base", "new")) \
+                if scope in source else 0
             if not row or row["base"] is None or row["new"] is None or n < r.get("min_n", 1):
                 continue
             b, v = row["base"], row["new"]
@@ -455,8 +604,8 @@ def check_budget(cmp: dict, budget: dict) -> list[dict]:
             if change > limit + 1e-9:
                 unit = "pts" if limit_key.endswith("_pts") else "%"
                 verb = "dropped" if "drop" in limit_key else "rose"
-                out.append({"rule": f"{metric} {limit_key} {limit:g}", "scope": scope, "base": b, "new": v,
-                            "limit": limit, "why": f"{metric} {verb} {change:.1f} {unit} in {scope} (limit {limit:g} {unit})"})
+                out.append({"rule": f"{label} {limit_key} {limit:g}", "scope": scope, "base": b, "new": v,
+                            "limit": limit, "why": f"{label} {verb} {change:.1f} {unit} in {scope} (limit {limit:g} {unit})"})
     max_lost = budget.get("species", {}).get("max_lost")
     if max_lost is not None:
         for s in cmp["species"]["regressions"]:
@@ -531,8 +680,30 @@ def _deltas(bm: dict, nm: dict) -> dict:
     return out
 
 
-def compare(base: dict, new: dict, budget: dict | None = None, labels: tuple[str, str] = ("base", "new")) -> dict:
+def _plugin_deltas(base: dict, new: dict, registry: dict[str, tuple]) -> dict:
+    """{plugin: {scope: {metric: {base, new, delta, base_ci, new_ci}}}} over the plugin_images the two
+    reports share (paired like the images), for plugins and scopes on both sides; `n` included."""
+    pairs, _, _, _ = pair_images(base.get("plugin_images") or [], new.get("plugin_images") or [])
+    if not pairs:
+        return {}
+    bm = plugin_metrics_for([b for b, _ in pairs], registry)
+    nm = plugin_metrics_for([n for _, n in pairs], registry)
+    out: dict[str, dict] = {}
+    for plugin in [p for p in bm if p in nm]:
+        for scope in [s for s in bm[plugin] if s in nm[plugin]]:
+            b, v = bm[plugin][scope], nm[plugin][scope]
+            keys = ["n"] + [m.name for m in registry.get(plugin, ()) if m.name in b or m.name in v]
+            out.setdefault(plugin, {})[scope] = {
+                k: {"base": b.get(k), "new": v.get(k),
+                    "delta": None if b.get(k) is None or v.get(k) is None else round(v[k] - b[k], 6),
+                    "base_ci": b.get(k + "_ci"), "new_ci": v.get(k + "_ci")} for k in keys}
+    return out
+
+
+def compare(base: dict, new: dict, budget: dict | None = None, labels: tuple[str, str] = ("base", "new"),
+            registry: dict[str, tuple] | None = None) -> dict:
     """The comparison of two reports as data (the JSON `bench compare --json` writes)."""
+    registry = metric_registry() if registry is None else registry
     warnings = []
     bm, nm = base["meta"], new["meta"]
     if bm.get("settings_fingerprint") != nm.get("settings_fingerprint"):
@@ -547,6 +718,10 @@ def compare(base: dict, new: dict, budget: dict | None = None, labels: tuple[str
         warnings.append("synonyms.csv differs (truth labels may be normalised differently)")
     if json.dumps(bm.get("options"), sort_keys=True) != json.dumps(nm.get("options"), sort_keys=True):
         warnings.append(f"request options differ: {bm.get('options')} -> {nm.get('options')}")
+    if bm.get("profile") != nm.get("profile"):
+        warnings.append(f"profile differs: {bm.get('profile')} -> {nm.get('profile')}")
+    if json.dumps(bm.get("reducers"), sort_keys=True) != json.dumps(nm.get("reducers"), sort_keys=True):
+        warnings.append(f"reducer options differ: {bm.get('reducers')} -> {nm.get('reducers')}")
     pairs, only_base, only_new, key = pair_images(base["images"], new["images"])
     # Everything budgeted is computed over the paired images only, so a test set that gains (or
     # loses) photos never reads as a regression. images_per_s stays whole-run: it is a run property.
@@ -579,7 +754,8 @@ def compare(base: dict, new: dict, budget: dict | None = None, labels: tuple[str
            "species": {"regressions": sorted((c for c in changes if c["lost"] > 0), key=lambda c: (-c["lost"], c["truth"])),
                        "improvements": sorted((c for c in changes if c["lost"] < 0), key=lambda c: (c["lost"], c["truth"]))},
            "broken": evidence,
-           "fixed": [{"path": n["path"], "truth": n["truth"], "old": _answer(b), "new": _answer(n)} for b, n in fixed]}
+           "fixed": [{"path": n["path"], "truth": n["truth"], "old": _answer(b), "new": _answer(n)} for b, n in fixed],
+           "plugin_metrics": _plugin_deltas(base, new, registry)}
     violations = check_budget(out, budget) if budget is not None else []
     out["budget"] = {"checked": budget is not None, "violations": violations}
     out["verdict"] = "over_budget" if violations else "ok"
@@ -595,7 +771,7 @@ def _ans_md(a: dict) -> str:
             f"p_geo {_p(a.get('p_geo'))}, post {_p(a.get('posterior'))})")
 
 
-def compare_md(c: dict, limit: int = 30) -> str:
+def compare_md(c: dict, limit: int = 30, registry: dict[str, tuple] | None = None) -> str:
     b, n, pr = c["base"], c["new"], c["pairing"]
     lines = ["# bioscan bench compare", "",
              f"- base: {b['label']} (git {str(b['git_sha'])[:12]}, {b['date']}, n {b['n']})",
@@ -629,6 +805,24 @@ def compare_md(c: dict, limit: int = 30) -> str:
             lines.append(f"| {k} | {fmt(k, row['base'])}{fmt_ci(k, row['base_ci'])} | "
                          f"{fmt(k, row['new'])}{fmt_ci(k, row['new_ci'])} | {fmt_delta(k, row['delta'])}{flag} |")
         lines.append("")
+    registry = metric_registry() if registry is None else registry
+    for plugin, scopes in (c.get("plugin_metrics") or {}).items():
+        lines += [f"## Plugin metrics: {plugin} (paired images)", ""]
+        for scope, ms in scopes.items():
+            lines += [f"### {plugin} / {scope}", "", "| metric | base | new | Δ |", "|---|---|---|---|"]
+            for k, row in ms.items():
+                m = _metric(registry, plugin, k)
+                flag = ""
+                if row["delta"] and m is not None:
+                    flag = " ▼" if (row["delta"] > 0) == m.lower_is_better else " ▲"
+                if m is None:                                   # n, or a metric this bioscan does not know
+                    cells = [str(row["base"]), str(row["new"]), "–" if row["delta"] is None else f"{row['delta']:+g}"]
+                else:
+                    cells = [_pfmt(m, row["base"]) + fmt_ci(k, row["base_ci"]), _pfmt(m, row["new"]) + fmt_ci(k, row["new_ci"]),
+                             "–" if row["delta"] is None else
+                             (f"{row['delta'] * 100:+.1f} pts" if m.fraction else f"{row['delta']:+.3g}") + flag]
+                lines.append(f"| {k} | " + " | ".join(cells) + " |")
+            lines.append("")
     unpaired = c.get("unpaired") or {}
     for side, title in (("only_new", "Unpaired images: new images (only in new)"),
                         ("only_base", "Unpaired images: only in base")):
@@ -777,11 +971,24 @@ def analyze_md(a: dict) -> str:
 
 # ---- scorecard -------------------------------------------------------------------------------
 
-STANDARD_FIELDS = ("id", "dimension", "title", "tier", "profile", "scope", "metric", "op", "industry", "community",
-                   "stretch", "unit", "how", "source")
-OPTIONAL_FIELDS = ("tier", "profile", "industry", "stretch")   # TOML has no null: an absent key means null
+STANDARD_FIELDS = ("id", "dimension", "title", "tier", "profile", "plugin", "scope", "metric", "op", "industry",
+                   "community", "stretch", "unit", "how", "source")
+OPTIONAL_FIELDS = ("tier", "profile", "plugin", "industry", "stretch")   # TOML has no null: an absent key means null
 MANUAL = "manual"                                      # a standard checked by hand, not read from a report
-POINT_TIERS = ("smoke",)                               # regression guards: judged on the observed value
+POINT_TIERS = ("smoke", "album")                       # regression guards: judged on the observed value
+DEFAULT_PROFILE = "wildlife"                           # a standard without `profile`
+# a report's profile as the standards see it: a run without one (or `full`, the same identify
+# contract) is held to the wildlife standards
+PROFILE_ALIASES = {None: "wildlife", "full": "wildlife"}
+
+
+def standard_profile(s: dict) -> str:
+    return s.get("profile") or DEFAULT_PROFILE
+
+
+def report_profile(rep: dict) -> str:
+    p = rep["meta"].get("profile")
+    return PROFILE_ALIASES.get(p, p)
 
 
 def standard_tier(s: dict) -> str | None:
@@ -796,10 +1003,12 @@ def is_nogeo(s: dict) -> bool:
     return str(s.get("id", "")).endswith(".nogeo")
 
 
-def read_standards(path: str | Path) -> list[dict]:
+def read_standards(path: str | Path, registry: dict[str, tuple] | None = None) -> list[dict]:
     """data/standards.toml: `[[standard]]` tables with STANDARD_FIELDS (docs/harness.md). Rate
     metrics take unit "fraction" with targets 0-1, like the report; other metrics use the report's
-    own units. `metric = "manual"` entries are listed, never scored."""
+    own units. `metric = "manual"` entries are listed, never scored. With `plugin`, the metric is
+    one that plugin declares (report plugin_metrics) and the scope is one of its scopes."""
+    registry = metric_registry() if registry is None else registry
     try:
         with open(path, "rb") as f:
             raw = tomllib.load(f)
@@ -819,18 +1028,33 @@ def read_standards(path: str | Path) -> list[dict]:
         if s["id"] in seen:
             raise BenchError(f"{where}: duplicate id")
         seen.add(s["id"])
-        if s["scope"] not in SCOPES:
-            raise BenchError(f"{where}: scope must be one of {', '.join(SCOPES)}")
+        for k in ("profile", "plugin"):
+            if k in s and (not isinstance(s[k], str) or not s[k]):
+                raise BenchError(f"{where}: {k} must be a non-empty string")
+        if "plugin" in s:
+            if s["plugin"] not in registry:
+                raise BenchError(f"{where}: plugin must be one of {', '.join(registry) or '(none with metrics)'}")
+            m = _metric(registry, s["plugin"], s["metric"])
+            if m is None:
+                raise BenchError(f"{where}: metric must be one of plugin {s['plugin']}'s: "
+                                 f"{', '.join(x.name for x in registry[s['plugin']])}")
+            if not isinstance(s["scope"], str) or not s["scope"]:
+                raise BenchError(f"{where}: scope must be a non-empty string")
+            fraction = m.fraction
+        else:
+            if s["scope"] not in SCOPES:
+                raise BenchError(f"{where}: scope must be one of {', '.join(SCOPES)}")
+            fraction = s["metric"] in FRACTIONS or s["metric"] in GEOTAG_RATES or s["metric"] in AESTHETIC_RATES
         if s["op"] not in (">=", "<="):
             raise BenchError(f"{where}: op must be >= or <=")
         if s["metric"] == MANUAL:
             continue
-        if s["metric"] not in METRICS and s["metric"] not in GEOTAG_METRICS and s["metric"] not in AESTHETIC_METRICS:
+        if ("plugin" not in s and s["metric"] not in METRICS and s["metric"] not in GEOTAG_METRICS
+                and s["metric"] not in AESTHETIC_METRICS):
             raise BenchError(f"{where}: metric must be one of {', '.join(METRICS)}, a geotag metric "
                              f"({', '.join(GEOTAG_METRICS[1:])}), an aesthetic metric "
-                             f"({', '.join(AESTHETIC_METRICS[1:])}) or {MANUAL}")
-        rate = s["metric"] in FRACTIONS or s["metric"] in GEOTAG_RATES or s["metric"] in AESTHETIC_RATES
-        if rate != (s["unit"] == "fraction"):
+                             f"({', '.join(AESTHETIC_METRICS[1:])}), a plugin metric (with `plugin`) or {MANUAL}")
+        if fraction != (s["unit"] == "fraction"):
             raise BenchError(f"{where}: rate metrics take unit \"fraction\" (0-1), other metrics may not")
         if standard_tier(s) is None:
             raise BenchError(f"{where}: no tier (add `tier`, or use an id <dimension>.<tier>.<scope>.<metric>)")
@@ -859,15 +1083,19 @@ def scorecard(rep: dict, standards: list[dict], tier: str) -> dict:
     judged on the observed value. A --no-geo report is held to the `.nogeo` standards only; a normal
     report skips them."""
     nogeo = report_nogeo(rep)
+    profile = report_profile(rep)
     rows, manual, skipped = [], [], 0
     for s in standards:
         if s["metric"] == MANUAL:
             manual.append({k: s.get(k) for k in STANDARD_FIELDS})
             continue
-        if standard_tier(s) != tier or is_nogeo(s) != nogeo:
+        if standard_tier(s) != tier or is_nogeo(s) != nogeo or standard_profile(s) != profile:
             skipped += 1
             continue
-        m = rep["metrics"].get(s["scope"]) or {}
+        if "plugin" in s:
+            m = ((rep.get("plugin_metrics") or {}).get(s["plugin"]) or {}).get(s["scope"]) or {}
+        else:
+            m = rep["metrics"].get(s["scope"]) or {}
         v, ci = m.get(s["metric"]), m.get(s["metric"] + "_ci")
         use_ci = bool(ci) and tier not in POINT_TIERS
         judged = (ci[0] if s["op"] == ">=" else ci[1]) if use_ci else v
@@ -878,7 +1106,7 @@ def scorecard(rep: dict, standards: list[dict], tier: str) -> dict:
             status = "pass" if gap >= 0 else "fail"
         rows.append({**{k: s.get(k) for k in STANDARD_FIELDS}, "tier": tier, "n": m.get("n"), "value": v, "ci": ci,
                      "judged_on": "wilson" if use_ci else "value", "judged": judged, "status": status, "gap": gap})
-    return {"tier": tier, "nogeo": nogeo, "rows": rows, "manual": manual, "skipped": skipped}
+    return {"tier": tier, "nogeo": nogeo, "profile": profile, "rows": rows, "manual": manual, "skipped": skipped}
 
 
 def _num(x, unit) -> str:
@@ -893,12 +1121,14 @@ def scorecard_md(sc: dict, rep: dict) -> str:
     lines = ["# bioscan bench scorecard", "",
              f"- report: git {str(rep['meta'].get('git_sha'))[:12]}, {rep['meta'].get('date')}, "
              f"{rep['meta'].get('groundtruth')}",
-             f"- tier: {sc['tier']}{' (no-geo run: .nogeo standards only)' if sc['nogeo'] else ''}; "
-             f"{sc['skipped']} standards of other tiers or geo modes skipped", "",
+             f"- tier: {sc['tier']}{' (no-geo run: .nogeo standards only)' if sc['nogeo'] else ''}, profile "
+             f"{sc.get('profile', DEFAULT_PROFILE)}; {sc['skipped']} standards of other tiers, profiles or geo modes "
+             "skipped", "",
              "Status and gap are against the community bar; gap > 0 means better than the bar. Rates are judged on "
-             "the Wilson 95% bound (lower for >=, upper for <=), except on the smoke tier and for speeds.", ""]
+             f"the Wilson 95% bound (lower for >=, upper for <=), except on the {' and '.join(POINT_TIERS)} tiers "
+             "and for speeds.", ""]
     if not sc["rows"]:
-        lines += [f"No standards for tier {sc['tier']!r}.", ""]
+        lines += [f"No standards for tier {sc['tier']!r} and profile {sc.get('profile', DEFAULT_PROFILE)!r}.", ""]
     else:
         lines += ["| id | standard | n | bar | ours [95% CI] | judged on | status | gap | industry | stretch |",
                   "|---|---|---|---|---|---|---|---|---|---|"]

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from bioscan import contract, formats, profile, serve_config
 from bioscan.cli import aesbench, bench, client, geotag_cli, gt
+from bioscan.cli import cull as cull_cli
 from bioscan.cli.config import PROFILE_HELP, eval_request, expand, load_config, request_options
 from bioscan.cli.config import add_parser as add_config_parser
 from bioscan.cli.render import Renderer
@@ -309,7 +310,7 @@ def parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("run", help="identify/embed/jpg over files or directories")
     s.add_argument("paths", nargs="+")
-    s.add_argument("--want", help="comma list of identify,embed,jpg,geotag; default: the profile's stages (full: identify)")
+    s.add_argument("--want", help=f"comma list of {','.join(PRODUCTS)}; default: the profile's stages (full: identify)")
     s.add_argument("--profile", help=PROFILE_HELP)
     s.add_argument("--json", action="store_true", help="write raw NDJSON")
     s.add_argument("--out", help="write to FILE instead of stdout")
@@ -360,6 +361,7 @@ def parser() -> argparse.ArgumentParser:
     add_config_parser(sub)
     geotag_cli.add_parser(sub)
     aesbench.add_parser(sub)
+    cull_cli.add_parser(sub)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)

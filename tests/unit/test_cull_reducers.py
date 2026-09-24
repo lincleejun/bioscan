@@ -1,0 +1,137 @@
+"""The burst and select reducers (bioscan/cull.py) on crafted result events, and how profiles carry
+reducer options."""
+import base64
+import struct
+
+import pytest
+from cull_fixtures import result as ev
+
+from bioscan import cull, profile
+
+BURST = {"max_gap_s": 1.5, "min_cosine": 0.92}
+SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2,
+          "waive": {"night": ["underexposed"]}}
+
+
+def test_burst_chains_one_camera_close_in_time_and_alike():
+    events = [ev("a", 0.0), ev("b", 0.2), ev("c", 0.4), ev("far", 10.0),           # a-b-c burst; far alone
+              ev("other_cam", 0.1, camera="Cam B"),                               # another camera: alone
+              ev("unlike", 0.6, v=(0.0, 1.0)), ev("after", 0.8),                   # a different scene breaks the chain
+              ev("no_time"), ev("no_vec", 11.0, v=None),
+              {"type": "error", "path": "bad", "product": None, "message": "x"}]
+    b = cull.burst(events, BURST)
+    assert (b["a"]["id"], b["b"]["id"], b["c"]["id"]) == ("b0001",) * 3 and b["a"]["size"] == 3
+    assert [b[p]["index"] for p in "abc"] == [0, 1, 2] and b["b"]["gap_s"] == 0.2 and b["b"]["cosine"] == 1.0
+    assert all(b[p]["id"] is None and b[p]["size"] == 1 for p in ("far", "other_cam", "unlike", "no_time", "no_vec"))
+    assert b["after"]["id"] is None and b["unlike"]["cosine"] == 0.0 and "bad" not in b
+    assert cull.burst([ev("x", 0.0), ev("y", 1.4)], BURST)["y"]["id"] == "b0001"
+    assert cull.burst([ev("x", 0.0), ev("y", 1.6)], BURST)["y"]["id"] is None          # max_gap_s
+
+
+def test_burst_reads_float16_vectors_and_camera_fallback():
+    f16 = base64.b64encode(struct.pack("<4e", 1.0, 0.0, 0.0, 0.0)).decode()
+    a, b = ev("a", 0.0, camera=None), ev("b", 0.3, camera=None)
+    a["products"]["embed"]["vector"] = f16
+    got = cull.burst([a, b], BURST)
+    assert got["a"]["id"] == got["b"]["id"] == "b0001"                  # no camera: one camera
+
+
+def run(events, **select):
+    out = cull.apply(events, {"burst": BURST, "select": {**SELECT, **select}})
+    return {r["path"]: r for r in cull.records(out)}
+
+
+def test_best_of_burst_in_criteria_order():
+    # rejected frames lose even when sharper; within sharp_tie, not cut off wins; then exposure; then aesthetic
+    r = run([ev("rejected", 0.0, blur=0.1, reasons=["overexposed"]), ev("soft", 0.2, blur=0.4),
+             ev("cut", 0.4, blur=0.21, cut=True), ev("dark", 0.6, blur=0.22, exposure=-0.3),
+             ev("best", 0.8, blur=0.215, aesthetic=0.1), ev("pretty", 1.0, blur=0.22, aesthetic=0.9)])
+    ranks = {p: x["burst_rank"] for p, x in r.items()}
+    assert ranks == {"pretty": 1, "best": 2, "dark": 3, "cut": 4, "soft": 5, "rejected": 6}
+    assert r["pretty"]["status"] == "pick" and r["pretty"]["keep"] and r["pretty"]["rank"] == 1
+    assert r["best"]["status"] == "duplicate" and r["best"]["duplicate_of"] == "pretty"
+    assert r["rejected"]["status"] == "reject" and r["rejected"]["reasons"] == ["overexposed"]
+    assert all(x["burst"] == "b0001" and x["burst_size"] == 6 for x in r.values())
+
+
+def test_sharpness_outside_the_tie_band_beats_the_rest():
+    r = run([ev("sharp_cut", 0.0, blur=0.15, cut=True), ev("soft_whole", 0.2, blur=0.3)])
+    assert r["sharp_cut"]["burst_rank"] == 1
+
+
+def test_top_per_category_with_near_duplicates_skipped():
+    events = [ev("w1", 0, aesthetic=0.9, v=(1.0, 0.0)), ev("w2", 20, aesthetic=0.8, v=(1.0, 0.01)),   # w2 ~ w1
+              ev("w3", 40, aesthetic=0.7, v=(0.0, 1.0)), ev("w4", 60, aesthetic=0.6, v=(0.5, 0.5, 0.7)),
+              ev("l1", 80, label="landscape", v=(0.0, 0.0, 1.0)), ev("n1", 90, label="night", reasons=["underexposed"],
+                                                                     v=(0.0, 0.0, 0.0, 1.0))]
+    r = run(events)
+    assert [r[p]["status"] for p in ("w1", "w2", "w3", "w4")] == ["pick", "duplicate", "pick", "spare"]
+    assert r["w2"]["duplicate_of"] == "w1" and [r[p]["rank"] for p in ("w1", "w2", "w3", "w4")] == [1, 2, 3, 4]
+    assert r["l1"]["status"] == "pick" and r["l1"]["category"] == "landscape"
+    assert r["n1"]["status"] == "pick" and r["n1"]["reasons"] == [] and r["n1"]["waived"] == ["underexposed"]
+    everything = run(events, per_category=0)
+    assert everything["w4"]["status"] == "pick"                       # 0 = no limit
+
+
+def test_without_aesthetics_sharpness_ranks_and_without_scene_one_category():
+    events = [ev("x", 0, blur=0.3, v=(1.0,)), ev("y", 30, blur=0.1, v=(0.0, 1.0)), ev("z", 60, blur=0.2, v=(0.0, 0.0, 1.0))]
+    for e in events:
+        del e["products"]["scene"]
+    r = run(events)
+    assert [r[p]["rank"] for p in "xyz"] == [3, 1, 2] and {x["category"] for x in r.values()} == {cull.UNCATEGORISED}
+    assert [r[p]["status"] for p in "yzx"] == ["pick", "pick", "spare"] and r["x"]["aesthetic"] is None
+
+
+def test_select_reads_the_aesthetics_stage_output_and_it_only_reorders():
+    # the aesthetics stage's product is {score, general, personal, head_id, note?}; select reads score
+    events = [ev("low", 0, v=(1.0,)), ev("high", 30, v=(0.0, 1.0)), ev("nohead", 60, v=(0.0, 0.0, 1.0)),
+              ev("ugly_keeper", 90, label="macro", v=(0.0, 0.0, 0.0, 1.0)),
+              ev("pretty_reject", 120, label="macro", reasons=["overexposed"], v=(0.5, 0.5))]
+    events[0]["products"]["aesthetics"] = {"score": 0.2, "general": 0.2, "personal": None, "head_id": "g:aaa"}
+    events[1]["products"]["aesthetics"] = {"score": 0.8, "general": 0.7, "personal": 0.9, "head_id": "g:aaa+p:bbb~0.5"}
+    events[2]["products"]["aesthetics"] = {"score": None, "general": None, "personal": None, "head_id": None,
+                                           "note": "no builtin head"}
+    events[3]["products"]["aesthetics"] = {"score": 0.0, "general": 0.0, "personal": None, "head_id": "g:aaa"}
+    events[4]["products"]["aesthetics"] = {"score": 1.0, "general": 1.0, "personal": None, "head_id": "g:aaa"}
+    r = run(events)
+    assert [r[p]["rank"] for p in ("high", "low", "nohead")] == [1, 2, 3]            # reorders within the category
+    assert r["high"]["aesthetic"] == 0.8 and r["nohead"]["aesthetic"] is None
+    assert r["ugly_keeper"]["status"] == "pick" and r["ugly_keeper"]["reasons"] == []  # a low score never rejects
+    assert r["pretty_reject"]["status"] == "reject"                                   # nor does a high one save a reject
+
+
+def test_apply_copies_checks_and_passes_errors_through():
+    events = [ev("a", 0.0), {"type": "error", "path": "e", "product": None, "message": "m"}]
+    out = cull.apply(events, {"select": {}, "burst": {}})                # defaults; registry order
+    assert "burst" not in events[0]["products"] and list(out[0]["products"])[-2:] == ["burst", "select"]
+    assert out[1] is events[1]
+    with pytest.raises(ValueError, match="unknown reducers"):
+        cull.apply(events, {"nope": {}})
+    with pytest.raises(ValueError, match="unknown options select"):
+        cull.apply(events, {"select": {"top": 1}})
+    with pytest.raises(ValueError, match="per_category"):
+        cull.apply(events, {"select": {"per_category": -1}})
+    assert cull.records(out)[0] | {"taken_at": None} == {
+        "path": "a", "status": "pick", "keep": True, "category": "wildlife", "rank": 1, "reasons": [], "waived": [],
+        "burst": None, "burst_size": 1, "burst_rank": 1, "duplicate_of": None, "sharpness": 0.8, "aesthetic": None,
+        "taken_at": None}
+
+
+def test_profiles_carry_reducer_options(tmp_path):
+    f = tmp_path / "bioscan.toml"
+    f.write_text('[profile.x]\nstages = ["identify"]\nreducers = ["burst", "select"]\n'
+                 '[profile.x.options.select]\nper_category = 3\n[profile.x.options.burst]\nmax_gap_s = 0.5\n')
+    cfg = profile.load([("project", f)], env={})
+    res = profile.resolve(cfg, "x", reducer_options={"select": {"per_category": 7}}, source="flag")
+    run_ = res.reducer_run()
+    assert list(run_) == ["burst", "select"] and run_["burst"]["max_gap_s"] == 0.5 and run_["select"]["per_category"] == 7
+    assert res.reducer_sources["select"]["per_category"] == "flag"
+    assert res.reducer_sources["burst"]["max_gap_s"] == f"project {f}" and res.reducer_sources["burst"]["min_cosine"] == "default"
+    assert "burst" not in res.options                                # never sent to the service
+    with pytest.raises(ValueError, match="unknown options select"):
+        profile.resolve(cfg, "x", reducer_options={"select": {"n": 1}})
+    with pytest.raises(ValueError, match="min_cosine must be at most 1"):
+        profile.resolve(cfg, "x", reducer_options={"burst": {"min_cosine": 2}})
+    f.write_text('[profile.x.options.burst]\ngap = 1\n')
+    with pytest.raises(ValueError, match=r"unknown options profile.x.options.burst: \['gap'\]"):
+        profile.load([("project", f)], env={})

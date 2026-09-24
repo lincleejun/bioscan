@@ -1,0 +1,42 @@
+# Regression budget for album reports (`bioscan bench compare BASE NEW --budget baselines/budget-album.toml`).
+# Schema: docs/harness.md. The album tier's reports come from the synthetic reject set
+# (scripts/cull_synth.py over the CI smoke photos, tests/models); their species metrics mean
+# nothing (species is off), so this budget holds only the cull metrics. On the CI set (about 24
+# sources x 8 variants + bursts) one image is about 4 pts of a per-reason rate and about 2 pts of
+# keepers lost, and CPU runs repeat exactly: each limit allows about one image of movement.
+
+[[rule]]
+plugin = "quality"
+metric = "keepers_lost"
+scopes = ["all"]
+max_rise_pts = 2.0
+note = "losing a keeper costs far more than reviewing a reject"
+
+[[rule]]
+plugin = "quality"
+metric = "reject_recall"
+scopes = ["all", "soft", "overexposed", "underexposed", "subject_cut"]
+max_drop_pts = 5.0
+
+[[rule]]
+plugin = "quality"
+metric = "reject_precision"
+scopes = ["all"]
+max_drop_pts = 5.0
+
+[[rule]]
+plugin = "burst"
+metric = "burst_pair_f1"
+scopes = ["all"]
+max_drop_pts = 5.0
+
+[[rule]]
+plugin = "scene"
+metric = "scene_acc"
+scopes = ["all"]
+max_drop_pts = 5.0
+
+[[rule]]
+metric = "failed_rate"
+scopes = ["all"]
+max_rise_pts = 0.0

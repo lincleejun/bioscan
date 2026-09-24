@@ -35,6 +35,7 @@ class Decoded:
     lon: float | None
     taken_at: str | None        # ISO 8601
     detail: Image.Image | None = None   # same frame, long edge <= detail_edge; None = no larger copy
+    camera: str | None = None           # EXIF Make + Model (camera_from); None when the file has neither
 
 
 def _ratio(v) -> float:
@@ -185,15 +186,30 @@ def _metadata(data: bytes) -> tuple[dict, dict, dict]:
         return _ifds(im.getexif())
 
 
-def read_exif(data: bytes) -> tuple[float | None, float | None, str | None]:
-    """(lat, lon, taken_at) from any supported file; None for whatever is missing or unreadable.
-    Never raises."""
+def camera_from(base: dict) -> str | None:
+    """IFD0 Make and Model as one string ("SONY ILCE-7RM5"; the make once when the model repeats
+    it), or None when neither is there. The burst reducer groups frames by it."""
+    make, model = (str(base.get(t) or "").strip("\x00 ") for t in (0x010F, 0x0110))
+    if model.lower().startswith(make.lower()):
+        make = ""
+    return " ".join(x for x in (make, model) if x) or None
+
+
+def read_meta(data: bytes) -> tuple[float | None, float | None, str | None, str | None]:
+    """(lat, lon, taken_at, camera) from any supported file; None for whatever is missing or
+    unreadable. Never raises."""
     try:
         base, exif_ifd, gps = _metadata(data)
         lat, lon = gps_from_ifd(gps)
-        return lat, lon, taken_at_from(exif_ifd, base)
+        return lat, lon, taken_at_from(exif_ifd, base), camera_from(base)
     except Exception:  # noqa: BLE001 - missing metadata is normal, never a decode failure
-        return None, None, None
+        return None, None, None, None
+
+
+def read_exif(data: bytes) -> tuple[float | None, float | None, str | None]:
+    """(lat, lon, taken_at) from any supported file; None for whatever is missing or unreadable.
+    Never raises."""
+    return read_meta(data)[:3]
 
 
 def _raw(data: bytes) -> tuple[Image.Image, int, int, int]:
@@ -227,13 +243,13 @@ def decode(path: str, detail_edge: int | None = None) -> Decoded:
     none is made when it would not be larger than the 2048 image."""
     data = Path(path).read_bytes()
     image, w, h, orientation = (_raw if is_raw(path) else _raster)(data)
-    lat, lon, taken_at = read_exif(data)
+    lat, lon, taken_at, camera = read_meta(data)
     small = fit(image)
     detail = None
     if detail_edge and detail_edge > MAX_EDGE and max(image.size) > max(small.size):
         detail = fit(image, detail_edge)
     return Decoded(path=path, sha256=hashlib.sha256(data).hexdigest(), image=small, width=w, height=h,
-                   orientation=orientation, lat=lat, lon=lon, taken_at=taken_at, detail=detail)
+                   orientation=orientation, lat=lat, lon=lon, taken_at=taken_at, detail=detail, camera=camera)
 
 
 def timed_decode(path: str, detail_edge: int | None = None) -> tuple[Decoded, float]:
