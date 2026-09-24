@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,7 +42,8 @@ def _ratio(v) -> float:
 
 
 def gps_from_ifd(gps: dict) -> tuple[float | None, float | None]:
-    """EXIF GPS IFD (tags 1-4) -> signed decimal degrees, or (None, None)."""
+    """EXIF GPS IFD (tags 1-4) -> signed decimal degrees, or (None, None) when missing, not finite
+    or out of range."""
     try:
         lat = sum(_ratio(x) / 60 ** i for i, x in enumerate(gps[2]))
         lon = sum(_ratio(x) / 60 ** i for i, x in enumerate(gps[4]))
@@ -51,6 +53,8 @@ def gps_from_ifd(gps: dict) -> tuple[float | None, float | None]:
         lat = -lat
     if str(gps.get(3, "E")).upper().startswith("W"):
         lon = -lon
+    if not (math.isfinite(lat) and math.isfinite(lon) and abs(lat) <= 90 and abs(lon) <= 180):
+        return None, None                              # 0/0 rationals give NaN; never pass that to the prior
     return lat, lon
 
 
@@ -112,6 +116,19 @@ def _jpeg(data: bytes) -> tuple[dict, dict, dict]:
         return _ifds(im.getexif())
 
 
+def _ifd0_blob(data: bytes, tag: int) -> bytes | None:
+    """The bytes of one BYTE/UNDEFINED tag in IFD0, sliced from the file by its offset and count
+    (no copy of the rest of the file); None when absent."""
+    e = "<" if data[:2] == b"II" else ">"
+    (at,) = struct.unpack(e + "L", data[4:8])
+    (n,) = struct.unpack(e + "H", data[at:at + 2])
+    for i in range(n):
+        t, typ, count, offset = struct.unpack(e + "HHLL", data[at + 2 + 12 * i:at + 14 + 12 * i])
+        if t == tag and typ in (1, 7) and count > 4:
+            return data[offset:offset + count]
+    return None
+
+
 def _boxes(data: bytes, start: int, end: int):
     """(type, payload start, payload end) of the ISOBMFF boxes in data[start:end]; stops at the
     first box that does not fit."""
@@ -137,9 +154,14 @@ def _cr3(data: bytes) -> tuple[dict, dict, dict]:
     moov = next(((a, b) for kind, a, b in _boxes(data, 0, len(data)) if kind == b"moov"), None)
     for kind, a, b in _boxes(data, *moov) if moov else ():
         if kind == b"uuid" and data[a:a + 16] == _CANON_UUID:
-            cmt = {k: dict(_tiff(data[x:y])) for k, x, y in _boxes(data, a + 16, b) if k in (b"CMT1", b"CMT2", b"CMT4")}
+            for k, x, y in _boxes(data, a + 16, b):
+                if k in (b"CMT1", b"CMT2", b"CMT4"):
+                    try:                               # one corrupt block must not lose the others
+                        cmt[k] = dict(_tiff(data[x:y]))
+                    except Exception:  # noqa: BLE001
+                        continue
     if not cmt:
-        raise ValueError("no Canon metadata box")
+        raise ValueError("no readable Canon metadata box")
     return cmt.get(b"CMT1", {}), cmt.get(b"CMT2", {}), cmt.get(b"CMT4", {})
 
 
@@ -148,9 +170,11 @@ def _metadata(data: bytes) -> tuple[dict, dict, dict]:
     if kind == "tiff":
         return _ifds(_tiff(data[:_TIFF_SCAN]))
     if kind in ("orf", "rw2"):
-        base, exif_ifd, gps = _ifds(_tiff(_TIFF_VARIANT[data[:4]] + data[4:]))
-        if not exif_ifd and not gps and isinstance(base.get(0x002E), bytes):
-            return _jpeg(base[0x002E])                 # RW2 JpgFromRaw carries the full EXIF
+        base, exif_ifd, gps = _ifds(_tiff(_TIFF_VARIANT[data[:4]] + data[4:_TIFF_SCAN]))
+        if not exif_ifd and not gps:
+            preview = _ifd0_blob(data, 0x002E)         # RW2 JpgFromRaw carries the full EXIF
+            if preview:
+                return _jpeg(preview)
         return base, exif_ifd, gps
     if kind == "cr3":
         return _cr3(data)

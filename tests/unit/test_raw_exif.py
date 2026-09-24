@@ -181,3 +181,41 @@ def test_check_command_reports_an_unreadable_file(tmp_path, capsys, monkeypatch)
     assert decode.main([str(tmp_path)]) == 0
     row = capsys.readouterr().out.splitlines()[1].split("\t")
     assert row[:2] == ["NEF", "unreadable"] and row[-1] == "Permission denied"
+
+
+def test_rw2_preview_past_the_scanned_prefix_is_read_from_the_file():
+    """ORF/RW2 IFDs are parsed from the first 4 MB only; JpgFromRaw is sliced by offset/length."""
+    data = T({0x0010: (F.UNDEFINED, b"\x00" * 4_200_000), 0x002E: (F.UNDEFINED, jpeg_with_exif())}, magic=b"IIU\x00")
+    assert data.index(b"\xff\xd8") > decode._TIFF_SCAN
+    assert decode.read_exif(data) == (pytest.approx(F.LAT), pytest.approx(F.LON), WHEN)
+
+
+def test_cr3_one_corrupt_block_keeps_the_others():
+    exif, gps = T(F.exif_ifd()), T(F.GPS)
+    assert decode.read_exif(F.cr3(b"garbage!", exif, gps)) == (pytest.approx(F.LAT), pytest.approx(F.LON), WHEN)
+    assert decode.read_exif(F.cr3(T(BASE), exif, b"garbage!")) == (None, None, WHEN)
+    assert decode.read_exif(F.cr3(T(BASE), b"garbage!", gps))[:2] == (pytest.approx(F.LAT), pytest.approx(F.LON))
+    assert decode.read_exif(F.cr3(b"garbage!", b"II*\x00", b"")) == (None, None, None)
+
+
+@pytest.mark.parametrize("gps", [
+    {1: "N", 2: (float("nan"), 0.0, 0.0), 3: "E", 4: (10.0, 0.0, 0.0)},
+    {1: "N", 2: (10.0, 0.0, 0.0), 3: "E", 4: (float("inf"), 0.0, 0.0)},
+    {1: "N", 2: (91.0, 0.0, 0.0), 3: "E", 4: (10.0, 0.0, 0.0)},
+    {1: "S", 2: (90.0, 30.0, 0.0), 3: "E", 4: (10.0, 0.0, 0.0)},
+    {1: "N", 2: (10.0, 0.0, 0.0), 3: "W", 4: (180.0, 0.0, 1.0)},
+])
+def test_gps_not_finite_or_out_of_range_is_none(gps):
+    assert decode.gps_from_ifd(gps) == (None, None)
+
+
+def test_gps_edges_and_zero_denominator_file():
+    assert decode.gps_from_ifd({1: "S", 2: (90.0, 0.0, 0.0), 3: "W", 4: (180.0, 0.0, 0.0)}) == (-90.0, -180.0)
+    zero = {1: (F.ASCII, "N"), 2: (F.RATIONAL, [(37, 0), (30, 0), (0, 0)]),
+            3: (F.ASCII, "W"), 4: (F.RATIONAL, [(122, 0), (15, 0), (0, 0)])}
+    assert decode.read_exif(T(BASE, F.exif_ifd(), zero)) == (None, None, WHEN)     # base gave (nan, nan)
+
+
+def test_subsec_bytes_decode_as_ascii():
+    assert formats.subsec(b"37\x00") == ".37" and formats.subsec(b"370 ") == ".370"
+    assert formats.subsec(b"\xff\xfe") == "" and formats.subsec(b"") == ""

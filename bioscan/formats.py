@@ -21,9 +21,16 @@ def parse_ext(spec: str) -> set[str]:
 
 
 def subsec(value) -> str:
-    """EXIF SubSecTime* ('37', '370 ', 37) -> '.37' / '.370', the fraction to put after the seconds
-    of an ISO capture time; '' when absent or not digits. Burst frames differ only here."""
-    s = str(value).strip() if value is not None else ""
+    """EXIF SubSecTime* ('37', '370 ', b'37\\0', 37) -> '.37' / '.370', the fraction to put after the
+    seconds of an ISO capture time; '' when absent or not digits. Burst frames differ only here."""
+    if value is None:
+        return ""
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = bytes(value).decode("ascii")
+        except UnicodeDecodeError:
+            return ""
+    s = str(value).replace("\x00", " ").strip()
     return "." + s if s and s.isascii() and s.isdigit() else ""
 
 

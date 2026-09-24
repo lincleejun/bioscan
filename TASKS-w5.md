@@ -44,6 +44,13 @@ Base: 0a66f72 (branch `v15/w5-raw`). Source of truth for this work package.
 - [ ] owner: run the check command over real CR3 / RAF / ORF / RW2 (and ARW / NEF) files on the Mac
 - [ ] CI (ci.yml, models.yml) on the pushed head: not pushed by this package
 
+## Review notes (orchestrator, after acceptance)
+- [x] ORF/RW2: IFDs parsed from the first 4 MB (no whole-file copy); JpgFromRaw sliced from the file by offset/count
+- [x] CR3: each CMT block parsed on its own; a corrupt one no longer loses the others
+- [x] gps_from_ifd: None for non-finite (0/0 rationals gave NaN on base) or out-of-range (|lat| > 90, |lon| > 180)
+- [x] formats.subsec decodes bytes as ASCII (NULs dropped; non-ASCII -> no fraction)
+- [x] golden re-run: 152 identical, 77 differ, all intended (adds cr3_bad_cmt1, rw2_far_preview, gpsbad_*)
+
 ## Found
 - `gt folders --ext .arw` matched nothing (no dot stripping, unlike `run`); both now share `formats.parse_ext`.
 - `gt.read_exif` (own-tier CSV, `run --lat` default) uses exiftool, which already reads every format; left as is.
