@@ -58,6 +58,21 @@ Verify: contract tests (inside ok, outside 400, symlink/`..` escape rejected).
 Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 green (7 passed; 23.5 min cold, 20 min cached).
 - [x] FLOORS moved from placeholder values to ~4 images under the measured numbers (bird top-1 88.1 %, mammal top-1 85.7 %)
 
+## Next (found by the harness; each needs its own CI compare)
+- [ ] not_in_list (7): a self-encoded reptile + fish list (Reptile Database / Eschmeyer's Catalog or GBIF
+      checklists, encoded with BioCLIP's text tower like the AviList/MDD rows without ToL vectors); until then
+      consider capping other_animal boxes whose kind lacks coverage at genus/unconfirmed
+- [ ] out_of_range (3): the range veto only reorders within the returned top-k; search the whole list for an
+      in-range congener (Corvus corax case)
+- [ ] prior_suppressed (1): Cervus canadensis lost to the mammal prior (p_geo of Cervus?) -> inspect mdd_map / geomodel
+      coverage for Cervus, genus back-off constant
+- [ ] kind check against the all-taxa list: size-corrected top-5 statistic (reviewer fix.py), evaluate on real photos
+- [x] owner's Mac: golden + own RAW baselines (2026-09-24: baselines/golden-inat-v1.{4,5}.json, own-raw-2026-09-24-v1.{4,5}.json; docs/2026-09-24-*.md) (`bioscan bench run ... --tier golden|own`), speed tier, RAW EXIF check
+- [ ] golden other-animal slice: ~16 CA reptile/amphibian/insect/spider species × 25 via `bioscan gt inat` (docs/standards.md); measures accuracy.golden.other.*
+- [ ] docs/standards.md status column: refresh after every Mac baseline (done 2026-09-24 for golden/own)
+- [ ] service shutdown leaves decode-pool workers alive after SIGTERM (found 2026-09-24 on the Mac); terminate the pool in the lifespan handler
+- [ ] Phase 0 speed benchmark (docs/strategy): 2,000 files, ARW/CR3/NEF at 24 and 45 MP, USB vs SSD; CR3/NEF need sample files the owner does not have yet
+
 ## 7. Mac 本地跑 v1.4 / v1.5 数据（2026-09-24，owner 的操作清单）
 - [x] git pull（875dc7a）+ uv sync
 - [x] tests/models/download.py：all-taxa 366,460 种，float16 716 MiB，缓存 763 MiB

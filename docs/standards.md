@@ -11,8 +11,8 @@ correctly at species level, at least Y% at genus or better, and at most Z% are c
 
 | Test folder | N | X: species correct | Y: genus or better | Z: confident errors | Today |
 |---|---|---|---|---|---|
-| Golden iNat, California | 1,625 | **≥ 88%** | **≥ 95%** | **≤ 3%** | X 84.2%, Y unmeasured, Z 7.2%: **not met** |
-| Owner's own RAW | 404 | **≥ 95%** | **≥ 98%** | **≤ 3%** | X 96.3%, Y unmeasured, Z 2.2%: **not met** (not enough images to prove it) |
+| Golden iNat, California | 1,625 | **≥ 88%** | **≥ 95%** | **≤ 3%** | v1.5 on the owner's Mac (2026-09-24): X 88.2%, Y 91.0%, Z 3.1%: **not met** (Y short; X and Z miss on the Wilson bound) |
+| Owner's own RAW | 404 | **≥ 95%** | **≥ 98%** | **≤ 3%** | v1.5 (2026-09-24), no GPS in the files: X 79.0%, Y 98.0%, Z 12.9%: **not met**; with one batch coordinate an earlier run gave X 96.3% |
 | Public, multi-region (to build) | ≥ 5,000 | ≥ 85% | ≥ 93% | ≤ 3% | unmeasured (the set does not exist yet) |
 | CI smoke (regression guard only) | 95 (42 birds, 35 mammals, 18 other animals) | ≥ 85% | ≥ 90% | ≤ 7% | X 87.0%, Z 6.5% (on the earlier 77-photo set): guard holds |
 
