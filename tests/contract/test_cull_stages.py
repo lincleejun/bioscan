@@ -29,6 +29,34 @@ def test_quality_reads_identify_boxes_and_reports_its_fingerprint(client, tmp_pa
     assert list(plain["engine"]) == ["version", "settings", "models", "detail_edge"]
 
 
+def test_scene_labels_from_the_frame_vector_and_the_gate(client, engine, tmp_path):
+    p = make_jpg(tmp_path / "a.jpg")
+    res = result(events(client.post("/run", json={"inputs": [{"path": p}, {"path": make_jpg(tmp_path / "b.jpg")}],
+                                                  "want": ["scene"]})))
+    s = res["products"]["scene"]
+    assert s["label"] == "wildlife" and s["scores"]["wildlife"] == 0.95 and s["horizon"] is None   # gate bird+mammal
+    assert abs(sum(s["scores"].values()) - 1) < 1e-3 and list(s["scores"]) == list(scene_defaults()["labels"])
+    assert list(res["engine"]["plugins"]) == ["scene"] and engine.loaded() == ["siglip2"]
+    encoded = engine.siglip2.texts
+    assert encoded == sum(len(v) for v in scene_defaults()["labels"].values())
+    events(client.post("/run", json={"inputs": [{"path": p}], "want": ["scene"]}))
+    assert engine.siglip2.texts == encoded                   # prompts are encoded once per label set
+    own = {"labels": {"landscape": ["same"], "other": ["same"]}}
+    res = result(events(client.post("/run", json={"inputs": [{"path": p}], "want": ["scene"],
+                                                  "options": {"scene": own}})))
+    assert res["products"]["scene"] == {"label": "landscape", "scores": {"landscape": 0.5, "other": 0.5},
+                                        "horizon": None}
+    r = client.post("/run", json={"inputs": [{"path": p}], "want": ["scene"],
+                                  "options": {"scene": {"labels": {"only": ["x"]}}}})
+    assert r.status_code == 400 and "at least two labels" in r.json()["error"]
+
+
+def scene_defaults():
+    from bioscan.plugins.scene import MANIFEST
+
+    return MANIFEST.defaults
+
+
 def test_quality_without_identify_is_a_400(client, tmp_path):
     r = client.post("/run", json={"inputs": [{"path": make_jpg(tmp_path / "a.jpg")}], "want": ["quality"]})
     assert r.status_code == 400 and "stage quality reads 'boxes'" in r.json()["error"]
