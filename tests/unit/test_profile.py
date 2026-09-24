@@ -137,7 +137,7 @@ def test_profile_choice(tmp_path):
     ('[profile.x]\nstage = ["identify"]\n', r"unknown keys profile.x.\['stage'\]"),
     ('[profile.x]\nstages = ["video"]\n', r"profile.x.stages: unknown stages \['video'\]"),
     ('[profile.x]\nstages = []\n', "profile.x.stages must not be empty"),
-    ('[profile.x]\nreducers = ["burst"]\n', r"unknown reducers \['burst'\]"),
+    ('[profile.x]\nreducers = ["nope"]\n', r"unknown reducers \['nope'\] \(known: burst, select\)"),
     ('[profile.x.options.video]\na = 1\n', "unknown stage profile.x.options.video"),
     ('[profile.x.options.identify]\ntopk = 1\n', r"unknown options profile.x.options.identify: \['topk'\]"),
     ('[profile.full.options.identify]\ntop_k = 1\n', r"\[profile.full\] is built in and fixed"),

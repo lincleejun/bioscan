@@ -189,8 +189,9 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
     the service's `done` (service died mid-run): the missing images score as misses.
     `identify_opts` adds identify options (e.g. {"kind_check": False} to measure that fix, or
     {"candidates": [...]}); they are sent with the run and recorded in the preds meta line.
-    `request` ({"profile", "want", "options"}, cli.config.eval_request): a profile's expanded run,
-    sent instead and recorded with its profile name in the meta line."""
+    `request` ({"profile", "want", "options"[, "reducers"]}, cli.config.eval_request): a profile's
+    expanded run, sent instead and recorded with its profile name (and reducers, which `bench`
+    runs over the results before scoring) in the meta line."""
     rows = read_gt(gt_csv)
     if synonyms:
         rows = normalise_truth(rows, naming.read_synonyms(SYNONYMS_CSV))
@@ -215,6 +216,7 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
             payload = {"inputs": inputs, "want": request["want"], "options": request["options"]}
         n = 0
         head = {"type": "meta", "schema": PREDS_SCHEMA, **({"profile": request["profile"]} if request else {}),
+                **({"reducers": request["reducers"]} if request and request.get("reducers") else {}),
                 "options": payload["options"], "groundtruth": gt_csv,
                 "groundtruth_sha256": _sha256(gt_csv), "synonyms_sha256": _sha256(SYNONYMS_CSV) if synonyms else None,
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}

@@ -57,7 +57,10 @@ def eval_request(name: str | None, no_geo: bool, identify_opts: dict,
     if "identify" not in res.want:
         raise SystemExit(f"error: profile {chosen} has no identify stage; eval scores identify")
     first = {"identify": {"top_k": 5, "geo": res.options["identify"]["geo"], **identify_opts}}
-    return {"profile": chosen, "want": res.want, "options": request_options(res, first)}
+    out = {"profile": chosen, "want": res.want, "options": request_options(res, first)}
+    if res.reducers:                   # run over the results before scoring (bench), recorded in the meta line
+        out["reducers"] = res.reducer_run()
+    return out
 
 
 def show(name: str | None, config: profile.Config | None = None, env=os.environ) -> dict[str, Any]:
@@ -80,7 +83,9 @@ def show(name: str | None, config: profile.Config | None = None, env=os.environ)
         "frame_pass": res.plan.frame,
         "detail_copy": res.plan.detail,
         "options": {m: {k: {"value": v, "from": res.sources[m][k]} for k, v in res.options[m].items()}
-                    for m in res.plan.stages},
+                    for m in res.plan.stages}
+                   | {r: {k: {"value": v, "from": res.reducer_sources[r][k]} for k, v in res.reducer_options[r].items()}
+                      for r in res.reducers},
         "serve": {k: {"value": getattr(serve, k), "from": serve_src[k]} for k in serve_src},
     }
 

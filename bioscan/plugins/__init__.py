@@ -6,16 +6,18 @@ products are reported in all come from it. Standard library only."""
 from __future__ import annotations
 
 from bioscan.plugin import Manifest
+from bioscan.plugins.burst import MANIFEST as BURST
 from bioscan.plugins.embed import MANIFEST as EMBED
 from bioscan.plugins.geotag import MANIFEST as GEOTAG
 from bioscan.plugins.identify import MANIFEST as IDENTIFY
 from bioscan.plugins.jpg import MANIFEST as JPG
 from bioscan.plugins.quality import MANIFEST as QUALITY
 from bioscan.plugins.scene import MANIFEST as SCENE
+from bioscan.plugins.select import MANIFEST as SELECT
 
 # report order; new stages go last, so existing outputs keep their key order
 BUILTIN: tuple[Manifest, ...] = (IDENTIFY, EMBED, JPG, GEOTAG, QUALITY, SCENE)
 BY_NAME: dict[str, Manifest] = {m.name: m for m in BUILTIN}
 # Reducers (Manifest.kind "reducer"): model-free units over a run's results, run by the CLI or
 # offline (bioscan.cull), in this order. Profiles name them; the service never runs them.
-REDUCERS: tuple[Manifest, ...] = ()
+REDUCERS: tuple[Manifest, ...] = (BURST, SELECT)
