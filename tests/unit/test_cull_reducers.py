@@ -4,31 +4,13 @@ import base64
 import struct
 
 import pytest
+from cull_fixtures import result as ev
 
 from bioscan import cull, profile
 
 BURST = {"max_gap_s": 1.5, "min_cosine": 0.92}
 SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2,
           "waive": {"night": ["underexposed"]}}
-
-
-def vec(*head):
-    """A 4-d vector; alike() of the same head are near-identical."""
-    return list(head) + [0.0] * (4 - len(head))
-
-
-def ev(path, t=None, camera="Cam A", v=(1.0,), reasons=(), blur=0.2, cut=False, exposure=0.0, label="wildlife",
-       aesthetic=None, subject=True):
-    q = {"frame": {"blur": 0.3, "exposure": exposure},
-         "subject": {"blur": blur, "cut": cut, "exposure": exposure} if subject else None,
-         "reject_reasons": list(reasons),
-         "capture": {"taken_at": None if t is None else f"2026-05-01T08:00:{t:06.3f}-07:00", "camera": camera}}
-    prods = {"quality": q, "scene": {"label": label}}
-    if v is not None:
-        prods["embed"] = {"vector": vec(*v)}
-    if aesthetic is not None:
-        prods["aesthetics"] = {"aesthetic": aesthetic}
-    return {"type": "result", "path": path, "products": prods}
 
 
 def test_burst_chains_one_camera_close_in_time_and_alike():

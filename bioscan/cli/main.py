@@ -10,6 +10,7 @@ from pathlib import Path
 
 from bioscan import contract, formats, profile, serve_config
 from bioscan.cli import bench, client, geotag_cli, gt
+from bioscan.cli import cull as cull_cli
 from bioscan.cli.config import PROFILE_HELP, eval_request, expand, load_config, request_options
 from bioscan.cli.config import add_parser as add_config_parser
 from bioscan.cli.render import Renderer
@@ -359,6 +360,7 @@ def parser() -> argparse.ArgumentParser:
     bench.add_parser(sub)
     add_config_parser(sub)
     geotag_cli.add_parser(sub)
+    cull_cli.add_parser(sub)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)
     n.add_parser("stats", help="coverage of official TreeOfLife vectors").set_defaults(func=cmd_names_stats)

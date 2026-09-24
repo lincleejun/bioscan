@@ -35,3 +35,19 @@ def photo(seed: int = 0, w: int = 320, h: int = 240, bokeh: bool = False, box=BO
 
 def box(xyxy, score: float = 0.9, kind: str = "bird", box_id: int = 0) -> dict:
     return {"id": box_id, "xyxy": list(xyxy), "score": score, "kind": kind}
+
+
+def result(path, t=None, camera="Cam A", v=(1.0,), reasons=(), blur=0.2, cut=False, exposure=0.0, label="wildlife",
+           aesthetic=None, subject=True) -> dict:
+    """A crafted result event with the album products the reducers read: quality (reasons, blur,
+    capture at second `t`), scene (label), embed (a 4-d vector starting with `v`; None = none)."""
+    q = {"frame": {"blur": 0.3, "exposure": exposure},
+         "subject": {"blur": blur, "cut": cut, "exposure": exposure} if subject else None,
+         "reject_reasons": list(reasons),
+         "capture": {"taken_at": None if t is None else f"2026-05-01T08:00:{t:06.3f}-07:00", "camera": camera}}
+    prods = {"quality": q, "scene": {"label": label}}
+    if v is not None:
+        prods["embed"] = {"vector": list(v) + [0.0] * (4 - len(v))}
+    if aesthetic is not None:
+        prods["aesthetics"] = {"aesthetic": aesthetic}
+    return {"type": "result", "path": path, "products": prods}

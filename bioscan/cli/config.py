@@ -22,11 +22,13 @@ def load_config() -> profile.Config:
         raise SystemExit(f"error: {e}") from None
 
 
-def expand(config: profile.Config, name: str | None, want: list[str] | None, options: dict) -> profile.Resolved:
-    """The CLI's profile (profile.select) expanded under the flags' `want` and `options`."""
+def expand(config: profile.Config, name: str | None, want: list[str] | None, options: dict,
+           reducer_options: dict | None = None) -> profile.Resolved:
+    """The CLI's profile (profile.select) expanded under the flags' `want`, `options` and
+    `reducer_options`."""
     chosen, source = profile.select(config, name)
     try:
-        return profile.resolve(config, chosen, want, options, source=FLAG)
+        return profile.resolve(config, chosen, want, options, source=FLAG, reducer_options=reducer_options)
     except ValueError as e:
         raise SystemExit(f"error: profile {chosen} (from {source}): {e}") from None
 
