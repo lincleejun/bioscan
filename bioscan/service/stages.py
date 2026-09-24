@@ -34,6 +34,13 @@ def check_loaded(engine: Any, plan: plugin.Plan) -> None:
         plugin.load(plan.manifests[name]).check_loaded(engine, plan.opts[name])
 
 
+def fingerprints(plan: plugin.Plan) -> dict[str, str]:
+    """result.engine.plugins: `v<version>@<settings fp>` of each planned stage whose manifest is
+    `fingerprinted` (report order); {} when none is, and then the engine block is as before."""
+    return {name: plugin.fingerprint(plan.manifests[name].version, plugin.load(plan.manifests[name]).settings())
+            for name in plan.want if plan.manifests[name].fingerprinted}
+
+
 def paths(plan: plugin.Plan) -> list[str]:
     """Every path the plan's stages would write or read besides the inputs (for allow-roots)."""
     out: list[str] = []
