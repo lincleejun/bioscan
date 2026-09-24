@@ -278,9 +278,12 @@ def tz_text(tz_min: int) -> str:
     return f"{sign}{abs(tz_min) // 60:02d}:{abs(tz_min) % 60:02d}"
 
 
-def build_scenario(name: str, groups: list[list[Shot]], seed: int, out: Path) -> dict:
+def build_scenario(name: str, groups: list[list[Shot]], seed: int, out: Path, only: set[int] | None = None) -> dict:
+    """One scenario folder. `only`: write just these outing indices (same ids and draws as in the full set)."""
     photos, truth, points = [], [], 0
     for gi, group in enumerate(groups):
+        if only is not None and gi not in only:
+            continue
         gid = f"g{gi:04d}"
         base = _rng(seed, "path", gid)                      # the same path and device in every scenario
         path, stops = build_path(group, base)
@@ -362,7 +365,7 @@ def build_scenario(name: str, groups: list[list[Shot]], seed: int, out: Path) ->
             w = csv.DictWriter(f, fieldnames=list(rows[0]))
             w.writeheader()
             w.writerows(rows)
-    return {"description": SCENARIOS[name], "groups": len(groups), "photos": len(truth),
+    return {"description": SCENARIOS[name], "groups": len(groups) if only is None else len(only), "photos": len(truth),
             "expect_fix": sum(r["expect_fix"] for r in truth), "track_points": points,
             "true_offset_s": TRUE_OFFSET.get(name, 0.0)}
 

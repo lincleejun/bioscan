@@ -209,7 +209,8 @@ _Avoid_: match, hit
 
 **Fix rule**:
 When the track gives a position: linear between neighbouring points up to the max gap apart, or across a longer gap
-whose ends are within the max span (the device stood still); none outside the track unless extrapolation holds an end.
+whose ends are within the max span and at most the max still time apart (the device stood still, 3 h at most); none
+outside the track unless extrapolation holds an end.
 
 ## Standards and releases
 

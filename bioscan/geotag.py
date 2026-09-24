@@ -11,8 +11,9 @@ minus true time (a camera 37 s fast has +37 s); the corrected time is camera UTC
 
 Fix rule (`locate`). Between two neighbouring track points a and b the position is linear in time
 when the points are at most `max_gap_s` apart, or, across a longer gap (a dropout or an auto-pause),
-when they are at most `max_span_m` apart (the device stood still). Outside the track, or inside a
-longer gap that moved, there is no fix, except within `extrapolate_s` of the nearest point, which
+when they are at most `max_span_m` apart (the device stood still) and at most `max_still_s` apart
+(3 h: a wait at a hide, not a night at base camp). Outside the track, or inside a longer gap, there
+is no fix, except within `extrapolate_s` of the nearest point, which
 then gives that point's position (held, not projected along the velocity: noise would be amplified).
 """
 from __future__ import annotations
@@ -29,6 +30,7 @@ from pathlib import Path
 EARTH_RADIUS_M = 6_371_008.8
 MAX_GAP_S = 1800.0         # interpolate across neighbours up to 30 min apart (err_m grows with the gap)
 MAX_SPAN_M = 200.0         # ... and across a longer gap when its ends are this close (stood still)
+MAX_STILL_S = 3 * 3600.0   # ... but never across more than 3 h: a hide or a long wait, not a night at base camp
 EXTRAPOLATE_S = 0.0        # hold the first/last point this long outside the track (0: no fix outside)
 GPS_ERR_M = 10.0           # a consumer fix, open sky 4.9 m (95%), worse under trees
 DRIFT_MPS = 0.5            # how far a walker strays from the chord per second away from a track point
@@ -36,6 +38,8 @@ WALK_MPS = 1.4             # how far a walker gets per second beyond the end of 
 REF_RADIUS_M = 100.0       # a reference photo votes for times the track passed within this distance
 MAX_OFFSET_S = 26 * 3600   # clock offsets searched: every timezone mistake (UTC-12 .. UTC+14)
 MAX_REF_RESIDUAL_M = 100.0  # an estimated offset whose reference photos sit further off is not used
+MAX_REFS = 25              # reference photos used for the estimate, spread evenly in time
+SMALL_OFFSET_S = 300.0     # among equally good fits, one under 5 min (plain drift) wins
 SOURCES = ("exif", "gpx", "none")
 
 
@@ -179,12 +183,12 @@ def parse_offset(text: str) -> float:
 
 def format_offset(seconds: float) -> str:
     """37.0 -> '+00:00:37', -3600.5 -> '-01:00:00.5'."""
-    sign = "-" if seconds < 0 else "+"
-    s = abs(seconds)
-    h, rem = divmod(s, 3600)
-    m, sec = divmod(rem, 60)
-    frac = f"{sec:04.1f}" if round(sec % 1, 1) else f"{int(round(sec)):02d}"
-    return f"{sign}{int(h):02d}:{int(m):02d}:{frac}"
+    tenths = round(abs(seconds) * 10)              # round once, so 59.96 carries into the minute
+    sign = "-" if seconds < 0 and tenths else "+"
+    h, rem = divmod(tenths, 36000)
+    m, sec = divmod(rem, 600)
+    frac = f"{sec // 10:02d}" if sec % 10 == 0 else f"{sec // 10:02d}.{sec % 10}"
+    return f"{sign}{h:02d}:{m:02d}:{frac}"
 
 
 def resolve_tz(name: str | None) -> tzinfo | None:
@@ -264,7 +268,7 @@ class Position:
 
 
 def locate(track: Track, t: float, max_gap_s: float = MAX_GAP_S, max_span_m: float = MAX_SPAN_M,
-           extrapolate_s: float = EXTRAPOLATE_S) -> Position | None:
+           extrapolate_s: float = EXTRAPOLATE_S, max_still_s: float = MAX_STILL_S) -> Position | None:
     """The position at UTC time t by the fix rule (module docstring); None = no fix."""
     pts, times = track.points, track.times
     n = len(pts)
@@ -278,7 +282,7 @@ def locate(track: Track, t: float, max_gap_s: float = MAX_GAP_S, max_span_m: flo
         a, b = pts[i - 1], pts[i]
         gap = b.t - a.t
         span = distance_m(a.lat, a.lon, b.lat, b.lon)
-        if gap <= max_gap_s or span <= max_span_m:
+        if gap <= max_gap_s or (span <= max_span_m and gap <= max_still_s):
             f = (t - a.t) / gap if gap > 0 else 0.0
             dt = min(t - a.t, b.t - t)
             ele = a.ele + (b.ele - a.ele) * f if a.ele is not None and b.ele is not None else (a.ele if a.ele is not None else b.ele)
@@ -316,23 +320,42 @@ def offset_from_clock(camera_taken_at: str, shown: str, tz: tzinfo | None = None
     return cam - true
 
 
+def offset_prior(o: float) -> tuple[int, float]:
+    """How plausible a camera clock offset is, for choosing among equally good fits (lower first):
+    plain drift under SMALL_OFFSET_S, smallest first; then whole hours (a DST or timezone mistake),
+    half hours, quarter hours (zones such as +05:45), each within 2 min of drift; anything else."""
+    if abs(o) < SMALL_OFFSET_S:
+        return 0, abs(o)
+    for tier, unit in enumerate((3600, 1800, 900), start=1):
+        d = abs(o - unit * round(o / unit))
+        if d <= 120:
+            return tier, d
+    return 4, abs(o)
+
+
 def estimate_offset(track: Track, refs: list[tuple[float, float, float]], radius_m: float = REF_RADIUS_M,
                     max_offset_s: float = MAX_OFFSET_S, window_s: float = 120.0) -> OffsetEstimate | None:
     """Camera clock offset from reference photos that already have GPS: [(camera UTC, lat, lon)].
     Every time the track passed within `radius_m` of a reference is a candidate offset. Windows of
     `window_s` holding candidates from the most distinct references are refined (1 s, then 0.1 s
     steps) to the offset where the references sit closest to the track (mean distance, each capped
-    at 1 km); among fits within 5 m (or 25%) of the best, the one nearest a whole quarter-hour wins,
-    and a spread over 2 min is reported as ambiguous. None when no reference is ever near the track."""
+    at 1 km); among fits within 5 m (or 25%) of the best, `offset_prior` picks, and a spread over
+    2 min is reported as ambiguous. At most MAX_REFS references, spread evenly in time, are used. None when no reference is ever near the track."""
     if not refs or not len(track):
         return None
+    if len(refs) > MAX_REFS:                    # many GPS photos: an even spread in time is enough
+        refs = sorted(refs)
+        refs = [refs[round(i * (len(refs) - 1) / (MAX_REFS - 1))] for i in range(MAX_REFS)]
+    by_lat = sorted(range(len(track.points)), key=lambda i: track.points[i].lat)
+    lats = [track.points[i].lat for i in by_lat]
     cands: list[tuple[float, int]] = []
     for k, (tc, lat, lon) in enumerate(refs):
         dlat = radius_m / 111_320
         dlon = radius_m / (111_320 * max(0.01, math.cos(math.radians(lat))))
-        for p in track.points:
-            if abs(p.lat - lat) <= dlat and abs(p.lon - lon) <= dlon and \
-                    distance_m(lat, lon, p.lat, p.lon) <= radius_m and abs(tc - p.t) <= max_offset_s:
+        for i in by_lat[bisect.bisect_left(lats, lat - dlat):bisect.bisect_right(lats, lat + dlat)]:
+            p = track.points[i]
+            if abs(p.lon - lon) <= dlon and distance_m(lat, lon, p.lat, p.lon) <= radius_m \
+                    and abs(tc - p.t) <= max_offset_s:
                 cands.append((tc - p.t, k))
     if not cands:
         return None
@@ -360,7 +383,7 @@ def estimate_offset(track: Track, refs: list[tuple[float, float, float]], radius
         return min(((round(cost(o), 2), o) for o in (lo + i * step for i in range(n + 1))),
                    key=lambda co: (co[0], abs(co[1] - (lo + hi) / 2)))
 
-    centres = sorted((cost(b * 60.0), b * 60.0) for b, k in windows.items() if k == most)[:8]
+    centres = sorted((cost(b * 60.0), b * 60.0) for b, k in windows.items() if k == most)[:16]
     found = []
     for _, c in centres:
         _, coarse = search(c - window_s, c + window_s, 1.0)
@@ -368,9 +391,7 @@ def estimate_offset(track: Track, refs: list[tuple[float, float, float]], radius
         found.append((res, fine))
     best_cost = min(r for r, _ in found)
     tied = [o for r, o in found if r <= best_cost + max(5.0, 0.25 * best_cost)]
-    # Equally good fits: a camera clock is usually off by drift (seconds to minutes) plus whole
-    # quarter-hours (timezone, DST), so prefer the fit nearest such an offset.
-    pick = min(tied, key=lambda o: (round(abs(o - 900 * round(o / 900)), -1), abs(o)))
+    pick = min(tied, key=offset_prior)
     spread = max(tied) - min(tied)
     note = (f"offset ambiguous: fits from {format_offset(min(tied))} to {format_offset(max(tied))} "
             "(the reference photos sit where the track passes more than once)") if spread > 120 else ""
@@ -439,11 +460,14 @@ def resolve_offset(photos: list[Photo], track: Track, tz: tzinfo | None, offset_
 
 def geotag(photos: list[Photo], track: Track, tz: tzinfo | None = None, offset_s: float | None = None,
            estimate: bool = True, max_gap_s: float = MAX_GAP_S, max_span_m: float = MAX_SPAN_M,
-           extrapolate_s: float = EXTRAPOLATE_S) -> Result:
+           extrapolate_s: float = EXTRAPOLATE_S, max_still_s: float = MAX_STILL_S) -> Result:
     """One Fix per photo, in input order. EXIF GPS always wins (source exif); else the track at the
     corrected capture time (gpx); else none. The offset is resolved once for all photos, so give
     one camera per call."""
-    off = resolve_offset(photos, track, tz, offset_s, estimate)
+    if any(not has_gps(p) for p in photos):
+        off = resolve_offset(photos, track, tz, offset_s, estimate)
+    else:                                       # every photo has GPS: nothing to place, nothing to estimate
+        off = OffsetEstimate(offset_s or 0.0, "given" if offset_s is not None else "none")
     fixes, warnings, misses = [], [], []
     for p in photos:
         t = capture_utc(p.taken_at, tz)
@@ -451,7 +475,7 @@ def geotag(photos: list[Photo], track: Track, tz: tzinfo | None = None, offset_s
         if has_gps(p):
             fixes.append(Fix(p.path, p.lat, p.lon, "exif", utc=iso_utc(tt)))
             continue
-        pos = locate(track, tt, max_gap_s, max_span_m, extrapolate_s) if tt is not None else None
+        pos = locate(track, tt, max_gap_s, max_span_m, extrapolate_s, max_still_s) if tt is not None else None
         if pos is None:
             dt = track.nearest_dt(tt) if tt is not None else None
             fixes.append(Fix(p.path, None, None, "none", None if dt is None else round(dt, 1), utc=iso_utc(tt)))

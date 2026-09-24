@@ -50,7 +50,7 @@ must clear it, not just the observed rate.
 | `own` | owner's telephoto RAW, folder-name truth, `data/groundtruth-own.csv` (288 Western Screech-Owl, 85 Red-tailed Hawk, 31 Steller's Jay) | 404 | full lists | private | owner's Mac | the real use case |
 | `public` | **to build**: ≥ 5 regions, CC0/CC BY only, one observation per photo, ≤ 5 per observer, sequestered test split | ≥ 5,000 | full lists | CC0 / CC BY, redistributable | owner's Mac; published | claim we can show others |
 | `mac` | 2,000 RAW files, ARW + CR3 + NEF, 24 MP (plus 45 MP), from SSD and USB disk | 2,000 | full lists | private | M1-class Mac | speed |
-| `geotag` | synthetic GPX tracks through the golden photos' true positions, 7 scenarios (`scripts/geotag_synth.py`, seed 7) | 1,624 photos × 7 | none (no models) | derived from golden; tracks are generated, not shipped | anywhere, seconds to a minute | GPX geotagging ([section 12](#12-geotag-from-a-gpx-track-synthetic-tier)) |
+| `geotag` | synthetic GPX tracks through the golden photos' true positions, 7 scenarios (`scripts/geotag_synth.py`, seed 7) | 1,624 photos × 7 | none (no models) | derived from golden; tracks are generated, not shipped | anywhere: about 65 s to generate (~750 MB) and 80–85 s to score (measured 64 s + 82–85 s) | GPX geotagging ([section 12](#12-geotag-from-a-gpx-track-synthetic-tier)) |
 
 The golden set is 89% CC BY-NC. That is fine for measuring but not for publishing the photos. This is
 why the public tier is CC0/CC BY only.
@@ -302,7 +302,7 @@ whose true time is inside the track; a photo there without a fix is a miss.
 |---|---|---|---|---|---|
 | Median position error | none found for track geotagging; the synthetic GPS noise (σ 3–10 m per axis) is the floor | **≤ 15 m** | ≤ 10 m | 7.2 m | a site-level caption; far inside the prior's cell |
 | 90th-percentile position error | none | **≤ 100 m** | ≤ 30 m | 17 m | a tenth of the prior's 0.01° cell |
-| Placed within 100 m | none | **≥ 95%** | ≥ 98% | 97.2% [96.8, 97.5] | trail- or site-level captions |
+| Placed within 100 m | none | **≥ 95%** | ≥ 98% | 97.2% [96.9, 97.5] | trail- or site-level captions |
 | Placed within 1 km | none | **≥ 98%** | ≥ 99.5% | 99.8% | the location prior sees the right place |
 | No fix inside the track | none | **≤ 5%** | ≤ 1% | 0.1% | a track should place what it covers |
 | Fix outside the track | none | **≤ 2%** | ≤ 0.5% | 0.0% | a wrong place is worse than none for the prior |

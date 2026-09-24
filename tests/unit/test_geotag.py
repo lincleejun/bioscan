@@ -99,6 +99,8 @@ def test_parse_offset_rejects_junk_and_formats_back():
         with pytest.raises(ValueError):
             gt.parse_offset(bad)
     assert gt.format_offset(37) == "+00:00:37" and gt.format_offset(-3600) == "-01:00:00"
+    assert gt.format_offset(59.96) == "+00:01:00" and gt.format_offset(3599.97) == "+01:00:00"
+    assert gt.format_offset(-0.04) == "+00:00:00" and gt.format_offset(90.25) == "+00:01:30.2"
     assert gt.parse_offset(gt.format_offset(-5025.5)) == -5025.5
 
 
@@ -123,6 +125,17 @@ def test_locate_gap_rules():
     assert gt.locate(still, T0 + 1800, max_span_m=10) is None
 
 
+def test_stood_still_rule_has_a_time_limit():
+    """Base camp: the watch saved a point on arrival and the next one 5 days later, 111 m away. A photo
+    2 days in is not placed between them; a 2 h wait at a hide still is."""
+    camp = track([(T0, LAT0, LON0), (T0 + 5 * 86400, LAT0 + 111 * M_LAT, LON0)])
+    assert gt.locate(camp, T0 + 2 * 86400) is None
+    assert gt.locate(camp, T0 + 2 * 86400, max_still_s=6 * 86400) is not None
+    hide = track([(T0, LAT0, LON0), (T0 + 2 * 3600, LAT0 + 111 * M_LAT, LON0)])
+    assert gt.locate(hide, T0 + 3600) is not None
+    assert gt.MAX_STILL_S == 3 * 3600
+
+
 def test_locate_outside_the_track_and_extrapolation():
     tr = track(north_walk(11))
     assert gt.locate(tr, T0 - 5) is None and gt.locate(tr, T0 + 20) is None
@@ -144,6 +157,35 @@ def test_estimate_offset_from_gps_photos(offset):
     walk = north_walk(1201)
     est = gt.estimate_offset(track(walk), refs_on(walk, offset, [T0 + 100, T0 + 600, T0 + 1100]))
     assert est.method == "gps" and est.offset_s == pytest.approx(offset, abs=0.2) and est.residual_m < 1
+
+
+@pytest.mark.parametrize("offsets,want", [
+    ([37.0, 1816.3, -817.0], 37.0),             # plain drift beats a quarter-hour look-alike (g0283)
+    ([-146.0, 158.0, 1816.3], -146.0),          # the smallest small one
+    ([2713.1, 3551.8, 4453.9], 3551.8),         # no small fit: whole hours (DST) first
+    ([2713.1, 1790.0], 1790.0),                 # then half hours
+    ([2713.1, 1234.0], 2713.1),                 # then quarter hours
+])
+def test_offset_prior_among_equal_fits(offsets, want):
+    assert min(offsets, key=gt.offset_prior) == want
+
+
+def test_estimate_offset_uses_an_even_spread_of_many_references():
+    walk = north_walk(3001)
+    refs = refs_on(walk, 37.0, [T0 + 10 * i for i in range(300)])
+    est = gt.estimate_offset(track(walk), refs)
+    assert est.offset_s == pytest.approx(37, abs=0.2) and est.refs == gt.MAX_REFS
+
+
+def test_no_estimate_when_every_photo_has_gps(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("estimate_offset called")
+
+    monkeypatch.setattr(gt, "estimate_offset", boom)
+    tr = track(north_walk(601))
+    res = gt.geotag([photo_at(f"{i}.jpg", T0 + i, lat=LAT0, lon=LON0) for i in range(300)], tr,
+                    gt.resolve_tz("-07:00"))
+    assert res.counts()["exif"] == 300 and res.offset.method == "none"
 
 
 def test_estimate_offset_none_when_no_reference_is_near_the_track():
@@ -288,17 +330,21 @@ def test_geotag_command_clock_photo_and_bad_input(folder, capsys):
 
 
 def test_run_gpx_gives_per_file_coordinates_and_exif_stays_first(folder, monkeypatch):
-    monkeypatch.setattr(cli.gt, "read_exif", lambda paths: {p: {"lat": "", "lon": "", "taken_at": ""} for p in paths})
+    def no_exiftool(paths):
+        raise AssertionError("run --gpx must not need exiftool")
+
+    monkeypatch.setattr(cli.gt, "read_exif", no_exiftool)
     a = cli.parser().parse_args(["run", str(folder / "photos"), "--gpx", str(folder / "walk.gpx"), "--tz=-07:00"])
     inputs = {i["path"].rsplit("/", 1)[1]: i for i in cli.build_payload(a)["inputs"]}
     assert inputs["a.jpg"]["lat"] == pytest.approx(WALK0 + 100 * M_LAT, abs=1e-6) and inputs["a.jpg"]["lon"] == F.LON
     assert "lat" not in inputs["b.jpg"]                  # EXIF GPS: the service reads the file's own
     assert "lat" not in inputs["c.jpg"]                  # no fix
-    # --lat/--lon fill only what neither EXIF (here: exiftool absent -> blank) nor the track placed
+    # --lat/--lon fill only what neither EXIF (read with Pillow, no exiftool) nor the track placed
     a = cli.parser().parse_args(["run", str(folder / "photos"), "--gpx", str(folder / "walk.gpx"), "--tz=-07:00",
                                  "--lat", "1", "--lon", "2"])
     inputs = {i["path"].rsplit("/", 1)[1]: i for i in cli.build_payload(a)["inputs"]}
     assert inputs["a.jpg"]["lat"] != 1 and (inputs["c.jpg"]["lat"], inputs["c.jpg"]["lon"]) == (1, 2)
+    assert "lat" not in inputs["b.jpg"]                  # its own GPS, not the batch default
 
 
 def test_run_without_gpx_is_unchanged(folder):
@@ -307,3 +353,11 @@ def test_run_without_gpx_is_unchanged(folder):
     assert json.dumps(pl, sort_keys=True) == json.dumps(
         {"inputs": [{"path": str(folder / "photos" / n)} for n in ("a.jpg", "b.jpg", "c.jpg")],
          "want": ["identify"], "options": {"identify": {"top_k": 5, "geo": True, "species": True}}}, sort_keys=True)
+
+
+def test_run_warns_when_track_options_come_without_gpx(folder, capsys):
+    a = cli.parser().parse_args(["run", str(folder / "photos"), "--tz=-07:00", "--offset", "+37"])
+    cli.build_payload(a)
+    assert "--offset, --tz only apply with --gpx" in capsys.readouterr().err
+    cli.build_payload(cli.parser().parse_args(["run", str(folder / "photos")]))
+    assert "warning" not in capsys.readouterr().err

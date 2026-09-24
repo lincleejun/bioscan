@@ -64,7 +64,8 @@ def run_scenario(d: Path, options: dict | None = None) -> tuple[list[dict], list
         res = gt.geotag(ph, track, gt.resolve_tz(rows[0].get("tz") or None), options.get("offset_s"),
                         max_gap_s=options.get("max_gap_s", gt.MAX_GAP_S),
                         max_span_m=options.get("max_span_m", gt.MAX_SPAN_M),
-                        extrapolate_s=options.get("extrapolate_s", gt.EXTRAPOLATE_S))
+                        extrapolate_s=options.get("extrapolate_s", gt.EXTRAPOLATE_S),
+                        max_still_s=options.get("max_still_s", gt.MAX_STILL_S))
         true_offsets = set()
         for r, fx in zip(rows, res.fixes):
             if r.get("role", "photo") != "photo" or fx.path not in truth:
@@ -82,11 +83,14 @@ def run_scenario(d: Path, options: dict | None = None) -> tuple[list[dict], list
                            (round(tlat, 2), round(tlon, 2)) != (round(fx.lat, 2), round(fx.lon, 2))})
         true_off = true_offsets.pop() if len(true_offsets) == 1 else None
         o = res.offset
+        # An estimate was due when the group has reference or clock photos, or its clock is off. Its
+        # error is |applied - true|, so a failed estimate (method none, 0 applied) counts in full.
+        due = true_off is not None and o.method != "given" and (
+            true_off != 0 or any(r.get("role") in ("ref", "clock") for r in rows))
         groups.append({"scenario": d.name, "group": g, "photos": sum(r.get("role", "photo") == "photo" for r in rows),
                        "track_points": res.track_points, "offset_method": o.method, "offset_s": o.offset_s,
                        "offset_true_s": true_off, "residual_m": o.residual_m,
-                       "offset_error_s": None if true_off is None or o.method in ("none", "given")
-                       else round(abs(o.offset_s - true_off), 2),
+                       "offset_error_s": round(abs(o.offset_s - true_off), 2) if due else None,
                        "warnings": res.warnings})
     return images, groups
 
@@ -123,6 +127,7 @@ def metrics_for(images: list[dict], groups: list[dict]) -> dict:
     m["offset_error_s"] = round(statistics.median(off), 2) if off else None
     m["offset_error_p90_s"] = _pct_rank(off, 0.9)
     m["offset_groups"] = len(off)
+    m["offset_failed"] = sum(g["offset_error_s"] is not None and g["offset_method"] == "none" for g in groups)
     return m
 
 
@@ -141,7 +146,8 @@ def build_report(root: Path, only: list[str] | None = None, options: dict | None
     meta = {"tier": "geotag", "git_sha": sha, "git_dirty": dirty,
             "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "groundtruth": str(root),
             "synth": json.loads(synth.read_text(encoding="utf-8")) if synth.is_file() else None,
-            "options": {"max_gap_s": gt.MAX_GAP_S, "max_span_m": gt.MAX_SPAN_M, "extrapolate_s": gt.EXTRAPOLATE_S,
+            "options": {"max_gap_s": gt.MAX_GAP_S, "max_span_m": gt.MAX_SPAN_M, "max_still_s": gt.MAX_STILL_S,
+                        "extrapolate_s": gt.EXTRAPOLATE_S,
                         **(options or {})}}
     return {"schema": bench.GEOTAG_SCHEMA, "version": VERSION, "meta": meta, "metrics": metrics,
             "groups": groups, "images": images}
@@ -157,19 +163,22 @@ def report_md(rep: dict) -> str:
     lines = ["# bioscan bench geotag", "",
              f"- scenarios: {rep['meta']['groundtruth']} (git {str(rep['meta']['git_sha'])[:12]}, {rep['meta']['date']})",
              f"- fix rule: max gap {rep['meta']['options']['max_gap_s']:g} s, max span "
-             f"{rep['meta']['options']['max_span_m']:g} m, extrapolate {rep['meta']['options']['extrapolate_s']:g} s", "",
+             f"{rep['meta']['options']['max_span_m']:g} m within {rep['meta']['options']['max_still_s']:g} s, "
+             f"extrapolate {rep['meta']['options']['extrapolate_s']:g} s", "",
              "Errors are over photos whose true time is inside the track (`expected`); a photo there without a fix "
              "counts against the within-rates and as `no fix`. `false fix`: a fix for a photo outside the track. "
              "`cell changed`: the fix and the truth round to different 0.01° cells (the location prior's cache key). "
-             "Offset error: median |estimated − true| over the groups whose offset was estimated (gps or clock). "
+             "Offset error: median |applied − true| over the groups where an estimate was due (reference or clock "
+             "photos, or a clock that is off); a failed estimate applies 0 and counts in full. "
              "`err ≤ est`: share of fixes whose true error is within geotag's own `err_m` estimate.", "",
              "| scope | n | expected | median m | p90 m | ≤100 m | ≤1 km | no fix | false fix | cell changed "
-             "| err ≤ est | offset err s (median / p90, groups) |", "|---" * 12 + "|"]
+             "| err ≤ est | offset err s (median / p90, groups, failed) |", "|---" * 12 + "|"]
     for s, m in rep["metrics"].items():
         lines.append(f"| {s} | {m['n']} | {m['n_expected']} | {_m(m['median_error_m'])} | {_m(m['p90_error_m'])} | "
                      f"{_m(m['within_100m_rate'], '%')} | {_m(m['within_1km_rate'], '%')} | {_m(m['no_fix_rate'], '%')} | "
                      f"{_m(m['false_fix_rate'], '%')} | {_m(m['cell_change_rate'], '%')} | {_m(m['err_est_coverage'], '%')} | "
-                     f"{_m(m['offset_error_s'])} / {_m(m['offset_error_p90_s'])} ({m['offset_groups']}) |")
+                     f"{_m(m['offset_error_s'])} / {_m(m['offset_error_p90_s'])} ({m['offset_groups']}, "
+                     f"{m['offset_failed']}) |")
     methods = defaultdict(lambda: defaultdict(int))
     for g in rep["groups"]:
         methods[g["scenario"]][g["offset_method"]] += 1
@@ -205,7 +214,7 @@ def write_gt(rep: dict, source_csv: str, out_dir: Path) -> list[Path]:
 def cmd_geotag(a) -> int:
     root = Path(a.scenarios)
     options = {k: v for k, v in (("extrapolate_s", a.extrapolate), ("max_gap_s", a.max_gap),
-                                 ("max_span_m", a.max_span)) if v is not None}
+                                 ("max_span_m", a.max_span), ("max_still_s", a.max_still)) if v is not None}
     rep = build_report(root, a.scenario, options)
     md = report_md(rep)
     standards = bench.read_standards(a.standards or bench.STANDARDS_TOML)
@@ -232,6 +241,7 @@ def add_parser(b) -> None:
     s.add_argument("--extrapolate", type=float, help=f"seconds to hold the track's ends (default {gt.EXTRAPOLATE_S:g})")
     s.add_argument("--max-gap", type=float, help=f"geotag --max-gap (default {gt.MAX_GAP_S:g})")
     s.add_argument("--max-span", type=float, help=f"geotag --max-span (default {gt.MAX_SPAN_M:g})")
+    s.add_argument("--max-still", type=float, help=f"geotag --max-still (default {gt.MAX_STILL_S:g})")
     s.add_argument("--standards", help=f"standards TOML (default {bench.STANDARDS_TOML})")
     s.add_argument("--md", help="also write the markdown here")
     s.add_argument("--json", help="write the report (schema bioscan-geotag-report) here")

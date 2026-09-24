@@ -48,7 +48,8 @@ def _clocks(specs: list[str] | None) -> dict[str, str]:
 
 def run_geotag(paths: list[str], gpx: list[str], offset: str | None = None, tz: str | None = None,
                clocks: list[str] | None = None, max_gap_s: float = gt.MAX_GAP_S, max_span_m: float = gt.MAX_SPAN_M,
-               extrapolate_s: float = gt.EXTRAPOLATE_S, photos: list[gt.Photo] | None = None) -> gt.Result:
+               extrapolate_s: float = gt.EXTRAPOLATE_S, photos: list[gt.Photo] | None = None,
+               max_still_s: float = gt.MAX_STILL_S) -> gt.Result:
     """Load the tracks, read the photos (unless given) and geotag them. SystemExit on bad input."""
     try:
         zone = gt.resolve_tz(tz)
@@ -70,7 +71,7 @@ def run_geotag(paths: list[str], gpx: list[str], offset: str | None = None, tz: 
         p.clock = shown.get(os.path.abspath(p.path))
     try:
         return gt.geotag(photos, track, zone, off, max_gap_s=max_gap_s, max_span_m=max_span_m,
-                         extrapolate_s=extrapolate_s)
+                         extrapolate_s=extrapolate_s, max_still_s=max_still_s)
     except ValueError as e:                        # an unreadable clock photo or clock time
         raise SystemExit(str(e)) from None
 
@@ -98,7 +99,8 @@ def cmd_geotag(a) -> int:
     paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)]
     if not paths:
         raise SystemExit("no images found")
-    res = run_geotag(paths, a.gpx, a.offset, a.tz, a.clock, a.max_gap, a.max_span, a.extrapolate)
+    res = run_geotag(paths, a.gpx, a.offset, a.tz, a.clock, a.max_gap, a.max_span, a.extrapolate,
+                     max_still_s=a.max_still)
     w = csv.DictWriter(sys.stdout, fieldnames=CSV_FIELDS, lineterminator="\n")
     w.writeheader()
     rows = [_row(f) for f in res.fixes]
@@ -126,16 +128,19 @@ def cmd_geotag(a) -> int:
     return 0
 
 
-def run_coordinates(paths: list[str], a) -> dict[str, tuple[float, float]]:
-    """`bioscan run --gpx`: path -> (lat, lon) for the photos without EXIF GPS that the track places.
-    Photos with EXIF GPS are left out: the service reads their own position (EXIF first)."""
-    res = run_geotag(paths, a.gpx, a.offset, a.tz, a.clock, a.max_gap, a.max_span, a.extrapolate)
+def run_coordinates(paths: list[str], a) -> tuple[dict[str, tuple[float, float]], set[str]]:
+    """`bioscan run --gpx`: (path -> (lat, lon) for the photos without EXIF GPS that the track places,
+    the paths whose EXIF has GPS). Photos with EXIF GPS get no request coordinate: the service reads
+    their own position (EXIF first). The EXIF is read here (Pillow), so no exiftool is needed."""
+    res = run_geotag(paths, a.gpx, a.offset, a.tz, a.clock, a.max_gap, a.max_span, a.extrapolate,
+                     max_still_s=a.max_still)
     c = res.counts()
     print(f"gpx: {c['gpx']} of {len(paths)} photos placed from the track ({c['exif']} have EXIF GPS, "
           f"{c['none']} no fix); {describe_offset(res.offset)}", file=sys.stderr)
     for msg in res.warnings:
         print(f"warning: {msg}", file=sys.stderr)
-    return {f.path: (f.lat, f.lon) for f in res.fixes if f.source == "gpx"}
+    return ({f.path: (f.lat, f.lon) for f in res.fixes if f.source == "gpx"},
+            {f.path for f in res.fixes if f.source == "exif"})
 
 
 def add_track_options(s, xmp: bool = False) -> None:
@@ -151,8 +156,20 @@ def add_track_options(s, xmp: bool = False) -> None:
                    help="interpolate between track points up to this many seconds apart (default %(default)g)")
     s.add_argument("--max-span", type=float, default=gt.MAX_SPAN_M,
                    help="... or across a longer gap whose ends are within this many metres (default %(default)g)")
+    s.add_argument("--max-still", type=float, default=gt.MAX_STILL_S,
+                   help="... but never across a gap longer than this many seconds (default %(default)g)")
     s.add_argument("--extrapolate", type=float, default=gt.EXTRAPOLATE_S,
                    help="hold the first/last track point this many seconds outside the track (default %(default)g)")
+
+
+TRACK_ONLY = ("offset", "tz", "clock")      # options that mean nothing without a track
+
+
+def warn_unused(a) -> None:
+    """`run` with --offset/--tz/--clock but no --gpx: they would be silently ignored."""
+    given = [f"--{k}" for k in TRACK_ONLY if getattr(a, k, None)]
+    if given and not getattr(a, "gpx", None):
+        print(f"warning: {', '.join(given)} only apply with --gpx; ignored", file=sys.stderr)
 
 
 def add_parser(sub) -> None:

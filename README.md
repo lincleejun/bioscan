@@ -233,7 +233,7 @@ Most camera bodies write no GPS. If you record the outing with a watch or phone 
 bioscan geotag DIR --gpx hike.gpx --tz America/Los_Angeles --csv geo.csv   # path,lat,lon,source,dt_s,err_m,utc,ele
 bioscan geotag DIR --gpx a.gpx --gpx b.gpx --offset +00:01:23 --xmp       # camera 83 s fast; write <stem>.xmp sidecars
 bioscan geotag DIR --gpx hike.gpx --clock DIR/DSC0001.ARW=2026-05-01T08:00:13   # a photo of the watch showing 08:00:13
-bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates for identify (EXIF GPS still wins)
+bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates for identify (EXIF GPS still wins; no exiftool needed)
 ```
 - **Sources.** Each photo gets one of `exif`, `gpx` or `none`:
   - `exif`: the file already has GPS. EXIF always wins.
@@ -245,11 +245,11 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates f
 - **Clock offset** (camera time minus true time). It comes from the first of these that applies:
   1. `--offset`;
   2. a photo of a clock: `--clock PHOTO=TIME`, the time the clock shows, read in the photo's zone;
-  3. an estimate from photos in the folder that already have GPS (a phone photo, or a camera with a GPS link). The estimate finds the offset at which those photos sit on the track. It is rejected when they sit more than 100 m off, and when several offsets fit equally well it prefers whole quarter-hours plus drift (timezone and DST mistakes);
+  3. an estimate from photos in the folder that already have GPS (a phone photo, or a camera with a GPS link). The estimate finds the offset at which those photos sit on the track. It is rejected when they sit more than 100 m off. When several offsets fit equally well, one under 5 min wins (plain drift), then whole hours, half hours and quarter hours (timezone and DST mistakes), and a warning says the fit was ambiguous. The estimate is skipped when every photo already has GPS;
   4. otherwise 0.
 
   The offset is applied once per run, so run one camera at a time. When most photos fall outside the track, a warning says how far off they are; a whole number of hours means a timezone mistake.
-- **Fix rule.** The position is linear in time between neighbouring track points up to `--max-gap` seconds apart (default 1800). Across a longer gap, it is linear only when the gap's ends are within `--max-span` metres of each other (default 200: the watch auto-paused while you stood still). Outside the track there is no fix, unless you allow `--extrapolate N`: then the first or last point is held for N seconds.
+- **Fix rule.** The position is linear in time between neighbouring track points up to `--max-gap` seconds apart (default 1800). Across a longer gap, it is linear only when the gap's ends are within `--max-span` metres of each other (default 200: the watch auto-paused while you stood still) and at most `--max-still` seconds apart (default 3 h: a wait at a hide, not a night at base camp). Outside the track there is no fix, unless you allow `--extrapolate N`: then the first or last point is held for N seconds.
 - **XMP.** `--xmp` writes `<stem>.xmp` holding `exif:GPSLatitude`/`GPSLongitude` in XMP. This is the sidecar Lightroom, Capture One and Bridge read for RAW files; Lightroom ignores sidecars of JPEGs. A photo that already has a sidecar (`<stem>.xmp`, or darktable's `<name>.<ext>.xmp`) is left alone: bioscan never edits or merges an existing sidecar, and never writes into the photo file. Use the CSV with exiftool if you need to change existing files.
 - **Several tracks.** Several `--gpx` files and segments merge into one time-ordered track. A second device recording at the same time just adds points.
 - **Accuracy.** Measured on synthetic tracks built from the golden set (`bioscan bench geotag`, docs/harness.md):

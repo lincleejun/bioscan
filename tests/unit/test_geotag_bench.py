@@ -133,3 +133,41 @@ def test_bench_geotag_command_and_gt_out(scenarios, tmp_path, capsys):
     assert all(d == g for d, g in untouched)
     with pytest.raises(bench.BenchError, match="no scenario folder"):
         geobench.build_report(tmp_path / "gt")
+
+
+
+@pytest.mark.parametrize("scenario,true", [("offset37", 37.0), ("dst", 3600.0)])
+def test_ambiguous_outing_g0283_keeps_a_plausible_offset(tmp_path, scenario, true):
+    """Outing g0283 (seed 7, 18 photos around one spot): its reference photos fit offsets from -14 to
+    +71 min about equally well. The quarter-hour preference alone picked +1816 s for a 37 s clock."""
+    groups = synth.outings(synth.load_shots(str(GOLDEN), 7))
+    synth.build_scenario(scenario, groups, 7, tmp_path, only={283})
+    _, (g,) = geobench.run_scenario(tmp_path / scenario)
+    assert g["group"] == "g0283" and g["offset_method"] == "gps" and g["offset_true_s"] == true
+    assert g["offset_error_s"] < 300
+    assert any("ambiguous" in w for w in g["warnings"])
+
+
+def test_a_failed_offset_estimate_counts_in_full(tmp_path):
+    """References nowhere near the track: no estimate (method none, 0 applied); the 37 s clock error
+    counts as a 37 s offset error, not as n/a."""
+    d = tmp_path / "s"
+    (d / "gpx" / "g0").mkdir(parents=True)
+    pts = "".join(f'<trkpt lat="{37.5 + i * 1e-5:.6f}" lon="-122.25"><time>2026-05-01T15:{i // 60:02d}:{i % 60:02d}Z'
+                  f'</time></trkpt>' for i in range(600))
+    (d / "gpx" / "g0" / "t.gpx").write_text(f'<gpx xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>{pts}'
+                                            '</trkseg></trk></gpx>')
+    rows = [{"group": "g0", "path": "p.jpg", "role": "photo", "taken_at": "2026-05-01T08:05:37", "tz": "-07:00",
+             "lat": "", "lon": "", "clock": ""},
+            {"group": "g0", "path": "r.jpg", "role": "ref", "taken_at": "2026-05-01T08:06:37", "tz": "-07:00",
+             "lat": "10.0", "lon": "10.0", "clock": ""}]
+    truth = [{"group": "g0", "path": "p.jpg", "lat": 37.503, "lon": -122.25, "expect_fix": 1, "offset_s": 37.0}]
+    for name, data in (("photos.csv", rows), ("truth.csv", truth)):
+        with open(d / name, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(data[0]))
+            w.writeheader()
+            w.writerows(data)
+    rep = geobench.build_report(d)
+    (g,) = rep["groups"]
+    assert g["offset_method"] == "none" and g["offset_error_s"] == 37.0
+    assert rep["metrics"]["all"]["offset_error_s"] == 37.0 and rep["metrics"]["all"]["offset_failed"] == 1

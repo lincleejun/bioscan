@@ -79,18 +79,24 @@ def build_payload(a) -> dict:
     if not paths:
         raise SystemExit("no images found")
     inputs = [{"path": p} for p in paths]
-    if getattr(a, "gpx", None):
+    geotag_cli.warn_unused(a)
+    gpx = bool(getattr(a, "gpx", None))
+    if gpx:
         # Per-file coordinates from the track, only for images without EXIF GPS (EXIF wins).
-        placed = geotag_cli.run_coordinates(paths, a)
+        placed, exif_gps = geotag_cli.run_coordinates(paths, a)
         for inp in inputs:
             if inp["path"] in placed:
                 inp["lat"], inp["lon"] = placed[inp["path"]]
     if a.lat is not None:
         # Request coordinates override EXIF on the service side, so only fill images whose
         # EXIF has none -- that keeps "EXIF wins" semantics for the batch default.
-        exif = gt.read_exif(paths)  # all blank without exiftool -> every image gets the default
+        if gpx:   # the EXIF was already read (Pillow) for the track: no exiftool needed
+            has_gps = exif_gps.__contains__
+        else:
+            exif = gt.read_exif(paths)  # all blank without exiftool -> every image gets the default
+            has_gps = lambda p: exif.get(p, {}).get("lat", "") != ""  # noqa: E731
         for inp in inputs:
-            if exif.get(inp["path"], {}).get("lat", "") == "" and "lat" not in inp:
+            if not has_gps(inp["path"]) and "lat" not in inp:
                 inp["lat"], inp["lon"] = a.lat, a.lon
     options: dict = {}
     if "identify" in want:

@@ -14,7 +14,7 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 | `bench compare BASE NEW [--budget FILE] [--md OUT] [--json OUT]` | Deltas, paired images, McNemar, species changes, broken images, budget check. Exit 0 within budget, 1 over budget, 2 not comparable |
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
-| `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
+| `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
 `--names KIND=CSV` sets the name list used to tell whether a truth is in the list (`not_in_list`) and
 for families. Default: `bird=data/names/avilist_map.csv`, and `mammal=` the MDD CSV under `data/mdd/`
@@ -303,8 +303,9 @@ bioscan bench geotag runs/geotag-synth --md runs/geotag-synth/report.md --json r
 bioscan bench scorecard runs/geotag-synth/report.json          # the same scorecard, tier geotag
 ```
 
-`bench geotag DIR [--scenario NAME]... [--max-gap S] [--max-span M] [--extrapolate S] [--standards F] [--md F]
-[--json F] [--gt-out DIR]` exits 1 when a `geotag` standard is missed, like `scorecard`.
+`bench geotag DIR [--scenario NAME]... [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--standards F]
+[--md F] [--json F] [--gt-out DIR]` exits 1 when a `geotag` standard is missed, like `scorecard`. On the seed-7 set, generating
+takes about 65 s and scoring 80–85 s.
 
 **Synthetic tracks** (the generator's docstring has the details):
 - **Outings.** Photos with the same observer and local day, split at a pause of more than 4 h or a speed above 40 m/s.
@@ -353,7 +354,7 @@ error, cell change).
 | `false_fix_rate` | photos outside the track that got a fix anyway |
 | `cell_change_rate` | fixes whose 2-decimal lat/lon (the location prior's cache key, ~1 km) differs from the truth's |
 | `err_est_coverage` | fixes whose true error is within geotag's own `err_m` |
-| `offset_error_s`, `offset_error_p90_s`, `offset_groups` | median and p90 of \|estimated − true offset\| over groups whose offset was estimated (gps or clock); how many |
+| `offset_error_s`, `offset_error_p90_s`, `offset_groups`, `offset_failed` | median and p90 of \|applied − true offset\| over the groups where an estimate was due (reference or clock photos, or a clock that is off; not `--offset`); how many; how many of them got no estimate (method none: 0 applied, so the whole true offset counts) |
 
 Rates carry Wilson intervals (`<rate>_ci`), and the scorecard judges them on the bound as usual.
 

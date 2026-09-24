@@ -199,7 +199,7 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 bioscan geotag DIR --gpx hike.gpx --tz America/Los_Angeles --csv geo.csv   # path,lat,lon,source,dt_s,err_m,utc,ele
 bioscan geotag DIR --gpx a.gpx --gpx b.gpx --offset +00:01:23 --xmp       # 相机快 83 秒；写 <stem>.xmp 旁车文件
 bioscan geotag DIR --gpx hike.gpx --clock DIR/DSC0001.ARW=2026-05-01T08:00:13   # 一张拍手表的照片，表上是 08:00:13
-bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图用自己的坐标（EXIF GPS 仍然优先）
+bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图用自己的坐标（EXIF GPS 仍然优先；不需要 exiftool）
 ```
 - **来源**：每张图的来源是以下三种之一：
   - `exif`：文件本身有 GPS，EXIF 永远优先；
@@ -211,11 +211,11 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 - **相机时钟偏差**（相机时间减真实时间）按以下顺序取第一个可用的：
   1. `--offset`；
   2. 拍钟照片：`--clock 照片=时间`，写钟面显示的时间，按该照片的时区解读；
-  3. 目录里已有 GPS 的照片（手机照片、带 GPS 连接的相机）：找出让这些照片落在轨迹上的偏差。若它们离轨迹超过 100 m 就放弃；若多个偏差同样吻合，优先整刻钟加小漂移（即时区、夏令时错误）；
+  3. 目录里已有 GPS 的照片（手机照片、带 GPS 连接的相机）：找出让这些照片落在轨迹上的偏差。若它们离轨迹超过 100 m 就放弃。若多个偏差同样吻合，先取 5 分钟以内的（普通漂移），其次整小时、半小时、一刻钟（即时区、夏令时错误），并告警说明吻合有歧义。所有照片都已有 GPS 时不做估计；
   4. 以上都没有则为 0。
 
   一次运行只用一个偏差，所以请一台相机一次。多数照片落在轨迹外时会告警并给出差多少；整小时通常是时区设错。
-- **定位规则**：相邻轨迹点相隔不超过 `--max-gap` 秒（默认 1800）时，按时间线性插值。间隔更长时，只有两端相距不超过 `--max-span` 米（默认 200，即站着不动、手表自动暂停）才插值。轨迹外不定位；加 `--extrapolate N` 时，在 N 秒内沿用首/末点。
+- **定位规则**：相邻轨迹点相隔不超过 `--max-gap` 秒（默认 1800）时，按时间线性插值。间隔更长时，只有两端相距不超过 `--max-span` 米（默认 200，即站着不动、手表自动暂停）且间隔不超过 `--max-still` 秒（默认 3 小时：在观鸟棚里等候可以，营地过夜不行）才插值。轨迹外不定位；加 `--extrapolate N` 时，在 N 秒内沿用首/末点。
 - **XMP**：`--xmp` 写 `<stem>.xmp`，内含 XMP 的 `exif:GPSLatitude`/`GPSLongitude`。Lightroom、Capture One、Bridge 对 RAW 读这个旁车文件；Lightroom 不读 JPEG 的旁车文件。已有旁车文件（`<stem>.xmp`，或 darktable 的 `<name>.<ext>.xmp`）的照片一律跳过：bioscan 从不修改或合并已有旁车文件，也从不写照片文件本身。需要改已有文件时，请用 CSV 配合 exiftool。
 - **多条轨迹**：多个 `--gpx` 文件、多个分段会合并成一条按时间排序的轨迹。第二台设备同时记录，只是多了点。
 - **精度**：在用 golden 集合成的轨迹上测得（`bioscan bench geotag`，见 docs/harness.md）：

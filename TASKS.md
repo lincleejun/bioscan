@@ -89,6 +89,10 @@ harness is a separate `bench geotag` (its own report, the shared scorecard), not
 - [x] docs: README (EN + zh-CN), CONTEXT.md (track, outing, clock offset, reference/clock photo, fix, fix rule), data/README
 - [x] no-GPX behaviour byte-identical: eval report.md, bench report.json and run payloads vs c38dec2 (scratch golden check)
 Verify: tests/unit/test_geotag.py, test_geotag_bench.py, test_standards.py; `bioscan bench geotag` scorecard 8/8.
+- [x] review fixes (2026-09-24): offset tie-break (drift under 5 min first, then hours, half, quarter; g0283 test);
+      stood-still rule capped at 3 h (`--max-still`); no estimate when every photo has GPS, at most 25 references
+      (300 photos x 50k points: 19.7 s -> 0.01 s / 0.2 s); `run --gpx` uses the Pillow-read GPS (no exiftool);
+      format_offset rounding; failed estimates count in offset_error_s; warning for --offset/--tz/--clock without --gpx
 - [ ] Mac: `bench run` on runs/geotag-synth/gt/perfect.csv vs golden and golden-nogeo (docs/harness.md "Downstream"); until then the species-ID gain from GPX is unverified
 - [ ] a real GPX + camera folder from the owner, to check the synthetic numbers (watch auto-pause, canyons, cold start)
 - [ ] mixed cameras in one folder: one clock offset per camera model (EXIF Model) instead of one per run
