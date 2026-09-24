@@ -160,7 +160,7 @@ def test_launchd_plist():
 def test_launchd_plist_keeps_allow_roots_and_detail_edge():
     a = parser().parse_args(["serve", "--launchd", "--allow-root", "/Users/me/Photos", "--allow-root", "/Volumes/card",
                              "--detail-edge", "4096"])
-    p = plistlib.loads(launchd_plist(a.port, 4, 32, uv="/opt/uv", allow_roots=a.allow_root, detail_edge=a.detail_edge))
+    p = plistlib.loads(launchd_plist(8765, 4, 32, uv="/opt/uv", allow_roots=a.allow_root, detail_edge=a.detail_edge))
     assert p["ProgramArguments"][-6:] == ["--allow-root", "/Users/me/Photos", "--allow-root", "/Volumes/card",
                                           "--detail-edge", "4096"]
     # the served command line parses back to the same settings

@@ -32,8 +32,11 @@ def test_fakes_have_the_real_adapters_methods(fake, real, methods):
         assert have == want, f"{fake.__name__}.{name}{have} != {real.__name__}.{name}{want}"
 
 
+ALL = ("bioclip", "owlv2", "siglip2")
+
+
 def test_one_loader_per_adapter():
-    assert [f.name for f in dataclasses.fields(Loaders)] == ["siglip2", "owlv2", "species", "geo"]
+    assert [f.name for f in dataclasses.fields(Loaders)] == ["siglip2", "owlv2", "species", "geo", "extra"]
     assert list(MODELS) == ["siglip2", "owlv2", "bioclip"]
 
 
@@ -62,21 +65,44 @@ def test_production_species_loader_places_name_lists_at_load(monkeypatch):
     fail = True
     e = Engine("cpu", loaders)
     with pytest.raises(RuntimeError, match="out of memory"):
-        e.ensure(["identify"])
+        e.ensure(ALL)
     assert e.loaded() == ["siglip2", "owlv2"]            # species not marked loaded: the next request retries
     fail = False
-    e.ensure(["identify"])
+    e.ensure(ALL)
     assert e.loaded() == ["siglip2", "owlv2", "bioclip"] and placed == [(2, 4), (2, 4)]
 
 
 def test_loaded_engine_meets_app_and_identify():
     e = Fakes().engine()
-    e.ensure(["embed"])
-    assert e.loaded() == ["siglip2"]          # only what the products need
-    e.ensure(["identify"])
+    e.ensure({"siglip2"})
+    assert e.loaded() == ["siglip2"]          # only what was asked for
+    e.ensure({"bioclip", "owlv2", "siglip2"})
     assert e.loaded() == ["siglip2", "owlv2", "bioclip"] and e.device == "cpu"
+    with pytest.raises(ValueError, match="unknown models"):
+        e.ensure({"nima"})
     assert all(callable(getattr(e, m)) for m in ("loaded", "ensure", "info", "frame"))     # what app.py calls
     seam = [n for n in pipeline.Models.__annotations__]
     assert sorted(seam) == ["bioclip", "names", "owlv2", "priors", "siglip2"]
     assert all(getattr(e, n) for n in seam)   # every adapter and every datum identify reads is there
     assert set(e.priors) == {"bird"} and e.geo is not None
+
+
+def _load_nima(device):
+    return ("nima", device)
+
+
+def test_plugin_models_load_lazily_by_name(monkeypatch):
+    """A plugin model: faked by name through Loaders.extra, else the loader its manifest declares;
+    nothing loads before ensure, and an unknown name is refused."""
+    from bioscan.service import engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "plugin_loaders", lambda: {"nima": f"{__name__}:_load_nima", "toy": "x:y"})
+    made = []
+    e = Engine("cpu", dataclasses.replace(Fakes().engine().loaders, extra={"toy": lambda d: made.append(d) or "TOY"}))
+    assert e.loaded() == [] and made == []
+    e.ensure({"toy", "siglip2"})
+    assert e.loaded() == ["siglip2", "toy"] and e.model("toy") == "TOY" and made == ["cpu"]
+    e.ensure({"toy", "nima"})
+    assert e.loaded() == ["siglip2", "nima", "toy"] and e.model("nima") == ("nima", "cpu") and made == ["cpu"]
+    with pytest.raises(ValueError, match=r"unknown models: \['other'\]"):
+        e.ensure({"other"})

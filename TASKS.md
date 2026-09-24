@@ -75,6 +75,28 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
 
 - [ ] `bioscan report <preds.ndjson>`: reviewable HTML (thumbnails with boxes, grouped by top-1, species table, review.csv with a verdict column); prototype in runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW at Coyote Hills, owner reviewed: OK)
 
+## v1.6 W6: geotag from GPX (branch v16/w6-geotag, 2026-09-24)
+Goal: photos without GPS get a position from the photographer's GPX track, for the location prior and captions.
+Decisions: `--offset` is camera minus true time; tz precedence OffsetTimeOriginal > `--tz` > system zone; default fix
+rule max gap 1800 s / max span 200 m / no extrapolation (measured trade-off in docs/2026-09-24-geotag-synthetic.md);
+harness is a separate `bench geotag` (its own report, the shared scorecard), not `bench compare`.
+- [x] `bioscan/geotag.py` (stdlib): GPX 1.0/1.1 parse (trk/trkseg/trkpt, ele, several files), capture time -> UTC,
+      fix rule, clock offset (given / clock photo / GPS reference photos), per-photo lat, lon, source, dt_s, err_m; XMP sidecars
+- [x] `bioscan geotag DIR --gpx ... [--offset] [--tz] [--clock] [--csv] [--xmp]`; `bioscan run --gpx` per-file lat/lon (EXIF first)
+- [x] `scripts/geotag_synth.py`: outings from the golden CSV, 7 scenarios, seeded; minute/date-only times completed and recorded
+- [x] `bioscan bench geotag` + `geotag` tier in data/standards.toml / docs/standards.md §12 (8 standards, all pass on seed 7 and 11)
+- [x] `--gt-out`: golden CSV with GPX-derived lat/lon; Mac commands in docs/harness.md ("Downstream")
+- [x] docs: README (EN + zh-CN), CONTEXT.md (track, outing, clock offset, reference/clock photo, fix, fix rule), data/README
+- [x] no-GPX behaviour byte-identical: eval report.md, bench report.json and run payloads vs c38dec2 (scratch golden check)
+Verify: tests/unit/test_geotag.py, test_geotag_bench.py, test_standards.py; `bioscan bench geotag` scorecard 8/8.
+- [x] review fixes (2026-09-24): offset tie-break (drift under 5 min first, then hours, half, quarter; g0283 test);
+      stood-still rule capped at 3 h (`--max-still`); no estimate when every photo has GPS, at most 25 references
+      (300 photos x 50k points: 19.7 s -> 0.01 s / 0.2 s); `run --gpx` uses the Pillow-read GPS (no exiftool);
+      format_offset rounding; failed estimates count in offset_error_s; warning for --offset/--tz/--clock without --gpx
+- [ ] Mac: `bench run` on runs/geotag-synth/gt/perfect.csv vs golden and golden-nogeo (docs/harness.md "Downstream"); until then the species-ID gain from GPX is unverified
+- [ ] a real GPX + camera folder from the owner, to check the synthetic numbers (watch auto-pause, canyons, cold start)
+- [ ] mixed cameras in one folder: one clock offset per camera model (EXIF Model) instead of one per run
+
 ## 7. Mac 本地跑 v1.4 / v1.5 数据（2026-09-24，owner 的操作清单）
 - [x] git pull（875dc7a）+ uv sync
 - [x] tests/models/download.py：all-taxa 366,460 种，float16 716 MiB，缓存 763 MiB
@@ -87,3 +109,33 @@ Found（已记录）：
 - [x] 新 worktree 缺 gitignore 的名单 CSV，服务 503 "expected exactly one CSV"；复制 data/avilist、data/mdd 后正常
 - [x] 服务 SIGTERM 后解码进程池子进程不退出，累积孤儿进程；已手动清理，修复留待 v1.6
 - [x] golden compare 唯一超预算项是吞吐 −53%（全品类名表）；准确率无回归
+
+---
+
+# TASKS — v1.6 profiles and plugins, geotag, culling (2026-09-24)
+
+Research: docs/research/2026-09-24-plugin-architecture.md, docs/research/2026-09-24-culling-aesthetics.md.
+Decisions (owner, 2026-09-24): profiles expand in CLI and service; reducers in CLI/offline; aesthetic head
+on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before culling.
+
+- [x] A0 golden-stream recording test (fake engine, 10 option sets + refusals + /health; /products JSON; fingerprint; eval + bench report on a preds file): tests/contract/test_golden_stream.py, goldens in tests/contract/golden/ recorded at b02f189
+- [x] A1 Product -> Manifest + Stage (bioscan/plugin.py, bioscan/plugins/{identify,embed,jpg}, service/stages.py); contract.PRODUCTS derived from plugins.BUILTIN
+- [x] A2 models(opts): identify with species=false (and no candidates) skips BioCLIP; Engine.ensure takes model names; detail decode keyed on `reads`
+- [x] A3 Item.facts + topological plan from reads/provides (plugin.plan: ties by name, report order = BUILTIN; cycle, missing provider, unknown option -> 400); Loaders.extra + Manifest.loaders
+- [x] A4 profiles: bioscan/profile.py (stdlib) + bioscan/profiles.toml (full, wildlife, album), bioscan.toml (user <
+      project < BIOSCAN_CONFIG), serve_config file layer, --profile on run/eval/bench run, "profile" in /run,
+      `bioscan config show`; full = today (payload test, goldens); unit tests never read a developer's files
+      (tests/bioscan_test_env.py)
+- [x] W6 merged (e66c0ac) and the step-5 `geotag` stage built (bioscan/plugins/geotag; wildlife = geotag + identify;
+      `run --gpx` maps onto it with a geotag profile, else the CLI-side path as before; tests/unit/test_geotag_stage.py).
+      As built: MANIFEST reads `time`, provides `place`, thread cpu, no models; options gpx / offset /
+      camera_utc_offset / max_gap_s / max_span_m / max_still_s / extrapolate_s; `reads_paths` = the GPX files
+      (allow-roots). `run` sets `item.facts["place"]` only when the request and EXIF have no location and returns
+      `{"place_source": "request" | "exif" | "gpx" | "none"}` (None only without a track). In plugins.BUILTIN after jpg,
+      in `wildlife`, never in `full`. `run --gpx` uses the stage only when the profile includes geotag; otherwise the
+      CLI geotags locally as in W6. The clock offset is always decided in the CLI for the whole folder.
+- [ ] A6 harness: meta.profile (eval already writes "profile" in the preds meta line), plugin_metrics, standards `profile` field
+- [ ] C1 cull plugins: quality (+clipping), scene (SigLIP2 zero-shot), reducers burst + select; album tier + baseline
+- [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
+- [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
+      synthetic reject set (blur / cut-off / exposure degradations of iNat photos) for the rule stages

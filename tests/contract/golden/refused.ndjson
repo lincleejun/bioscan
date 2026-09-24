@@ -1,0 +1,10 @@
+{"status": 400, "body": {"error": "unknown products: ['video']"}}
+{"status": 400, "body": {"error": "inputs must be a non-empty list"}}
+{"status": 400, "body": {"error": "inputs[0].path must be an absolute path"}}
+{"status": 400, "body": {"error": "want must be a non-empty list of product names"}}
+{"status": 400, "body": {"error": "options.identify.top_k must be an integer 1-50"}}
+{"status": 400, "body": {"error": "unknown options.identify: ['nope']"}}
+{"status": 400, "body": {"error": "unknown option groups: ['video']"}}
+{"status": 400, "body": {"error": "options.jpg.out_dir must be an absolute path"}}
+{"status": 400, "body": {"error": "options.embed.format must be list or f16_base64"}}
+{"status": 400, "body": {"error": "options.identify.candidates: no loaded name list (bird) has ['Nonexistus rex']"}}

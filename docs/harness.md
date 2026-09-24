@@ -14,6 +14,7 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 | `bench compare BASE NEW [--budget FILE] [--md OUT] [--json OUT]` | Deltas, paired images, McNemar, species changes, broken images, budget check. Exit 0 within budget, 1 over budget, 2 not comparable |
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
+| `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
 `--names KIND=CSV` sets the name list used to tell whether a truth is in the list (`not_in_list`) and
 for families. Default: `bird=data/names/avilist_map.csv`, and `mammal=` the MDD CSV under `data/mdd/`
@@ -41,6 +42,14 @@ bioscan bench analyze runs/2026-09-25-golden/report.json --md runs/2026-09-25-go
 
 A regression past the budget exits 1. Per CLAUDE.md, a change over budget needs the owner's acceptance;
 when it is accepted, the new report becomes the baseline in its own commit (`bench baseline ... --force`).
+
+**Profiles.** `bench run` and `eval` take `--profile NAME` (see README "Profiles and bioscan.toml"). The
+profile's stages must include identify, which is what the harness scores; eval still asks for `top_k` 5, and
+`--no-geo` / `--identify-opt` override the profile. The preds meta line records `"profile"` and the expanded
+`options`, so report.json's `meta.options` shows what ran. Without `--profile`, `BIOSCAN_PROFILE` or a
+`default_profile`, the request is byte for byte the one eval sent before profiles, so existing baselines stay
+comparable. Compare runs of different profiles only when you mean to: `album` switches species off. A
+`meta.profile` field and per-plugin metrics come with harness step A6.
 
 **Rescore without the service.** A preds file carries everything:
 `bioscan bench report runs/x/preds.ndjson data/inat/groundtruth-inat.csv --tier golden`. Rescoring after a
@@ -72,6 +81,7 @@ bioscan bench scorecard runs/$(date +%F)-golden/report.json
 bioscan bench scorecard runs/$(date +%F)-golden-nogeo/report.json      # held to the .nogeo standards
 bioscan bench analyze runs/$(date +%F)-golden/report.json --md runs/$(date +%F)-golden/analyze.md
 bioscan bench baseline runs/$(date +%F)-own/report.json --name own-raw-$(date +%F)
+# GPX geotagging and its effect on species ID: see "Downstream" under geotag below
 ```
 
 ## report.json (schema `bioscan-report`, version 1)
@@ -256,7 +266,7 @@ tier = "golden"                       # optional: default is the id's second seg
 dimension = "accuracy"
 title = "Birds: top-1 species correct"
 scope = "bird"                        # all | bird | mammal | other
-metric = "top1"                       # a metrics key above, or "manual"
+metric = "top1"                       # a metrics key above, a geotag metric (tier geotag), or "manual"
 op = ">="                             # ">=" or "<="
 industry = 0.95                       # optional (TOML has no null: omit the key)
 community = 0.90                      # the release bar; required, a number
@@ -283,3 +293,100 @@ source = "URL or why there is none"
 - **Manual standards.** `metric = "manual"` entries are listed apart, as not measurable from a report.
 
 A minimal example is `tests/unit/fixtures/standards-example.toml`.
+
+## geotag: GPX geotagging (`bench geotag`)
+
+`bioscan geotag` places photos on a GPX track (README, "Geotag from a GPX track"). The owner has no GPX
+to share, so `scripts/geotag_synth.py` builds tracks from the golden set's true positions and times.
+`bench geotag` then scores geotagging against the truth. This is a separate subcommand with its own
+report, and it does not feed `bench compare`, because compare is built around species answers: it
+pairs images by sha256, counts fixed and broken top-1 answers, runs McNemar and applies a budget on
+species rates. None of that means anything for a position error. The geotag report reuses the
+scorecard instead, with standards on a `geotag` tier. The run is deterministic from committed data
+and a seed, so a regression shows as a changed number, and the scorecard catches it.
+
+```sh
+uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7   # ~1 min, ~750 MB
+bioscan bench geotag runs/geotag-synth --md runs/geotag-synth/report.md --json runs/geotag-synth/report.json
+bioscan bench scorecard runs/geotag-synth/report.json          # the same scorecard, tier geotag
+```
+
+`bench geotag DIR [--scenario NAME]... [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--standards F]
+[--md F] [--json F] [--gt-out DIR]` exits 1 when a `geotag` standard is missed, like `scorecard`. On the seed-7 set, generating
+takes about 65 s and scoring 80–85 s.
+
+**Synthetic tracks** (the generator's docstring has the details):
+- **Outings.** Photos with the same observer and local day, split at a pause of more than 4 h or a speed above 40 m/s.
+  The golden set gives 1,624 photos in 1,061 outings.
+- **True path.** A walk-in, a 5–60 s stop at each photo, wandering legs between photos (a 1.2 m/s walker; faster legs
+  drive), and a walk-out.
+- **Device.** Samples every 1, 2, 5 or 10 s, with AR(1) GPS noise: σ 3–10 m per axis, 30 s correlation time.
+- **Times.** 721 golden times have minute precision (seconds `:00`) and 15 are date-only. Minute-precision times get
+  seconds drawn within their minute; date-only times get a time between 07:00 and 17:00. The drawn time is the truth
+  the track is built around, and `truth.csv` records the precision.
+- **Seeding.** Every draw is seeded by (seed, scenario, outing).
+
+| Scenario | What changes |
+|---|---|
+| `perfect` | camera clock right; half the outings write OffsetTimeOriginal, the rest rely on `--tz` |
+| `offset37` | camera 37 s fast; 3 reference photos with GPS per outing (5 m noise) |
+| `dst` | camera 1 h fast; 3 reference photos per outing |
+| `wrongtz` | camera on home time 3 h ahead, no OffsetTimeOriginal, `--tz` of the trip; one clock photo per outing |
+| `gaps` | 2–4 dropouts of 30 s–20 min per track, auto-pause at half the stops |
+| `outside` | track starts up to 20 min late and ends up to 20 min early |
+| `multi` | track split into 2–3 files (one GPX 1.0, one with two segments) with restart gaps, plus a decoy track a day earlier |
+
+**Scenario folder** (any set built this way can be scored, e.g. your own photos with GPS, stripped). Each
+`DIR/<scenario>/` holds three things:
+- `photos.csv`: the inputs: `group, path, role, taken_at, tz, lat, lon, clock`.
+  - `role` is `photo`, `ref` (lat/lon filled, used for the offset) or `clock` (`clock` holds the time shown).
+  - `taken_at` is the camera clock, as decode writes it.
+  - `tz` is the group's `--tz`.
+- `truth.csv`: `group, path, lat, lon, utc, expect_fix, offset_s, precision`. `expect_fix` is 1 when the true time is
+  inside the track; `offset_s` is the true clock offset.
+- `gpx/<group>/*.gpx`.
+
+A group is one outing: one `geotag` call.
+
+**Report** (schema `bioscan-geotag-report`, version 1): `meta` (tier `geotag`, git sha, date, the synth's
+`scenarios.json`, fix-rule options), `metrics` per scope (`all` pools every scenario; then one scope per scenario),
+`groups` (offset method, estimated and true offset, residual, warnings) and `images` (fix, truth, error, estimated
+error, cell change).
+
+| Metric | Definition |
+|---|---|
+| `n`, `n_expected` | photos; photos whose true time is inside the track |
+| `median_error_m`, `p90_error_m` | position error over the expected photos with a fix (p90: nearest rank) |
+| `within_100m_rate`, `within_1km_rate` | expected photos with a fix within 100 m / 1 km (no fix counts as a miss) |
+| `no_fix_rate` | expected photos without a fix |
+| `false_fix_rate` | photos outside the track that got a fix anyway |
+| `cell_change_rate` | fixes whose 2-decimal lat/lon (the location prior's cache key, ~1 km) differs from the truth's |
+| `err_est_coverage` | fixes whose true error is within geotag's own `err_m` |
+| `offset_error_s`, `offset_error_p90_s`, `offset_groups`, `offset_failed` | median and p90 of \|applied − true offset\| over the groups where an estimate was due (reference or clock photos, or a clock that is off; not `--offset`); how many; how many of them got no estimate (method none: 0 applied, so the whole true offset counts) |
+
+Rates carry Wilson intervals (`<rate>_ci`), and the scorecard judges them on the bound as usual.
+
+### Downstream: does a GPX position help species ID? (Mac)
+
+Geotagging does not change a photo's capture time, so BirdNET's week (read from `taken_at`) is unchanged by
+construction. Only the place can move, and `cell_change_rate` says how often it leaves the truth's 0.01° cell:
+1.0% in `perfect` (docs/2026-09-24-geotag-synthetic.md). `--gt-out` writes the golden CSV once per scenario with
+lat/lon replaced by the geotag fix (blank where there is none), so `bench run` can measure identification on
+GPX-derived positions:
+
+```sh
+uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7
+bioscan bench geotag runs/geotag-synth --gt-out runs/geotag-synth/gt --md runs/geotag-synth/report.md
+# service running (bioscan serve, or the launchd job)
+D=$(date +%F)
+bioscan bench run data/inat/groundtruth-inat.csv --out runs/$D-golden --tier golden                  # true GPS
+bioscan bench run data/inat/groundtruth-inat.csv --out runs/$D-golden-nogeo --tier golden --no-geo   # no location
+bioscan bench run runs/geotag-synth/gt/perfect.csv --out runs/$D-golden-gpx --tier golden            # GPX positions
+bioscan bench run runs/geotag-synth/gt/gaps.csv --out runs/$D-golden-gpx-gaps --tier golden          # dropouts: some none
+bioscan bench compare runs/$D-golden-nogeo/report.json runs/$D-golden-gpx/report.json --md runs/$D-golden-gpx/vs-nogeo.md
+bioscan bench compare runs/$D-golden/report.json runs/$D-golden-gpx/report.json --md runs/$D-golden-gpx/vs-truth.md
+```
+
+`vs-nogeo` is what a GPX track buys a folder without GPS. `vs-truth` should show almost no change, because 99% of
+the fixes share the truth's prior cell. Compare warns that the ground-truth sha and the options differ, which is
+expected. Until these runs exist, the effect of GPX positions on species ID is **unverified**.

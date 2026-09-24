@@ -2,7 +2,7 @@
 
 Generic words find the animal; names only lift confidence. The prompt set is chosen by the
 whole-frame gate class; every box is filed under that vocabulary's kind, and the crop gate
-(products.judge) can still veto it or promote it to a bird.
+(rules.judge) can still veto it or promote it to a bird.
 """
 from __future__ import annotations
 

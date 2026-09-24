@@ -184,7 +184,7 @@ def run():
         siglip2=lambda d: ReplaySigLIP2(engine_mod._load_siglip2(d)),
         owlv2=lambda d: ReplayOWLv2(engine_mod._load_owlv2(d)),
         species=lambda device: (ReplayBioCLIP(bioclip), lists)))
-    engine.ensure(["identify", "embed"])
+    engine.ensure(engine_mod.MODELS)                 # all three: the run below wants identify + embed
     if os.environ.get("BIOSCAN_REQUIRE_GEO") == "1":
         assert engine.geo is not None, "BirdNET geo prior failed to load (BIOSCAN_REQUIRE_GEO=1)"
         assert set(engine.priors) == {"bird", "mammal"}, engine.priors

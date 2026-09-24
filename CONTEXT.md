@@ -37,8 +37,53 @@ _Avoid_: format (that is the extension)
 (`2026-05-01T08:00:00.37-07:00`); what orders burst frames and picks the location prior's week.
 _Avoid_: timestamp, date
 
+**Stage**:
+One unit of per-image work in a run, batched per chunk: a plugin in `bioscan/plugins/<name>/` (today `identify`,
+`embed`, `jpg`, `geotag`). It reads facts and may provide facts for later stages; its output is the product of the same name.
+_Avoid_: hook, step, node
+
+**Manifest**:
+What a stage declares without loading anything heavy (`plugin.Manifest`, in the plugin's `__init__.py`): name,
+version, the facts it reads and provides, the models it needs under its options, its thread, its options with
+defaults, the check of their values, and its output. The service code (`Stage`) is imported from `impl` only when
+a plan contains the stage.
+_Avoid_: registry entry, spec
+
+**Geotag stage**:
+The `geotag` stage (`bioscan/plugins/geotag`): reads `time`, provides `place` from GPX tracks for photos whose
+request and EXIF have none, on the CPU pool, no models; in `wildlife`, never in `full`. `bioscan geotag` and
+`run --gpx` without such a profile do the same work in the CLI.
+_Avoid_: GPS stage
+
+**Fact**:
+A named value a stage can read: `image`, `detail`, `time`, `place`, `vec`, `gate` from the host, or one a stage
+provides (`boxes` from identify) in `Item.facts`.
+
+**Plan**:
+What a run will do, decided before any model loads (`plugin.plan`): the wanted stages in report order, the run
+order (providers before readers, ties by name), the models to load, and whether the frame pass and the detail copy
+are needed. A read nobody provides, a cycle or an unknown option makes no plan (a 400).
+_Avoid_: pipeline, DAG
+
+**Profile**:
+A named request template: stages, options and (later) reducers. Built in: `full` (what a request without a profile
+gets; fixed), `wildlife`, `album` (`bioscan/profiles.toml`); more, or changes, in a `bioscan.toml`. Expanded by the
+CLI (`--profile`) and by the service (`"profile"` in /run) with the same resolver (`bioscan/profile.py`).
+_Avoid_: preset, mode
+
+**Config layer**:
+One source of profile or serve values, lowest first: stage defaults, `profiles.toml`, the user `bioscan.toml`, the
+project `bioscan.toml`, `$BIOSCAN_CONFIG`, then the request (flags or /run body). `bioscan config show` names each
+value's layer.
+
+**Reducer**:
+A model-free unit over a whole run's results (burst grouping, selection), run by the CLI or offline over a preds
+file, never inside the service stream. None exists yet.
+_Avoid_: stage (a stage sees one chunk)
+
 **Product**:
-A named result a run can ask for per image (`identify`, `embed`, `jpg`), declared in the product registry.
+A named result a run can ask for per image (`identify`, `embed`, `jpg`, `geotag`): the output of the stage of that name
+(`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.
 
 ## Identify
 
@@ -170,7 +215,8 @@ A row with no BirdNET label whose genus is present at a place; fixed by a review
 The resolved settings one service process runs with (host, port, decode workers, chunk, detail edge, allow roots).
 
 **Resolve**:
-Flag, else `BIOSCAN_*` variable, else default, done once per process (`serve_config.resolve`).
+Flag, else `BIOSCAN_*` variable, else the `[serve]` table of a `bioscan.toml`, else default, done once per process
+(`serve_config.resolve`).
 
 **Allow roots**:
 Directories the service may read from and write to; empty means no limit.
@@ -179,6 +225,38 @@ Directories the service may read from and write to; empty means no limit.
 Twelve hex characters over the output-changing constants (thresholds, prompts, vocabulary, prior floor,
 unlabelled policies, accuracy option defaults, max edge);
 the configured detail edge is reported beside it as `engine.detail_edge`.
+
+## Geotagging
+
+**Track**:
+Every timed point of one or more GPX files and their segments, merged in time order (`geotag.Track`); GPX times are UTC.
+_Avoid_: route (a GPX `rte` has no times), log
+
+**Outing**:
+One photographer's photos of one trip with one camera and the track(s) recorded alongside: the unit `bioscan geotag`
+works on (one clock offset, one `--tz`), and a group in the synthetic scenarios (same observer and day).
+_Avoid_: session, hike
+
+**Clock offset**:
+Camera time minus true time, in seconds (a camera 37 s fast has +37). Given (`--offset`), read from a clock photo, or
+estimated from reference photos; the corrected capture time is camera UTC minus it.
+_Avoid_: time shift, drift (drift is only the slow part)
+
+**Reference photo**:
+A photo of the outing that already has GPS (phone, camera GPS link); the clock offset is estimated from where it sits on the track.
+
+**Clock photo**:
+A photo of a clock (GPS watch, phone) with the true time it shows (`--clock PHOTO=TIME`); gives the clock offset directly.
+
+**Fix**:
+One photo's geotag result: lat, lon, source (`exif`, `gpx` or `none`), seconds to the nearest track point and an error
+estimate (`geotag.Fix`). "No fix" means source none.
+_Avoid_: match, hit
+
+**Fix rule**:
+When the track gives a position: linear between neighbouring points up to the max gap apart, or across a longer gap
+whose ends are within the max span and at most the max still time apart (the device stood still, 3 h at most); none
+outside the track unless extrapolation holds an end.
 
 ## Standards and releases
 
@@ -189,7 +267,7 @@ _Avoid_: KPI, target (alone)
 
 **Tier**:
 One test folder a standard is judged on: `smoke` (CI, 95 photos: 42 birds, 35 mammals, 18 other animals; reduced lists), `golden` (1,625 iNat California),
-`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed).
+`own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed), `geotag` (synthetic GPX scenarios built from golden).
 _Avoid_: dataset (alone), split
 
 **Community bar**:

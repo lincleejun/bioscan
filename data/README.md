@@ -95,3 +95,18 @@
 | mdd-2025 | 6904 | 3835 / 0 / 3069 | 55.5% | 1028 / 14 / 5862（15.1%，其余按属回退） |
 
 旧版 BirdNET 匹配另外用俗名兜底（多 15 种），新版只按学名 + 别名，暂未把俗名匹配搬进映射表。`candidates.csv` 当前 49 条（distance 1：11 条）。
+
+## inat/groundtruth-inat.csv — golden 真值（`bioscan gt inat` 生成）
+
+**列**：`path, scientific, tier, lat, lon, taken_at, source, kind, license, attribution`。没有单独的观察者列：`attribution` 里 `(c) 名字, …` 的名字就是观察者，CC0 行只写 `no rights reserved`。
+
+**`taken_at` 精度**（2026-09-24 统计，共 1,625 行）：
+- 1,583 行带 `-07:00`、`-08:00` 这类负偏移，27 行带 `+` 偏移（加州以外的回退观察），15 行只有日期；
+- 带时间的行里，722 行秒数是 `:00`（其中 1 行没有坐标，合成时用到 721 行），即 iNaturalist 只记到分钟；
+- 另有 1 行没有坐标。
+
+**合成 GPX**：`scripts/geotag_synth.py` 用这个文件合成 GPX 轨迹，供 `bioscan bench geotag` 使用。缺的时间这样补：
+- 只到分钟的，在该分钟内随机补秒；
+- 只有日期的，补一个 07:00–17:00 之间的时间，时区取 round(lon/15) 小时。
+
+轨迹按补好的时间生成，所以评测是自洽的。每行的精度记在合成结果的 `truth.csv`（`precision` 列）。这个文件本身不改。

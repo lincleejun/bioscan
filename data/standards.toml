@@ -435,6 +435,115 @@ unit = "fraction"
 how = "top1 of runs/<tag>-golden minus top1 of runs/<tag>-golden-nogeo, row bird"
 source = "iNaturalist geomodel: top-1 +12 points to 87%, all taxa (vendor claim): https://www.inaturalist.org/blog/84677-introducing-the-inaturalist-geomodel"
 
+# ---------------------------------------------------------------- geotag from GPX (synthetic tier)
+# Tier `geotag`: scripts/geotag_synth.py builds GPX tracks through the golden photos' true positions
+# (7 scenarios, seed 7) and `bioscan bench geotag` scores bioscan.geotag against the truth. Scope
+# `all` pools the scenarios; errors count photos whose true time is inside the track.
+
+[[standard]]
+id = "location.geotag.all.median_error_m"
+dimension = "location"
+title = "GPX geotag: median position error"
+scope = "all"
+metric = "median_error_m"
+op = "<="
+community = 15
+stretch = 10
+unit = "m"
+how = "uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7; bioscan bench geotag runs/geotag-synth; row all"
+source = "no published accuracy figure for track-based geotagging found; the synthetic GPS noise (sigma 3-10 m per axis) is the floor"
+
+[[standard]]
+id = "location.geotag.all.p90_error_m"
+dimension = "location"
+title = "GPX geotag: 90th-percentile position error"
+scope = "all"
+metric = "p90_error_m"
+op = "<="
+community = 100
+stretch = 30
+unit = "m"
+how = "bioscan bench geotag runs/geotag-synth; row all"
+source = "no published figure; 100 m is a tenth of the location prior's 0.01-degree cell"
+
+[[standard]]
+id = "location.geotag.all.within_100m_rate"
+dimension = "location"
+title = "GPX geotag: photos inside the track placed within 100 m"
+scope = "all"
+metric = "within_100m_rate"
+op = ">="
+community = 0.95
+stretch = 0.98
+unit = "fraction"
+how = "bioscan bench geotag runs/geotag-synth; row all (a photo without a fix counts as a miss)"
+source = "no published figure; enough for a caption at trail or site level"
+
+[[standard]]
+id = "location.geotag.all.within_1km_rate"
+dimension = "location"
+title = "GPX geotag: photos inside the track placed within 1 km"
+scope = "all"
+metric = "within_1km_rate"
+op = ">="
+community = 0.98
+stretch = 0.995
+unit = "fraction"
+how = "bioscan bench geotag runs/geotag-synth; row all (a photo without a fix counts as a miss)"
+source = "no published figure; 1 km is the location prior's cell, so the prior sees the right place"
+
+[[standard]]
+id = "location.geotag.all.no_fix_rate"
+dimension = "location"
+title = "GPX geotag: photos inside the track left without a fix"
+scope = "all"
+metric = "no_fix_rate"
+op = "<="
+community = 0.05
+stretch = 0.01
+unit = "fraction"
+how = "bioscan bench geotag runs/geotag-synth; row all"
+source = "no published figure"
+
+[[standard]]
+id = "location.geotag.all.false_fix_rate"
+dimension = "location"
+title = "GPX geotag: photos outside the track given a fix anyway"
+scope = "all"
+metric = "false_fix_rate"
+op = "<="
+community = 0.02
+stretch = 0.005
+unit = "fraction"
+how = "bioscan bench geotag runs/geotag-synth; row all (scenario outside; default --extrapolate 0)"
+source = "no published figure; a wrong place is worse than none for the location prior"
+
+[[standard]]
+id = "location.geotag.all.cell_change_rate"
+dimension = "location"
+title = "GPX geotag: fixes in a different 0.01-degree prior cell than the truth"
+scope = "all"
+metric = "cell_change_rate"
+op = "<="
+community = 0.05
+stretch = 0.02
+unit = "fraction"
+how = "bioscan bench geotag runs/geotag-synth; row all"
+source = "no published figure; the BirdNET prior is looked up at lat/lon rounded to 2 decimals"
+
+[[standard]]
+id = "location.geotag.all.offset_error_s"
+dimension = "location"
+title = "GPX geotag: median error of the recovered camera clock offset"
+scope = "all"
+metric = "offset_error_s"
+op = "<="
+community = 10
+stretch = 2
+unit = "s"
+how = "bioscan bench geotag runs/geotag-synth; row all (scenarios offset37, dst from GPS photos; wrongtz from a clock photo)"
+source = "no published figure; 10 s is about 14 m at walking pace"
+
 # ---------------------------------------------------------------- directory-level acceptance test
 
 [[standard]]

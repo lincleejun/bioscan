@@ -141,6 +141,7 @@ uv run bioscan names stats                # name-list coverage
 uv run bioscan serve                                   # 127.0.0.1:8765, models stay resident
 uv run bioscan serve --launchd > ~/Library/LaunchAgents/cc.outman.bioscan.plist   # start at login on macOS
 uv run bioscan health
+uv run bioscan config show                             # the profile, plan and settings in effect, with their sources
 ```
 
 ```sh
@@ -150,6 +151,7 @@ bioscan run DIR --want jpg --jpg-out /tmp/jpg          # upright JPG, long edge 
 bioscan run DIR --lat 37.4 --lon -122.1                # batch default coordinate for images without EXIF GPS (the location prior matters)
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
+The service loads only the models a run's stages need under its options: `--want embed` loads SigLIP2 alone, and `--no-species` (identify option `species: false`, with no `candidates`) loads SigLIP2 and OWLv2 but never BioCLIP or the name lists, so a service that has only served such runs reports no name lists in `result.engine.models.names`.
 
 Terminal output is one line per image, then a summary (the grade is printed as 种 / 属 / 科 = species / genus / family):
 ```
@@ -207,6 +209,10 @@ uv run python -m bioscan.service.decode /path/to/card -r    # per file: ext, con
 | `--chunk` / `BIOSCAN_CHUNK` | images per pipeline chunk | 32 |
 | `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | long edge of the species-crop detail copy; ≤ 2048 turns it off (crops come from the 2048 image) | 3072 |
 | `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | only read and write files under these directories (repeatable; `:`-separated in the variable); unset means no limit, with a warning when listening beyond localhost | no limit |
+| `--profile` / `BIOSCAN_PROFILE` | the CLI's profile (run, eval, bench run, config show); see Profiles | `default_profile`, else `full` |
+| `BIOSCAN_CONFIG` | one more `bioscan.toml`, above the project and user files | none |
+
+Every serve setting above except the URL can also come from the `[serve]` table of a `bioscan.toml` (flag > variable > file > default; see Profiles and bioscan.toml).
 
 ### All taxa and candidates
 
@@ -226,6 +232,93 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
 - Within the chosen list, `p_visual` is the softmax over its matching rows; the location prior (birds, and mammals with `mammal_geo`), the range veto and the grade then work on those rows as they do on a whole list. `species.list` names the list, and every candidate in `top` comes from it.
 - Empty or absent means all taxa. A name no loaded list knows is a 400 that lists the unknown names. `bioscan eval --candidates …` passes the option through and records it in the preds meta line and the report (with `--preds`, which rescores a finished run, it is refused).
 
+### Profiles and bioscan.toml
+
+A **profile** is a named request template: the stages a run wants and their options. Three are built in (`bioscan/profiles.toml`):
+
+| Profile | Stages now | Options | Models loaded | Will gain |
+|---|---|---|---|---|
+| `full` | identify (embed, jpg when `want` asks) | defaults | SigLIP2, OWLv2, BioCLIP | nothing: it is what a request without a profile gets, and no file can change it |
+| `wildlife` | geotag, identify | species, location prior and every accuracy fix on (`top_k` 5, `geo` true); geotag does nothing until `geotag.gpx` (or `run --gpx`) names a track | SigLIP2, OWLv2, BioCLIP | nothing planned |
+| `album` | identify, embed | identify `species: false` | SigLIP2, OWLv2 (BioCLIP never loads) | `quality`, `scene`, `aesthetics` stages; `burst` and `select` reducers, run by the CLI |
+
+```sh
+bioscan run DIR --profile album                  # the profile's stages and options; flags still win
+bioscan run DIR --profile wildlife --top-k 10
+bioscan eval GT.csv --out runs/x --profile wildlife   # also bench run; recorded as "profile" in the preds meta line
+bioscan config show --profile album              # the resolved plan and where every value came from (--json)
+curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}],"profile":"album"}'
+```
+
+Your own settings go in a `bioscan.toml`: the project one (`./bioscan.toml`, where you run the command) and the user one (`~/.config/bioscan/bioscan.toml`, or under `$XDG_CONFIG_HOME`); `$BIOSCAN_CONFIG` names one more. A file may change `wildlife` and `album` key by key, add profiles, pick the CLI's default profile and hold the service settings:
+
+```toml
+default_profile = "wildlife"          # the CLI's profile when --profile is not given
+
+[serve]                               # bioscan serve: flag > BIOSCAN_* variable > this table > default
+port = 8765
+chunk = 32
+detail_edge = 3072
+allow_roots = ["~/Pictures/Wildlife"]
+
+[profile.wildlife.options.identify]   # change a built-in profile
+top_k = 10
+
+[profile.trip]                        # or add one
+stages = ["identify", "jpg"]
+[profile.trip.options.jpg]
+out_dir = "/Users/me/Pictures/trip-jpg"
+[profile.trip.options.identify]
+candidates = ["Strigidae", "Accipitridae"]
+```
+
+- **Merge order**, lowest first: each stage's defaults < `profiles.toml` < the user file < the project file < `$BIOSCAN_CONFIG` < command-line flags or the request's `want` / `options`. `--want` replaces the profile's stages.
+- **Which profile**: `--profile`, else `$BIOSCAN_PROFILE`, else `default_profile`, else `full`. With none of them the CLI sends exactly the request it sent before profiles. The CLI expands the profile itself and sends plain `want` and `options`, so the service needs no copy of your file.
+- **The service** expands a request's `"profile"` with its own files (read once at start). A request without `"profile"` always gets `full`: `default_profile` and `$BIOSCAN_PROFILE` are the CLI's, so HTTP clients see no change.
+- **Errors**: an unknown key, profile, stage or option is an error naming the file (a 400 for a request). `[profile.full]` in a user file is refused. Option values are checked by the service. `bioscan serve --launchd` bakes the flags, else the file's `[serve]` values, into the plist and points the job at this folder's `bioscan.toml` through `BIOSCAN_CONFIG`.
+- **Trust**: `./bioscan.toml` is read automatically from the folder you run in, so only run bioscan in folders whose file you trust: it can set `serve.host = "0.0.0.0"`, `allow_roots`, or a jpg `out_dir` to write to; `bioscan config show` lists every file read and the value each one set.
+- **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options and the check of their values; the service code in `stage.py`, imported only for the stages in a run's plan). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are listed in the order `identify, embed, jpg, geotag`.
+
+### Geotag from a GPX track
+
+Most camera bodies write no GPS. If you record the outing with a watch or phone and export a GPX track, bioscan places each photo on the track at its capture time. This does the same job as Lightroom's "auto-tag photos" map module. The location matters: on the golden set, bird top-1 is 83.3% without coordinates and 89.8% with them (README results; the two numbers are disputed in docs/standards.md §4, and the GPX effect itself is unverified until the Mac run in docs/harness.md).
+```sh
+bioscan geotag DIR --gpx hike.gpx --tz America/Los_Angeles --csv geo.csv   # path,lat,lon,source,dt_s,err_m,utc,ele
+bioscan geotag DIR --gpx a.gpx --gpx b.gpx --offset +00:01:23 --xmp       # camera 83 s fast; write <stem>.xmp sidecars
+bioscan geotag DIR --gpx hike.gpx --clock DIR/DSC0001.ARW=2026-05-01T08:00:13   # a photo of the watch showing 08:00:13
+bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates for identify (EXIF GPS still wins; no exiftool needed)
+```
+- **Sources.** Each photo gets one of `exif`, `gpx` or `none`:
+  - `exif`: the file already has GPS. EXIF always wins.
+  - `gpx`: the track placed the photo.
+  - `none`: the photo is outside the track or has no capture time.
+
+  The CSV also gives `dt_s` (seconds to the nearest track point), `err_m` (an estimate of the error; about 3 fixes in 4 fall within it on the synthetic set) and the corrected UTC time.
+- **Time.** GPX times are UTC; camera times are local wall time. A file's OffsetTimeOriginal is used when present. Otherwise the time is read in `--tz`: a fixed offset, or a zone name, which applies the right DST for each date. The default is this computer's zone. Write negative values with `=`, e.g. `--tz=-07:00` and `--offset=-3600`, or argparse takes them for options.
+- **Clock offset** (camera time minus true time). It comes from the first of these that applies:
+  1. `--offset`;
+  2. a photo of a clock: `--clock PHOTO=TIME`, the time the clock shows, read in the photo's zone;
+  3. an estimate from photos in the folder that already have GPS (a phone photo, or a camera with a GPS link). The estimate finds the offset at which those photos sit on the track. It is rejected when they sit more than 100 m off. When several offsets fit equally well, one under 5 min wins (plain drift), then whole hours, half hours and quarter hours (timezone and DST mistakes), and a warning says the fit was ambiguous. The estimate is skipped when every photo already has GPS;
+  4. otherwise 0.
+
+  The offset is applied once per run, so run one camera at a time. When most photos fall outside the track, a warning says how far off they are; a whole number of hours means a timezone mistake.
+- **Fix rule.** The position is linear in time between neighbouring track points up to `--max-gap` seconds apart (default 1800). Across a longer gap, it is linear only when the gap's ends are within `--max-span` metres of each other (default 200: the watch auto-paused while you stood still) and at most `--max-still` seconds apart (default 3 h: a wait at a hide, not a night at base camp). Outside the track there is no fix, unless you allow `--extrapolate N`: then the first or last point is held for N seconds.
+- **XMP.** `--xmp` writes `<stem>.xmp` holding `exif:GPSLatitude`/`GPSLongitude` in XMP. This is the sidecar Lightroom, Capture One and Bridge read for RAW files; Lightroom ignores sidecars of JPEGs. A photo that already has a sidecar (`<stem>.xmp`, or darktable's `<name>.<ext>.xmp`) is left alone: bioscan never edits or merges an existing sidecar, and never writes into the photo file. Use the CSV with exiftool if you need to change existing files.
+- **Several tracks.** Several `--gpx` files and segments merge into one time-ordered track. A second device recording at the same time just adds points.
+- **Where `run --gpx` places the photos.** With a profile that runs the `geotag` stage (`--profile wildlife`), the CLI sends `options.geotag` (the track paths, `--tz` as `camera_utc_offset`, the limits you changed, and the clock offset, which it decides once for the whole folder from `--offset`, `--clock` or the photos with GPS); the service reads the track, places each photo without a request or EXIF position, and reports `products.geotag` (`place_source` request / exif / gpx / none, and the fix). The track must be under the service's allow-roots. Without such a profile (no profile, `full`, `album`), `run --gpx` reads the track here and sends per-image coordinates, exactly as before, and `bioscan geotag` always works locally. Both paths give identify the same coordinates. The stage takes the same options from a /run body or a `bioscan.toml` (`[profile.wildlife.options.geotag] gpx = [...]`); it never estimates a clock offset itself, because it sees one chunk at a time (empty `offset` = 0).
+- **Accuracy.** Measured on synthetic tracks built from the golden set (`bioscan bench geotag`, docs/harness.md):
+
+  | Measure | Pooled result |
+  |---|---|
+  | Median error | 7.2 m |
+  | p90 error | 17 m |
+  | Within 100 m | 97.2% |
+  | No fix | 0.1% |
+  | False fix | 0% |
+  | Clock-offset error | 1 s (median) |
+
+  The per-scenario table is in docs/2026-09-24-geotag-synthetic.md.
+
 ### HTTP API
 
 ```sh
@@ -234,6 +327,7 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
+`want` may be left out: a request then runs its profile's stages (`full`, the default: identify). `"want": null` is a 400 unless the body names a `"profile"`, where it means the same as leaving it out.
 The response is an NDJSON stream of `progress` / `result` / `error` / `done` events, defined in `bioscan/contract.py` together with the `identify` payload (gate, boxes, quality, species, candidates); `result` and `done` carry `schema: 1`. Concurrent requests take turns on the models one chunk at a time (a one-image request waits for at most one chunk); within a chunk every model stage is batched across images, and CPU decoding overlaps inference. `result.engine` holds the model versions, the name-list versions, `settings` (a fingerprint of rule thresholds, prompts and vocabularies: if it changes, results are not directly comparable) and `detail_edge`. The full contract is in section 4 of `docs/superpowers/specs/2026-09-22-bioscan-design.md`.
 
 CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.
@@ -262,6 +356,7 @@ bioscan bench baseline runs/<date>-golden/report.json --name golden-inat-<tag>  
 bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json          # exit 1 over budget
 bioscan bench analyze runs/<new>/report.json                                            # failure classes, what to fix next
 bioscan bench scorecard runs/<new>/report.json                                          # against data/standards.toml
+bioscan bench geotag runs/geotag-synth                                                  # GPX geotagging on synthetic tracks
 ```
 - **report.json** (`bioscan-report` v1) holds:
   - the run's git sha, engine, settings fingerprint and ground-truth sha;
@@ -318,11 +413,15 @@ CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.ym
 bioscan/contract.py              single definition of /run events, product names and the identify payload (shared by CLI and service, stdlib only)
 bioscan/naming.py                name normalisation (scientific names; gt folder labels), synonyms.csv, stale-map check (stdlib only)
 bioscan/formats.py               supported photo extensions (decoder and folder scans share it), the folder scan (stdlib only)
-bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > default, once, for both entry points (stdlib only)
+bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > bioscan.toml [serve] > default, once, for both entry points (stdlib only)
+bioscan/profile.py               profiles and bioscan.toml: layers, merge order, the resolved plan (stdlib only; CLI and service)
+bioscan/profiles.toml            the built-in profiles full, wildlife, album
 bioscan/service/app.py           routes, request validation, allow-roots, NDJSON stream
 bioscan/service/run.py           a /run as events: chunks, per-chunk model turn, self-healing decode pool
 bioscan/service/engine.py        device choice, lazy model loading via Loaders (tests inject fake adapters), per-kind priors
-bioscan/service/products.py      product registry: dependencies, options, validation, schema, runner
+bioscan/plugin.py                what a stage plugin declares (Manifest) and implements (Stage); the run plan (stdlib only)
+bioscan/plugins/<name>/          built-in stages identify, embed, jpg, geotag: stdlib manifest in __init__.py, service code in stage.py
+bioscan/service/stages.py        the stages in the service: options merged and checked, /products, paths for allow-roots
 bioscan/service/pipeline.py      identify orchestration (batched across images) behind the Models protocol
 bioscan/service/rules.py         pure rules and thresholds: crop check, grading, quality, cropping
 bioscan/service/taxa.py          gate prompts, detector vocabularies, promotable class
@@ -331,7 +430,10 @@ bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + 
 bioscan/service/names.py         AviList / MDD lists, the TreeOfLife all-taxa list, TreeOfLife mapping, text-vector cache
 bioscan/service/candidates.py    the candidates option: taxon index, the rows each list keeps
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
+bioscan/geotag.py                GPX parsing, capture time -> UTC, clock offset, track interpolation, XMP sidecars (stdlib only)
 bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
+                                 config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
+scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 baselines/                       committed reports compared against, and the regression budget
 data/names/                      name mapping tables keyed on AviList
 docs/                            design spec, implementation plan, evaluation results

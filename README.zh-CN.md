@@ -125,6 +125,7 @@ uv run bioscan names stats                # 名单覆盖率
 uv run bioscan serve                                   # 127.0.0.1:8765，模型常驻
 uv run bioscan serve --launchd > ~/Library/LaunchAgents/cc.outman.bioscan.plist   # macOS 开机常驻
 uv run bioscan health
+uv run bioscan config show                             # 当前生效的 profile、计划与设置，以及各自来源
 ```
 
 ```sh
@@ -134,6 +135,7 @@ bioscan run DIR --want jpg --jpg-out /tmp/jpg          # 旋正、长边 2048 �
 bioscan run DIR --lat 37.4 --lon -122.1                # EXIF 无坐标时整批默认坐标（地理先验很重要）
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
+服务只加载本次运行的 stage 在其选项下需要的模型：`--want embed` 只加载 SigLIP2；`--no-species`（identify 选项 `species: false`，且没有 `candidates`）加载 SigLIP2 和 OWLv2，从不加载 BioCLIP 与名表，所以只处理过这类运行的服务在 `result.engine.models.names` 里没有名表。
 
 终端输出一张一行，末尾汇总：
 ```
@@ -191,6 +193,97 @@ uv run python -m bioscan.service.decode /path/to/card -r    # 每个文件：扩
 | `--chunk` / `BIOSCAN_CHUNK` | 流水 chunk 张数 | 32 |
 | `--detail-edge` / `BIOSCAN_DETAIL_EDGE` | 物种裁切用细节图的长边；≤2048 关闭（回到 2048 图上裁） | 3072 |
 | `--allow-root` / `BIOSCAN_ALLOW_ROOTS` | 只允许读写这些目录下的文件（可重复；环境变量用 `:` 分隔）；不设则不限制，监听非本机地址时会告警 | 不限 |
+| `--profile` / `BIOSCAN_PROFILE` | CLI 用的 profile（run、eval、bench run、config show），见 Profile 一节 | `default_profile`，否则 `full` |
+| `BIOSCAN_CONFIG` | 再加一个 `bioscan.toml`，优先于项目与用户文件 | 无 |
+
+上面除 URL 外的服务设置也可以写在 `bioscan.toml` 的 `[serve]` 表里（命令行 > 环境变量 > 文件 > 默认；见 Profile 与 bioscan.toml）。
+
+### Profile 与 bioscan.toml
+
+**profile** 是一份命名的请求模板：一次运行要哪些 stage、各带什么选项。内置三个（`bioscan/profiles.toml`）：
+
+| Profile | 现在的 stage | 选项 | 加载的模型 | 以后会加 |
+|---|---|---|---|---|
+| `full` | identify（`want` 要时加 embed、jpg） | 默认 | SigLIP2、OWLv2、BioCLIP | 不加：不带 profile 的请求就是它，任何文件都改不了 |
+| `wildlife` | geotag、identify | 物种、位置先验与各项准确率修正全开（`top_k` 5，`geo` true）；`geotag.gpx`（或 `run --gpx`）给出轨迹前 geotag 什么都不做 | SigLIP2、OWLv2、BioCLIP | 暂无 |
+| `album` | identify、embed | identify `species: false` | SigLIP2、OWLv2（从不加载 BioCLIP） | `quality`、`scene`、`aesthetics` stage；`burst`、`select` reducer（在 CLI 端跑） |
+
+```sh
+bioscan run DIR --profile album                  # 用 profile 的 stage 与选项；命令行参数仍优先
+bioscan run DIR --profile wildlife --top-k 10
+bioscan eval GT.csv --out runs/x --profile wildlife   # bench run 同样可用；preds 的 meta 行记下 "profile"
+bioscan config show --profile album              # 解析后的计划，以及每个值来自哪里（--json）
+curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}],"profile":"album"}'
+```
+
+自己的设置写在 `bioscan.toml`：项目文件（运行命令所在目录的 `./bioscan.toml`）和用户文件（`~/.config/bioscan/bioscan.toml`，或 `$XDG_CONFIG_HOME` 下）；`$BIOSCAN_CONFIG` 可再指定一个。文件可以逐键修改 `wildlife`、`album`，新增 profile，指定 CLI 的默认 profile，并放服务设置：
+
+```toml
+default_profile = "wildlife"          # 不给 --profile 时 CLI 用的 profile
+
+[serve]                               # bioscan serve：命令行 > BIOSCAN_* 变量 > 本表 > 默认
+port = 8765
+chunk = 32
+detail_edge = 3072
+allow_roots = ["~/Pictures/Wildlife"]
+
+[profile.wildlife.options.identify]   # 改内置 profile
+top_k = 10
+
+[profile.trip]                        # 或新增一个
+stages = ["identify", "jpg"]
+[profile.trip.options.jpg]
+out_dir = "/Users/me/Pictures/trip-jpg"
+[profile.trip.options.identify]
+candidates = ["Strigidae", "Accipitridae"]
+```
+
+- **合并顺序**（由低到高）：各 stage 的默认 < `profiles.toml` < 用户文件 < 项目文件 < `$BIOSCAN_CONFIG` < 命令行参数或请求里的 `want` / `options`。`--want` 替换 profile 的 stage 列表。
+- **用哪个 profile**：`--profile`，否则 `$BIOSCAN_PROFILE`，否则 `default_profile`，否则 `full`。都没有时 CLI 发出的请求与引入 profile 之前完全相同。CLI 自己展开 profile，只发普通的 `want` 和 `options`，服务端不需要你的配置文件。
+- **服务端**用它自己的文件（启动时读一次）展开请求里的 `"profile"`。不带 `"profile"` 的请求永远是 `full`：`default_profile` 和 `$BIOSCAN_PROFILE` 只作用于 CLI，HTTP 客户端看不到变化。
+- **错误**：未知的键、profile、stage 或选项都会报错并指出是哪个文件（请求里则是 400）。用户文件里写 `[profile.full]` 会被拒绝。选项的取值由服务检查。`bioscan serve --launchd` 把命令行参数、否则文件里 `[serve]` 的值写进 plist，并通过 `BIOSCAN_CONFIG` 让服务读当前目录的 `bioscan.toml`。
+- **信任**：运行目录下的 `./bioscan.toml` 会被自动读取，只在你信任其文件的目录里运行 bioscan：它可以设 `serve.host = "0.0.0.0"`、`allow_roots`，或让 jpg 写到某个 `out_dir`；`bioscan config show` 会列出读到的每个文件及其设置的每个值。
+- **Stage 与插件**：每个 stage 是 `bioscan/plugins/<name>/` 下的一个插件（标准库 manifest：读什么、提供什么、在给定选项下要哪些模型、有哪些选项及其取值检查；服务端代码在 `stage.py`，只为运行计划里的 stage 导入）。运行计划让 stage 排在它所读事实的提供者之后（同级按名字），只加载需要的模型；结果按 `identify, embed, jpg, geotag` 的顺序列出。
+
+### 用 GPX 轨迹补 GPS
+
+多数相机不写 GPS。如果出行时用手表或手机记录了轨迹并导出 GPX，bioscan 可以按拍摄时间把每张照片放到轨迹上，作用相当于 Lightroom 地图模块的"自动标记照片"。位置很重要：golden 集上鸟类 Top-1 无坐标 83.3%、有坐标 89.8%（见 README 结果；两数在 docs/standards.md 第 4 节有争议）。GPX 坐标本身带来的提升尚未验证，要等 docs/harness.md 里的 Mac 运行。
+```sh
+bioscan geotag DIR --gpx hike.gpx --tz America/Los_Angeles --csv geo.csv   # path,lat,lon,source,dt_s,err_m,utc,ele
+bioscan geotag DIR --gpx a.gpx --gpx b.gpx --offset +00:01:23 --xmp       # 相机快 83 秒；写 <stem>.xmp 旁车文件
+bioscan geotag DIR --gpx hike.gpx --clock DIR/DSC0001.ARW=2026-05-01T08:00:13   # 一张拍手表的照片，表上是 08:00:13
+bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图用自己的坐标（EXIF GPS 仍然优先；不需要 exiftool）
+```
+- **来源**：每张图的来源是以下三种之一：
+  - `exif`：文件本身有 GPS，EXIF 永远优先；
+  - `gpx`：由轨迹定位；
+  - `none`：在轨迹之外，或没有拍摄时间。
+
+  CSV 还给出 `dt_s`（离最近轨迹点的秒数）、`err_m`（误差估计；合成集上约 3/4 的定位落在其内）和校正后的 UTC 时间。
+- **时间**：GPX 是 UTC，相机是本地钟点。文件有 OffsetTimeOriginal 就用它；否则按 `--tz` 解读。`--tz` 可以是固定偏移，也可以是时区名，时区名会按每个日期套用正确的夏令时。默认用本机时区。负值要写成 `--tz=-07:00`、`--offset=-3600`，否则 argparse 会把它当成选项。
+- **相机时钟偏差**（相机时间减真实时间）按以下顺序取第一个可用的：
+  1. `--offset`；
+  2. 拍钟照片：`--clock 照片=时间`，写钟面显示的时间，按该照片的时区解读；
+  3. 目录里已有 GPS 的照片（手机照片、带 GPS 连接的相机）：找出让这些照片落在轨迹上的偏差。若它们离轨迹超过 100 m 就放弃。若多个偏差同样吻合，先取 5 分钟以内的（普通漂移），其次整小时、半小时、一刻钟（即时区、夏令时错误），并告警说明吻合有歧义。所有照片都已有 GPS 时不做估计；
+  4. 以上都没有则为 0。
+
+  一次运行只用一个偏差，所以请一台相机一次。多数照片落在轨迹外时会告警并给出差多少；整小时通常是时区设错。
+- **定位规则**：相邻轨迹点相隔不超过 `--max-gap` 秒（默认 1800）时，按时间线性插值。间隔更长时，只有两端相距不超过 `--max-span` 米（默认 200，即站着不动、手表自动暂停）且间隔不超过 `--max-still` 秒（默认 3 小时：在观鸟棚里等候可以，营地过夜不行）才插值。轨迹外不定位；加 `--extrapolate N` 时，在 N 秒内沿用首/末点。
+- **XMP**：`--xmp` 写 `<stem>.xmp`，内含 XMP 的 `exif:GPSLatitude`/`GPSLongitude`。Lightroom、Capture One、Bridge 对 RAW 读这个旁车文件；Lightroom 不读 JPEG 的旁车文件。已有旁车文件（`<stem>.xmp`，或 darktable 的 `<name>.<ext>.xmp`）的照片一律跳过：bioscan 从不修改或合并已有旁车文件，也从不写照片文件本身。需要改已有文件时，请用 CSV 配合 exiftool。
+- **多条轨迹**：多个 `--gpx` 文件、多个分段会合并成一条按时间排序的轨迹。第二台设备同时记录，只是多了点。
+- **`run --gpx` 在哪里定位**：profile 含 `geotag` stage 时（`--profile wildlife`），CLI 发送 `options.geotag`（轨迹路径、`--tz` 作为 `camera_utc_offset`、你改过的限值，以及时钟偏差：由 CLI 用 `--offset`、`--clock` 或带 GPS 的照片为整个目录定一次）；服务读取轨迹，给请求和 EXIF 都没有位置的照片定位，并在 `products.geotag` 报告（`place_source` 为 request / exif / gpx / none，以及定位结果）。轨迹必须在服务的 allow-roots 之内。没有这样的 profile 时（不指定、`full`、`album`），`run --gpx` 在本机读轨迹、发送每张图的坐标，与以前完全相同；`bioscan geotag` 始终在本机运行。两条路径给 identify 的坐标相同。该 stage 也接受来自 /run 请求体或 `bioscan.toml`（`[profile.wildlife.options.geotag] gpx = [...]`）的同名选项；它自己从不估计时钟偏差，因为一次只看到一个 chunk（`offset` 为空即 0）。
+- **精度**：在用 golden 集合成的轨迹上测得（`bioscan bench geotag`，见 docs/harness.md）：
+
+  | 指标 | 汇总结果 |
+  |---|---|
+  | 误差中位数 | 7.2 m |
+  | 误差 p90 | 17 m |
+  | 100 m 内 | 97.2% |
+  | 未定位 | 0.1% |
+  | 误定位 | 0% |
+  | 时钟偏差误差 | 中位数 1 秒 |
+
+  各场景明细见 docs/2026-09-24-geotag-synthetic.md。
 
 ### HTTP API
 
@@ -200,6 +293,7 @@ curl -s 127.0.0.1:8765/products
 curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
+`want` 可以省略：这时运行其 profile 的 stage（默认 `full`：identify）。`"want": null` 返回 400，除非请求体同时给了 `"profile"`，那时等同于省略。
 响应是 NDJSON 流：`progress` / `result` / `error` / `done`，字段定义在 `bioscan/contract.py`，`identify` 产物（gate、boxes、quality、species、候选）也定义在那里；`result`、`done` 带 `schema: 1`。多个请求按 chunk 轮流使用模型（单张请求最多等一个 chunk），一个 chunk 内各模型阶段跨图批处理，CPU 解码与推理流水。`result.engine` 含模型版本、名单版本、`settings`（规则阈值/提示词/词表的指纹，变了说明结果不可直接比）和 `detail_edge`。完整契约见 `docs/superpowers/specs/2026-09-22-bioscan-design.md` 第 4 节。
 
 CLI 退出码：0 全部成功，1 部分图片失败，2 连不上服务或服务拒绝，3 流中断（没收到 `done`）或上游（iNaturalist 等）出错。`run --json` 过去总是返回 0，现在也按这套退出码返回，脚本里若把非 0 当失败需留意。eval 的学名比较改用与 synonyms 查找相同的归一化（忽略连字符与大小写），旧报告的 Top-1/Top-5 可能因此有细微差别。
@@ -228,6 +322,7 @@ bioscan bench baseline runs/<date>-golden/report.json --name golden-inat-<tag>  
 bioscan bench compare baselines/golden-inat-<tag>.json runs/<new>/report.json          # 超出预算退出码 1
 bioscan bench analyze runs/<new>/report.json                                            # 失败分类，下一步修什么
 bioscan bench scorecard runs/<new>/report.json                                          # 对照 data/standards.toml
+bioscan bench geotag runs/geotag-synth                                                  # 在合成轨迹上评 GPX 定位
 ```
 - **基线流程**：今天跑一遍，用 `bench baseline` 存成基线并提交；之后换模型或改代码，再跑一遍，用 `bench compare` 对照基线。
 - **report.json**（`bioscan-report` v1）：git sha、引擎、settings 指纹、真值 sha；按范围（`all`、`bird`、`mammal`、`other`，及按 tier）的全部指标和 Wilson 95% 区间；按种、按科的表；每张图一行。
@@ -278,11 +373,15 @@ CI（`.github/workflows/`）：`ci.yml` 每次 push 跑 ruff + pytest；`models.
 bioscan/contract.py              /run 事件、产物名与 identify 输出的唯一定义（CLI 与服务共用，纯标准库）
 bioscan/naming.py                名称归一化（学名；gt 文件夹名）、synonyms.csv、映射表过期检查（纯标准库）
 bioscan/formats.py               支持的照片扩展名（解码与目录扫描共用）、目录扫描（纯标准库）
+bioscan/profile.py               profile 与 bioscan.toml：分层、合并顺序、解析出的计划（仅标准库；CLI 与服务共用）
+bioscan/profiles.toml            内置 profile：full、wildlife、album
 bioscan/serve_config.py          服务设置：参数 > BIOSCAN_* > 默认值，两个入口共用一次解析（纯标准库）
 bioscan/service/app.py           路由、请求校验、允许目录、NDJSON 流
 bioscan/service/run.py           一次 /run 的事件流：分 chunk、按 chunk 的模型轮次、解码进程池自愈
 bioscan/service/engine.py        设备选择、经 Loaders 惰性加载模型（测试注入假适配器）、每类先验
-bioscan/service/products.py      产物注册表：依赖、选项、校验、schema、执行器
+bioscan/plugin.py                stage 插件的声明（Manifest）与实现接口（Stage）；运行计划（仅标准库）
+bioscan/plugins/<name>/          内置 stage：identify、embed、jpg、geotag；__init__.py 是标准库 manifest，stage.py 是服务端代码
+bioscan/service/stages.py        服务端的 stage：选项合并与校验、/products、allow-roots 路径
 bioscan/service/pipeline.py      identify 编排（跨图批处理），经 Models 协议访问模型
 bioscan/service/rules.py         复判 / 定级 / 画质 / 裁切等纯规则与阈值
 bioscan/service/taxa.py          门类提示词、检测词表、可提升的类别
@@ -290,7 +389,9 @@ bioscan/service/settings.py      影响输出的设置指纹
 bioscan/service/decode.py        RAW/JPG → 旋正 2048 图 + 细节图 + EXIF（各 RAW 容器）+ sha256
 bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文本向量缓存
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
-bioscan/cli/                     main client render gt eval
+bioscan/geotag.py                GPX 解析、拍摄时间转 UTC、时钟偏差、轨迹插值、XMP 旁车文件（纯标准库）
+bioscan/cli/                     main client render gt eval bench config（profile）geotag_cli（geotag、run --gpx）geobench（bench geotag）
+scripts/geotag_synth.py          用 golden 集合成 GPX 场景，供 bench geotag 使用
 data/names/                      AviList 为准的名字映射表
 docs/                            设计 spec、实施计划、评测结果
 ```

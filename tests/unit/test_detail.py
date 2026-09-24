@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from bioscan.service import products
+from bioscan.service import pipeline, rules
 from bioscan.service.adapters.owlv2 import Detection
 
 
@@ -18,8 +18,8 @@ def test_species_crops_same_framing_more_pixels():
     full = frame()
     image, detail = full.resize((2048, 1365)), full.resize((3072, 2048))
     boxes = [(1000.0, 600.0, 1040.0, 640.0), (100.0, 100.0, 900.0, 700.0), (2000.0, 1300.0, 2048.0, 1365.0)]
-    plain = products.species_crops(image, boxes)
-    sharp = products.species_crops(image, boxes, detail)
+    plain = rules.species_crops(image, boxes)
+    sharp = rules.species_crops(image, boxes, detail)
     for p, s in zip(plain, sharp):
         assert abs(s.width / p.width - 1.5) < 0.01 and abs(s.height / p.height - 1.5) < 0.01
         # same field of view: the detail crop scaled back down matches the 2048 crop
@@ -31,8 +31,8 @@ def test_species_crops_same_framing_more_pixels():
 def test_species_crops_without_detail_is_old_behaviour():
     image = frame((2048, 1365))
     box = (500.0, 400.0, 700.0, 520.0)
-    assert products.species_crops(image, [box])[0].tobytes() == products.crop_with_context(image, box).tobytes()
-    assert products.species_crops(image, [box], image.copy())[0].size == products.crop_with_context(image, box).size
+    assert rules.species_crops(image, [box])[0].tobytes() == rules.crop_with_context(image, box).tobytes()
+    assert rules.species_crops(image, [box], image.copy())[0].size == rules.crop_with_context(image, box).size
 
 
 class Engine:
@@ -63,7 +63,7 @@ def test_identify_detail_changes_only_the_species_crop():
     opts = {"top_k": 2, "geo": True, "species": True}
     gate = {"bird": 0.9, "mammal": 0.05, "other_animal": 0.02, "person": 0.01, "none": 0.02}
     a, b = Engine({"bird": birds}), Engine({"bird": birds})
-    old = products.identify(a, image, gate, None, None, None, opts)
-    new = products.identify(b, image, gate, None, None, None, opts, detail=detail)
+    old = pipeline.identify(a, image, gate, None, None, None, opts)
+    new = pipeline.identify(b, image, gate, None, None, None, opts, detail=detail)
     assert old == new                              # boxes, quality, species output: identical here
     assert a.seen == [(320, 320)] and b.seen == [(480, 480)]

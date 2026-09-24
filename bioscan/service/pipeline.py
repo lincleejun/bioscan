@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image
 
 from bioscan import contract
+from bioscan.plugins.identify import SWITCHES
 from bioscan.service import candidates
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
@@ -34,14 +35,8 @@ from bioscan.service.taxa import KIND_CHECK, ONE_WAY, VOCAB
 CROP_BATCH = 32          # crop-gate crops per SigLIP2 call
 SPECIES_BATCH = 16       # species crops per BioCLIP call
 
-# The v1.5 accuracy fixes, each an identify option so a run can switch one off to measure it
-# (`bioscan eval --identify-opt NAME=false`). A missing option means the default here, which
-# products.DEFAULTS repeats. In settings.fingerprint().
-SWITCHES = {
-    "range_veto": True,      # rules.range_veto at the species step
-    "kind_check": True,      # species evidence may move a box between KIND_CHECK kinds
-    "mammal_geo": True,      # the mammal list's location prior (MDD rows, genus back-off)
-}
+# SWITCHES (imported above, declared with identify's options in bioscan/plugins/identify): the v1.5
+# accuracy fixes, each an identify option a run can switch off to measure it. In settings.fingerprint().
 PRIOR_SWITCH = {"mammal": "mammal_geo"}      # kind -> the switch its location prior needs
 
 

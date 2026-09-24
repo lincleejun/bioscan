@@ -6,7 +6,7 @@ take turns on the models one chunk at a time (FIFO), so a one-image request wait
 chunk in progress, not for a whole field batch. Decoding runs outside the turn, and the decode of
 chunk k+1 overlaps the models on chunk k.
 
-The interface is `events(inputs, want, opts, is_disconnected)`, which yields bioscan.contract
+The interface is `events(inputs, plan, is_disconnected)` (plan: bioscan.plugin.Plan), which yields bioscan.contract
 events, plus the `running` / `queued` counters that /health reports."""
 from __future__ import annotations
 
@@ -21,8 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from bioscan import contract
-from bioscan.service import products
+from bioscan import contract, plugin
 from bioscan.service.decode import Decoded, timed_decode
 
 log = logging.getLogger("bioscan")
@@ -80,19 +79,21 @@ class RunQueue:
         self.running = 0            # requests on the models right now (0 or 1)
         self.queued = 0             # requests waiting for their next chunk's turn
 
-    async def events(self, inputs: list[dict[str, Any]], want: list[str], opts: dict[str, dict[str, Any]],
+    async def events(self, inputs: list[dict[str, Any]], plan: plugin.Plan,
                      is_disconnected: Callable[[], Awaitable[bool]]) -> AsyncIterator[dict[str, Any]]:
-        """The /run event stream for validated inputs (path, lat, lon, taken_at), products in
-        contract.PRODUCTS order and resolved options. Per chunk: decode errors, then one progress
-        per product, then each image's result or product errors. A client that went away is
-        noticed between chunks, so the current chunk always finishes and `done` is not sent. The
-        larger species image is decoded only when identify is wanted."""
+        """The /run event stream for validated inputs (path, lat, lon, taken_at) and a plan. Per
+        chunk: decode errors, then one progress per product, then each image's result or product
+        errors; products, timings and errors are reported in plan.want order, whatever order the
+        stages ran in. A client that went away is noticed between chunks, so the current chunk
+        always finishes and `done` is not sent. The larger species image is decoded only when a
+        planned stage reads "detail"."""
         t0 = time.perf_counter()
         total, ok, failed = len(inputs), 0, 0
+        want = plan.want
         done = dict.fromkeys(want, 0)
         info = {**self.engine.info(), "detail_edge": self.detail_edge}
         chunks = [inputs[i:i + self.chunk] for i in range(0, total, self.chunk)]
-        edge = self.detail_edge if "identify" in want else None
+        edge = self.detail_edge if plan.detail else None
 
         ex, pending = self._submit(chunks[0], edge)
         try:
@@ -111,7 +112,7 @@ class RunQueue:
                     images.append(_Image(inp, dec, {"decode": round(ms, 1)}))
                 if images:
                     async with self._turn():
-                        await self._run_products(images, want, opts)
+                        await self._run_products(images, plan)
                 # events are sent after the turn: a slow reader never holds the models
                 for p in want:
                     done[p] += len(ch)
@@ -119,14 +120,15 @@ class RunQueue:
                 for im in images:
                     if im.errors:
                         failed += 1
-                        for product, message in im.errors:
+                        for product, message in sorted(im.errors, key=lambda e: want.index(e[0])):
                             yield contract.error(im.inp["path"], product, message)
                         continue
                     ok += 1
                     log.info("%s %s", Path(im.dec.path).name, im.timing)
                     yield contract.result(im.dec.path, im.dec.sha256, {"width": im.dec.width, "height": im.dec.height,
                                                                        "orientation": im.dec.orientation},
-                                          info, im.products, im.timing)
+                                          info, {p: im.products[p] for p in want if p in im.products},
+                                          {k: im.timing[k] for k in ("decode", *want) if k in im.timing})
                 if ci + 1 < len(chunks) and await is_disconnected():
                     log.info("client disconnected; stopping after chunk %d/%d", ci + 1, len(chunks))
                     return
@@ -171,14 +173,16 @@ class RunQueue:
                 out.append(exc)
         return out
 
-    async def _run_products(self, images: list[_Image], want: list[str], opts: dict[str, dict[str, Any]]) -> None:
-        """Product-first over one chunk (products.REGISTRY order); a product that throws on one image
-        costs that image only. Model work runs on the single model thread, the rest on the CPU pool.
-        The shared whole-frame pass is timed under the first product that uses it."""
+    async def _run_products(self, images: list[_Image], plan: plugin.Plan) -> None:
+        """Stage-first over one chunk, in plan.stages order; every stage sees the same Items, so what
+        one provides (Item.facts) reaches the stages after it. A stage that throws on one image costs
+        that image only; one that throws, or returns other than one result per image, is an error
+        for every image of the chunk (the stream goes on and ends with `done`). Model work runs on the single model thread, the rest on the CPU pool. The
+        shared whole-frame pass is timed under the first product (plan.want order) that uses it."""
         loop = asyncio.get_running_loop()
         vecs: Any = None
         gates: list[Any] = [None] * len(images)
-        framed = [p for p in want if products.REGISTRY[p].uses_frame]
+        framed = [p for p in plan.want if plan.manifests[p].uses_frame]
         if framed:
             def frame() -> Any:
                 t = time.perf_counter()
@@ -193,16 +197,22 @@ class RunQueue:
                     for p in framed:
                         im.errors.append((p, f"{type(exc).__name__}: {exc}"))
 
-        for name in want:
-            product = products.REGISTRY[name]
-            if product.uses_frame and vecs is None:
+        items = [plugin.Item(im.dec, im.inp, None if vecs is None else vecs[i], gates[i])
+                 for i, im in enumerate(images)]
+        for name in plan.stages:
+            manifest = plan.manifests[name]
+            if manifest.uses_frame and vecs is None:
                 outs: list[Any] = [None] * len(images)          # frame failed: already reported per image
             else:
-                batch = [products.Item(im.dec, im.inp, None if vecs is None else vecs[i], gates[i])
-                         for i, im in enumerate(images)]
                 t = time.perf_counter()
-                outs = await loop.run_in_executor(self._model if product.on_model_thread else self._cpu,
-                                                  product.run, self.engine, batch, opts[name])
+                try:
+                    outs = await loop.run_in_executor(self._model if manifest.thread == "model" else self._cpu,
+                                                      plugin.load(manifest).run, self.engine, items, plan.opts[name])
+                    if not isinstance(outs, list) or len(outs) != len(images):
+                        got = len(outs) if isinstance(outs, list) else type(outs).__name__
+                        outs = [RuntimeError(f"stage returned {got} results for {len(images)} images")] * len(images)
+                except Exception as exc:  # noqa: BLE001 - a stage that throws costs its chunk, not the stream
+                    outs = [exc] * len(images)
                 per = (time.perf_counter() - t) * 1000 / len(images)
                 for im in images:
                     im.timing[name] = round(im.timing.get(name, 0.0) + per, 1)
