@@ -36,15 +36,18 @@ three forms at once, so the same run can be looked at and kept as data.
 ```sh
 bioscan aesthetic score ~/Pictures/2026-05-trip -r --export json,csv,html --out ~/Pictures/2026-05-trip/aesthetic
 bioscan aesthetic score --preds aesthetic.ndjson --export html --out aesthetic      # again, offline
+bioscan aesthetic score ~/Pictures/2026-05-trip --species --export json,csv,html --out aes   # ... and name the animals
 ```
 
-`--export` takes `json` (default), `csv`, `html`, comma-separated; `--out` is a prefix:
+`--export` takes `json` (default), `csv`, `html`, comma-separated; `--out` is a prefix. `--species` turns the album
+profile's species naming on (BioCLIP loads; the location prior applies as in `bioscan run`): each photo carries the
+name of its surest box (species, or genus / family when only that held up, as `bioscan summarize` counts it).
 
 | file | what |
 |---|---|
 | `<out>.ndjson` | the run's events with a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
-| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, reject_reasons, sharpness, taken_at; failed decodes last |
-| `<out>.html` | a gallery sorted by score: thumbnails, score, stars, scene, reject reasons; sort, filter by folder / stars / reject reason / scene, search, click to enlarge. Thumbnails are the service's jpg copies in `<out>-files/`, shrunk to `--thumb-edge` (default 1024 px); `--no-thumbs` shows browser-readable originals instead |
+| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, sharpness, taken_at (the three name columns are empty without `--species`); failed decodes last |
+| `<out>.html` | a gallery sorted by score: thumbnails, score, stars, scene, name, reject reasons; sort, filter by folder / stars / reject reason / scene / species, search by file or name, click to enlarge. Thumbnails are the service's jpg copies in `<out>-files/`, shrunk to `--thumb-edge` (default 1024 px); `--no-thumbs` shows browser-readable originals instead |
 
 Stars are quintiles of the run's own scores (5 = top fifth), a relative rank and not a rating. A photo without a
 score (no head installed) sorts last with the head's note; nothing is rated, moved or deleted.

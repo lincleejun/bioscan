@@ -30,7 +30,12 @@ Work toward that finish line; do not pause just to report progress.
 - If a test fails for a reason you can't explain, stop and ask.
 
 ## Long runs
-- For anything longer than a few steps, keep a checklist in `TASKS.md`. Tick items when done, add anything new you find. That file, not the scrollback, is the source of truth.
+- Every task runs in its own git worktree on its own branch, never in the main checkout:
+  `git worktree add .worktrees/<topic> -b claude/<topic> origin/main`; remove it after the PR merges. The name-list CSVs
+  under `data/avilist` and `data/mdd` are gitignored, so copy them into a new worktree before starting the service.
+- For anything longer than a few steps, keep the checklist in the task's GitHub issue (`docs/agents/issue-tracker.md`).
+  Tick items when done, add anything new you find as a comment or a new issue. The issue, not the scrollback, is the
+  source of truth. `TASKS.md` was migrated to issues on 2026-09-25 (archive: #16).
 - For audits, migrations, or reviews across many modules (`bioscan/service`, `bioscan/cli`, `scripts`, `tests`): one subagent per unit. Check each subagent's evidence before accepting it. Finish with one table: unit, result, evidence.
 - Parallel agents each work in their own worktree and their own scratch folder; never share scratch files.
 
@@ -55,6 +60,19 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
   (bird <-> mammal) when the species evidence says so.
 - Targets live in `docs/standards.md` (industry bar, our status, how measured); the harness reports against them.
 
+## Default workflow (2026-09-24)
+When the owner gives a folder of photos and says nothing else, this is the job, start to finish:
+1. Service: `uv run bioscan --url http://127.0.0.1:8767 health`; if it fails, start one from this checkout:
+   `uv run bioscan serve --port 8767 --allow-root DIR` (background, log in the scratchpad). Stop it when done if you started it.
+2. Run, one request, names and aesthetics together, all three exports:
+   `uv run bioscan --url http://127.0.0.1:8767 aesthetic score DIR --species --export json,csv,html --out DIR/bioscan`
+   (top level only unless told `-r`; add `--lat/--lon` when the photos have no GPS and the place is known).
+3. Report the run's own summary (scored / named / failed, score range, star cuts, top taxa, scene counts),
+   open `DIR/bioscan.html`, and list names that look out of place for the location.
+4. If the flow cannot do what was asked, change the code (with tests and docs), then run it.
+5. When the work is done and the definition of done holds: commit on a `claude/<topic>` branch, push, open a PR
+   to `main` with `gh pr create`, and watch `ci.yml` and `models.yml` until green. Report the PR link.
+
 ## Project facts
 - Python 3.12, `uv`. Service deps (torch, transformers, open_clip) load lazily; the CLI stays import-light.
 - Contract tests run the real Engine and identify pipeline on fake model adapters injected through
@@ -63,3 +81,17 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
 - Real-model checks live in `tests/models/` and only run with `BIOSCAN_MODEL_TESTS=1` (CI `models.yml`).
 - The container used for agent development has no Hugging Face / BirdNET network; real-model numbers come
   from CI (`models.yml`) or the owner's Mac.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (`lincleejun/bioscan`), driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for decisions. See `docs/agents/domain.md`.

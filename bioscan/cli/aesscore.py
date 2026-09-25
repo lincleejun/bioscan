@@ -12,8 +12,10 @@ written (the jpg product itself is a frozen contract); a `--preds` run without t
 browser-readable originals and marks the rest.
 
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
-and reject reasons come from the album profile's scene and quality stages. Nothing is rated, moved
-or deleted. Standard library only, like the rest of the CLI."""
+and reject reasons come from the album profile's scene and quality stages. `--species` turns the
+profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
+genus or family, as `bioscan summarize` counts it) and the page filters by it. Nothing is rated,
+moved or deleted. Standard library only, like the rest of the CLI."""
 from __future__ import annotations
 
 import csv
@@ -27,12 +29,14 @@ from typing import Any
 
 from bioscan import contract, cull, formats
 from bioscan.cli import cull as cc
+from bioscan.cli import report as rp
 from bioscan.cli.config import expand, load_config, request_options
 
 FORMATS = ("json", "csv", "html")
 THUMB_EDGE = 1024
 DEFAULT_OUT = "aesthetic-scores"
-CSV_FIELDS = ("rank", "path", "score", "stars", "scene", "reject_reasons", "sharpness", "taken_at")
+CSV_FIELDS = ("rank", "path", "score", "stars", "scene", "species", "common", "level", "reject_reasons", "sharpness",
+              "taken_at")
 
 
 def parse_export(spec: str) -> list[str]:
@@ -50,9 +54,10 @@ def files_dir(out: str) -> str:
     return str(Path(out).resolve().with_name(Path(out).name + "-files"))
 
 
-def build_request(paths: list[str], out: str, thumbs: bool) -> tuple[dict[str, Any], dict[str, Any]]:
-    """(the /run body, the meta line): the album profile, plus jpg copies for the page."""
-    res = expand(load_config(), cc.DEFAULT_PROFILE, None, {})
+def build_request(paths: list[str], out: str, thumbs: bool, species: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+    """(the /run body, the meta line): the album profile, plus jpg copies for the page; `species` turns
+    the profile's species naming on (BioCLIP loads), so each photo's best box gets a name."""
+    res = expand(load_config(), cc.DEFAULT_PROFILE, None, {"identify": {"species": True}} if species else {})
     want, options = list(res.want), request_options(res)
     if thumbs:
         want = [*want, "jpg"] if "jpg" not in want else want
@@ -83,6 +88,20 @@ def shrink(events: list[dict[str, Any]], edge: int) -> int:
     return n
 
 
+def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+    """(taxon, common, level) of the photo's surest named box: species, genus or family name as the
+    summary counts it; (None, None, None) when species was off or nothing held up."""
+    best = None
+    for b in contract.boxes_of(contract.identify_of(ev)):
+        sp = contract.species_of(b)
+        name, level = rp.taxon(sp), contract.level_of(sp)
+        if name:
+            top = contract.top_of(sp)[0]
+            if best is None or top["posterior"] > best[0]:
+                best = (top["posterior"], name, top.get("common") if level == "species" else None, level)
+    return best[1:] if best else (None, None, None)
+
+
 def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One row per result, best first (a photo without a finite score comes last); stars = quintile."""
     rows = []
@@ -93,8 +112,9 @@ def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         a, q, sc = p.get("aesthetics") or {}, p.get("quality") or {}, p.get("scene") or {}
         s = a.get("score")
         score = float(s) if isinstance(s, (int, float)) and not isinstance(s, bool) and s == s else None
+        species, common, level = named(ev)
         rows.append({"path": ev["path"], "score": score, "scene": sc.get("label"),
-                     "reject_reasons": list(q.get("reject_reasons") or []),
+                     "species": species, "common": common, "level": level, "reject_reasons": list(q.get("reject_reasons") or []),
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})
     rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["path"]))
@@ -132,6 +152,13 @@ def summary(rows: list[dict[str, Any]], fails: list[dict[str, Any]]) -> str:
         c = cuts(rows)
         lines.append(f"score {min(scored):.3f}-{max(scored):.3f}, median {scored[len(scored) // 2]:.3f}"
                      + (f"; stars 5/4/3/2 from {', '.join(f'{x:.3f}' for x in c)}" if c else ""))
+    if any(r["species"] for r in rows):
+        by = {}
+        for r in rows:
+            if r["species"]:
+                by[r["level"]] = by.get(r["level"], 0) + 1
+        lines.append(f"{sum(by.values())} named: " + ", ".join(f"{by[k]} to {k}" for k in ("species", "genus", "family")
+                                                              if k in by))
     notes = {r["note"] for r in rows if r["score"] is None and r["note"]}
     lines += [f"note: {n}" for n in sorted(notes)]
     return "\n".join(lines)
@@ -157,6 +184,7 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:
 .meta{padding:8px 10px;display:flex;flex-direction:column;gap:3px}.row1{display:flex;align-items:baseline;gap:8px}
 .score{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}.stars{color:#d4a017;letter-spacing:1px}.scene{margin-left:auto;color:var(--mute)}
 .file{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}.dir{color:var(--mute);font-size:11px}
+.sp{font-size:13px}.sp i{color:var(--mute)}.sp small{color:var(--mute)}
 .rr{display:flex;gap:4px;flex-wrap:wrap}.rr span{font-size:11px;color:var(--bad);border:1px solid var(--bad);border-radius:4px;padding:0 5px}.rr .clean{color:var(--ok);border-color:var(--ok)}
 #lb{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:10;flex-direction:column;gap:8px;cursor:zoom-out}
 #lb img{max-width:96vw;max-height:88vh;object-fit:contain}#lb div{color:#ddd;font-size:13px}
@@ -169,18 +197,19 @@ for(const d of DIRS){const o=document.createElement('option');o.value=d;o.textCo
 for(const s of SCENES){const c=document.createElement('span');c.className='chip';c.textContent=s;c.onclick=()=>{c.classList.toggle('on');on.has(s)?on.delete(s):on.add(s);render()};$('#scenes').appendChild(c)}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function render(){
-  const sort=$('#sort').value,dir=$('#dir').value,star=$('#star').value,rej=$('#rej').value,q=$('#q').value.trim().toLowerCase();
-  const rows=DATA.filter(r=>(dir===''||r.d===dir)&&(star===''||String(r.st)===star)&&(!on.size||on.has(r.sc))&&(!q||r.f.toLowerCase().includes(q))
+  const sort=$('#sort').value,dir=$('#dir').value,star=$('#star').value,rej=$('#rej').value,sp=$('#sp').value,q=$('#q').value.trim().toLowerCase();
+  const rows=DATA.filter(r=>(dir===''||r.d===dir)&&(star===''||String(r.st)===star)&&(!on.size||on.has(r.sc))&&(sp===''||(sp==='named'?!!r.sp:sp==='unnamed'?!r.sp:r.sp===sp))
+    &&(!q||r.f.toLowerCase().includes(q)||(r.sp||'').toLowerCase().includes(q)||(r.cn||'').toLowerCase().includes(q))
     &&(rej===''||(rej==='clean'&&!r.rr.length)||(rej==='any'&&r.rr.length)||r.rr.includes(rej)));
   rows.sort(sort==='sd'?(a,b)=>(b.s??-1)-(a.s??-1):sort==='sa'?(a,b)=>(a.s??9)-(b.s??9):(a,b)=>a.f.localeCompare(b.f));
   $('#count').textContent=rows.length+' photos';
   grid.innerHTML=rows.map((r,i)=>`<div class="card"><div class="im" data-t="${esc(r.t||'')}" data-f="${esc(r.f)} · ${r.s==null?'–':r.s.toFixed(3)}"><span class="rank">#${i+1}</span>${r.t?`<img loading="lazy" src="${esc(r.t)}" alt="">`:'<span class="no">no thumbnail</span>'}</div>
 <div class="meta"><div class="row1"><span class="score">${r.s==null?'–':r.s.toFixed(3)}</span><span class="stars">${r.st?'★'.repeat(r.st)+'☆'.repeat(5-r.st):''}</span><span class="scene">${esc(r.sc||'')}</span></div>
-<div class="file">${esc(r.f)}</div>${r.d?`<div class="dir">${esc(r.d)}</div>`:''}<div class="rr">${r.rr.length?r.rr.map(x=>`<span>${esc(x)}</span>`).join(''):'<span class="clean">no reject reason</span>'}</div></div></div>`).join('');
+${r.sp?`<div class="sp">${r.cn?esc(r.cn)+' ':''}<i>${esc(r.sp)}</i>${r.lv!=='species'?` <small>(${esc(r.lv)})</small>`:''}</div>`:''}<div class="file">${esc(r.f)}</div>${r.d?`<div class="dir">${esc(r.d)}</div>`:''}<div class="rr">${r.rr.length?r.rr.map(x=>`<span>${esc(x)}</span>`).join(''):'<span class="clean">no reject reason</span>'}</div></div></div>`).join('');
 }
 grid.onclick=e=>{const im=e.target.closest('.im');if(!im||!im.dataset.t)return;lbi.src=im.dataset.t;lbt.textContent=im.dataset.f;lb.style.display='flex'};
 lb.onclick=()=>{lb.style.display='none';lbi.src=''};document.addEventListener('keydown',e=>{if(e.key==='Escape')lb.click()});
-for(const id of['#sort','#dir','#star','#rej'])$(id).onchange=render;$('#q').oninput=render;render();
+for(const id of['#sort','#dir','#star','#rej','#sp'])$(id).onchange=render;$('#q').oninput=render;render();
 """
 
 
@@ -193,12 +222,14 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
         shown = r["jpg"] or (r["path"] if Path(r["path"]).suffix.lower() in cc.BROWSER_IMAGES else None)
         data.append({"f": Path(r["path"]).name, "d": os.path.relpath(Path(r["path"]).parent, roots) if roots else "",
                      "s": None if r["score"] is None else round(r["score"], 4), "st": r["stars"], "sc": r["scene"],
-                     "rr": r["reject_reasons"], "t": os.path.relpath(shown, base) if shown else None})
+                     "rr": r["reject_reasons"], "t": os.path.relpath(shown, base) if shown else None,
+                     "sp": r["species"], "cn": r["common"], "lv": r["level"]})
     for d in data:
         d["d"] = "" if d["d"] == "." else d["d"]
     dirs = sorted({d["d"] for d in data if d["d"]})
     scenes = sorted({d["sc"] for d in data if d["sc"]})
     reasons = sorted({x for d in data for x in d["rr"]})
+    species = sorted({d["sp"] for d in data if d["sp"]})
     c = cuts(rows)
     legend = (f"Stars are quintiles of this run's scores: 5★ ≥ {c[0]:.3f}, 4★ ≥ {c[1]:.3f}, 3★ ≥ {c[2]:.3f}, "
               f"2★ ≥ {c[3]:.3f}, else 1★. " if c else "") + \
@@ -214,8 +245,11 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             + "".join(f"<option>{k}</option>" for k in (5, 4, 3, 2, 1)) + "</select></label>"
             '<label>rejects<select id="rej"><option value="">all</option><option value="clean">none</option>'
             '<option value="any">any</option>' + "".join(f"<option>{html.escape(x)}</option>" for x in reasons)
-            + '</select></label><div class="chips" id="scenes"></div>'
-            '<input type="search" id="q" placeholder="file name"><span id="count"></span></header>'
+            + '</select></label><label>species<select id="sp"><option value="">all</option><option value="named">named'
+            '</option><option value="unnamed">unnamed</option>'
+            + "".join(f"<option>{html.escape(x)}</option>" for x in species) + '</select></label>'
+            '<div class="chips" id="scenes"></div>'
+            '<input type="search" id="q" placeholder="file or species name"><span id="count"></span></header>'
             f'<div class="legend">{html.escape(legend)}</div><main id="grid"></main>'
             '<div id="lb"><img id="lbi" alt=""><div id="lbt"></div></div>'
             f"<script>const DATA={json.dumps(data, ensure_ascii=False, separators=(',', ':'))};"
@@ -242,7 +276,7 @@ def cmd_score(a) -> int:
         paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)]
         if not paths:
             raise SystemExit("no images found")
-        body, head = build_request(paths, out, "html" in exports and not a.no_thumbs)
+        body, head = build_request(paths, out, "html" in exports and not a.no_thumbs, a.species)
         events, _ = cc.fetch(body, a.url)
         shrink(events, a.thumb_edge)
     complete = any(e.get("type") == contract.DONE for e in events)
@@ -276,6 +310,8 @@ def add_parser(g) -> None:
     s.add_argument("--thumb-edge", type=int, default=THUMB_EDGE,
                    help="long edge the page's jpg copies are shrunk to (default %(default)s px; 2048 = keep)")
     s.add_argument("--no-thumbs", action="store_true", help="HTML without jpg copies (browser-readable originals show)")
+    s.add_argument("--species", action="store_true", help="also name the animals (identify with species on: BioCLIP "
+                                                          "loads); the name goes in the CSV and the page")
     s.add_argument("-r", "--recursive", action="store_true")
     s.add_argument("--ext", default=formats.DEFAULT_EXT)
     s.set_defaults(func=cmd_score)

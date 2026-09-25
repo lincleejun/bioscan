@@ -385,7 +385,7 @@ it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =
 quality's. `soft` pools `soft_subject` and `motion_or_defocus`, which differ only in whether anything else in the
 frame is sharp: a soft subject against smooth bokeh reads as `motion_or_defocus`. Synthetic degradations are cleaner
 than real ones, so these numbers are floors for the rules, not a claim about real albums; that needs the owner's
-labelled trips (TASKS.md).
+labelled trips (issue #29).
 
 **Scene tier.** The same album-profile scoring over `bioscan gt scene`'s CSV (Open Images V7 photos per scene label,
 `data/scene/oid-labels.toml`): `bench run GT.csv --profile album --tier scene`, judged on `scene.group_acc`
