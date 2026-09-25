@@ -4,11 +4,12 @@ offline (--preds)."""
 import csv
 import json
 import os
+import xml.etree.ElementTree as ET
 
 import pytest
 from cull_fixtures import result
 
-from bioscan import profile
+from bioscan import aesthetic, profile
 from bioscan.cli import client
 from bioscan.cli import cull as cc
 from bioscan.cli.main import main, parser
@@ -81,6 +82,29 @@ def test_cull_writes_csv_links_html_and_json(tmp_path, monkeypatch, capsys):
     assert "0 new links" in capsys.readouterr().out
     assert list(csv.DictReader(open(out / "again.csv", encoding="utf-8"))) == list(rows.values())
     assert sent["payload"]["want"][-1] == "jpg"
+
+
+def test_xmp_sidecars_for_picks_and_rejects_never_over_an_existing_one(tmp_path, capsys):
+    d = photos(tmp_path)
+    nd = tmp_path / "run.ndjson"
+    nd.write_text("".join(json.dumps(e) + "\n" for e in stream(d)))
+    (d / "d.xmp").write_text("editor settings")                     # the pick d.jpg already has a sidecar
+    assert main(["cull", "--preds", str(nd), "--xmp"]) == 1
+    assert "xmp: 2 sidecars written, 1 left alone (a sidecar exists)" in capsys.readouterr().out
+    assert (d / "d.xmp").read_text() == "editor settings"
+    assert not (d / "a.xmp").exists() and (d / "a.jpg").read_bytes() == b"x"   # duplicate: nothing; photo untouched
+    # read back by the owner's-ratings reader
+    assert aesthetic.read_xmp_rating(str(d / "b.jpg")) == ({"rating": 3.0, "pick": 0, "label": ""}, "sidecar")
+    side = (d / "c.xmp").read_text()
+    assert aesthetic.parse_xmp(side) == {"rating": None, "pick": 0, "label": "Red"}   # a reject stays unrated
+    desc = next(ET.fromstring(side.split("?>", 1)[1].rsplit("<?xpacket", 1)[0]).iter(
+        f"{{{aesthetic.NS['rdf']}}}Description"))
+    assert desc.attrib[f"{{{cc.XMP_NS}}}reasons"] == "soft_subject"
+    assert aesthetic.parse_xmp(cc.xmp_packet({"status": "spare", "reasons": []}))["rating"] == 2.0
+    # again: every sidecar exists now; a photo not on this disk is counted, not written
+    (d / "b.jpg").unlink()
+    assert main(["cull", "--preds", str(nd), "--xmp"]) == 1
+    assert "xmp: 0 sidecars written, 2 left alone (a sidecar exists), 1 photos not found" in capsys.readouterr().out
 
 
 def test_link_name_clash_gets_a_suffix(tmp_path):

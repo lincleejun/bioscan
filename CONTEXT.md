@@ -325,7 +325,8 @@ _Avoid_: class (the gate has classes), tag
 What the `select` reducer decides per photo: `pick` (the best of its burst and in the top `per_category` of its
 scene category), `spare` (a keeper past that), `duplicate` (not the best of its burst, or near-identical to a
 pick) or `reject`; with the category, rank and reasons it forms the photo's cull record (`cull.records`).
-_Avoid_: rating, stars (those are the owner's, in XMP)
+`cull --xmp` writes it into new XMP sidecars as stars (pick 3, spare 2) and a Red label (reject).
+_Avoid_: rating, stars (those are the owner's, in XMP; the `--xmp` stars only encode the selection)
 
 **Aesthetic score**:
 `products.aesthetics.score`: the `aesthetics` stage's per-frame score (the general head, blended with a personal head
