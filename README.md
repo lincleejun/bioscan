@@ -325,7 +325,7 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates f
 The `aesthetics` stage gives each frame an aesthetic score from a small linear **head** on the SigLIP2 frame vector that the frame pass already computes: no new model, a few kB of weights, one matmul per chunk on the CPU pool. It is in the `album` profile (never in `full` or `wildlife`), and **it only reorders frames: it never rejects or deletes one**; the `select` reducer ([Culling an album](#culling-an-album)) reads `products.aesthetics.score` to rank within a burst or a category.
 
 - **Output** `products.aesthetics`: `score` (0-1, the blend below; not clipped), `general`, `personal` (null without a personal head), `head_id` (`name:sha12`, `+name:sha12~blend` when blended). Without the general head file the score is null and a `note` says why; the run never fails for it.
-- **General head**: `data/aesthetic/eva-head-v1.json`, a ridge head fitted on **EVA** (4,070 photos, 30+ votes each, mean score 0-10). **Not committed yet**: it is trained by the `aesthetic` workflow or on a Mac (commands in `data/aesthetic/README.md`); until then album runs report `score: null`.
+- **General head**: `data/aesthetic/eva-head-v1.json`, a ridge head fitted on **EVA** (4,070 photos, 30+ votes each, mean score 0-10). Committed (CV SRCC 0.79 on EVA; retrain with the `aesthetic` workflow or on a Mac, commands in `data/aesthetic/README.md`); without the file album runs report `score: null`.
 - **Personal head**: fitted on your own ratings, pulled toward the general head, and blended with it by `blend` (the personal weight, default 0.5):
 
   ```sh
@@ -513,7 +513,7 @@ scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, fo
 scripts/train_aesthetic_head.py  the EVA general head, in-process with the service's decode and SigLIP2
 scripts/aes_plant.py             planted copies (known answers) for the aesthetic golden set
 scripts/cull_synth.py            synthetic album set (labelled rejects, bursts) from photos with a subject box
-data/aesthetic/                  the general aesthetic head (README until it is trained) and its provenance
+data/aesthetic/                  the general aesthetic head, the held-out EVA list and their README
 baselines/                       committed reports compared against, and the regression budget
 data/names/                      name mapping tables keyed on AviList
 docs/                            design spec, implementation plan, evaluation results

@@ -291,7 +291,7 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 `aesthetics` stage 用一个小的线性**头**（head）给每帧打美学分，输入是整帧 pass 已经算好的 SigLIP2 向量：不加新模型，权重只有几 kB，每个 chunk 在 CPU 线程池上做一次矩阵乘。它在 `album` profile 里（`full`、`wildlife` 都不含），而且**只用来排序，从不剔除或删除任何一帧**；`select` reducer（见下文“相册挑片”）会读 `products.aesthetics.score`，在连拍组或类别内排序。
 
 - **输出** `products.aesthetics`：`score`（0-1，即下面的混合分，不截断）、`general`、`personal`（没有个人头时为 null）、`head_id`（`name:sha12`，混合时为 `+name:sha12~blend`）。缺少通用头文件时 score 为 null，并有一条 `note` 说明原因；运行不会因此失败。
-- **通用头**：`data/aesthetic/eva-head-v1.json`，在 **EVA** 上拟合的岭回归头（4070 张照片，每张 30 票以上，平均分 0-10）。**尚未提交**：由 `aesthetic` workflow 或在 Mac 上训练（命令见 `data/aesthetic/README.md`）；在那之前 album 运行报告 `score: null`。
+- **通用头**：`data/aesthetic/eva-head-v1.json`，在 **EVA** 上拟合的岭回归头（4070 张照片，每张 30 票以上，平均分 0-10）。已提交（EVA 上 CV SRCC 0.79；重训用 `aesthetic` workflow 或在 Mac 上跑，命令见 `data/aesthetic/README.md`）；没有该文件时 album 运行报告 `score: null`。
 - **个人头**：用你自己的评分拟合，向通用头收缩，再按 `blend`（个人头权重，默认 0.5）与通用头混合：
 
   ```sh

@@ -345,8 +345,8 @@ bioscan aesthetic eval ~/Pictures/Album/test-trips --out runs/<tag>-aesthetic --
     --personal ~/.config/bioscan/aesthetic-personal.json
 bioscan bench scorecard runs/<tag>-aesthetic/report.json
 ```
-Every bar here is a first guess: no aesthetic number has been measured on the owner's photos yet, and the
-general head itself is not trained yet (data/aesthetic/README.md).
+Every bar here is a first guess: no aesthetic number has been measured on the owner's photos yet. The general
+head is committed (data/aesthetic/README.md: CV SRCC 0.792 on EVA, Spearman 0.877 on the 100 held-out EVA images).
 
 [^pyiqa-iaa]: pyiqa's aesthetics benchmark (LAION v2 0.665, TOPIQ-IAA 0.791, Q-Align 0.822 SRCC on AVA): https://raw.githubusercontent.com/chaofengc/IQA-PyTorch/main/tests/IAA_benchmark_results.csv
 

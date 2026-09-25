@@ -221,7 +221,7 @@ Decisions (owner): build on the C1/C2 branch; deliver design + runnable scorer (
 - [x] public half: 100 EVA images the crowd agrees on (20 per star), `data/aesthetic/eva-golden-v1.csv`
       (scripts/eva_golden.py); held out of every general-head fit (`read_eva`), recorded in the head's provenance
 Next:
-- [ ] train eva-head-v1 (aesthetic.yml or the Mac), which now excludes the 100; score it on the EVA golden folder
+- [x] train eva-head-v1 (the Mac, 2026-09-25 UTC), which excludes the 100: CV SRCC 0.792; scored on the EVA golden folder: Spearman 0.877, drop AUC 0.98, keepers lost @20% 0%
 - [ ] owner: build aes-golden-v1 (targets in the design doc §4.2), freeze it, run the EVA head as the first baseline
 - [ ] adapters writing scores files for Q-ReAlign 0.8B/4B and a Qwen3-VL (mlx-vlm) judge; local evaluation only
 - [ ] standards bars for the golden set after the first real run (group top-1 vs random, keepers lost @20 %)

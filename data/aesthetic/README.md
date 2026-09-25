@@ -4,8 +4,9 @@
 vector (`google/siglip2-base-patch16-224@75de2d55ec2d`), fitted on EVA's mean scores. The
 `aesthetics` stage reads it as `head: builtin` (bioscan/plugins/aesthetics).
 
-**It is not committed yet.** Until it is, the stage answers `score: null` with a `note`, and nothing
-fails. It is trained by CI or on the Mac (below) and committed here after review.
+Committed 2026-09-25 (UTC) from the owner's Mac: `eva-head-v1:d5985bc9ea9e`, n 3,970 (the 100 held-out images
+left out), alpha 1000, 5-fold CV SRCC 0.792 (sd 0.013), PLCC 0.806; on the held-out 100, Spearman 0.877
+(`bioscan bench aesthetic score`). Without the file the stage answers `score: null` with a `note`, and nothing fails.
 
 ## File format
 

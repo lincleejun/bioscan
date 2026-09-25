@@ -5,7 +5,7 @@ The general head is the committed EVA head (data/aesthetic/eva-head-v1.json, CC0
 personal head is fitted on the owner's own ratings (`bioscan aesthetic train`). Options: `head` is
 "builtin" (the general head alone), an absolute path to a personal head file (blended with the
 general head by `blend`, the personal head's weight), or "off" (no product). Without the builtin
-head (not trained yet) the score is null with a `note`, never an error. The score only reorders
+head (the file missing) the score is null with a `note`, never an error. The score only reorders
 frames (the select reducer reads products.aesthetics.score); it never rejects one. In `album`, never
 in `full` or `wildlife`."""
 from __future__ import annotations
