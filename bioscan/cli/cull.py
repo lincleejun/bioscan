@@ -188,20 +188,21 @@ figcaption { padding: 5px 7px; font-size: 12px; word-break: break-all; }
 """
 
 
-def _src(ev: dict[str, Any] | None, path: str, base: Path) -> str | None:
-    """The image to show: the service's jpg copy, else the photo itself when a browser can show it."""
-    jpg = (cull.products(ev or {}).get("jpg") or {}).get("path")
+def figure(path: str, jpg: str | None, base: Path, caption: str, cls: str = "") -> str:
+    """One photo tile (also `bioscan report`'s): the service's jpg copy, else the photo itself when a
+    browser can show it, else its format. `caption` is HTML, already escaped."""
     shown = jpg or (path if Path(path).suffix.lower() in BROWSER_IMAGES else None)
-    return None if shown is None else os.path.relpath(shown, base)
+    img = (f'<img loading="lazy" src="{html.escape(os.path.relpath(shown, base))}" alt="">' if shown
+           else f'<div class="noimg">{html.escape(Path(path).suffix.upper().lstrip("."))}</div>')
+    return (f'<figure class="{html.escape(cls)}" title="{html.escape(path)}">{img}<figcaption>'
+            f'{caption}</figcaption></figure>')
 
 
 def _figure(r: dict[str, Any], ev: dict[str, Any] | None, base: Path, note: str = "") -> str:
-    src = _src(ev, r["path"], base)
-    img = (f'<img loading="lazy" src="{html.escape(src)}" alt="">' if src
-           else f'<div class="noimg">{html.escape(Path(r["path"]).suffix.upper().lstrip("."))}</div>')
+    jpg = (cull.products(ev or {}).get("jpg") or {}).get("path")
     tag = f'<span class="tag {r["status"]}">{html.escape(r["status"] or "")}</span>'
-    return (f'<figure class="{html.escape(r["status"] or "")}" title="{html.escape(r["path"])}">{img}<figcaption>'
-            f'{tag} {html.escape(Path(r["path"]).name)}{" · " + html.escape(note) if note else ""}</figcaption></figure>')
+    return figure(r["path"], jpg, base, f'{tag} {html.escape(Path(r["path"]).name)}'
+                  f'{" · " + html.escape(note) if note else ""}', r["status"] or "")
 
 
 def write_html(records: list[dict[str, Any]], events: list[dict[str, Any]], fails: list[dict[str, Any]], path: str,

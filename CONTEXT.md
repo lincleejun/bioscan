@@ -82,6 +82,16 @@ run, never inside the service stream: `burst` and `select` (`bioscan/cull.py`; m
 `plugins.REDUCERS`). Its output goes under `products[<reducer>]` of the CLI's copy of each result.
 _Avoid_: stage (a stage sees one chunk)
 
+**Run summary**:
+`summary.json` (`bioscan summarize`): one run's categories (gate classes), taxa and review queue, reduced from a
+saved preds file by the CLI, never by the service. `bioscan report` renders it and reads nothing else.
+_Avoid_: report (that is the page), digest
+
+**Review reason**:
+Why a box or frame is in a run summary's review queue, one of `unconfirmed`, `coarse_level`, `out_of_range`,
+`no_list`, `gate_no_box`, `single_sighting` (docs/usage.md). Rules only, never a model.
+_Avoid_: flag, warning, low confidence
+
 **Product**:
 A named result a run can ask for per image (`identify`, `embed`, `jpg`, `geotag`, `aesthetics`, `quality`, `scene`): the output of the stage of that name
 (`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.

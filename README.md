@@ -48,6 +48,7 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | **Identify** boxes and species, graded species / genus / family / unconfirmed; location prior from EXIF GPS or `--lat/--lon`; narrow to candidate taxa with `--candidates` | `bioscan run DIR` | [usage.md](docs/usage.md), [how-it-works.md](docs/how-it-works.md) |
 | **Geotag** photos from a watch or phone GPX track; clock offset from a photo of the clock; XMP sidecars | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
 | **Cull an album**: rejects with reasons, bursts with their best frame, best photos per scene category, aesthetic ranking; HTML review page, CSV, symlinks; never deletes | `bioscan cull DIR -r --html review.html` | [album.md](docs/album.md) |
+| **Summarize a run**: categories, taxa and a review queue with rule reasons as `summary.json`, rendered to an HTML report | `bioscan summarize preds.ndjson --out run`, `bioscan report run` | [usage.md](docs/usage.md#run-summary-and-report) |
 | **Score a folder**: aesthetic ranking exported as NDJSON, CSV and/or an HTML gallery with thumbnails; re-export offline from the NDJSON | `bioscan aesthetic score DIR -r --export json,csv,html --out aes` | [album.md](docs/album.md) |
 | **Personal aesthetics**: a head fitted on your Lightroom stars, blended with the general one | `bioscan aesthetic train --ratings DIR` | [album.md](docs/album.md) |
 | **Profiles** `full`, `wildlife`, `album`, and your own in `bioscan.toml` | `bioscan run DIR --profile album` | [usage.md](docs/usage.md#profiles-and-bioscantoml) |
@@ -68,7 +69,7 @@ Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), Bi
 
 | Document | What it holds |
 |---|---|
-| [docs/usage.md](docs/usage.md) | install, CLI, supported RAW formats, ports and variables, candidates, profiles and `bioscan.toml`, HTTP API, exit codes |
+| [docs/usage.md](docs/usage.md) | install, CLI, supported RAW formats, ports and variables, candidates, profiles and `bioscan.toml`, run summary and report, HTTP API, exit codes |
 | [docs/how-it-works.md](docs/how-it-works.md) | scope, the pipeline, grading and the accuracy rules, models and data with licences, name mapping, known limitations |
 | [docs/geotag.md](docs/geotag.md) | GPX geotagging: sources, time zones, clock offset, fix rule, XMP, accuracy |
 | [docs/album.md](docs/album.md) | aesthetics (general and personal head, evaluation, the golden set) and `bioscan cull` |
