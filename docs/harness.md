@@ -15,7 +15,7 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
 | `aesthetic eval RATINGS --out DIR [--head H] [--personal P] [--blend B] [--k K] [--curve SIZES]` | Agreement of the aesthetic score with the owner's stars and picks, per trip, plus the learning curve; report.json read by `scorecard` (tier `aesthetic-own`) ([below](#aesthetic-agreement-with-the-owner-bioscan-aesthetic-eval)) |
-| `bench aesthetic init\|score\|compare\|table` | Any aesthetic scorer (a scores file) against the frozen aesthetic golden set: shot-group winners, pairwise accuracy, keepers lost when culling, planted checks, slice residuals; paired compare under baselines/budget-aesthetic.toml ([below](#aesthetic-golden-set-bench-aesthetic)) |
+| `bench aesthetic init\|score\|compare\|table` | Any aesthetic scorer (a scores file) against the frozen aesthetic golden set: shot-group winners, pairwise accuracy, keepers lost when culling, planted checks, slice residuals; paired compare under baselines/budget-aesthetic.toml; `table` is the arena: N scorers ranked with their deviation from the labels ([below](#aesthetic-golden-set-bench-aesthetic)) |
 | `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
 `--names KIND=CSV` sets the name list used to tell whether a truth is in the list (`not_in_list`) and
@@ -480,7 +480,7 @@ bioscan bench compare runs/$D-golden/report.json runs/$D-golden-gpx/report.json 
 
 `vs-nogeo` is what a GPX track buys a folder without GPS. `vs-truth` should show almost no change, because 99% of
 the fixes share the truth's prior cell. Compare warns that the ground-truth sha and the options differ, which is
-expected. Until these runs exist, the effect of GPX positions on species ID is **unverified**.
+expected. Measured 2026-09-25 on the Mac (perfect scenario, v1.5 build): vs-truth 0 fixed, 0 broken, every metric identical; vs-nogeo top-1 +5.2 pts (85 fixed, 1 broken, McNemar p ≈ 0). See results.md.
 
 ## aesthetic: agreement with the owner (`bioscan aesthetic eval`)
 
@@ -552,7 +552,7 @@ uv run python scripts/aes_plant.py ~/aes-golden --n 60          # planted copies
 bioscan run ~/aes-golden -r --profile album --json --out runs/aes/eva.ndjson
 bioscan bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva [--repeat runs/aes/eva-2.ndjson]
 bioscan bench aesthetic score ~/aes-golden runs/aes/qrealign-4b.ndjson --out runs/aes/qrealign-4b
-bioscan bench aesthetic table runs/aes/*/report.json
+bioscan bench aesthetic table runs/aes/*/report.json --ref data/aesthetic/eva-golden-v1.csv --csv runs/aes/arena-residuals.csv
 bioscan bench aesthetic compare runs/aes/eva/report.json runs/aes/qrealign-4b/report.json --md runs/aes/compare.md
 ```
 
@@ -586,7 +586,25 @@ pairs.csv, split, model, scores path and sha, git, date, tolerances), `metrics` 
 McNemar on the pairs and on the shot groups both reports scored, and a 95 % bootstrap interval of the Spearman change
 that resamples shot groups (`--boot`, default 1000, seed 0). `--budget` (default `baselines/budget-aesthetic.toml`
 when present) takes `[[rule]]` tables as in budget.toml, with any numeric key of `metrics` and `scopes` defaulting to
-`["all"]`. Exit 1 when over budget. `table` lists several reports side by side and warns when their golden sets
-differ. Reports of this tier list the owner's frame paths: they stay on the owner's machine unless the owner decides
-otherwise.
+`["all"]`. Exit 1 when over budget.
+
+**table** is the arena: N reports of one golden set and split (else exit 2), ranked by Spearman against the grades,
+each with the deviation from the labels in the labels' own units and a paired bootstrap against the leader:
+
+| column | what |
+|---|---|
+| Spearman [95% CI] | against stars, bootstrap over shot groups (`--boot`, default 1000, seed 0) |
+| cross-grade pairs [CI] | of all frame pairs with different stars, the share the model orders like the owner (a score tie counts as wrong): Spearman restricted to the pairs the labels actually separate, the most sensitive column at small n |
+| grade MAE [CI], exact / ±1 | after quantile calibration (the model's i-th lowest frame gets the i-th lowest grade, no fitted parameter): how many stars off on average, how often exactly right, how often within one |
+| ΔSpearman vs top [CI] | the same resamples for every model; an interval containing 0 marks the rank `=` (tied at this n) |
+| ms, and the owner-set columns (owner pairs, group top-1, NDCG, drop AUC, keepers lost @20 %, planted, missing) | only those with a value in some report |
+
+Below the table: the frames the models disagree on most (calibrated grade per model), with the label's sd when
+`--ref` gives it (`data/aesthetic/eva-golden-v1.csv`, keyed by file stem). `--csv` writes every frame's score,
+percentile, calibrated grade and residual (model percentile − grade percentile) per model, worst first. No Elo:
+every frame has an answer. Models within about 0.05 Spearman at n = 100 are not separable
+(docs/research/2026-09-24-aesthetic-arena.md). External scorers are run by `scripts/aes_arena_score.py` in their own
+environment; `--purge` removes the weights it downloaded once the scores are written, so only the service's own
+models stay in the cache. Reports of this tier list the owner's frame paths: they stay on the owner's machine unless
+the owner decides otherwise.
 

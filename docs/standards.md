@@ -206,7 +206,7 @@ How measured: golden tier, as above.
 | Birds top-1 without coordinates | ~75%, iNat vision alone (derived: geomodel +12 points → 87%, all taxa, vendor claim) [^inatgeo] | **85%** | 90% | 83.3% (baseline doc `inat-nogeo`, before synonyms) | a folder without GPS must still be usable |
 | Mammals top-1 without coordinates | none | **80%** | 88% | 74.1% (no mammal prior yet, so with = without) | mammals lean less on range than look-alike birds |
 | Own RAW top-1 without a coordinate | none | **85%** | 92% | 80.2% (baseline doc; screech-owls tell apart only by range) | the owner's cameras have no GPS |
-| Birds gain from coordinates (golden, same build) | +12 points, iNat geomodel (vendor claim) [^inatgeo] | **≥ +3 pts** | ≥ +6 pts | +2.4 (85.7 vs 83.3, baseline doc) or +6.5 (README 89.8 vs 83.3): **disputed** | proves the location prior works; a manual check from two reports |
+| Birds gain from coordinates (golden, same build) | +12 points, iNat geomodel (vendor claim) [^inatgeo] | **≥ +3 pts** | ≥ +6 pts | **+5.2** (91.2 vs 86.0, same build 2a9b771, 2026-09-25, results.md; the earlier +2.4 / +6.5 figures came from different builds) | proves the location prior works; a manual check from two reports |
 
 How measured: the same tier run twice, with and without `--no-geo`. The gain is the top-1 difference
 (`metric = "manual"`).

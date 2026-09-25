@@ -1,6 +1,6 @@
 # Geotag from a GPX track
 
-Most camera bodies write no GPS. If you record the outing with a watch or phone and export a GPX track, bioscan places each photo on the track at its capture time. This does the same job as Lightroom's "auto-tag photos" map module. The location matters: on the golden set, bird top-1 is 83.3% without coordinates and 89.8% with them ([results.md](results.md); the two numbers are disputed in docs/standards.md §4, and the GPX effect itself is unverified until the Mac run in docs/harness.md).
+Most camera bodies write no GPS. If you record the outing with a watch or phone and export a GPX track, bioscan places each photo on the track at its capture time. This does the same job as Lightroom's "auto-tag photos" map module. The location matters: on the golden set (v1.5 build, 2026-09-25, [results.md](results.md)), top-1 without coordinates is 86.0% for birds and 77.7% for mammals; with the positions a GPX track gives, 91.2% and 82.8%, the same as with the true GPS to the image (0 answers differ).
 ```sh
 bioscan geotag DIR --gpx hike.gpx --tz America/Los_Angeles --csv geo.csv   # path,lat,lon,source,dt_s,err_m,utc,ele
 bioscan geotag DIR --gpx a.gpx --gpx b.gpx --offset +00:01:23 --xmp       # camera 83 s fast; write <stem>.xmp sidecars

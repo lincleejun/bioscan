@@ -95,7 +95,7 @@ Verify: tests/unit/test_geotag.py, test_geotag_bench.py, test_standards.py; `bio
       stood-still rule capped at 3 h (`--max-still`); no estimate when every photo has GPS, at most 25 references
       (300 photos x 50k points: 19.7 s -> 0.01 s / 0.2 s); `run --gpx` uses the Pillow-read GPS (no exiftool);
       format_offset rounding; failed estimates count in offset_error_s; warning for --offset/--tz/--clock without --gpx
-- [ ] Mac: `bench run` on runs/geotag-synth/gt/perfect.csv vs golden and golden-nogeo (docs/harness.md "Downstream"); until then the species-ID gain from GPX is unverified
+- [x] Mac (2026-09-25): `bench run` on runs/geotag-synth/gt/perfect.csv vs golden and golden-nogeo: GPX positions = true GPS (0 answers differ); vs no coordinates top-1 +5.2 pts (birds 86.0 → 91.2, mammals 77.7 → 82.8). The gaps scenario run was stopped by the owner as unnecessary
 - [ ] a real GPX + camera folder from the owner, to check the synthetic numbers (watch auto-pause, canyons, cold start)
 - [ ] mixed cameras in one folder: one clock offset per camera model (EXIF Model) instead of one per run
 
@@ -223,6 +223,11 @@ Decisions (owner): build on the C1/C2 branch; deliver design + runnable scorer (
 Next:
 - [x] train eva-head-v1 (the Mac, 2026-09-25 UTC), which excludes the 100: CV SRCC 0.792; scored on the EVA golden folder: Spearman 0.877, drop AUC 0.98, keepers lost @20% 0%
 - [ ] owner: build aes-golden-v1 (targets in the design doc §4.2), freeze it, run the EVA head as the first baseline
-- [ ] adapters writing scores files for Q-ReAlign 0.8B/4B and a Qwen3-VL (mlx-vlm) judge; local evaluation only
+- [x] arena (2026-09-24, the Mac): 9 external scorers on the EVA golden 100 via scripts/aes_arena_score.py, ranked with
+      deviation from the crowd by `bench aesthetic table`; docs/research/2026-09-24-aesthetic-arena.md. Ours 0.877, Qwen3-VL-4B
+      zero-shot 0.759, TOPIQ/LAION/NIMA/Q-ReAlign 0.71-0.73 (AVA-trained: 93/100 golden images are in AVA's training split)
+- [x] owner decision (2026-09-24): arena = `bench aesthetic table` on the 100 EVA images; arena weights download per run and
+      are purged after (`aes_arena_score.py --purge`); OneAlign and the other arena caches deleted (39 GB)
+- [ ] arena on the owner's rated trips (the head is not in-distribution there); rank-average of ours + Qwen3-VL-4B as one row
 - [ ] standards bars for the golden set after the first real run (group top-1 vs random, keepers lost @20 %)
 - [ ] a review/labelling page if filling images.csv by hand is slow

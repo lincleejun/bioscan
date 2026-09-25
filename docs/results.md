@@ -52,3 +52,17 @@ when we invite the community; the v0.x gates are not met yet. `data/standards.to
 - **General aesthetic head** `eva-head-v1:d5985bc9ea9e` (data/aesthetic/README.md): 5-fold CV on the 3,970 EVA training images, SRCC 0.792 (sd 0.013), PLCC 0.806.
 - **Held-out EVA golden set** (100 images the head never saw, 20 per star; `bioscan bench aesthetic score`): Spearman 0.877 [0.818, 0.917], Kendall τ-b 0.733, NDCG@10 0.877, drop AUC 0.982, keepers lost at 10/20/30% 0.0% [0.0, 8.8]. Mean score per star, 1 to 5: 0.49, 0.56, 0.62, 0.66, 0.74. The same 100 with the scores shuffled: Spearman −0.10, keepers lost at 20% 25%. Planted copies (30 originals × 6): degradations score lower 93.3% (blur 100%, −2 EV 100%, +2 EV 83%, JPEG q10 90%); renamed and re-encoded copies within 5 percentile points 100% (largest move 4.5).
 - **Culling rules**, synthetic reject set (224 frames from the CI photos, `tests/models` album run): reject recall 0.839 [0.776, 0.887], precision 0.959 [0.914, 0.981], keepers lost 0.107 [0.050, 0.215]; per reason: soft 0.861, overexposed 0.958, underexposed 0.333 [0.180, 0.533] (8 of 24; floor 0.80, the one failing bar). On the 100 EVA photos the rules gave 44 a reject reason (overexposed 16, no_subject 15, underexposed 14), including 4 of the 20 five-star ones: unverified against any human judgement.
+
+## GPX positions and species ID (2026-09-25, owner's Mac, v1.5 build at 2a9b771)
+
+Three `bench run` passes over the 1,625 golden images, paired by sha256 with `bench compare`: true GPS from the image, no coordinates (`--no-geo`), and the position `bioscan geotag` gives from the synthetic `perfect` track (`runs/geotag-synth/gt/perfect.csv`).
+
+| Run | Top-1 all | Top-1 birds | Top-1 mammals | Top-5 all | Precision | Confident errors |
+|---|---|---|---|---|---|---|
+| no coordinates | 83.1% | 86.0% | 77.7% | 91.6% | 90.7% | 8.4% |
+| GPX position | 88.2% | 91.2% | 82.8% | 92.4% | 96.5% | 3.1% |
+| true GPS | 88.2% | 91.2% | 82.8% | 92.4% | 96.5% | 3.1% |
+
+- GPX vs true GPS: 0 fixed, 0 broken, 0 changed; every metric identical. A track's fix lands in the same 0.01° prior cell as the truth for 99% of photos, and the remaining 1% changed no answer.
+- GPX vs no coordinates: 85 fixed, 1 broken, McNemar exact p ≈ 0; top-1 +5.2 pts, confident errors 8.4% → 3.1%. This settles the disputed "gain from coordinates" in docs/standards.md §4: +5.2 pts for birds on the same build, above the +3 community bar.
+- The `gaps` scenario (dropouts) was not run: the perfect scenario already shows GPX = truth, and gaps only lose fixes (0.5% of photos), which fall back to no coordinates.
