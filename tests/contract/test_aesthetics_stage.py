@@ -164,7 +164,7 @@ def test_engine_plugins_head_id_wins_then_fingerprints_in_report_order(client, t
     want = ["identify", "scene", "aesthetics", "quality"]
     res = result(client, {"inputs": [{"path": p}], "want": want, "options": {"identify": {"species": False}}})
     fps = {"quality": plugin.fingerprint(1, quality_stage.STAGE.settings()),
-           "scene": plugin.fingerprint(1, scene_stage.STAGE.settings())}
+           "scene": plugin.fingerprint(scene_stage.MANIFEST.version, scene_stage.STAGE.settings())}
     # report (BUILTIN) order, whatever order the request named them in
     assert list(res[0]["engine"]["plugins"].items()) == [("aesthetics", f"v1@{g.id}"), ("quality", fps["quality"]),
                                                           ("scene", fps["scene"])]

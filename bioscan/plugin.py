@@ -58,7 +58,9 @@ class Manifest:
     name: str                                   # also the product key in result.products
     version: int                                # bump when the output's meaning changes
     description: str                            # served by GET /products
-    reads: tuple[str, ...] = ()                 # facts it needs: BASE_FACTS, or what another stage provides
+    reads: tuple[str, ...] = ()                 # facts it needs: BASE_FACTS, or what another stage provides;
+                                                # "fact?" = optional: runs after its provider when one is planned,
+                                                # and plans without one (the fact is then absent from Item.facts)
     provides: tuple[str, ...] = ()              # facts it adds to Item.facts for later stages
     # model names needed under these options: engine.MODELS, a key of `loaders`, or of Loaders.extra;
     # a stage that reads vec/gate lists "siglip2"
@@ -253,7 +255,9 @@ def plan(want: Iterable[str], opts: dict[str, dict[str, Any]], registry: Sequenc
     after: dict[str, set[str]] = {m.name: set() for m in chosen}      # stage -> stages that must run first
     for m in chosen:
         for fact in m.reads:
-            if fact not in BASE_FACTS and fact not in providers:
+            optional = fact.endswith("?")
+            fact = fact.rstrip("?")
+            if not optional and fact not in BASE_FACTS and fact not in providers:
                 could = sorted(r.name for r in registry if fact in r.provides)
                 raise ValueError(f"stage {m.name} reads {fact!r}, which no stage of this run provides"
                                  + (f" (add {' or '.join(could)})" if could else ""))

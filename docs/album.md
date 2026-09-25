@@ -73,7 +73,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
   without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for `night`.
 - **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes: landscape, people,
-  wildlife (the gate's bird + mammal share), macro, architecture, food, night, other. Change the labels and prompts with
+  wildlife (the gate's bird + mammal share, and only when identify found a box: `wildlife_box`, since the gate drifts on
+  photos without animals), macro, architecture, food, night, other. Change the labels and prompts with
   `[profile.album.options.scene.labels]`. Landscapes also get a horizon tilt (reported, not a reject).
 - **Bursts** (`burst`): frames of one camera (EXIF Make and Model) at most 1.5 s apart, using the sub-second capture
   time, whose frame vectors have cosine at least 0.92.

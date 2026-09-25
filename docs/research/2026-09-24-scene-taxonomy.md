@@ -84,8 +84,8 @@ landscape, people, wildlife, macro, architecture, food, night, other。每个标
 | `people` | `portrait` `group` `street` `event` `sport` | 提示词 |
 | `macro`（改叫 macro_flora 也可） | `flower` `plant` `fungi` `insect_macro` | 提示词；gate 判 other_animal 的昆虫走 wildlife.other_animal，gate 没抓到的走这里 |
 | `architecture` | `building` `interior` `cityscape` `monument` `rural` | 提示词 |
-| `food`（扩为生活/旅行） | `food_drink` `vehicle` `still_life` `art` | 提示词；细→粗映射里 `food_drink`→food，其余三项→other（保持旧真值可测） |
-| `other` | `utility` `abstract` | 提示词；softmax 总有最大值，今天也没有"都不像"的兜底，这里也不加 |
+| `food` | `food_drink` | 提示词 |
+| `other`（杂项） | `utility` `abstract` `vehicle` `still_life` `art` | 提示词；softmax 总有最大值，今天也没有"都不像"的兜底，这里也不加。vehicle / still_life / art 放这里而不是 food：今天的阶段把它们判成 other，scene tier 的第一次 baseline（2026-09-25）证实了这一点，放 food 组会让 group_acc 把真值错误算成阶段错误 |
 
 细→粗映射就是表的第一列；旧 8 标签真值按粗组算 `group_acc`，新真值按细标签算 `scene_acc`。
 
@@ -108,8 +108,8 @@ night        = ["astro", "aurora", "moon", "city_lights"]
 people       = ["portrait", "group", "street", "event", "sport"]
 macro        = ["flower", "plant", "fungi", "insect_macro"]
 architecture = ["building", "interior", "cityscape", "monument", "rural"]
-food         = ["food_drink", "vehicle", "still_life", "art"]
-other        = ["utility", "abstract"]
+food         = ["food_drink"]
+other        = ["utility", "abstract", "vehicle", "still_life", "art"]
 
 [profile.album.options.scene.labels]
 # wildlife: 组份额来自 gate；组内先按 wildlife_rules，规则不命中的用这些提示词
@@ -152,7 +152,7 @@ interior  = ["an indoor photo of a room", "the interior of a building", "a hall 
 cityscape = ["a city skyline", "an urban scene with many buildings", "a view over rooftops"]
 monument  = ["a historic monument or a landmark", "ancient ruins", "a castle or a temple"]
 rural     = ["a farm with a barn", "a village in the countryside", "a rural road with fences"]
-# food / life
+# food
 food_drink = ["a photo of food on a plate", "a meal at a restaurant", "a cup of coffee or a glass of wine"]
 vehicle    = ["a photo of a car", "a train, a boat or an aircraft", "a motorbike or a bicycle"]
 still_life = ["a still life of objects on a table", "a product photo of an object", "an arrangement of everyday items"]
@@ -228,4 +228,4 @@ waive = { night = ["underexposed"], "light=night" = ["underexposed"] }   # 键�
 2. **`select` 按什么分桶**：默认粗组（8 桶 × 10 = 80 张）；可选按细标签。
 3. **night 与 close-up 等是否改为属性**：默认 night **同时**保留为组（`waive` 不变）并新增 `light`/`setting`/`framing` 属性；激进做法是删掉 night 组、只留属性。
 4. **消费级杂项要不要**：默认只留一个 `utility`；Google 的 receipts / whiteboards / screenshots / selfies 若要，加到 `other` 组即可，不需要改代码。
-5. 是否把 `food` 组改名为 `life`（含 vehicle / still_life / art）：改名会让旧真值的 `food` 行要重映射，所以默认不改名。
+5. ~~是否把 `food` 组改名为 `life`~~：已定（2026-09-25）：vehicle / still_life / art 归 `other` 组，`food` 组只有 food_drink。

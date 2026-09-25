@@ -6,7 +6,12 @@ Each label is a list of text prompts, averaged into one text vector (encoded onc
 the model thread). A label with no prompts takes the gate's share instead: `wildlife` is the gate's
 bird + mammal probability (`wildlife_gate`), and the text labels share the rest by softmax. For the
 top label `landscape` it also measures horizon tilt (Hough on a small copy of the frame). The labels
-are an option, so an album can use its own categories."""
+are an option, so an album can use its own categories.
+
+The gate's probabilities drift on photos without animals (a rainbow or a parked car can read as a
+third bird), so when identify is in the run (`boxes` is a fact) and found no box, the gate label
+gets no share (`wildlife_box`; scene tier 2026-09-25: 259 of 375 photos wrongly called wildlife had
+no box). A run of scene alone keeps the gate share, as before."""
 from __future__ import annotations
 
 import re
@@ -45,15 +50,17 @@ def check(o: dict[str, Any]) -> None:
     g = o["wildlife_gate"]
     if not isinstance(g, list) or not g or not set(g) <= set(GATE_CLASSES):
         raise ValueError(f"options.scene.wildlife_gate must be a non-empty list of {', '.join(GATE_CLASSES)}")
+    if not isinstance(o["wildlife_box"], bool):
+        raise ValueError("options.scene.wildlife_box must be true or false")
 
 
 MANIFEST = Manifest(
     name="scene",
-    version=1,
+    version=2,
     description="Scene category, zero-shot: SigLIP2 text prompts per label against the whole-frame vector "
                 "(labels without prompts, wildlife by default, take the gate's share of wildlife_gate). Top "
                 "label and every label's score; horizon tilt for landscape photos.",
-    reads=("vec", "gate", "image"),
+    reads=("vec", "gate", "image", "boxes?"),
     provides=("scene",),
     models=lambda opts: ("siglip2",),
     thread="model",
@@ -62,7 +69,10 @@ MANIFEST = Manifest(
                         "description": "label -> text prompts (averaged); one label may be [] = the gate's share"},
              "wildlife_gate": {"type": "array", "items": {"type": "string", "enum": list(GATE_CLASSES)},
                                "default": ["bird", "mammal"],
-                               "description": "gate classes whose probability the prompt-less label gets"}},
+                               "description": "gate classes whose probability the prompt-less label gets"},
+             "wildlife_box": {"type": "boolean", "default": True,
+                              "description": "the prompt-less label gets its share only when identify (in the run) "
+                                             "found a box; false: the gate share regardless"}},
     output={"label": "the top label", "scores": "{label: float}, summing to 1",
             "horizon": "null | {tilt_deg: degrees the dominant near-horizontal line rises to the right, "
                        "strength: its share of the edge weight} (landscape only)"},

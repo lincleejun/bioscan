@@ -32,14 +32,18 @@ def text_matrix(model: Any, labels: dict[str, list[str]]) -> np.ndarray:
 
 
 def scores(vec: np.ndarray, gate: dict[str, float] | None, labels: dict[str, list[str]], matrix: np.ndarray,
-           scale: float, gate_classes: list[str]) -> dict[str, float]:
+           scale: float, gate_classes: list[str], boxes: list | None = None) -> dict[str, float]:
     """{label: score} summing to 1: the gate label (no prompts) gets the gate's share of
-    `gate_classes`, the text labels a softmax over their similarity of the rest."""
+    `gate_classes`, the text labels a softmax over their similarity of the rest. `boxes` is
+    identify's list when it ran (an empty list means it found nothing: the share is 0), None when
+    it did not (the gate share stands)."""
     z = scale * (np.asarray(vec, dtype=np.float32) @ matrix.T)
     p = np.exp(z - z.max())
     p = p / p.sum()
     gated = [k for k, v in labels.items() if not v]
     share = min(1.0, max(0.0, sum((gate or {}).get(c, 0.0) for c in gate_classes))) if gated else 0.0
+    if boxes is not None and not boxes:
+        share = 0.0
     it = iter(p)
     return {k: (share if not v else (1.0 - share) * float(next(it))) for k, v in labels.items()}
 
@@ -107,7 +111,8 @@ class Scene(StageBase):
         scale = float(getattr(engine.siglip2, "logit_scale", None) or LOGIT_SCALE)
 
         def one(it: Item) -> dict[str, Any]:
-            sc = scores(it.vec, it.gate, labels, matrix, scale, o["wildlife_gate"])
+            boxes = it.facts.get("boxes") if o["wildlife_box"] else None
+            sc = scores(it.vec, it.gate, labels, matrix, scale, o["wildlife_gate"], boxes)
             top = max(sc, key=lambda k: sc[k])
             it.facts["scene"] = top
             return {"label": top, "scores": {k: round(v, 4) for k, v in sc.items()},
