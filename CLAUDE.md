@@ -55,6 +55,19 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
   (bird <-> mammal) when the species evidence says so.
 - Targets live in `docs/standards.md` (industry bar, our status, how measured); the harness reports against them.
 
+## Default workflow (2026-09-24)
+When the owner gives a folder of photos and says nothing else, this is the job, start to finish:
+1. Service: `uv run bioscan --url http://127.0.0.1:8767 health`; if it fails, start one from this checkout:
+   `uv run bioscan serve --port 8767 --allow-root DIR` (background, log in the scratchpad). Stop it when done if you started it.
+2. Run, one request, names and aesthetics together, all three exports:
+   `uv run bioscan --url http://127.0.0.1:8767 aesthetic score DIR --species --export json,csv,html --out DIR/bioscan`
+   (top level only unless told `-r`; add `--lat/--lon` when the photos have no GPS and the place is known).
+3. Report the run's own summary (scored / named / failed, score range, star cuts, top taxa, scene counts),
+   open `DIR/bioscan.html`, and list names that look out of place for the location.
+4. If the flow cannot do what was asked, change the code (with tests and docs), then run it.
+5. When the work is done and the definition of done holds: commit on a `claude/<topic>` branch, push, open a PR
+   to `main` with `gh pr create`, and watch `ci.yml` and `models.yml` until green. Report the PR link.
+
 ## Project facts
 - Python 3.12, `uv`. Service deps (torch, transformers, open_clip) load lazily; the CLI stays import-light.
 - Contract tests run the real Engine and identify pipeline on fake model adapters injected through

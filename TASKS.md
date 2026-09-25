@@ -281,3 +281,14 @@ never overwrite the owner's own stars; fully automatic (LrInit watcher), one com
 - [x] L3 acceptance: ruff, pytest, luac -p, real-data `lr open --no-launch --to` (12 own RAW, wildlife + album profiles), CI green; LrC end run on the owner's Mac (10 photos, 4 groups, stars 1-5, idempotent rerun); hand-changed-star and cancel paths unverified
 Found: `--profile album` turns species off, so every photo groups as 待确认; the documented one-liner uses `wildlife --want identify,embed,aesthetics` (stars from the EVA head merged in main).
 Found: `test_eval_on_a_preds_file_matches_golden` fails when the gitignored name-list CSVs are present in data/ (family names appear in bench-report.json); golden recorded without them, as CI runs.
+
+
+## 2026-09-24 evening: one run = names + aesthetics, exported as html/csv/json
+Goal: score `~/Documents/images/ak_selected` (808 RAW, top level) with species names and the aesthetic
+ranking in one run, exported as html (+csv, json), the page in the aesthetic gallery's style.
+- [x] `bioscan aesthetic score --species`: album profile with identify species on; rows carry (species, common, level) of the surest box
+- [x] CSV columns species/common/level; page shows the name, filters by species / named / unnamed, search by name
+- [x] unit test (surest box wins, genus level shows the genus, request options); docs/album.md, README
+- [x] CLAUDE.md: this flow is the default workflow; done = PR to main with green CI
+- [x] real run on ak_selected via a service from this checkout (port 8767): 808 scored, 273 named (270 species, 3 genus), 0 failed -> ak_selected/bioscan.{html,csv,ndjson}; owner review pending
+Verify: `uv run ruff check .`, `uv run pytest`; the run's own summary line (named to species/genus/family).
