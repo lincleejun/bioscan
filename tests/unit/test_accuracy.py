@@ -168,6 +168,46 @@ def test_raven_named_a_philippine_crow_is_vetoed():
     assert nowhere["top"][0]["scientific"] == "Corvus sierramadrensis" and nowhere["level"] == "species"
 
 
+CROWISH = unit([0.0, 1.0, 0.4, 0, 0, 0])      # posterior: Philippine crow > owl > Raven
+
+
+def test_in_range_congener_outside_the_top_k_is_found():
+    """T1: the Raven ranks third, below an owl, with top_k=2. The veto on the Philippine crow now
+    searches the whole list for an in-range Corvus; before, it only looked among the two returned."""
+    eng = Engine3(lambda c: CROWISH)
+    off = species(eng, "bird", top_k=3, range_veto=False)["species"]
+    assert [c["scientific"] for c in off["top"]] == ["Corvus sierramadrensis", "Megascops kennicottii", "Corvus corax"]
+    on = species(eng, "bird", top_k=2)["species"]
+    assert [c["scientific"] for c in on["top"]] == ["Corvus corax", "Corvus sierramadrensis"]   # still k rows
+    assert on["level"] != "species" and on["top"][0]["p_geo"] == 0.8
+
+
+@pytest.mark.parametrize("feature, k", [
+    ([0.6, 1.0, 0.2, 0, 0, 0], 3),    # Philippine crow first, vetoed, Raven already in the top-k
+    ([0.6, 1.0, 0.2, 0, 0, 0], 2),
+    ([1.0, 0.1, 0.3, 0, 0, 0], 1),    # Raven first: in range, no veto
+    ([0.1, 0.2, 1.0, 0, 0, 0], 1),    # owl first: in range, no veto
+    ([0.0, 1.0, 0.4, 0, 0, 0], 3),    # CROWISH with the Raven inside the top-k
+])
+def test_whole_list_search_changes_nothing_it_need_not(monkeypatch, feature, k):
+    """Veto with the congener already returned, or no veto: byte-identical to the top-k-only veto."""
+    eng = Engine3(lambda c: unit(feature))
+    new = species(eng, "bird", top_k=k)
+    monkeypatch.setattr(pipeline, "_congener", lambda *a: None)
+    assert new == species(eng, "bird", top_k=k)
+
+
+def test_no_in_range_congener_or_no_genus_leaves_the_veto_as_it_was():
+    lonely = name_list("bird", "Aves", ["Corvus sierramadrensis", "Megascops kennicottii", "Pica pica"],
+                       ["Corvus sierramadrensis_x", "Megascops kennicottii_x", "Corvus corax_x"], E[:3])
+    no_genus = dataclasses.replace(BIRDS, taxonomy=[[*t[:5], "", t[6]] for t in BIRDS.taxonomy])
+    feature = {"lonely": unit([1.0, 0.4, 0, 0, 0, 0]), "no_genus": CROWISH}
+    for name, birds in (("lonely", lonely), ("no_genus", no_genus)):     # Pica in range, not a Corvus
+        got = species(Engine3(lambda c, f=feature[name]: f, lists={"bird": birds}), "bird", top_k=2)["species"]
+        assert got["top"][0]["scientific"] == "Corvus sierramadrensis" and len(got["top"]) == 2, name
+        assert got["level"] != "species", name                           # still vetoed
+
+
 def test_owl_gated_mammal_moves_to_bird():
     eng = Engine3(lambda c: unit([0, 0, 1.0, 0.3, 0, 0]))                 # an owl: Megascops, a little skunk
     box = species(eng, "mammal")

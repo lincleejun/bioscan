@@ -17,6 +17,7 @@ from bioscan.plugins.identify import SWITCHES
 from bioscan.service import candidates
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
+    RANGE_TAU,
     RESCUE,
     SECOND_PASS_FLOOR,
     SECOND_PASS_TOP,
@@ -133,6 +134,10 @@ def _named(names: Any, prior: Any, row: np.ndarray, p_geo: np.ndarray | None, op
     With `rows` (candidates), `row` and `p_geo` cover only those rows of the list."""
     post = prior.posterior(row, p_geo) if prior is not None else row
     order = np.argsort(-post, kind="stable")[:opts["top_k"]]
+    veto = switch(opts, "range_veto") and prior is not None
+    direct = getattr(prior, "direct", None)              # a stand-in prior without it: all direct
+    if veto and (mate := _congener(names, direct, p_geo, post, order, rows)) is not None:
+        order = np.append(order, mate)                   # a contender for the veto, cut again below
     at = order if rows is None else rows[order]                # list rows
     top = [
         contract.candidate(names.scientific[r], names.common[r] or None, list(names.taxonomy[r]),
@@ -140,11 +145,29 @@ def _named(names: Any, prior: Any, row: np.ndarray, p_geo: np.ndarray | None, op
                            round(float(post[j]), 6))
         for j, r in zip(order, at)]
     vetoed = False
-    if switch(opts, "range_veto") and prior is not None:
-        direct = getattr(prior, "direct", None)          # a stand-in prior without it: all direct
+    if veto:
         top, vetoed = range_veto(top, None if direct is None else [bool(direct[r]) for r in at])
+        top = top[:opts["top_k"]]
     level = "unconfirmed" if kind_unsure else species_level(top, species_ok=not vetoed)
     return contract.species(names.list_id, level, top)
+
+
+def _congener(names: Any, direct: np.ndarray | None, p_geo: np.ndarray | None, post: np.ndarray,
+              order: np.ndarray, rows: np.ndarray | None) -> int | None:
+    """The best-posterior row (index into `post`) outside the top-k `order` that shares the first
+    candidate's genus and has a direct p_geo >= RANGE_TAU: the in-range congener rules.range_veto
+    may promote when none made the top-k (a Raven ranked below k Philippine-crow-like names).
+    None when there is no place, no known genus, or no such row."""
+    if p_geo is None or not len(order):
+        return None
+    at = np.arange(len(post)) if rows is None else rows          # list row of each index
+    genus = names.taxonomy[at[order[0]]][5]
+    ok = np.asarray(p_geo) >= RANGE_TAU
+    if direct is not None:
+        ok &= np.asarray(direct, dtype=bool)[at]
+    ok[order] = False
+    js = [j for j in np.flatnonzero(ok) if genus and names.taxonomy[at[j]][5] == genus]
+    return max(js, key=lambda j: post[j]) if js else None
 
 
 def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], list[tuple[float, ...]]]],

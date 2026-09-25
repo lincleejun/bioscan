@@ -115,7 +115,8 @@ def range_veto(cands: list[dict[str, Any]], direct: list[bool] | None = None) ->
     """(candidates, vetoed). `cands` ranked by posterior; `direct[i]` says whether cands[i]'s p_geo
     is evidence about that species itself (None = all are). Vetoed when the top one has a direct
     p_geo (the place is known and its list has a prior) below RANGE_EPS: it may not be graded
-    species, and the first congener with a direct p_geo >= RANGE_TAU, if any, moves to the front.
+    species, and the first congener (same known genus) with a direct p_geo >= RANGE_TAU, if any,
+    moves to the front. pipeline._named adds the list's best such congener when none made the top-k.
     The Raven ranked below a Philippine crow in California comes first again; the level is then
     the genus the two share. A p_geo borrowed from the genus (unlabelled policy "genus") vetoes
     nothing: a Californian jackrabbit is not absent because BirdNET's labelled hares are."""
@@ -123,7 +124,7 @@ def range_veto(cands: list[dict[str, Any]], direct: list[bool] | None = None) ->
     if not cands or cands[0]["p_geo"] is None or not direct[0] or cands[0]["p_geo"] >= RANGE_EPS:
         return cands, False
     genus = cands[0]["taxonomy"][5]
-    mate = next((c for c, d in zip(cands[1:], direct[1:]) if d and c["taxonomy"][5] == genus
+    mate = next((c for c, d in zip(cands[1:], direct[1:]) if d and genus and c["taxonomy"][5] == genus
                  and c["p_geo"] is not None and c["p_geo"] >= RANGE_TAU), None)
     return ([mate, *(c for c in cands if c is not mate)] if mate else cands), True
 

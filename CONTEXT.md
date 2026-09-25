@@ -115,8 +115,8 @@ _Avoid_: grade, confidence
 
 **Range veto**:
 Where the place is known and the list has a location prior, a top candidate whose own p_geo is below
-ε (`rules.RANGE_EPS`) cannot get level species; an in-range congener (p_geo ≥ τ, `rules.RANGE_TAU`)
-among the candidates is listed first. Identify option `range_veto`.
+ε (`rules.RANGE_EPS`) cannot get level species; the best in-range congener (p_geo ≥ τ, `rules.RANGE_TAU`)
+anywhere in the list is listed first, taking the last top-k slot if it was not returned. Identify option `range_veto`.
 _Avoid_: geo filter, out-of-range filter
 
 **Kind check**:
