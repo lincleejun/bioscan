@@ -264,6 +264,63 @@ def test_a_huge_all_taxa_list_never_takes_a_bird_box():
         assert b["species"]["list"] == "bird-list" and b["species"]["level"] != "unconfirmed"
 
 
+def test_chance_top_is_the_expected_best_of_n_normals():
+    from bioscan.service import rules
+
+    assert rules.chance_top(5) == pytest.approx((-1.16, -0.50, 0.0, 0.50, 1.16), abs=0.03)   # exact: +-1.163, +-0.495
+    assert rules.chance_top(11131)[-1] == pytest.approx(3.86, abs=0.02)        # AviList
+    assert rules.chance_top(366460)[-1] == pytest.approx(4.64, abs=0.02)       # all-taxa
+    assert rules.chance_top(1) == (0.0,)
+
+
+def test_size_corrected_kind_evidence_takes_the_list_size_out():
+    """Synthetic logits (spread 3, BioCLIP-like): a 1,000-row bird list against a 20,000-row all-taxa
+    list of pure noise. Uncorrected, the longer list wins nearly every draw by size alone; corrected,
+    about half, rarely sure. With one real bird match 4.2 sd up, correction turns most such boxes back
+    to bird."""
+    from bioscan.service import rules
+
+    rng = np.random.default_rng(0)
+    draws = [{"bird": rng.normal(size=1000) * 3, "other_animal": rng.normal(size=20000) * 3} for _ in range(200)]
+    raw = [rules.kind_of(rules.kind_evidence_logits(z)) for z in draws]
+    fair = [rules.kind_of(rules.kind_evidence_logits(z, size_correct=True)) for z in draws]
+    assert sum(k == "other_animal" for k, _ in raw) > 190
+    assert 70 < sum(k == "other_animal" for k, _ in fair) < 130
+    assert sum(sure for _, sure in fair) < 50 < sum(sure for _, sure in raw)
+    matched = []
+    for _ in range(200):
+        bird = rng.normal(size=1000) * 3
+        bird[0] = 3 * 4.2
+        matched.append({"bird": bird, "other_animal": rng.normal(size=20000) * 3})
+    assert sum(rules.kind_of(rules.kind_evidence_logits(z))[0] == "bird" for z in matched) < 100
+    assert sum(rules.kind_of(rules.kind_evidence_logits(z, size_correct=True))[0] == "bird" for z in matched) > 150
+
+
+def test_size_corrected_kind_check_against_a_padded_20k_all_taxa_list():
+    """The padded case on synthetic logits: a bird box's logits over an 11-row bird list with a clear
+    match and a 20,000-row all-taxa list of noise at the same spread. Uncorrected it goes to the
+    all-taxa list, sure of it; corrected it stays a bird, sure of it. Off by default."""
+    from bioscan.service import rules
+
+    rng = np.random.default_rng(7)
+    bird = rng.normal(size=11) * 3
+    bird[3] = 3 * 3.5
+    z = {"bird": bird, "other_animal": rng.normal(size=20000) * 3}
+    assert rules.kind_of(rules.kind_evidence_logits(z)) == ("other_animal", True)
+    assert rules.kind_of(rules.kind_evidence_logits(z, size_correct=True)) == ("bird", True)
+    assert rules.kind_evidence_logits(z) == rules.kind_evidence_logits(z, size_correct=False)
+
+
+def test_the_size_correct_trial_is_an_identify_option_off_by_default():
+    from bioscan.plugins.identify import MANIFEST, TRIALS
+
+    assert TRIALS == {"kind_size_correct": False}
+    assert MANIFEST.options["kind_size_correct"] == {"type": "boolean", "default": False}
+    m = Models12()
+    for spec, want in ((BIRDLIKE, {"bird"}), (BIRD_GATED_OTHER, {"bird"}), (OTHER, {"other_animal"})):
+        assert kinds(m, spec, kind_size_correct=True) == want
+
+
 def test_kind_check_evidence_per_list_equals_the_stacked_lists():
     from bioscan.service import rules
 

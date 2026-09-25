@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 from bioscan import contract
-from bioscan.plugins.identify import SWITCHES
+from bioscan.plugins.identify import SWITCHES, TRIALS
 from bioscan.service import candidates
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
@@ -41,8 +41,8 @@ PRIOR_SWITCH = {"mammal": "mammal_geo"}      # kind -> the switch its location p
 
 
 def switch(opts: dict[str, Any], name: str) -> bool:
-    """Whether the accuracy fix `name` (a SWITCHES key) is on for this run."""
-    return bool(opts.get(name, SWITCHES[name]))
+    """Whether the accuracy fix `name` (a SWITCHES or TRIALS key) is on for this run."""
+    return bool(opts.get(name, SWITCHES[name] if name in SWITCHES else TRIALS[name]))
 
 
 class Models(Protocol):
@@ -155,7 +155,8 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
     Kind check (switch "kind_check"): a box of a KIND_CHECK kind is also scored against every
     loaded KIND_CHECK list, each with its own matmul on the features already computed (no stacked
     matrix), and takes the kind whose best KIND_TOP rows hold most of that visual evidence
-    (rules.kind_evidence_logits: list size does not count); a box that moves on less than
+    (rules.kind_evidence_logits: list size does not count; trial "kind_size_correct": each list's
+    evidence above its chance level); a box that moves on less than
     KIND_SURE of it is graded unconfirmed. Visual evidence decides, not the posterior: the lists
     differ in prior coverage and unlabelled policy, so their posteriors do not compare across
     lists. The all-taxa list (other_animal) takes part only when it is loaded, and only for
@@ -197,7 +198,9 @@ def _species_many(engine: Models, work: list[tuple[Frame, list[dict[str, Any]], 
             mine = _rivals_for(kind, rivals)
             if kind in mine and len(mine) > 1:
                 logits = {k: _logits(engine, feats, k, None) for k in mine}
-                final = [kind_of(kind_evidence_logits({k: z[n] for k, z in logits.items()})) for n in range(len(part))]
+                sized = switch(opts, "kind_size_correct")
+                final = [kind_of(kind_evidence_logits({k: z[n] for k, z in logits.items()}, sized))
+                         for n in range(len(part))]
                 for other in dict.fromkeys(k for k, _sure in final if k != kind):
                     probs[other] = engine.bioclip.probs(feats, engine.names[other].matrix)
             for n, ((fi, bi), (k, sure)) in enumerate(zip(part, final)):
@@ -229,7 +232,7 @@ def _species_among(engine: Models, work: list[tuple[Frame, list[dict[str, Any]],
             feats = engine.bioclip.encode_images(crops)
             logits = {k: _logits(engine, feats, k, allowed[k]) for k in compete}
             for n, (fi, bi) in enumerate(part):
-                mass = kind_evidence_logits({k: z[n] for k, z in logits.items()})
+                mass = kind_evidence_logits({k: z[n] for k, z in logits.items()}, switch(opts, "kind_size_correct"))
                 if check:
                     k, sure = kind_of(mass)
                     unsure = k != kind and not sure

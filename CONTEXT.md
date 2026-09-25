@@ -125,7 +125,15 @@ and, for other_animal boxes only, the all-taxa list when loaded; each list its o
 `rules.KIND_TOP` names hold most of the visual evidence (list size does not count), whatever the gate
 and crop check said;
 a box that moved on a thin margin (`rules.KIND_SURE`) gets level unconfirmed. Identify option `kind_check`.
+Size-corrected (trial `kind_size_correct`): each list's best logits minus their chance level for its size
+(`rules.chance_top`) before the lists are compared.
 _Avoid_: second crop check, reclassify
+
+**Trial**:
+An identify option for an accuracy fix that is off by default until an eval on real photos says it helps
+(`identify.TRIALS`, today `kind_size_correct`); not in the settings fingerprint while off by default. One that
+becomes a default moves to the switches (`identify.SWITCHES`).
+_Avoid_: experiment, flag
 
 **Candidate**:
 One ranked name for a box: scientific, common, taxonomy, p_visual, p_geo, posterior.
