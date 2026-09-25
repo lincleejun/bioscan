@@ -117,7 +117,7 @@
 `group`（8 个粗组之一）、`scene`（细标签，Open Images 分不出来的写空串，如 `bird`、`mammal`）和 `any` / `all` / `not`
 三种类集合；一张照片同时符合两个标签就两边都不要。`[attribute.light|setting|framing]` 给 CSV 的属性列。
 `bioscan gt scene --out DIR --per-label N` 把 val + test 的标签 CSV（约 180 MB）缓存到 `~/.cache/bioscan/openimages/`，
-按 seed 抽样后从 CVDF 的 S3 镜像下载照片到 `DIR/<label>/`，写 `DIR/groundtruth-scene.csv`
+按 seed 抽样后从 CVDF 的 S3 镜像下载照片到 `DIR/<scene 或 group>/`（与 `--from` 同一规则），写 `DIR/groundtruth-scene.csv`
 （列 `path, tier, scene, scene_group, light, setting, framing, license, attribution, source`）。
 照片全部 CC BY 2.0，逐张记作者与出处，只用来评测，不进仓库。分类法与来源调研见 `docs/research/2026-09-24-scene-*.md`。
 

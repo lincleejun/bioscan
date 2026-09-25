@@ -357,7 +357,7 @@ def gt_scene(map_path: str, out_dir: str, per_label: int, seed: int = 7, subsets
              cache_dir: str | None = None, dry_run: bool = False, get=http_get, throttle: Throttle | None = None,
              log=print) -> list[dict]:
     """Sample up to per_label unambiguous Open Images photos per scene label (seeded), download them to
-    out_dir/<label>/<subset>_<id>.jpg and write out_dir/groundtruth-scene.csv with each photo's url and
+    out_dir/<scene or group>/<subset>_<id>.jpg and write out_dir/groundtruth-scene.csv with each photo's url and
     md5 (the manifest `gt scene --from` re-fetches). The label CSVs (about 180 MB in all) are cached
     under cache_dir; --dry-run does everything but the photos and writes the CSV with the photo URL as
     path and no md5."""
@@ -385,7 +385,7 @@ def gt_scene(map_path: str, out_dir: str, per_label: int, seed: int = 7, subsets
                     break
                 m = meta[image_id]
                 url = OID_PHOTO.format(subset=subset, image_id=image_id)
-                path = Path(out_dir) / label / f"{subset}_{image_id}.jpg"
+                path = Path(out_dir) / (e.get("scene") or e["group"]) / f"{subset}_{image_id}.jpg"   # as gt_scene_from
                 md5 = "" if dry_run else fetch_photo(url, path, "", get, throttle)
                 rows.append({"path": url if dry_run else str(path.resolve()), "tier": "scene", "scene": e.get("scene", ""),
                              "scene_group": e["group"], **scene_attributes(positives[image_id], spec.get("attribute") or {}, ids),

@@ -357,7 +357,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--dry-run", action="store_true", help="print API URLs only, download nothing")
     s.set_defaults(func=cmd_gt_inat)
     s = g.add_parser("scene", help="download Open Images V7 photos per scene label -> scene-tier CSV")
-    s.add_argument("--out", required=True, help="folder for <label>/<subset>_<id>.jpg and groundtruth-scene.csv")
+    s.add_argument("--out", required=True, help="folder for <scene or group>/<subset>_<id>.jpg and groundtruth-scene.csv")
     s.add_argument("--from", dest="from_manifest", metavar="CSV",
                    help="re-fetch a committed set (e.g. data/scene/scene-v1.csv) by url + md5 instead of sampling; "
                         "photos already there with that md5 are kept")
