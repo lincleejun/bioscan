@@ -68,7 +68,7 @@ Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), Bi
 
 | Document | What it holds |
 |---|---|
-| [docs/usage.md](docs/usage.md) | install, CLI, supported RAW formats, ports and variables, candidates, profiles and `bioscan.toml`, HTTP API, exit codes |
+| [docs/usage.md](docs/usage.md) | install, CLI, supported RAW formats, ports and variables, candidates, profiles and `bioscan.toml`, Lightroom Classic, HTTP API, exit codes |
 | [docs/how-it-works.md](docs/how-it-works.md) | scope, the pipeline, grading and the accuracy rules, models and data with licences, name mapping, known limitations |
 | [docs/geotag.md](docs/geotag.md) | GPX geotagging: sources, time zones, clock offset, fix rule, XMP, accuracy |
 | [docs/album.md](docs/album.md) | aesthetics (general and personal head, evaluation, the golden set) and `bioscan cull` |

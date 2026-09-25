@@ -166,6 +166,28 @@ candidates = ["Strigidae", "Accipitridae"]
 - **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options and the check of their values; the service code in `stage.py`, imported only for the stages in a run's plan). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are listed in the order `identify, embed, jpg, geotag, aesthetics, quality, scene`. Stages built since v1.7 report what they ran with in `result.engine.plugins` when a run includes them: the head a stage's output depends on (aesthetics: `v1@<head id>`, nothing with `head: off`), else `v<version>@<settings fingerprint>` (quality, scene).
 - **Reducers**: `reducers = ["burst", "select"]` names model-free units that run over a whole run's results in the CLI (`bioscan cull`, `bench`) or offline, never in the service, which stays stateless. Their options live beside the stages' (`[profile.album.options.select] per_category = 20`); a /run body may not set them.
 
+### Lightroom Classic (experimental)
+
+One-time install, then restart Lightroom Classic once:
+
+```bash
+bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy)
+```
+
+Every scan after that is one line. `wildlife` keeps species on; add the `aesthetics` stage to get aesthetic stars (`album` alone turns species off, so every photo would land in `待确认`):
+
+```bash
+bioscan run DIR --profile wildlife --want identify,embed,aesthetics --json --out preds.ndjson && bioscan lr open preds.ndjson
+```
+
+`lr open` writes `~/Library/Application Support/bioscan/lightroom/latest.json` (atomically; `--to FILE` elsewhere) and brings Lightroom to the front (`--no-launch` skips that); the plugin picks the file up and applies it:
+
+- **Stars** 1-5 by quantile among the photos with an animal (about 20% per star) of `products.aesthetics.score` when the run has it, else of the best box's sharpness; photos with no animal get none. A photo that already has stars you gave it is never overwritten.
+- **Keywords**, hierarchical: `bioscan|kind|name`, where name is the common name at species level, the genus or family at those levels, and left out when unconfirmed.
+- **Collections** in the collection set `bioscan`: one per species, `待确认` (animal, no species) and `无动物` (no animal).
+
+Rerunning the same file adds no duplicates. The plugin and its manual acceptance steps are in `extensions/lightroom/README.md`.
+
 ### HTTP API
 
 ```sh
