@@ -352,6 +352,11 @@ def test_candidates_keep_the_range_veto_and_the_mammal_prior():
     assert on["level"] == "genus"
     off = species(raven, "bird", candidates=["Corvus"], range_veto=False)["species"]
     assert off["top"][0]["scientific"] == "Corvus sierramadrensis" and off["level"] == "species"
+    crowish = Engine3(lambda c: unit([0.0, 1.0, 0.4, 0, 0, 0]))          # the Raven outside the top-1
+    top = species(crowish, "bird", candidates=["Corvus sierramadrensis", "Megascops", "Corvus corax"], top_k=1)
+    assert [c["scientific"] for c in top["species"]["top"]] == ["Corvus corax"]
+    top = species(crowish, "bird", candidates=["Corvus sierramadrensis", "Megascops"], top_k=1)
+    assert [c["scientific"] for c in top["species"]["top"]] == ["Corvus sierramadrensis"]  # Raven not allowed
     hare = Engine3(lambda c: unit([0, 0, 0, 0.2, 0.1, 1.0]))            # an unlabelled Lepus: genus back-off
     top = species(hare, "mammal", candidates=["Lepus", "Phoca"])["species"]["top"]
     from bioscan.service.adapters import geo
