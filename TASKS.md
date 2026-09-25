@@ -156,6 +156,8 @@ Spec: docs/superpowers/specs/2026-09-24-lightroom-plugin-design.md. Decisions (o
 stars as a placeholder for C2; LrC Lua plugin reads a file (no HTTP, no XMP); keywords + collection set;
 never overwrite the owner's own stars; fully automatic (LrInit watcher), one command after the scan.
 
-- [ ] L1 `bioscan/cli/lr.py` + `bioscan lr open|install` + tests/unit/test_lr.py + README (EN, zh-CN) section
-- [ ] L2 `extensions/lightroom/bioscan.lrplugin` (Info, Apply, Watch, Metadata, dkjson) + extensions/lightroom/README.md
-- [ ] L3 acceptance: ruff, pytest, luac -p, real-data `lr open --no-launch --to`, CI green; LrC end unverified until the owner installs
+- [x] L1 `bioscan/cli/lr.py` + `bioscan lr open|install` + tests/unit/test_lr.py + README (EN, zh-CN) section
+- [x] L2 `extensions/lightroom/bioscan.lrplugin` (Info, Apply, Watch, Metadata, dkjson) + extensions/lightroom/README.md
+- [x] L3 acceptance: ruff, pytest, luac -p, real-data `lr open --no-launch --to` (12 own RAW, wildlife + album profiles), CI green; LrC end unverified until the owner installs
+Found: `--profile album` turns species off, so every photo groups as 待确认; the documented one-liner uses `wildlife`.
+Found: `test_eval_on_a_preds_file_matches_golden` fails when the gitignored name-list CSVs are present in data/ (family names appear in bench-report.json); golden recorded without them, as CI runs.

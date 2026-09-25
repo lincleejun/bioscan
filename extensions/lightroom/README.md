@@ -25,7 +25,7 @@ follow plug-in updates, so delete it from Modules and rerun `--copy` after pulli
 ## Daily flow
 
 ```
-bioscan run DIR --profile album --json --out preds.ndjson && bioscan lr open preds.ndjson
+bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open preds.ndjson
 ```
 
 `lr open` writes `~/Library/Application Support/bioscan/lightroom/latest.json` and brings Lightroom to
