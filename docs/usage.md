@@ -166,6 +166,32 @@ candidates = ["Strigidae", "Accipitridae"]
 - **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options and the check of their values; the service code in `stage.py`, imported only for the stages in a run's plan). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are listed in the order `identify, embed, jpg, geotag, aesthetics, quality, scene`. Stages built since v1.7 report what they ran with in `result.engine.plugins` when a run includes them: the head a stage's output depends on (aesthetics: `v1@<head id>`, nothing with `head: off`), else `v<version>@<settings fingerprint>` (quality, scene).
 - **Reducers**: `reducers = ["burst", "select"]` names model-free units that run over a whole run's results in the CLI (`bioscan cull`, `bench`) or offline, never in the service, which stays stateless. Their options live beside the stages' (`[profile.album.options.select] per_category = 20`); a /run body may not set them.
 
+### Run summary and report
+
+```sh
+bioscan run DIR -r --json run/preds.ndjson        # or: bioscan cull ... --json
+bioscan summarize run/preds.ndjson --out run      # -> run/summary.json, prints one line
+bioscan report run                                # -> run/report.html (reads summary.json only; --out HTML)
+```
+
+`summarize` prints `1,424 photos · 212 with animals · 31 taxa · 9 to review` ("with animals": the gate called an animal class); the page is worth opening when "to review" is above zero. Both commands are offline and model-free (standard library, no service). Design and reasons: [research/2026-09-24-report-design.md](research/2026-09-24-report-design.md).
+
+`summary.json` (`schema: 1`, `kind: "bioscan.summary"`):
+
+| Key | Holds |
+|---|---|
+| `source` | the preds path and its sha256, the engine (version, settings, models) of the first result, first and last capture time |
+| `counts` | images (results + failed), ok, failed, boxes, elapsed_ms (from `done`) |
+| `categories` | the gate classes in fixed order (bird, mammal, other_animal, person, none), zeros included. An image counts under its gate class; for the animal classes, boxes, taxa and review items count by box kind (the kind check may have moved a box) |
+| `taxa` | one row per named taxon, most boxes first: the name at the box's level (species, else the genus or family of the first candidate), common name (species only), level, kind, taxonomy down to that level, list, images, boxes, the first candidate's posterior (max, median), `best` (highest posterior × sharpness), every member box with its first 3 candidates, capture span |
+| `review` | the review queue, sorted by suggested name then capture time: sha256, path, jpg copy, box id (null for a whole frame), kind, level, reasons, suggested name, first 3 candidates |
+| `rules` | the thresholds used: `single_sighting_max_posterior` 0.8, `range_eps` 0.01 |
+| `errors` | every error event: path, product (null = decode), message |
+
+Review reasons are rules, never a model: `unconfirmed` (level unconfirmed), `coarse_level` (genus or family), `out_of_range` (the first candidate's p_geo below `range_eps`, the service's `RANGE_EPS`), `no_list` (species null: a kind with no name list), `gate_no_box` (the gate says an animal but no box survived), `single_sighting` (the only box of its taxon in the run, posterior below `single_sighting_max_posterior`). Boxes from a run with species off are counted, not named or reviewed. `jpg` (the service's upright copy, when the run asked for one) and `taken_at` on members and review items are additions to the design's schema, so the page shows photos and sorts by time without reading the preds file.
+
+`report.html` is a view of `summary.json` alone, with `bioscan cull`'s stylesheet and photo tiles (the `jpg` copy, else the photo when a browser can show it, else its format): the one line and a proportional category strip, the taxa per kind with their best frame, the review queue grouped by suggested name with reasons in words and the candidates, counts of people and empty frames, errors, run facts. Not built yet (design §3): verdict buttons, `names.json`, `review.json` and `bioscan gt review`; thumbnails of RAW files without a `jpg` copy.
+
 ### HTTP API
 
 ```sh

@@ -1,0 +1,232 @@
+{
+ "schema": 1,
+ "kind": "bioscan.summary",
+ "source": {
+  "preds": "run-all-products.ndjson",
+  "sha256": "sha",
+  "engine": {
+   "version": "0.1.0",
+   "settings": "c4b749b93b71",
+   "models": {
+    "gate": "google/siglip2-base-patch16-224@75de2d55ec2d",
+    "detect": "google/owlv2-base-patch16-ensemble@cfd3195ba4ea",
+    "species": "imageomics/bioclip-2.5-vith14@6e3d04e3d652",
+    "names": {
+     "bird": "fake-owls@test"
+    },
+    "taxonomy": {},
+    "geo": "birdnet-geo-3.0",
+    "priors": {
+     "bird": "birdnet-geo-3.0"
+    },
+    "label_maps": {}
+   }
+  },
+  "first_taken_at": null,
+  "last_taken_at": null
+ },
+ "counts": {
+  "images": 3,
+  "ok": 3,
+  "failed": 0,
+  "boxes": 3,
+  "elapsed_ms": 0.0
+ },
+ "categories": [
+  {
+   "class": "bird",
+   "images": 3,
+   "boxes": 3,
+   "taxa": 1,
+   "review": 0
+  },
+  {
+   "class": "mammal",
+   "images": 0,
+   "boxes": 0,
+   "taxa": 0,
+   "review": 0
+  },
+  {
+   "class": "other_animal",
+   "images": 0,
+   "boxes": 0,
+   "taxa": 0,
+   "review": 0
+  },
+  {
+   "class": "person",
+   "images": 0
+  },
+  {
+   "class": "none",
+   "images": 0
+  }
+ ],
+ "taxa": [
+  {
+   "name": "Megascops kennicottii",
+   "common": "Western Screech-Owl",
+   "level": "species",
+   "kind": "bird",
+   "taxonomy": [
+    "Animalia",
+    "Chordata",
+    "Aves",
+    "Strigiformes",
+    "Strigidae",
+    "Megascops",
+    "Megascops kennicottii"
+   ],
+   "list": "fake-owls",
+   "images": 3,
+   "boxes": 3,
+   "posterior": {
+    "max": 0.956571,
+    "median": 0.81
+   },
+   "best": {
+    "sha256": "5c999000cb4fbadef69eeaaf58314610ca5bacf9e98a493b0a4710871d308bc1",
+    "path": "<tmp>/in/a.jpg",
+    "jpg": "<tmp>/out/a-5c999000.jpg",
+    "box": 0
+   },
+   "members": [
+    {
+     "sha256": "5c999000cb4fbadef69eeaaf58314610ca5bacf9e98a493b0a4710871d308bc1",
+     "path": "<tmp>/in/a.jpg",
+     "jpg": "<tmp>/out/a-5c999000.jpg",
+     "taken_at": null,
+     "box": 0,
+     "posterior": 0.956571,
+     "top": [
+      {
+       "scientific": "Megascops kennicottii",
+       "common": "Western Screech-Owl",
+       "taxonomy": [
+        "Animalia",
+        "Chordata",
+        "Aves",
+        "Strigiformes",
+        "Strigidae",
+        "Megascops",
+        "Megascops kennicottii"
+       ],
+       "p_visual": 0.81,
+       "p_geo": 0.6,
+       "posterior": 0.956571
+      },
+      {
+       "scientific": "Megascops asio",
+       "common": "Eastern Screech-Owl",
+       "taxonomy": [
+        "Animalia",
+        "Chordata",
+        "Aves",
+        "Strigiformes",
+        "Strigidae",
+        "Megascops",
+        "Megascops asio"
+       ],
+       "p_visual": 0.19,
+       "p_geo": 0.1,
+       "posterior": 0.043429
+      }
+     ]
+    },
+    {
+     "sha256": "0e281b87e5a17f89f6ed231fd4dac3b297b77a7c256e2e13bbc6ecda92ddd100",
+     "path": "<tmp>/in/big.jpg",
+     "jpg": "<tmp>/out/big-0e281b87.jpg",
+     "taken_at": null,
+     "box": 0,
+     "posterior": 0.81,
+     "top": [
+      {
+       "scientific": "Megascops kennicottii",
+       "common": "Western Screech-Owl",
+       "taxonomy": [
+        "Animalia",
+        "Chordata",
+        "Aves",
+        "Strigiformes",
+        "Strigidae",
+        "Megascops",
+        "Megascops kennicottii"
+       ],
+       "p_visual": 0.81,
+       "p_geo": null,
+       "posterior": 0.81
+      },
+      {
+       "scientific": "Megascops asio",
+       "common": "Eastern Screech-Owl",
+       "taxonomy": [
+        "Animalia",
+        "Chordata",
+        "Aves",
+        "Strigiformes",
+        "Strigidae",
+        "Megascops",
+        "Megascops asio"
+       ],
+       "p_visual": 0.19,
+       "p_geo": null,
+       "posterior": 0.19
+      }
+     ]
+    },
+    {
+     "sha256": "5efa766861882b71d8e611a417f0a15a801723eae0582d428c18ca48b5cb5c94",
+     "path": "<tmp>/in/c.jpg",
+     "jpg": "<tmp>/out/c-5efa7668.jpg",
+     "taken_at": null,
+     "box": 0,
+     "posterior": 0.81,
+     "top": [
+      {
+       "scientific": "Megascops kennicottii",
+       "common": "Western Screech-Owl",
+       "taxonomy": [
+        "Animalia",
+        "Chordata",
+        "Aves",
+        "Strigiformes",
+        "Strigidae",
+        "Megascops",
+        "Megascops kennicottii"
+       ],
+       "p_visual": 0.81,
+       "p_geo": null,
+       "posterior": 0.81
+      },
+      {
+       "scientific": "Megascops asio",
+       "common": "Eastern Screech-Owl",
+       "taxonomy": [
+        "Animalia",
+        "Chordata",
+        "Aves",
+        "Strigiformes",
+        "Strigidae",
+        "Megascops",
+        "Megascops asio"
+       ],
+       "p_visual": 0.19,
+       "p_geo": null,
+       "posterior": 0.19
+      }
+     ]
+    }
+   ],
+   "first_taken_at": null,
+   "last_taken_at": null
+  }
+ ],
+ "review": [],
+ "rules": {
+  "single_sighting_max_posterior": 0.8,
+  "range_eps": 0.01
+ },
+ "errors": []
+}

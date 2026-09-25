@@ -6,7 +6,8 @@
 > user need to give feedback on the page. The page's look is to be designed, not defaulted.
 
 This replaces the TASKS.md item "`bioscan report <preds.ndjson>`" (thumbnails grouped by top-1, species table,
-review.csv). Nothing here is built yet. A clickable prototype of the page, filled with example data, was
+review.csv). Built (2026-09-25): `bioscan summarize` and a read-only `bioscan report` ([usage.md](../usage.md#run-summary-and-report));
+the feedback part (§3) is not. A clickable prototype of the page, filled with example data, was
 published with this note; it has no real photos because this container cannot reach iNaturalist or the
 owner's archive.
 
