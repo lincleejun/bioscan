@@ -6,7 +6,7 @@
 #
 # Keys per profile: description, stages (the default `want`), reducers (burst, select: run by the
 # CLI or offline over the results, never by the service), options.<stage or reducer>.<option>.
-# See README "Profiles and bioscan.toml" and "Culling an album".
+# See docs/usage.md "Profiles and bioscan.toml" and docs/album.md "Culling an album".
 
 [profile.full]
 description = "The contract as before profiles: identify by default; embed and jpg when want asks for them."

@@ -45,7 +45,7 @@ bioscan bench analyze runs/2026-09-25-golden/report.json --md runs/2026-09-25-go
 A regression past the budget exits 1. Per CLAUDE.md, a change over budget needs the owner's acceptance;
 when it is accepted, the new report becomes the baseline in its own commit (`bench baseline ... --force`).
 
-**Profiles.** `bench run` and `eval` take `--profile NAME` (see README "Profiles and bioscan.toml"). The
+**Profiles.** `bench run` and `eval` take `--profile NAME` (see usage.md "Profiles and bioscan.toml"). The
 profile's stages must include identify, which is what the harness scores; eval still asks for `top_k` 5, and
 `--no-geo` / `--identify-opt` override the profile. The preds meta line records `"profile"` and the expanded
 `options`, so report.json's `meta.options` shows what ran. Without `--profile`, `BIOSCAN_PROFILE` or a
@@ -387,7 +387,7 @@ labelled trips (TASKS.md).
 
 ## geotag: GPX geotagging (`bench geotag`)
 
-`bioscan geotag` places photos on a GPX track (README, "Geotag from a GPX track"). The owner has no GPX
+`bioscan geotag` places photos on a GPX track (geotag.md). The owner has no GPX
 to share, so `scripts/geotag_synth.py` builds tracks from the golden set's true positions and times.
 `bench geotag` then scores geotagging against the truth. This is a separate subcommand with its own
 report, and it does not feed `bench compare`, because compare is built around species answers: it
@@ -484,7 +484,7 @@ expected. Until these runs exist, the effect of GPX positions on species ID is *
 
 ## aesthetic: agreement with the owner (`bioscan aesthetic eval`)
 
-The `aesthetics` stage (README, "Aesthetics (album)") ranks frames by a linear head on the SigLIP2 frame
+The `aesthetics` stage (album.md "Aesthetics") ranks frames by a linear head on the SigLIP2 frame
 vector. `bioscan aesthetic eval` measures how its ranking agrees with the owner's own ratings. Like
 `bench geotag`, it has its own report (schema `bioscan-aesthetic-report`, version 1) and feeds the shared
 scorecard, not `bench compare`: compare is built around species answers per image. It lives in

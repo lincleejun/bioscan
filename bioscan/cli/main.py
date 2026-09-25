@@ -352,7 +352,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--preds", help="score an existing preds.ndjson instead of calling the service")
     s.add_argument("--no-synonyms", action="store_true", help="compare raw truth labels (skip data/names/synonyms.csv)")
     s.add_argument("--identify-opt", action="append", metavar="NAME=VALUE",
-                   help="extra identify option, repeatable; e.g. range_veto=false to measure that fix (README)")
+                   help="extra identify option, repeatable; e.g. range_veto=false to measure that fix (docs/how-it-works.md)")
     s.add_argument("--candidates", help=CANDIDATES_HELP)
     s.add_argument("--profile", help=PROFILE_HELP)
     s.set_defaults(func=cmd_eval)
