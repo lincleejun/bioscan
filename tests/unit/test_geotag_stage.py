@@ -33,7 +33,8 @@ def opts(**given):
 
 def test_manifest():
     assert (MANIFEST.reads, MANIFEST.provides, MANIFEST.thread, MANIFEST.models({})) == (("time",), ("place",), "cpu", ())
-    assert MANIFEST.defaults == {"gpx": [], "camera_utc_offset": "", "offset": "", "max_gap_s": gt.MAX_GAP_S,
+    assert MANIFEST.defaults == {"gpx": [], "camera_utc_offset": "", "offset": "", "camera_offsets": {},
+                                 "max_gap_s": gt.MAX_GAP_S,
                                  "max_span_m": gt.MAX_SPAN_M, "max_still_s": gt.MAX_STILL_S,
                                  "extrapolate_s": gt.EXTRAPOLATE_S}
     assert BY_NAME["geotag"] is MANIFEST
@@ -43,7 +44,9 @@ def test_manifest():
                          ({"max_still_s": True}, "max_still_s must be a number >= 0"),
                          ({"offset": "soon"}, "options.geotag.offset: clock offset"),
                          ({"camera_utc_offset": "Mars/Base"}, "options.geotag.camera_utc_offset: unknown timezone"),
-                         ({"offset": 3}, "offset must be a string")]:
+                         ({"offset": 3}, "offset must be a string"),
+                         ({"camera_offsets": {"X": 3}}, "camera_offsets must map camera to an offset string"),
+                         ({"camera_offsets": {"X": "soon"}}, r"camera_offsets\['X'\]: clock offset")]:
         with pytest.raises(ValueError, match=message):
             opts(**bad)
 
@@ -57,8 +60,8 @@ def test_plan_runs_geotag_before_identify_and_full_never_has_it():
     assert profile.resolve(BUILTIN, "full").want == ["identify"]
 
 
-def item(path, lat=None, lon=None, exif=(None, None), taken=None):
-    dec = SimpleNamespace(lat=exif[0], lon=exif[1], taken_at=taken)
+def item(path, lat=None, lon=None, exif=(None, None), taken=None, camera=None):
+    dec = SimpleNamespace(lat=exif[0], lon=exif[1], taken_at=taken, camera=camera)
     return plugin.Item(dec, {"path": path, "lat": lat, "lon": lon, "taken_at": None})
 
 
@@ -76,6 +79,11 @@ def test_run_places_only_photos_without_a_place(tmp_path):
     assert STAGE.run(None, items, opts()) == [None] * 5                      # no track: nothing to do
     off = STAGE.run(None, [item("/g.jpg", taken=T8 + "01:40-07:00")], opts(gpx=[str(track)], offset="+60"))
     assert off[0]["lat"] == pytest.approx(WALK0 + 40 * M_LAT, abs=1e-6)     # camera 60 s fast
+    cams = STAGE.run(None, [item("/g.jpg", taken=T8 + "01:40-07:00", camera="FUJIFILM X-T5"),
+                            item("/h.jpg", taken=T8 + "01:40-07:00", camera="SONY ILCE-7RM5")],
+                     opts(gpx=[str(track)], offset="+60", camera_offsets={"FUJIFILM X-T5": "0"}))
+    assert cams[0]["lat"] == pytest.approx(WALK0 + 100 * M_LAT, abs=1e-6)  # its own offset
+    assert cams[1]["lat"] == off[0]["lat"]                                   # not named: offset
     local = STAGE.run(None, [item("/g.jpg", taken=T8 + "01:40")], opts(gpx=[str(track)], camera_utc_offset="-07:00"))
     assert local[0]["place_source"] == "gpx"                                 # a time without an offset, read in the zone
 

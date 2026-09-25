@@ -46,7 +46,7 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | | 命令 | 文档 |
 |---|---|---|
 | **识别**框和物种，定级为种 / 属 / 科 / unconfirmed；地理先验来自 EXIF GPS 或 `--lat/--lon`；`--candidates` 缩到候选类群 | `bioscan run DIR` | [usage.md](docs/usage.md)、[how-it-works.md](docs/how-it-works.md) |
-| **补 GPS**：用手表或手机的 GPX 轨迹；拍一张表盘定时钟偏差；写 XMP sidecar | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
+| **补 GPS**：用手表或手机的 GPX 轨迹；时钟偏差按相机（EXIF 品牌 + 型号）分别定，来自表盘照片或带 GPS 的照片；写 XMP sidecar | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
 | **挑片**：带理由的废片、连拍及其最佳一帧、每个场景类别的最佳照片、美学排序；HTML 审阅页、CSV、符号链接；从不删除 | `bioscan cull DIR -r --html review.html` | [album.md](docs/album.md) |
 | **给文件夹打分**：美学排序导出为 NDJSON、CSV 和/或带缩略图的 HTML 画廊；可从 NDJSON 离线重新导出 | `bioscan aesthetic score DIR -r --export json,csv,html --out aes` | [album.md](docs/album.md) |
 | **个人美学**：用你的 Lightroom 星级拟合一个头，与通用头混合 | `bioscan aesthetic train --ratings DIR` | [album.md](docs/album.md) |
