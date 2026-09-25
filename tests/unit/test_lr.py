@@ -188,3 +188,13 @@ def test_install_copy(tmp_path, monkeypatch):
     assert main(["lr", "install", "--modules", str(tmp_path / "M"), "--copy"]) == 0
     dest = tmp_path / "M" / "bioscan.lrplugin"
     assert not dest.is_symlink() and (dest / "Info.lua").read_text() == "return {}"
+
+
+def test_score_prefers_the_aesthetic_score_when_the_run_has_one():
+    ev = {"type": "result", "path": "/p/a.jpg", "products": {
+        "identify": {"gate": {"class": "bird"}, "boxes": [
+            {"id": 0, "xyxy": [0, 0, 1, 1], "score": 0.9, "kind": "bird", "quality": {"sharpness": 0.4, "exposure": 0}}]},
+        "aesthetics": {"score": 0.73, "general": 0.73, "personal": None, "head_id": "eva:abc"}}}
+    assert lr.photo(ev)["score"] == 0.73
+    ev["products"]["aesthetics"]["score"] = None          # head missing: back to sharpness
+    assert lr.photo(ev)["score"] == 0.4

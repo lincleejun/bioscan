@@ -63,7 +63,7 @@ bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open 
 
 输入：NDJSON，每行一个事件；只取 `type == "result"` 的行（error、progress、done、eval 的 meta 行跳过）。
 
-- **score**：`max(box.quality.sharpness)`，无 box 为 0.0。
+- **score**：`products.aesthetics.score`（run 带 aesthetics stage 且非 null 时；main 于 2026-09-25 合入了 EVA 美学头），否则 `max(box.quality.sharpness)`；无 box 为 0.0。
 - **stars**（占位，`# ponytail:` 注释指向 C2）：设 S 为有 box 的照片列表，按 `(score, path)` 升序排，n = len(S)，第 i 个（0 起）得 `1 + (5 * i) // n`，即 1-5 星，每档约 20%；n = 1 得 1 星。无 box 的照片 `stars = 0`。
 - **关键字**（每 box 一条，图内去重，保持顺序）：`kind = box.kind`；
   - `level == "species"` 且有 top → `["bioscan", kind, top[0].common or top[0].scientific]`

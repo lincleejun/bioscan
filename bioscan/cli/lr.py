@@ -75,13 +75,16 @@ def photo(ev: dict) -> dict:
         group, species, level = REVIEW, "", contract.level_of(contract.species_of(best)) or "unconfirmed"
     else:
         group, species, level = NONE, "", "none"
-    return {"path": ev["path"], "score": max(((b.get("quality") or {}).get("sharpness", 0.0) for b in boxes), default=0.0),
+    aesthetic = ((ev.get("products") or {}).get("aesthetics") or {}).get("score")
+    sharpness = max(((b.get("quality") or {}).get("sharpness", 0.0) for b in boxes), default=0.0)
+    return {"path": ev["path"], "score": sharpness if aesthetic is None else aesthetic,
             "keywords": keywords(ev), "group": group, "species": species, "level": level}
 
 
 def stars(photos: list[dict]) -> None:
     """Sets each photo's "stars": 1-5 by score quantile among photos with a box (about 20% each), 0 without one."""
-    # ponytail: sharpness quantile as a stand-in for an aesthetic score; replace with the C2 aesthetic head.
+    # ponytail: a within-run quantile, not a calibrated map from the aesthetic score; fit the map once the
+    # owner's stars are in (bioscan aesthetic eval). Runs without the aesthetics stage rank by sharpness.
     ranked = sorted((p for p in photos if p["level"] != "none"), key=lambda p: (p["score"], p["path"]))
     for p in photos:
         p["stars"] = 0
