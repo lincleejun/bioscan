@@ -54,12 +54,13 @@ def test_a_misbehaving_stage_is_an_error_per_image_and_the_stream_ends(tmp_path,
 
 
 def test_builtin_stage_threads(client, tmp_path, monkeypatch):
-    """identify and embed on the single model thread, jpg on the CPU pool: pinned in the manifests
-    and observed at run time."""
+    """identify, embed and scene on the single model thread, jpg, aesthetics and quality on the CPU pool:
+    pinned in the manifests and observed at run time."""
     from bioscan import plugin
 
     assert {m.name: m.thread for m in BUILTIN} == {"identify": "model", "embed": "model", "jpg": "cpu",
-                                                    "geotag": "cpu"}
+                                                    "geotag": "cpu", "aesthetics": "cpu", "quality": "cpu",
+                                                    "scene": "model"}
     seen = {}
     for m in BUILTIN:
         stage = plugin.load(m)
@@ -69,9 +70,10 @@ def test_builtin_stage_threads(client, tmp_path, monkeypatch):
             return real(engine, items, o)
         monkeypatch.setattr(stage, "run", spy)
     events(client.post("/run", json={"inputs": [{"path": make_jpg(tmp_path / "a.jpg")}],
-                                     "want": ["identify", "embed", "jpg"],
+                                     "want": ["identify", "embed", "jpg", "aesthetics", "quality", "scene"],
                                      "options": {"jpg": {"out_dir": str(tmp_path / "o")}}}))
-    assert {n: t.split("_")[0] for n, t in seen.items()} == {"identify": "gpu", "embed": "gpu", "jpg": "cpu"}
+    assert {n: t.split("_")[0] for n, t in seen.items()} == {"identify": "gpu", "embed": "gpu", "jpg": "cpu",
+                                                                    "aesthetics": "cpu", "quality": "cpu", "scene": "gpu"}
     assert BY_NAME["jpg"].models({}) == ()
 
 
@@ -101,5 +103,6 @@ def test_want_null_is_a_400_unless_a_profile_is_named(client, tmp_path):
     r = client.post("/run", json={"inputs": [{"path": p}], "want": None})
     assert r.status_code == 400 and r.json()["error"] == "want must be a non-empty list of product names"
     ev = events(client.post("/run", json={"inputs": [{"path": p}], "want": None, "profile": "album"}))
-    assert list(next(e for e in ev if e["type"] == "result")["products"]) == ["identify", "embed"]
+    assert list(next(e for e in ev if e["type"] == "result")["products"]) == ["identify", "embed", "aesthetics",
+                                                                            "quality", "scene"]
 

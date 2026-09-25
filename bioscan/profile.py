@@ -18,7 +18,7 @@ import copy
 import os
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,14 @@ DEFAULT = "default"
 TOP_KEYS = ("default_profile", "serve", "profile")
 PROFILE_KEYS = ("description", "stages", "reducers", "options")
 SERVE_KEYS = {"host": str, "port": int, "decode_workers": int, "chunk": int, "detail_edge": int, "allow_roots": list}
-REDUCERS: tuple[str, ...] = ()        # none yet: burst and select arrive with the cull stages (CLI side)
+
+
+def reducers() -> dict[str, plugin.Manifest]:
+    """The reducers a profile may name (bioscan.plugins.REDUCERS), by name. They run in the CLI or
+    offline (bioscan.cull), never in the service; their options live under options.<reducer>."""
+    from bioscan.plugins import REDUCERS
+
+    return {m.name: m for m in REDUCERS}
 
 
 @dataclass(frozen=True)
@@ -112,19 +119,20 @@ def _check_layer(data: dict[str, Any], label: str, registry: Sequence[plugin.Man
         bad = sorted(set(prof.get("stages", [])) - set(by_name))
         if bad:
             raise fail(f"{where}.stages: unknown stages {bad} (known: {', '.join(by_name)})")
-        bad = sorted(set(prof.get("reducers", [])) - set(REDUCERS))
+        known_reducers = reducers()
+        bad = sorted(set(prof.get("reducers", [])) - set(known_reducers))
         if bad:
-            raise fail(f"{where}.reducers: unknown reducers {bad} (none exist yet; burst and select come "
-                       "with the cull stages)")
+            raise fail(f"{where}.reducers: unknown reducers {bad} (known: {', '.join(known_reducers)})")
         opts = prof.get("options", {})
         if not isinstance(opts, dict):
             raise fail(f"{where}.options must be a table of stages")
+        units = {**by_name, **known_reducers}
         for stage, given in opts.items():
-            if stage not in by_name:
-                raise fail(f"unknown stage {where}.options.{stage} (known: {', '.join(by_name)})")
+            if stage not in units:
+                raise fail(f"unknown stage {where}.options.{stage} (known: {', '.join(units)})")
             if not isinstance(given, dict):
                 raise fail(f"{where}.options.{stage} must be a table")
-            unknown = sorted(set(given) - set(by_name[stage].defaults))
+            unknown = sorted(set(given) - set(units[stage].defaults))
             if unknown:
                 raise fail(f"unknown options {where}.options.{stage}: {unknown}")
     return data
@@ -190,15 +198,26 @@ class Resolved:
     sources: dict[str, dict[str, str]]               # stage -> option -> where its value came from
     reducers: list[str]
     plan: plugin.Plan
+    # every reducer's options (defaults < profile layers < reducer_options) and their sources; the
+    # CLI runs res.reducers with them, the service ignores both
+    reducer_options: dict[str, dict[str, Any]] = field(default_factory=dict)
+    reducer_sources: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    def reducer_run(self) -> dict[str, dict[str, Any]]:
+        """{reducer: options} of the profile's reducers, what bioscan.cull.apply takes."""
+        return {r: self.reducer_options[r] for r in self.reducers}
 
 
 def resolve(config: Config, profile: str, want: list[str] | None = None, options: Any = None, *,
             source: str = "request", check: Callable[[plugin.Manifest, dict[str, Any]], None] | None = None,
-            registry: Sequence[plugin.Manifest] | None = None) -> Resolved:
+            registry: Sequence[plugin.Manifest] | None = None,
+            reducer_options: dict[str, dict[str, Any]] | None = None) -> Resolved:
     """Expand `profile` and merge `options` (the request's {stage: {name: value}}, highest layer,
     labelled `source`) over it; `want` (the request's stages) replaces the profile's. `check`
     (the service's Stage.check) sees every stage's merged options before the plan is made.
-    ValueError on an unknown profile, key, stage or option, or a plan that cannot run."""
+    `reducer_options` ({reducer: {name: value}}, the CLI's flags) go over the profile's reducer
+    options, which each reducer's check then sees. ValueError on an unknown profile, key, stage,
+    reducer or option, or a plan that cannot run."""
     registry = plugin._registry(registry)
     if not isinstance(profile, str) or not profile:
         raise ValueError("profile must be a string naming a profile")
@@ -208,22 +227,36 @@ def resolve(config: Config, profile: str, want: list[str] | None = None, options
     options = options or {}
     merged = {m.name: m.defaults for m in registry}
     sources = {m.name: dict.fromkeys(merged[m.name], DEFAULT) for m in registry}
+    known = reducers()
+    r_merged = {name: m.defaults for name, m in known.items()}
+    r_sources = {name: dict.fromkeys(r_merged[name], DEFAULT) for name in known}
     stages: list[str] | None = None
     stages_source = DEFAULT
-    reducers: list[str] = []
+    chosen: list[str] = []
     for layer in config.layers:
         prof = layer.data.get("profile", {}).get(profile)
         if prof is None:
             continue
         if "stages" in prof:
             stages, stages_source = list(prof["stages"]), layer.label
-        reducers = list(prof.get("reducers", reducers))
+        chosen = list(prof.get("reducers", chosen))
         for stage, values in prof.get("options", {}).items():
+            into, src = (r_merged, r_sources) if stage in known and stage not in merged else (merged, sources)
             for k, v in values.items():
-                merged[stage][k], sources[stage][k] = copy.deepcopy(v), layer.label
+                into[stage][k], src[stage][k] = copy.deepcopy(v), layer.label
     for stage, values in options.items():
         for k in values or {}:
             merged[stage][k], sources[stage][k] = given[stage][k], source
+    for name, values in (reducer_options or {}).items():
+        if name not in known:
+            raise ValueError(f"unknown reducer {name!r} (known: {', '.join(known)})")
+        bad = sorted(set(values) - set(r_merged[name]))
+        if bad:
+            raise ValueError(f"unknown options {name}: {bad}")
+        for k, v in values.items():
+            r_merged[name][k], r_sources[name][k] = copy.deepcopy(v), source
+    for name, m in known.items():
+        m.check(r_merged[name])
     if want is None:
         want, want_source = list(stages or ["identify"]), stages_source
     else:
@@ -231,5 +264,5 @@ def resolve(config: Config, profile: str, want: list[str] | None = None, options
     if check is not None:
         for m in registry:
             check(m, merged[m.name])
-    return Resolved(profile, list(want), want_source, merged, sources, reducers,
-                    plugin.plan(want, merged, registry))
+    return Resolved(profile, list(want), want_source, merged, sources, chosen,
+                    plugin.plan(want, merged, registry), r_merged, r_sources)

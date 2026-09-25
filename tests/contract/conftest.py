@@ -24,13 +24,21 @@ OWLS = [("Megascops kennicottii", "Western Screech-Owl"), ("Megascops asio", "Ea
 
 
 class FakeSigLIP2:
-    """Gate and crop check: every frame and every crop is a bird."""
+    """Gate and crop check: every frame and every crop is a bird. Text vectors (scene) are fixed
+    pseudo-random unit vectors per text; `texts` counts every text encoded."""
+    logit_scale = 10.0
 
     def __init__(self, fakes):
         self.fakes = fakes
+        self.texts = 0
 
     def embed_images(self, images):
         return np.full((len(images), 768), 1 / np.sqrt(768), dtype=np.float32)
+
+    def embed_texts(self, texts):
+        self.texts += len(texts)
+        rows = [np.random.default_rng(sum(t.encode())).normal(size=768) for t in texts]
+        return np.stack([r / np.linalg.norm(r) for r in rows]).astype(np.float32)
 
     def gate(self, vecs):
         return [dict(GATE) for _ in vecs]

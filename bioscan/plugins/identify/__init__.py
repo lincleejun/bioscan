@@ -51,7 +51,7 @@ MANIFEST = Manifest(
     options={"top_k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
              "geo": {"type": "boolean", "default": True},
              "species": {"type": "boolean", "default": True},
-             # accuracy fixes, on by default; false switches one off to measure it (README)
+             # accuracy fixes, on by default; false switches one off to measure it (docs/how-it-works.md)
              **{k: {"type": "boolean", "default": v} for k, v in SWITCHES.items()},
              "candidates": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_CANDIDATES,
                             "default": [],

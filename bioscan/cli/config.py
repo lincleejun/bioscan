@@ -22,11 +22,13 @@ def load_config() -> profile.Config:
         raise SystemExit(f"error: {e}") from None
 
 
-def expand(config: profile.Config, name: str | None, want: list[str] | None, options: dict) -> profile.Resolved:
-    """The CLI's profile (profile.select) expanded under the flags' `want` and `options`."""
+def expand(config: profile.Config, name: str | None, want: list[str] | None, options: dict,
+           reducer_options: dict | None = None) -> profile.Resolved:
+    """The CLI's profile (profile.select) expanded under the flags' `want`, `options` and
+    `reducer_options`."""
     chosen, source = profile.select(config, name)
     try:
-        return profile.resolve(config, chosen, want, options, source=FLAG)
+        return profile.resolve(config, chosen, want, options, source=FLAG, reducer_options=reducer_options)
     except ValueError as e:
         raise SystemExit(f"error: profile {chosen} (from {source}): {e}") from None
 
@@ -57,7 +59,10 @@ def eval_request(name: str | None, no_geo: bool, identify_opts: dict,
     if "identify" not in res.want:
         raise SystemExit(f"error: profile {chosen} has no identify stage; eval scores identify")
     first = {"identify": {"top_k": 5, "geo": res.options["identify"]["geo"], **identify_opts}}
-    return {"profile": chosen, "want": res.want, "options": request_options(res, first)}
+    out = {"profile": chosen, "want": res.want, "options": request_options(res, first)}
+    if res.reducers:                   # run over the results before scoring (bench), recorded in the meta line
+        out["reducers"] = res.reducer_run()
+    return out
 
 
 def show(name: str | None, config: profile.Config | None = None, env=os.environ) -> dict[str, Any]:
@@ -80,7 +85,9 @@ def show(name: str | None, config: profile.Config | None = None, env=os.environ)
         "frame_pass": res.plan.frame,
         "detail_copy": res.plan.detail,
         "options": {m: {k: {"value": v, "from": res.sources[m][k]} for k, v in res.options[m].items()}
-                    for m in res.plan.stages},
+                    for m in res.plan.stages}
+                   | {r: {k: {"value": v, "from": res.reducer_sources[r][k]} for k, v in res.reducer_options[r].items()}
+                      for r in res.reducers},
         "serve": {k: {"value": getattr(serve, k), "from": serve_src[k]} for k in serve_src},
     }
 

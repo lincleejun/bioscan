@@ -34,6 +34,25 @@ def check_loaded(engine: Any, plan: plugin.Plan) -> None:
         plugin.load(plan.manifests[name]).check_loaded(engine, plan.opts[name])
 
 
+def fingerprints(plan: plugin.Plan) -> dict[str, str]:
+    """result.engine.plugins: what each planned stage ran with, in plan.want (report) order. A stage
+    whose Stage.plugin_id(opts) names something (e.g. aesthetics: `v1@<head sha>`, the file its
+    output depends on) reports that; otherwise a manifest that is `fingerprinted` reports
+    `plugin.fingerprint(version, Stage.settings())`; otherwise the stage reports nothing. plugin_id
+    wins over the fingerprint, and a stage with neither (identify, embed, jpg, geotag, aesthetics
+    with head "off") is left out. {} when no stage reports, and then the engine block is as before."""
+    out: dict[str, str] = {}
+    for name in plan.want:
+        m = plan.manifests[name]
+        s = plugin.load(m)
+        pid = getattr(s, "plugin_id", lambda o: None)(plan.opts[name])
+        if pid is not None:
+            out[name] = pid
+        elif m.fingerprinted:
+            out[name] = plugin.fingerprint(m.version, s.settings())
+    return out
+
+
 def paths(plan: plugin.Plan) -> list[str]:
     """Every path the plan's stages would write or read besides the inputs (for allow-roots)."""
     out: list[str] = []
