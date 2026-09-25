@@ -224,3 +224,32 @@ def test_plant_makes_known_answer_copies_once(tmp_path):
     assert sum(1 for r in golden["images"] if r["variant"]) == len(added)
     with pytest.raises(SystemExit):
         plant.plant(g, n=5, seed=1)
+
+
+def test_table_ranks_models_and_measures_deviation_in_grade_units(tmp_path):
+    """The arena: the model that agrees with the owner ranks first; a noisier copy of it ranks below but ties
+    (its ΔSpearman interval spans 0); an inverted model is last with a wide deviation. The residual CSV names
+    the frames the models disagree on most."""
+    g = build(tmp_path)
+    good = good_scores(g)
+    noisy = dict(good)
+    noisy["trip-a/s0.jpg"], noisy["trip-b/g1-2.jpg"] = 3.5, 3.6      # two 1-2 star frames pushed up a little
+    bad = {p: -s for p, s in good.items()}
+    reps = [score(g, sc, tmp_path, f"{n}.ndjson") for n, sc in (("good", good), ("noisy", noisy), ("bad", bad))]
+    for r, n in zip(reps, ("good", "noisy", "bad")):
+        r["meta"]["model"] = n
+    a = ag.arena(reps, reps=200)
+    rows = {r["model"]: r for r in a["rows"]}
+    assert [r["model"] for r in a["rows"]] == ["good", "noisy", "bad"]
+    assert rows["good"]["grade_mae"] == 0 and rows["good"]["exact"] == 1 and rows["good"]["cross_grade_pair_acc"] == 1
+    assert rows["noisy"]["tie"] and not rows["bad"]["tie"]
+    assert rows["bad"]["cross_grade_pair_acc"] == 0 and rows["bad"]["grade_mae"] > 1
+    assert a["frames"][0]["off_by_two"] >= 1                          # the inverted model is off on the worst frame
+    md = ag.table_md(reps, reps=50, csv_path=tmp_path / "res.csv")
+    assert "| 1 | good |" in md and "| 2= | noisy |" in md and "| 3 | bad |" in md
+    with open(tmp_path / "res.csv") as f:
+        head = next(csv.reader(f))
+    assert head[:2] == ["path", "grade"] and "bad:cal" in head
+    other = dict(reps[1], meta={**reps[1]["meta"], "golden_sha256": "0" * 64})
+    with pytest.raises(bench.BenchError, match="not comparable"):
+        ag.arena([reps[0], other], reps=10)

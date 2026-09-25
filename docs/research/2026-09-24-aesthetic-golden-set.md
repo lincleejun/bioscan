@@ -159,8 +159,8 @@ replaces it. EVA's images are photo-contest entries with little wildlife, so it 
 - Build and score it: `scripts/eva_golden.py build --eva ~/.cache/bioscan/eva --out ~/aes-golden-eva`, then
   `bench aesthetic score` as for any golden folder. There are no shot groups, so the pair and group metrics come
   out empty. The four attribute means can check a scorer's sub-scores by hand.
-- With 100 images a Spearman is good to about ±0.2: enough to catch a broken or random scorer, not to split two
-  close ones.
+- With 100 images a Spearman near 0.88 is good to about ±0.05 and one near 0.6 to about ±0.13 (bootstrap): enough to
+  catch a broken scorer and to separate models 0.1 apart, not two within 0.05 (2026-09-24-aesthetic-arena.md §3).
 
 ## 5. The checks (`bioscan bench aesthetic score`)
 

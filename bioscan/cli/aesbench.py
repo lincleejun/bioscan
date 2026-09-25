@@ -408,3 +408,6 @@ def add_parser(sub) -> None:
     s.add_argument("--alpha", type=float, default=100.0, help="ridge strength of the curve's personal heads")
     common(s)
     s.set_defaults(func=cmd_eval)
+
+    from bioscan.cli import aesscore
+    aesscore.add_parser(g)
