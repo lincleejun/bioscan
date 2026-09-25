@@ -68,6 +68,7 @@ class RunQueue:
         self-healing ProcessPoolExecutor of `decode_workers`. `detail_edge`: long edge of the larger
         species image, None = off."""
         self.engine, self.chunk, self.detail_edge = engine, chunk, detail_edge
+        self._owns_decode = decode_pool is None
         if isinstance(decode_pool, DecodePool):
             self._decode = decode_pool
         elif decode_pool is not None:
@@ -79,6 +80,13 @@ class RunQueue:
         self._lock = asyncio.Lock()
         self.running = 0            # requests on the models right now (0 or 1)
         self.queued = 0             # requests waiting for their next chunk's turn
+
+    def close(self) -> None:
+        """Stop the decode pool this queue made (a caller's pool is the caller's to stop) and wait for
+        its workers to exit. Without this they outlive the server: uvicorn re-raises SIGTERM after its
+        own shutdown, so the interpreter's exit hooks that would join them never run."""
+        if self._owns_decode:
+            self._decode.executor.shutdown(wait=True, cancel_futures=True)
 
     async def events(self, inputs: list[dict[str, Any]], plan: plugin.Plan,
                      is_disconnected: Callable[[], Awaitable[bool]]) -> AsyncIterator[dict[str, Any]]:

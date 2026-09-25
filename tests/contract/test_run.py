@@ -290,6 +290,24 @@ def test_process_pool_decode_path(tmp_path):
     assert fakes.crops == [species_crop((2048, 1365), (3000, 2000))] and fakes.frames == [(2048, 1365)]
 
 
+def test_shutdown_stops_the_decode_workers(tmp_path):
+    """The service's own decode pool is stopped when the app shuts down; its workers used to outlive
+    a SIGTERM'd server as orphans. A pool the caller handed in stays the caller's to stop."""
+    import multiprocessing
+
+    p = make_jpg(tmp_path / "a.jpg")
+    before = set(multiprocessing.active_children())
+    with TestClient(create_app(Fakes().engine(), decode_workers=1)) as c:
+        assert events(c.post("/run", json={"inputs": [{"path": p}]}))[-1]["ok"] == 1
+        workers = set(multiprocessing.active_children()) - before
+        assert workers                                   # the run started a decode worker
+    assert not any(w.is_alive() for w in workers)
+    with ThreadPoolExecutor(1) as pool:
+        with TestClient(create_app(Fakes().engine(), decode_pool=pool)):
+            pass
+        assert pool.submit(int, "7").result(timeout=5) == 7
+
+
 def test_small_request_waits_one_chunk_not_the_whole_batch(tmp_path):
     """A 3-chunk batch is running; a 1-image request arriving meanwhile goes after the chunk in
     progress, before the batch's remaining chunks."""

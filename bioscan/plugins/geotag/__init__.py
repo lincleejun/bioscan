@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan import geotag as gt
-from bioscan.plugin import Manifest
+from bioscan.plugin import Manifest, Metric
 
 LIMITS = ("max_gap_s", "max_span_m", "max_still_s", "extrapolate_s")
 
@@ -64,4 +64,25 @@ MANIFEST = Manifest(
             "utc": "corrected capture time, UTC"},
     impl="bioscan.plugins.geotag.stage:STAGE",
     check=check,
+    metrics=(Metric("gpx_rate", "rate", "bioscan.plugins.geotag:row_gpx_rate",
+                    description="share of images placed from the track"),
+             Metric("no_place_rate", "rate", "bioscan.plugins.geotag:row_no_place_rate", lower_is_better=True,
+                    description="share of images left without a place (no request, EXIF or track fix)")),
 )
+
+
+def _place_source(pred):
+    g = ((pred or {}).get("products") or {}).get("geotag")
+    return g.get("place_source") if isinstance(g, dict) else None
+
+
+def row_gpx_rate(truth, pred):
+    """Per image: placed from the track (scope all); images without a geotag product do not count."""
+    s = _place_source(pred)
+    return {} if s is None else {"all": s == "gpx"}
+
+
+def row_no_place_rate(truth, pred):
+    """Per image: left without a place (no request, EXIF or track fix)."""
+    s = _place_source(pred)
+    return {} if s is None else {"all": s == "none"}

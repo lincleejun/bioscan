@@ -576,3 +576,9 @@ def test_standards_tier_from_field_or_id():
     assert bench.standard_tier({"id": "coverage.names"}) is None
 
 
+
+
+# ---- profiles and plugin metrics (A6) ----------------------------------------------------------
+
+GEOTAG = {"/a.jpg": {"place_source": "gpx", "lat": 37.4, "lon": -122.1}, "/b.jpg": {"place_source": "exif"},
+          "/c.jpg": {"place_source": "none"}, "/e.jpg": {"place_source": "gpx", "lat": 37.4, "lon": -122.1}}

@@ -228,6 +228,9 @@ Next:
       zero-shot 0.759, TOPIQ/LAION/NIMA/Q-ReAlign 0.71-0.73 (AVA-trained: 93/100 golden images are in AVA's training split)
 - [x] owner decision (2026-09-24): arena = `bench aesthetic table` on the 100 EVA images; arena weights download per run and
       are purged after (`aes_arena_score.py --purge`); OneAlign and the other arena caches deleted (39 GB)
+- [x] `bioscan aesthetic score PATHS --export json,csv,html --out PREFIX` (bioscan/cli/aesscore.py): ranking as NDJSON /
+      CSV / HTML gallery, `--preds` re-export; thumbnails = the jpg copies shrunk in the CLI (the jpg product's /products entry
+      is frozen by the A0 golden) (2026-09-24)
 - [ ] arena on the owner's rated trips (the head is not in-distribution there); rank-average of ours + Qwen3-VL-4B as one row
 - [ ] standards bars for the golden set after the first real run (group top-1 vs random, keepers lost @20 %)
 - [ ] a review/labelling page if filling images.csv by hand is slow

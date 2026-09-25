@@ -9,6 +9,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Executor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -77,9 +78,15 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
                profiles: profile.Config | None = None) -> FastAPI:
     """`plugins`: the stages this service offers (default the built-in ones; tests add toy stages).
     `profiles`: what a request's "profile" expands with (default: bioscan/profiles.toml only)."""
-    app = FastAPI(title="bioscan")
     runs = RunQueue(engine, decode_pool=decode_pool, decode_workers=decode_workers, chunk=chunk,
                     detail_edge=detail_edge)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        runs.close()
+
+    app = FastAPI(title="bioscan", lifespan=lifespan)
     app.state.bioscan = runs
     roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
     catalogue = stages.products(plugins)
