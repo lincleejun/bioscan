@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from bioscan import formats, naming
+from bioscan import formats, naming, xmp
 
 HEAD_FORMAT, HEAD_VERSION = "bioscan-aesthetic-head", 1
 # The vectors every head is fitted on: bioscan/service/adapters/siglip2.py MODEL_ID@REVISION[:12]
@@ -264,9 +264,12 @@ def parse_xmp(text: str | bytes) -> dict[str, Any] | None:
     is unrated (xmp:Rating 0 or missing, not rejected); None when the packet is not XML.
     xmp:Rating -1 (Lightroom/Bridge reject) -> rating REJECT_GRADE, pick -1.
     xmpDM:pick (1 / -1) is read where a tool writes it; Lightroom Classic keeps its pick flags
-    in the catalogue, so they only arrive through a CSV."""
+    in the catalogue, so they only arrive through a CSV.
+    A packet `bioscan cull --xmp` wrote (its namespace) is not the owner's: None, like no packet."""
     if isinstance(text, bytes):
         text = text.decode("utf-8", "replace")
+    if xmp.CULL_NS in text:
+        return None
     start = text.find("<x:xmpmeta")
     if start < 0:
         start = text.find("<rdf:RDF")

@@ -7,6 +7,7 @@ import os
 import xml.etree.ElementTree as ET
 
 import pytest
+from aesthetic_helpers import xmp
 from cull_fixtures import result
 
 from bioscan import aesthetic, profile
@@ -93,14 +94,19 @@ def test_xmp_sidecars_for_picks_and_rejects_never_over_an_existing_one(tmp_path,
     assert "xmp: 2 sidecars written, 1 left alone (a sidecar exists)" in capsys.readouterr().out
     assert (d / "d.xmp").read_text() == "editor settings"
     assert not (d / "a.xmp").exists() and (d / "a.jpg").read_bytes() == b"x"   # duplicate: nothing; photo untouched
-    # read back by the owner's-ratings reader
-    assert aesthetic.read_xmp_rating(str(d / "b.jpg")) == ({"rating": 3.0, "pick": 0, "label": ""}, "sidecar")
-    side = (d / "c.xmp").read_text()
-    assert aesthetic.parse_xmp(side) == {"rating": None, "pick": 0, "label": "Red"}   # a reject stays unrated
-    desc = next(ET.fromstring(side.split("?>", 1)[1].rsplit("<?xpacket", 1)[0]).iter(
-        f"{{{aesthetic.NS['rdf']}}}Description"))
-    assert desc.attrib[f"{{{cc.XMP_NS}}}reasons"] == "soft_subject"
-    assert aesthetic.parse_xmp(cc.xmp_packet({"status": "spare", "reasons": []}))["rating"] == 2.0
+    def props(text):                                                # the properties, as the ratings reader finds them
+        root = ET.fromstring(text.split("?>", 1)[1].rsplit("<?xpacket", 1)[0])
+        return (aesthetic._xmp_value(root, "xmp", "Rating"), aesthetic._xmp_value(root, "xmp", "Label"),
+                next(root.iter(f"{{{aesthetic.NS['rdf']}}}Description")).attrib.get(f"{{{cc.XMP_NS}}}reasons"))
+    assert props((d / "b.xmp").read_text()) == ("3", None, None)
+    assert props((d / "c.xmp").read_text()) == (None, "Red", "soft_subject")      # a reject: no stars
+    assert props(cc.xmp_packet({"status": "spare", "reasons": []}))[0] == "2"
+    # the owner's-ratings reader skips a cull-written sidecar; a hand-written one next to it still counts
+    assert aesthetic.read_xmp_rating(str(d / "b.jpg")) is None
+    assert aesthetic.parse_xmp((d / "c.xmp").read_text()) is None
+    (d / "own.jpg").write_bytes(b"x")
+    (d / "own.xmp").write_text(xmp(rating=3))
+    assert aesthetic.read_xmp_rating(str(d / "own.jpg")) == ({"rating": 3.0, "pick": 0, "label": ""}, "sidecar")
     # again: every sidecar exists now; a photo not on this disk is counted, not written
     (d / "b.jpg").unlink()
     assert main(["cull", "--preds", str(nd), "--xmp"]) == 1

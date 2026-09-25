@@ -146,11 +146,11 @@ def write_links(records: list[dict[str, Any]], out: str) -> int:
 
 
 # `--xmp`: the selection as stars and colour labels a photo editor filters on. Every pick is already its
-# burst's best, so a burst win earns no extra star. Rejects get no stars (xmp:Rating stays unset =
-# unrated), so `bioscan aesthetic` never reads bioscan's rejects as the owner's.
+# burst's best, so a burst win earns no extra star. Rejects get no stars (unrated). The bioscan
+# namespace marks the sidecar, so `bioscan aesthetic` never reads these stars as the owner's.
 XMP_STARS = {"pick": 3, "spare": 2}
 XMP_REJECT_LABEL = "Red"
-XMP_NS = "https://github.com/lincleejun/bioscan/ns/cull/1.0/"
+XMP_NS = xmp.CULL_NS
 
 
 def xmp_packet(r: dict[str, Any]) -> str | None:
