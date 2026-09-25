@@ -36,7 +36,7 @@ REASONS = {   # code -> what the page says
 
 # ---- summarize --------------------------------------------------------------------------------
 
-def _name(sp: dict[str, Any] | None) -> str | None:
+def taxon(sp: dict[str, Any] | None) -> str | None:
     """The taxon a box counts under: the first candidate's name at the box's level; None when unconfirmed."""
     top, level = contract.top_of(sp), contract.level_of(sp)
     if not top or level not in LEVEL_RANK:
@@ -75,7 +75,7 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
             if "species" not in b:                  # species off: nothing to name, nothing to review
                 continue
             sp = contract.species_of(b)
-            top, level, name = contract.top_of(sp), contract.level_of(sp), _name(sp)
+            top, level, name = contract.top_of(sp), contract.level_of(sp), taxon(sp)
             reasons = []
             if sp is None:
                 reasons.append("no_list")
