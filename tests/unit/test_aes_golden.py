@@ -253,3 +253,35 @@ def test_table_ranks_models_and_measures_deviation_in_grade_units(tmp_path):
     other = dict(reps[1], meta={**reps[1]["meta"], "golden_sha256": "0" * 64})
     with pytest.raises(bench.BenchError, match="not comparable"):
         ag.arena([reps[0], other], reps=10)
+
+
+BASELINE = bench.BASELINES_DIR / "aes-golden-v1-eva-head-v1.json"
+BUDGET = bench.BASELINES_DIR / "budget-aesthetic.toml"
+
+
+def test_committed_baseline_is_within_budget_of_itself_and_a_planted_regression_is_not(tmp_path):
+    base = json.loads(BASELINE.read_text())
+    assert not any(str(v).startswith("/") for v in base["meta"].values())       # no machine paths committed
+    assert not any(x["path"].startswith("/") for x in base["images"])
+    same, worse = tmp_path / "same.json", tmp_path / "worse.json"
+    same.write_text(json.dumps(base))
+    m = base["metrics"]["all"]
+    # two more keepers of 40 lost (+5 pts) and Spearman 0.04 lower: both past the budget
+    worse.write_text(json.dumps({**base, "metrics": {"all": {**m, "keepers_lost_at_20": m["keepers_lost_at_20"] + 0.05,
+                                                            "spearman": m["spearman"] - 0.04}}}))
+    args = ["bench", "aesthetic", "compare", str(BASELINE)]
+    assert cli.main([*args, str(same), "--budget", str(BUDGET), "--boot", "20"]) == 0
+    assert cli.main([*args, str(worse), "--budget", str(BUDGET), "--boot", "20"]) == 1
+    c = ag.compare(base, json.loads(worse.read_text()), ag.read_budget(BUDGET), reps=0)
+    assert sorted(v["rule"] for v in c["violations"]) == ["keepers_lost_at_20 max_rise_pts 2.5",
+                                                         "spearman max_drop_pts 3"]
+
+
+def test_scorecard_holds_the_baseline_to_the_aesthetic_golden_standards(tmp_path):
+    md = tmp_path / "scorecard.md"
+    assert cli.main(["bench", "scorecard", str(BASELINE), "--md", str(md)]) == 0
+    sc = bench.scorecard(json.loads(BASELINE.read_text()), bench.read_standards(bench.STANDARDS_TOML),
+                         "aesthetic-golden")
+    status = {r["metric"]: r["status"] for r in sc["rows"]}
+    assert status == {"spearman": "pass", "precision_at_k": "pass", "keepers_lost_at_20": "pass", "group_top1": "n/a"}
+    assert "3 pass, 0 fail, 1 n/a" in md.read_text()
