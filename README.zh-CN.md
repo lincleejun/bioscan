@@ -285,6 +285,28 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 
   各场景明细见 docs/2026-09-24-geotag-synthetic.md。
 
+### Lightroom Classic（实验）
+
+一次性安装，然后重启 Lightroom Classic 一次：
+
+```bash
+bioscan lr install                 # 把 extensions/lightroom/bioscan.lrplugin 软链接进 Lightroom 的 Modules 目录（--copy 改为复制）
+```
+
+之后每次扫描一行：
+
+```bash
+bioscan run DIR --profile album --json --out preds.ndjson && bioscan lr open preds.ndjson
+```
+
+`lr open` 写 `~/Library/Application Support/bioscan/lightroom/latest.json`（原子写入；`--to FILE` 改写别处），并把 Lightroom 调到前台（`--no-launch` 不调）；插件读到该文件后应用：
+
+- **星级** 1-5：按每张照片最清晰 box 的 sharpness 在有动物照片中的分位数打（每档约 20%）；无动物的照片不打星。这是美学分模型做出来之前的占位。你自己已打过星的照片从不被覆盖。
+- **关键字**，层级：`bioscan|kind|name`，name 在种级为俗名，属级、科级为属名、科名，未确认时省略。
+- **Collection**，位于 collection set `bioscan` 下：每个物种一个，另有 `待确认`（有动物、未到种）和 `无动物`（没有动物）。
+
+重跑同一文件不会产生重复。Lightroom 一端在真实目录上跑过之前为 unverified；插件与验收步骤见 extensions/lightroom/README.md。
+
 ### HTTP API
 
 ```sh
@@ -391,6 +413,7 @@ bioscan/service/names.py         AviList / MDD 名单、TreeOfLife 映射、文�
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/geotag.py                GPX 解析、拍摄时间转 UTC、时钟偏差、轨迹插值、XMP 旁车文件（纯标准库）
 bioscan/cli/                     main client render gt eval bench config（profile）geotag_cli（geotag、run --gpx）geobench（bench geotag）
+                                 lr（bioscan lr：Lightroom Classic 的 latest.json、插件安装）
 scripts/geotag_synth.py          用 golden 集合成 GPX 场景，供 bench geotag 使用
 data/names/                      AviList 为准的名字映射表
 docs/                            设计 spec、实施计划、评测结果

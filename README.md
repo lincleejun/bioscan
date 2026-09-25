@@ -319,6 +319,28 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates f
 
   The per-scenario table is in docs/2026-09-24-geotag-synthetic.md.
 
+### Lightroom Classic (experimental)
+
+One-time install, then restart Lightroom Classic once:
+
+```bash
+bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy)
+```
+
+Every scan after that is one line:
+
+```bash
+bioscan run DIR --profile album --json --out preds.ndjson && bioscan lr open preds.ndjson
+```
+
+`lr open` writes `~/Library/Application Support/bioscan/lightroom/latest.json` (atomically; `--to FILE` elsewhere) and brings Lightroom to the front (`--no-launch` skips that); the plugin picks the file up and applies it:
+
+- **Stars** 1-5 by the quantile of each photo's best box sharpness among the photos with an animal (about 20% per star); photos with no animal get none. This is a placeholder until the aesthetic head exists. A photo that already has stars you gave it is never overwritten.
+- **Keywords**, hierarchical: `bioscan|kind|name`, where name is the common name at species level, the genus or family at those levels, and left out when unconfirmed.
+- **Collections** in the collection set `bioscan`: one per species, `待确认` (animal, no species) and `无动物` (no animal).
+
+Rerunning the same file adds no duplicates. The Lightroom end is unverified until it has been run on a real catalog; the plugin and its acceptance steps are in extensions/lightroom/README.md.
+
 ### HTTP API
 
 ```sh
@@ -433,6 +455,7 @@ bioscan/service/adapters/        siglip2 owlv2 bioclip geo
 bioscan/geotag.py                GPX parsing, capture time -> UTC, clock offset, track interpolation, XMP sidecars (stdlib only)
 bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
                                  config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
+                                 lr (bioscan lr: Lightroom Classic latest.json, plugin install)
 scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 baselines/                       committed reports compared against, and the regression budget
 data/names/                      name mapping tables keyed on AviList
