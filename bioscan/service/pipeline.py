@@ -17,6 +17,7 @@ from bioscan.plugins.identify import SWITCHES, TRIALS
 from bioscan.service import candidates
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
+    RANGE_EPS,
     RANGE_TAU,
     RESCUE,
     SECOND_PASS_FLOOR,
@@ -161,6 +162,8 @@ def _congener(names: Any, direct: np.ndarray | None, p_geo: np.ndarray | None, p
     if p_geo is None or not len(order):
         return None
     at = np.arange(len(post)) if rows is None else rows          # list row of each index
+    if p_geo[order[0]] >= RANGE_EPS or (direct is not None and not direct[at[order[0]]]):
+        return None                                              # range_veto would not fire: nothing to add
     genus = names.taxonomy[at[order[0]]][5]
     ok = np.asarray(p_geo) >= RANGE_TAU
     if direct is not None:
