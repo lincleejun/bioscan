@@ -30,7 +30,12 @@ Work toward that finish line; do not pause just to report progress.
 - If a test fails for a reason you can't explain, stop and ask.
 
 ## Long runs
-- For anything longer than a few steps, keep a checklist in `TASKS.md`. Tick items when done, add anything new you find. That file, not the scrollback, is the source of truth.
+- Every task runs in its own git worktree on its own branch, never in the main checkout:
+  `git worktree add .worktrees/<topic> -b claude/<topic> origin/main`; remove it after the PR merges. The name-list CSVs
+  under `data/avilist` and `data/mdd` are gitignored, so copy them into a new worktree before starting the service.
+- For anything longer than a few steps, keep the checklist in the task's GitHub issue (`docs/agents/issue-tracker.md`).
+  Tick items when done, add anything new you find as a comment or a new issue. The issue, not the scrollback, is the
+  source of truth. `TASKS.md` was migrated to issues on 2026-09-25 (archive: #16).
 - For audits, migrations, or reviews across many modules (`bioscan/service`, `bioscan/cli`, `scripts`, `tests`): one subagent per unit. Check each subagent's evidence before accepting it. Finish with one table: unit, result, evidence.
 - Parallel agents each work in their own worktree and their own scratch folder; never share scratch files.
 
@@ -76,3 +81,17 @@ When the owner gives a folder of photos and says nothing else, this is the job, 
 - Real-model checks live in `tests/models/` and only run with `BIOSCAN_MODEL_TESTS=1` (CI `models.yml`).
 - The container used for agent development has no Hugging Face / BirdNET network; real-model numbers come
   from CI (`models.yml`) or the owner's Mac.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (`lincleejun/bioscan`), driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for decisions. See `docs/agents/domain.md`.

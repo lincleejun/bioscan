@@ -383,7 +383,7 @@ it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =
 quality's. `soft` pools `soft_subject` and `motion_or_defocus`, which differ only in whether anything else in the
 frame is sharp: a soft subject against smooth bokeh reads as `motion_or_defocus`. Synthetic degradations are cleaner
 than real ones, so these numbers are floors for the rules, not a claim about real albums; that needs the owner's
-labelled trips (TASKS.md).
+labelled trips (issue #29).
 
 ## geotag: GPX geotagging (`bench geotag`)
 
