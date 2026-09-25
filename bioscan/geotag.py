@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
+from bioscan import xmp
+
 EARTH_RADIUS_M = 6_371_008.8
 MAX_GAP_S = 1800.0         # interpolate across neighbours up to 30 min apart (err_m grows with the gap)
 MAX_SPAN_M = 200.0         # ... and across a longer gap when its ends are this close (stood still)
@@ -506,39 +508,15 @@ def xmp_coordinate(value: float, pos: str, neg: str) -> str:
 
 
 def xmp_packet(lat: float, lon: float, ele: float | None = None) -> str:
-    alt = ""
+    attrs = ['xmlns:exif="http://ns.adobe.com/exif/1.0/"', 'exif:GPSVersionID="2.2.0.0"',
+             'exif:GPSMapDatum="WGS-84"', f'exif:GPSLatitude="{xmp_coordinate(lat, "N", "S")}"',
+             f'exif:GPSLongitude="{xmp_coordinate(lon, "E", "W")}"']
     if ele is not None:
-        alt = (f'\n   exif:GPSAltitudeRef="{0 if ele >= 0 else 1}"'
-               f'\n   exif:GPSAltitude="{round(abs(ele) * 10)}/10"')
-    return ('<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
-            '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="bioscan geotag">\n'
-            ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
-            '  <rdf:Description rdf:about=""\n'
-            '   xmlns:exif="http://ns.adobe.com/exif/1.0/"\n'
-            '   exif:GPSVersionID="2.2.0.0"\n'
-            '   exif:GPSMapDatum="WGS-84"\n'
-            f'   exif:GPSLatitude="{xmp_coordinate(lat, "N", "S")}"\n'
-            f'   exif:GPSLongitude="{xmp_coordinate(lon, "E", "W")}"{alt}/>\n'
-            ' </rdf:RDF>\n'
-            '</x:xmpmeta>\n'
-            '<?xpacket end="w"?>\n')
-
-
-def sidecar_paths(photo: str) -> tuple[Path, Path]:
-    """(stem.xmp: Lightroom, Capture One, Bridge; name.ext.xmp: darktable, digiKam)."""
-    p = Path(photo)
-    return p.with_suffix(".xmp"), p.with_name(p.name + ".xmp")
+        attrs += [f'exif:GPSAltitudeRef="{0 if ele >= 0 else 1}"', f'exif:GPSAltitude="{round(abs(ele) * 10)}/10"']
+    return xmp.packet("bioscan geotag", attrs)
 
 
 def write_sidecar(photo: str, lat: float, lon: float, ele: float | None = None) -> str:
     """Write stem.xmp with the position when neither sidecar exists: 'written', else 'exists'.
     An existing sidecar (the editor's develop settings, keywords) is never touched or merged."""
-    ours, other = sidecar_paths(photo)
-    if ours.exists() or other.exists():
-        return "exists"
-    try:
-        with open(ours, "x", encoding="utf-8") as f:       # exclusive create: no race with a writer
-            f.write(xmp_packet(lat, lon, ele))
-    except FileExistsError:
-        return "exists"
-    return "written"
+    return xmp.write_new(photo, xmp_packet(lat, lon, ele))

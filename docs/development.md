@@ -74,14 +74,15 @@ bioscan/service/decode.py        RAW/JPG → upright 2048 image + detail copy + 
 bioscan/service/names.py         AviList / MDD lists, the TreeOfLife all-taxa list, TreeOfLife mapping, text-vector cache
 bioscan/service/candidates.py    the candidates option: taxon index, the rows each list keeps
 bioscan/service/adapters/        siglip2 owlv2 bioclip geo
-bioscan/geotag.py                GPX parsing, capture time -> UTC, clock offset, track interpolation, XMP sidecars (stdlib only)
+bioscan/geotag.py                GPX parsing, capture time -> UTC, clock offset, track interpolation, the GPS XMP packet (stdlib only)
+bioscan/xmp.py                   new XMP sidecars, never over an existing one: geotag --xmp, cull --xmp (stdlib only)
 bioscan/aesthetic.py             aesthetic head files, XMP/CSV ratings, trip folds, ranking metrics (stdlib only)
 bioscan/aesthetic_fit.py         ridge heads, CV, prior pull, learning curve (numpy; imported only to train or for the curve)
 bioscan/cull.py                  the burst and select reducers, cull records, the album tier's metric rows (stdlib only)
 bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
                                  config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
                                  aesbench (bioscan aesthetic ratings|train|eval) aesgolden (bench aesthetic)
-                                 cull (bioscan cull: reducers, CSV, symlinks, HTML review)
+                                 cull (bioscan cull: reducers, CSV, symlinks, HTML review, XMP)
 scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 scripts/train_aesthetic_head.py  the EVA general head, in-process with the service's decode and SigLIP2
 scripts/aes_plant.py             planted copies (known answers) for the aesthetic golden set

@@ -1,6 +1,6 @@
 # Album: aesthetics and culling
 
-The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Nothing here deletes, moves or rates a photo.
+The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Nothing here deletes or moves a photo or writes into one; only `cull --xmp` rates photos, in new XMP sidecars.
 
 ## Aesthetics
 
@@ -53,7 +53,7 @@ score (no head installed) sorts last with the head's note; nothing is rated, mov
 
 `bioscan cull` sorts a folder for review: rule-based rejects with their reasons, bursts with their best frame, and
 the best photos per scene category. It runs the `album` profile through the service, then the `burst` and `select`
-reducers here. It never deletes, moves or rates anything: rejects are listed, not removed.
+reducers here. It never deletes or moves anything: rejects are listed, not removed.
 
 ```sh
 bioscan cull ~/Pictures/2026-05-trip -r --html review.html --csv selection.csv --link-dir picks --per-category 20
@@ -85,5 +85,15 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   thumbnails are upright JPEGs the service writes to `<page>-files/`, so that folder must be under the service's
   allow-roots; `--no-thumbs` skips them), `--json` (the results with `products.burst` and `products.select`, which
   `cull --preds` and `bench report` read back).
+- **XMP** (`--xmp`, off by default): a new `<stem>.xmp` per photo that has no sidecar yet, the same rule as
+  `geotag --xmp` (docs/geotag.md): a photo with `<stem>.xmp` or darktable's `<name>.<ext>.xmp` is left alone and
+  counted, and the photo file is never written. Picks get `xmp:Rating` 3 stars, spares 2; a reject gets the colour
+  label `xmp:Label="Red"`, no stars (so it stays unrated), and its reasons in `bioscan:reasons` (`;`-joined; namespace
+  `https://github.com/lincleejun/bioscan/ns/cull/1.0/`); duplicates get nothing. Every pick is already the best of
+  its burst, so a burst win adds no star. Filter on 3 stars for the picks, 2 and up for every keeper, Red for the
+  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: the ratings
+  reader (`bioscan aesthetic ratings|train|eval`, `bench aesthetic init`) skips any sidecar that carries the bioscan namespace.
+  An editor that keeps unknown properties when you re-rate a photo keeps that mark too, so delete the cull sidecar
+  before rating a photo whose stars should count.
 - **Accuracy**: unverified on real albums. CI measures the rules and reducers on a synthetic reject set made from the
-  smoke photos (docs/harness.md "Album tier", docs/standards.md §14); XMP ratings or labels are not written yet.
+  smoke photos (docs/harness.md "Album tier", docs/standards.md §14).
