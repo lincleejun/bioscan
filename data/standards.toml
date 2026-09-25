@@ -25,7 +25,8 @@
 #
 # Tiers (id's second segment): smoke = CI 77 iNat photos on reduced lists; golden = 1,625 iNat California
 # photos (+ an "other animals" slice still to be built); own = the owner's RAW set; public = the future
-# multi-region CC0/CC-BY set; mac = speed on Apple Silicon. Variant "nogeo" = a run with --no-geo.
+# multi-region CC0/CC-BY set; mac = speed on Apple Silicon; scene = open CC0/CC BY photos per scene label
+# (bioscan gt scene, profile album). Variant "nogeo" = a run with --no-geo.
 # A bar is met when the Wilson 95% bound clears it (lower bound for ">=", upper for "<="); smoke-tier
 # bars are regression guards judged on the point value. See docs/standards.md "Statistical rule".
 
@@ -714,6 +715,144 @@ stretch = 0.95
 unit = "fraction"
 how = "album smoke, plugin_metrics.scene.all; one label only until an album with scene labels exists"
 source = "no published figure; SigLIP2 zero-shot is reported lower than published (unverified forum thread)"
+
+# ---------------------------------------------------------------- scene tier: scene groups on open photos
+
+[[standard]]
+id = "culling.scene.all.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: group correct over the open scene set (8 groups)"
+scope = "all"
+metric = "group_acc"
+op = ">="
+community = 0.80
+stretch = 0.90
+unit = "fraction"
+how = "scene tier (bioscan gt scene, CC0 / CC BY photos per label), plugin_metrics.scene.all; judged on the Wilson bound"
+source = "no published figure for photo-genre classification; CLIP zero-shot SUN397 (397 scene classes) 65-68% top-1 (CLIP paper Table 11) is the nearest reference"
+
+[[standard]]
+id = "culling.scene.wildlife.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is wildlife get group wildlife"
+scope = "wildlife"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.wildlife (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.scene.landscape.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is landscape get group landscape"
+scope = "landscape"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.landscape (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.scene.people.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is people get group people"
+scope = "people"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.people (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.scene.macro.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is macro get group macro"
+scope = "macro"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.macro (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.scene.architecture.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is architecture get group architecture"
+scope = "architecture"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.architecture (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.scene.food.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is food get group food"
+scope = "food"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.food (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.scene.night.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is night get group night"
+scope = "night"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.night (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
+
+[[standard]]
+id = "culling.scene.other.group_acc"
+tier = "scene"
+profile = "album"
+plugin = "scene"
+dimension = "culling"
+title = "Scene: photos whose truth group is other get group other"
+scope = "other"
+metric = "group_acc"
+op = ">="
+community = 0.70
+unit = "fraction"
+how = "scene tier, plugin_metrics.scene.other (recall of the group; >= 30 photos per fine label, so >= 60 per group)"
+source = "no published figure"
 
 # ---------------------------------------------------------------- directory-level acceptance test
 

@@ -1,12 +1,17 @@
-"""Ground-truth builders: `gt folders` (own tier) and `gt inat` (inat tier). Spec sections 7-8."""
+"""Ground-truth builders: `gt folders` (own tier), `gt inat` (inat tier) and `gt scene` (scene tier,
+Open Images V7 photos per scene label). Spec sections 7-8; docs/standards.md "scene tier"."""
 import csv
+import hashlib
+import io
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -211,4 +216,186 @@ def gt_inat(taxa: list[tuple[str, str]], place_id: int | None, per_species: int,
             n += 1
         log(f"{sci}: {n} photos")
     write_csv(str(Path(out_dir) / "groundtruth-inat.csv"), INAT_FIELDS, rows)
+    return rows
+
+
+# ---- gt scene: Open Images V7 photos per scene label (scene tier) --------------------------------
+# Open Images V7 (https://storage.googleapis.com/openimages/web/download_v7.html): human-verified
+# image-level labels of the validation and test subsets, every image CC BY 2.0 (per-image License,
+# Author and OriginalLandingURL in the images CSV), mirrored by CVDF on S3. data/scene/oid-labels.toml
+# maps class names to scene labels. Photos are fetched for measuring, never redistributed.
+OID_CLASSES = "https://storage.googleapis.com/openimages/v7/oidv7-class-descriptions.csv"
+OID_LABELS = {"validation": "https://storage.googleapis.com/openimages/v7/oidv7-val-annotations-human-imagelabels.csv",
+              "test": "https://storage.googleapis.com/openimages/v7/oidv7-test-annotations-human-imagelabels.csv"}
+OID_IMAGES = {"validation": "https://storage.googleapis.com/openimages/2018_04/validation/validation-images-with-rotation.csv",
+              "test": "https://storage.googleapis.com/openimages/2018_04/test/test-images-with-rotation.csv"}
+OID_PHOTO = "https://open-images-dataset.s3.amazonaws.com/{subset}/{image_id}.jpg"
+SCENE_FIELDS = ["path", "tier", "scene", "scene_group", "light", "setting", "framing", "license", "attribution",
+                "source", "url", "md5"]
+SCENE_ATTRIBUTES = ("light", "setting", "framing")
+
+
+def read_scene_map(path: str) -> dict:
+    """data/scene/oid-labels.toml checked: {"label": {name: {group, scene, any, all, not}}, "attribute": {...}}."""
+    with open(path, "rb") as f:
+        d = tomllib.load(f)
+    labels = d.get("label") or {}
+    if not labels:
+        raise ValueError(f"{path}: no [label.<name>] tables")
+    for name, e in labels.items():
+        if not re.fullmatch(r"[a-z0-9_]+", name) or not e.get("group"):
+            raise ValueError(f"{path}: label {name!r} needs a lower-case name and a group")
+        if not (e.get("any") or e.get("all")):
+            raise ValueError(f"{path}: label {name!r} needs `any` or `all` classes")
+    return d
+
+
+def oid_cached(url: str, cache_dir: str, get=http_get, log=print) -> Path:
+    """The file at `url` under cache_dir (downloaded once)."""
+    p = Path(cache_dir) / url.rsplit("/", 1)[1]
+    if not p.exists():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        log(f"fetching {url}")
+        p.write_bytes(get(url))
+    return p
+
+
+def oid_class_ids(classes_csv: bytes | str, names: set[str]) -> dict[str, set[str]]:
+    """lower-case DisplayName -> its MIDs (a name can have several) for the names asked for."""
+    out: dict[str, set[str]] = {}
+    text = classes_csv.decode("utf-8") if isinstance(classes_csv, bytes) else classes_csv
+    for r in csv.DictReader(io.StringIO(text)):
+        n = r["DisplayName"].strip().lower()
+        if n in names:
+            out.setdefault(n, set()).add(r["LabelName"])
+    return out
+
+
+def oid_positives(labels_csv: Path, wanted: set[str]) -> dict[str, set[str]]:
+    """ImageID -> its human-verified positive MIDs among `wanted` (streamed; other rows skipped)."""
+    out: dict[str, set[str]] = {}
+    with open(labels_csv, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r["LabelName"] in wanted and float(r["Confidence"] or 0) >= 1:
+                out.setdefault(r["ImageID"], set()).add(r["LabelName"])
+    return out
+
+
+def scene_assign(positives: dict[str, set[str]], spec: dict, ids: dict[str, set[str]]) -> dict[str, list[str]]:
+    """label -> ImageIDs (sorted) that qualify for that label and no other: `any` (one of), `all`
+    (every one), `not` (none of), over the image's positive MIDs."""
+    def mids(names: list[str]) -> list[set[str]]:
+        return [ids.get(n.lower(), set()) for n in names]
+
+    rules = {name: (mids(e.get("any", [])), mids(e.get("all", [])), set().union(*mids(e.get("not", []))))
+             for name, e in spec.items()}
+    out: dict[str, list[str]] = {name: [] for name in spec}
+    for image_id, pos in positives.items():
+        hits = [name for name, (any_, all_, not_) in rules.items()
+                if (not any_ or any(pos & m for m in any_)) and all(pos & m for m in all_) and not (pos & not_)]
+        if len(hits) == 1:
+            out[hits[0]].append(image_id)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def scene_attributes(pos: set[str], spec: dict, ids: dict[str, set[str]]) -> dict[str, str]:
+    """{light, setting, framing}: the first value whose classes the image has, else ""."""
+    out = {}
+    for attr in SCENE_ATTRIBUTES:
+        out[attr] = next((v for v, names in (spec.get(attr) or {}).items()
+                          if any(pos & ids.get(n.lower(), set()) for n in names)), "")
+    return out
+
+
+def md5_file(path: Path) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch_photo(url: str, path: Path, md5: str, get, throttle: Throttle) -> str:
+    """The photo at `path`: kept when it is there with the expected md5 (or no md5 is known), else
+    downloaded (throttled). Returns the file's md5; raises when a download does not match `md5`."""
+    if path.exists() and (not md5 or md5_file(path) == md5):
+        return md5 or md5_file(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    throttle.wait()
+    data = get(url)
+    got = hashlib.md5(data).hexdigest()
+    if md5 and got != md5:
+        raise ValueError(f"{url}: md5 {got} differs from the manifest's {md5}")
+    path.write_bytes(data)
+    return got
+
+
+def gt_scene_from(manifest: str, out_dir: str, get=http_get, throttle: Throttle | None = None, log=print) -> list[dict]:
+    """The scene set of a committed manifest (a groundtruth-scene.csv with url and md5, path ignored):
+    each photo to out_dir/<scene or group>/<subset>_<id>.jpg unless already there with that md5, then
+    out_dir/groundtruth-scene.csv with local paths. A download whose md5 differs fails the run."""
+    throttle = throttle or Throttle(0.2)
+    with open(manifest, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    missing = [c for c in ("url", "md5", "source", "scene_group") if rows and c not in rows[0]]
+    if missing:
+        raise ValueError(f"{manifest}: not a scene manifest, missing columns {', '.join(missing)}")
+    out, kept = [], 0
+    for r in rows:
+        folder = r.get("scene") or r["scene_group"]
+        path = Path(out_dir) / folder / (r["url"].rsplit("/", 2)[-2] + "_" + r["url"].rsplit("/", 1)[-1])
+        before = path.exists()
+        md5 = fetch_photo(r["url"], path, r.get("md5", ""), get, throttle)
+        kept += before and md5 == r.get("md5", "")
+        out.append({**{k: r.get(k, "") for k in SCENE_FIELDS}, "path": str(path.resolve()), "tier": "scene", "md5": md5})
+    log(f"{len(out)} photos, {kept} already here, {len(out) - kept} downloaded")
+    write_csv(str(Path(out_dir) / "groundtruth-scene.csv"), SCENE_FIELDS, out)
+    return out
+
+
+def gt_scene(map_path: str, out_dir: str, per_label: int, seed: int = 7, subsets: tuple[str, ...] = ("validation", "test"),
+             cache_dir: str | None = None, dry_run: bool = False, get=http_get, throttle: Throttle | None = None,
+             log=print) -> list[dict]:
+    """Sample up to per_label unambiguous Open Images photos per scene label (seeded), download them to
+    out_dir/<label>/<subset>_<id>.jpg and write out_dir/groundtruth-scene.csv with each photo's url and
+    md5 (the manifest `gt scene --from` re-fetches). The label CSVs (about 180 MB in all) are cached
+    under cache_dir; --dry-run does everything but the photos and writes the CSV with the photo URL as
+    path and no md5."""
+    spec = read_scene_map(map_path)
+    cache_dir = cache_dir or str(Path.home() / ".cache" / "bioscan" / "openimages")
+    throttle = throttle or Throttle(0.2)
+    names = {c.lower() for e in spec["label"].values() for k in ("any", "all", "not") for c in e.get(k, [])}
+    names |= {c.lower() for a in (spec.get("attribute") or {}).values() for v in a.values() for c in v}
+    ids = oid_class_ids(oid_cached(OID_CLASSES, cache_dir, get, log).read_bytes(), names)
+    missing = sorted(names - set(ids))
+    if missing:
+        raise ValueError(f"{map_path}: class names not in Open Images: {', '.join(missing)}")
+    wanted = set().union(*ids.values())
+    rows, rng = [], random.Random(seed)
+    for subset in subsets:
+        positives = oid_positives(oid_cached(OID_LABELS[subset], cache_dir, get, log), wanted)
+        with open(oid_cached(OID_IMAGES[subset], cache_dir, get, log), newline="", encoding="utf-8") as f:
+            meta = {r["ImageID"]: r for r in csv.DictReader(f)}
+        for label, image_ids in scene_assign(positives, spec["label"], ids).items():
+            image_ids = [i for i in image_ids if i in meta]
+            rng.shuffle(image_ids)
+            e = spec["label"][label]
+            for image_id in image_ids:
+                if sum(r["scene_label"] == label for r in rows) >= per_label:
+                    break
+                m = meta[image_id]
+                url = OID_PHOTO.format(subset=subset, image_id=image_id)
+                path = Path(out_dir) / label / f"{subset}_{image_id}.jpg"
+                md5 = "" if dry_run else fetch_photo(url, path, "", get, throttle)
+                rows.append({"path": url if dry_run else str(path.resolve()), "tier": "scene", "scene": e.get("scene", ""),
+                             "scene_group": e["group"], **scene_attributes(positives[image_id], spec.get("attribute") or {}, ids),
+                             "license": m.get("License", ""), "attribution": f"{m.get('Author', '')} {m.get('OriginalLandingURL', '')}".strip(),
+                             "source": f"openimages:{subset}:{image_id}", "url": url, "md5": md5, "scene_label": label})
+    counts = {label: sum(r["scene_label"] == label for r in rows) for label in spec["label"]}
+    for label, n in counts.items():
+        log(f"{label}: {n} photos" + (f" (short of {per_label})" if n < per_label else ""))
+    for r in rows:
+        del r["scene_label"]
+    if not dry_run or rows:
+        write_csv(str(Path(out_dir) / "groundtruth-scene.csv"), SCENE_FIELDS, rows)
     return rows

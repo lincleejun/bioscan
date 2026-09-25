@@ -350,7 +350,8 @@ A minimal example is `tests/unit/fixtures/standards-example.toml`.
 The album profile (identify with species off, embed, aesthetics, quality, scene; reducers burst and select) is scored
 with the same report.json: its species `metrics` mean nothing there, its [`plugin_metrics`](#plugin_metrics-and-plugin_images)
 are the measure. The ground truth is a CSV with `path`, `tier`, `keep` (1/0), `reject_reasons` (`;`-joined, blank
-= none), `burst_id` (blank = in no burst) and `scene` (blank = unlabelled); a column it lacks measures nothing.
+= none), `burst_id` (blank = in no burst), `scene` (blank = unlabelled) and `scene_group` (the label's group; blank =
+unlabelled); a column it lacks measures nothing.
 
 **Synthetic reject set.** No labelled album exists yet, so `scripts/cull_synth.py` makes one from photos whose
 subject box is known (a preds file's best identify box, or a CSV): per source the original (keep 1), Gaussian blur
@@ -377,13 +378,19 @@ it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =
 | quality | `reject_recall` (rate) | `all`, `soft`, each reason | Of the images whose truth has the scope's reason(s), the share rejected for it; a failed image counts as not rejected |
 | quality | `keepers_lost` (rate, lower is better) | `all` | Of the keep-labelled images, the share a rule rejected: the budget metric, since losing a keeper costs more than reviewing a reject |
 | burst | `burst_pair_precision`, `burst_pair_recall`, `burst_pair_f1` (pairs) | `all` | Over every pair of images: grouped by the reducer and by the truth; a frame in no burst is its own group |
-| scene | `scene_acc` (rate) | `all`, each truth label | The top label is the truth's |
+| scene | `scene_acc` (rate) | `all`, each truth label | The top label is the truth's `scene` |
+| scene | `group_acc` (rate) | `all`, each truth group | The scene group (`products.scene.group` when the stage reports one, else the label) is the truth's `scene_group`: the 8 built-in labels today, the groups of docs/research/2026-09-24-scene-taxonomy.md later; the `scene` tier's metric |
 
 "Rejected" means select's reasons (after its waivers, e.g. underexposed at night) when the run had select, else
 quality's. `soft` pools `soft_subject` and `motion_or_defocus`, which differ only in whether anything else in the
 frame is sharp: a soft subject against smooth bokeh reads as `motion_or_defocus`. Synthetic degradations are cleaner
 than real ones, so these numbers are floors for the rules, not a claim about real albums; that needs the owner's
 labelled trips (TASKS.md).
+
+**Scene tier.** The same album-profile scoring over `bioscan gt scene`'s CSV (Open Images V7 photos per scene label,
+`data/scene/oid-labels.toml`): `bench run GT.csv --profile album --tier scene`, judged on `scene.group_acc`
+(docs/standards.md section 15). The identify, quality and burst metrics mean nothing there (no boxes or bursts in the
+truth), only the scene ones are read.
 
 ## geotag: GPX geotagging (`bench geotag`)
 

@@ -54,6 +54,7 @@ must clear it, not just the observed rate.
 | `aesthetic-golden` | aes-golden-v1 = the 100 held-out EVA images, 20 per crowd star band (`data/aesthetic/eva-golden-v1.csv`); profile `album` | 100 (40 keepers, no shot groups) | none | CC0 (EVA) | anywhere with an EVA checkout; `bench aesthetic score` needs no model | any aesthetic scorer against crowd stars ([section 13](#13-aesthetics-agreement-with-the-owner-album)) |
 | `geotag` | synthetic GPX tracks through the golden photos' true positions, 7 scenarios (`scripts/geotag_synth.py`, seed 7) | 1,624 photos × 7 | none (no models) | derived from golden; tracks are generated, not shipped | anywhere: about 65 s to generate (~750 MB) and 80–85 s to score (measured 64 s + 82–85 s) | GPX geotagging ([section 12](#12-geotag-from-a-gpx-track-synthetic-tier)) |
 | `album` | synthetic reject set from 24 smoke photos (`scripts/cull_synth.py`, seed 7): originals, 7 degradations each, bursts; profile `album` | about 220 | none needed (species off) | derived from smoke; generated at test time, not shipped | CI `models.yml`, CPU | culling rules and reducers ([section 14](#14-culling-album-profile-synthetic-tier)) |
+| `scene` | Open Images V7 validation + test photos with human-verified labels, sampled per scene label by `bioscan gt scene` (`data/scene/oid-labels.toml`, seed 7): 38 labels × up to 50, 8 groups; profile `album` | 1,861 (aurora has 11; dry run 2026-09-25) | none needed (species off) | CC BY 2.0 every image (per-image author and landing URL kept); fetched to measure, not redistributed | owner's Mac (about 180 MB of label CSVs cached, ~1 GB of photos) | scene groups ([section 15](#15-scene-open-photos-per-scene-label)) |
 
 The golden set is 89% CC BY-NC. That is fine for measuring but not for publishing the photos. This is
 why the public tier is CC0/CC BY only.
@@ -405,6 +406,44 @@ uv run python scripts/cull_synth.py --preds runs/src.ndjson --out runs/album-syn
 bioscan bench run runs/album-synth/groundtruth-album.csv --profile album --tier album --out runs/album
 bioscan bench scorecard runs/album/report.json
 ```
+
+## 15. Scene: open photos per scene label
+
+The `scene` tier measures the `scene` stage on photos that are not the owner's and not all wildlife:
+`bioscan gt scene` samples Open Images V7 validation and test photos whose human-verified image-level
+labels put them in exactly one scene label of `data/scene/oid-labels.toml` (class sets with `any` /
+`all` / `not`; a photo that fits two labels is dropped). The CSV has the album tier's `scene` (fine
+label, blank for `bird` and `mammal`, whose framing Open Images does not tell) and `scene_group` (one
+of the 8 built-in labels), plus `light`, `setting`, `framing` attributes where the labels say so (no
+metric reads them yet). The judged metric is `group_acc` ([harness.md](harness.md), "Album tier"),
+so the current 8-label stage and the finer taxonomy proposed in
+`docs/research/2026-09-24-scene-taxonomy.md` are measured on the same truth; `scene_acc` on the
+fine labels starts to mean something once the stage reports them.
+
+| Bar | Industry | Community | Stretch | Our status | Why |
+|---|---|---|---|---|---|
+| Scene group correct, all photos | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | unmeasured | what `select` buckets on |
+| Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | unmeasured | one weak group hides in the mean |
+
+Caveats: Open Images labels are object tags, not genre judgements (a "Portrait" label is not always a
+portrait photograph), so a first run's failures need a look at the photos before the bar is trusted;
+`aurora` has 11 photos (Open Images has 16 human-verified positives), so its errors barely move the
+`night` group.
+
+**What is committed** is the manifest `data/scene/scene-v1.csv`: one row per photo with its `url` (the
+CVDF S3 mirror), `md5`, labels, licence and attribution, no photos (about 600 MB; they stay under
+`runs/`, ignored by git). Any machine gets the identical set with `gt scene --from`: a photo already
+there with the manifest's md5 is kept, anything else is downloaded, and a download whose md5 differs
+fails the run, so a bench on this tier always scores the same files.
+
+How measured (any machine with the service running and the out folder under its allow-roots):
+```sh
+bioscan gt scene --from data/scene/scene-v1.csv --out runs/scene-v1     # ~1,861 photos, skips what is there
+bioscan bench run runs/scene-v1/groundtruth-scene.csv --profile album --tier scene --out runs/scene
+bioscan bench scorecard runs/scene/report.json --tier scene
+```
+A new set (more labels, another seed) is sampled with `gt scene --out DIR --per-label N` and its
+`groundtruth-scene.csv` committed as the next manifest.
 
 ## Release stages
 

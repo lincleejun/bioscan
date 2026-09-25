@@ -69,6 +69,9 @@ MANIFEST = Manifest(
     impl="bioscan.plugins.scene.stage:STAGE",
     check=check,
     metrics=(Metric("scene_acc", "rate", "bioscan.cull:row_scene",
-                    description="top label is the truth's; scopes all and each truth label"),),
+                    description="top label is the truth's `scene`; scopes all and each truth label"),
+             Metric("group_acc", "rate", "bioscan.cull:row_scene_group",
+                    description="scene group (`group`, else the label) is the truth's `scene_group`; "
+                                "scopes all and each truth group")),
     fingerprinted=True,
 )

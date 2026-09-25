@@ -185,6 +185,18 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
       Stage.plugin_id, else the settings fingerprint of a `fingerprinted` manifest); standards §13 aesthetics, §14 culling
 - [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
       synthetic reject set (blur / cut-off / exposure degradations of iNat photos) for the rule stages
+- [x] scene taxonomy: proposal in docs/research/2026-09-24-scene-taxonomy.md (8 groups -> 40 labels + light/setting/framing attributes);
+      owner accepted the taxonomy with the defaults (2026-09-25)
+- [x] scene tier (2026-09-25): `bioscan gt scene` (Open Images V7 val+test, CC BY 2.0, data/scene/oid-labels.toml, 38 labels x 50,
+      aurora 11), `scene.group_acc` metric, standards §15 (culling.scene.*.group_acc), docs; dataset survey in
+      docs/research/2026-09-24-scene-datasets.md
+- [x] scene manifest (owner decision 2026-09-25: commit url + md5, re-download each time, keep what is already there):
+      `gt scene --from data/scene/scene-v1.csv`; a download whose md5 differs fails
+- [ ] scene tier baseline: `bench run runs/scene-v1/groundtruth-scene.csv --profile album --tier scene` on the Mac with the
+      current 8-label stage, `bench baseline --name scene-v1-8labels`; look at the failures per label before trusting a bar
+- [ ] implement the taxonomy (groups / attributes / wildlife_rules, §3.4 of the proposal), compare against that baseline
+- [ ] wildlife fine labels (bird_portrait / habitat, mammal_*): no open source has framing labels; the owner's 2-3 labelled
+      trips (cull ground truth above) are the only truth
 
 ## v1.7 C2: aesthetic head on SigLIP2 (branch v17/c2-aesthetic, 2026-09-24)
 Goal: rank album frames by an aesthetic score from the SigLIP2 frame vector bioscan already computes; general head

@@ -371,6 +371,18 @@ def row_scene(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, A
     return {"all": hit, label: hit}
 
 
+def row_scene_group(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, Any]:
+    """Whether the scene group is the truth's `scene_group`, in `all` and in the truth group's own scope.
+    The prediction's group is `products.scene.group` when the stage reports one, else its label (a stage
+    whose labels are the groups themselves, as today's 8 defaults)."""
+    group = (truth.get("scene_group") or "").strip()
+    s = products(pred or {}).get("scene")
+    if not group or not s:
+        return {}
+    hit = (s.get("group") or s.get("label")) == group
+    return {"all": hit, group: hit}
+
+
 class _Reducer:
     def __init__(self, fn) -> None:
         self.reduce = fn

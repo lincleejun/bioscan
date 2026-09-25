@@ -111,6 +111,22 @@
 
 轨迹按补好的时间生成，所以评测是自洽的。每行的精度记在合成结果的 `truth.csv`（`precision` 列）。这个文件本身不改。
 
+## scene/oid-labels.toml — scene tier 的标签映射（`bioscan gt scene` 读）
+
+把 Open Images V7 的类名（`oidv7-class-descriptions.csv` 的 DisplayName）映射到 scene 标签：每个 `[label.<名>]` 有
+`group`（8 个粗组之一）、`scene`（细标签，Open Images 分不出来的写空串，如 `bird`、`mammal`）和 `any` / `all` / `not`
+三种类集合；一张照片同时符合两个标签就两边都不要。`[attribute.light|setting|framing]` 给 CSV 的属性列。
+`bioscan gt scene --out DIR --per-label N` 把 val + test 的标签 CSV（约 180 MB）缓存到 `~/.cache/bioscan/openimages/`，
+按 seed 抽样后从 CVDF 的 S3 镜像下载照片到 `DIR/<label>/`，写 `DIR/groundtruth-scene.csv`
+（列 `path, tier, scene, scene_group, light, setting, framing, license, attribution, source`）。
+照片全部 CC BY 2.0，逐张记作者与出处，只用来评测，不进仓库。分类法与来源调研见 `docs/research/2026-09-24-scene-*.md`。
+
+## scene/scene-v1.csv — scene tier 的清单（`bioscan gt scene --from` 读）
+
+抽样结果的 `groundtruth-scene.csv` 去掉本机路径后提交：每行 `url`（CVDF 的 S3 镜像）+ `md5` + 标签、许可、署名。
+`bioscan gt scene --from data/scene/scene-v1.csv --out DIR` 逐行检查 `DIR/<scene 或 group>/<subset>_<id>.jpg`：
+md5 一致就跳过，否则下载；下载结果 md5 不符直接报错。这样任何机器跑 bench 用的都是同一批文件，仓库只多约 200 KB。
+
 ## aesthetic/ — 通用美学头（`eva-head-v1.json`）
 
 `aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。**头文件尚未提交**（目前只有 README），在 CI（`aesthetic.yml`）或 Mac 上训练后再提交；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`bioscan aesthetic train --ratings`）只留在本机，不进仓库。

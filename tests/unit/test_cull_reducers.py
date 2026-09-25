@@ -135,3 +135,35 @@ def test_profiles_carry_reducer_options(tmp_path):
     f.write_text('[profile.x.options.burst]\ngap = 1\n')
     with pytest.raises(ValueError, match=r"unknown options profile.x.options.burst: \['gap'\]"):
         profile.load([("project", f)], env={})
+
+
+# ---- scene metrics: scene_acc (fine label) and group_acc (group, else label) -------------------------
+
+def _scene_pred(label, group=None):
+    s = {"label": label}
+    if group:
+        s["group"] = group
+    return {"type": "result", "path": "p", "products": {"scene": s}}
+
+
+def test_row_scene_and_row_scene_group():
+    truth = {"path": "p", "scene": "coast", "scene_group": "landscape"}
+    # today's stage: labels are the groups; group_acc falls back to the label
+    assert cull.row_scene(truth, _scene_pred("landscape")) == {"all": False, "coast": False}
+    assert cull.row_scene_group(truth, _scene_pred("landscape")) == {"all": True, "landscape": True}
+    # a stage that reports fine labels and their group
+    assert cull.row_scene(truth, _scene_pred("coast", "landscape")) == {"all": True, "coast": True}
+    assert cull.row_scene_group(truth, _scene_pred("mountain", "landscape")) == {"all": True, "landscape": True}
+    assert cull.row_scene_group(truth, _scene_pred("building", "architecture")) == {"all": False, "landscape": False}
+    # a column the CSV lacks measures nothing; so does a photo without a scene product
+    assert cull.row_scene({"path": "p", "scene_group": "landscape"}, _scene_pred("coast")) == {}
+    assert cull.row_scene_group({"path": "p", "scene": "coast"}, _scene_pred("coast")) == {}
+    assert cull.row_scene_group(truth, {"type": "result", "path": "p", "products": {}}) == {}
+    assert cull.row_scene_group(truth, {"type": "error", "path": "p", "error": "decode failed"}) == {}
+    assert cull.row_scene_group(truth, None) == {}
+
+
+def test_scene_manifest_declares_both_metrics():
+    from bioscan.plugins.scene import MANIFEST
+    assert [m.name for m in MANIFEST.metrics] == ["scene_acc", "group_acc"]
+    assert all(m.kind == "rate" for m in MANIFEST.metrics)
