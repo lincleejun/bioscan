@@ -62,20 +62,27 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
 - [ ] (deferred, owner 2026-09-25: not urgent) not_in_list (7): a self-encoded reptile + fish list (Reptile Database / Eschmeyer's Catalog or GBIF
       checklists, encoded with BioCLIP's text tower like the AviList/MDD rows without ToL vectors); until then
       consider capping other_animal boxes whose kind lacks coverage at genus/unconfirmed
-- [ ] out_of_range (3): the range veto only reorders within the returned top-k; search the whole list for an
-      in-range congener (Corvus corax case)
-- [ ] prior_suppressed (1): Cervus canadensis lost to the mammal prior (p_geo of Cervus?) -> inspect mdd_map / geomodel
-      coverage for Cervus, genus back-off constant
-- [ ] kind check against the all-taxa list: size-corrected top-5 statistic (reviewer fix.py), evaluate on real photos
+- [x] out_of_range (3): the range veto now adds the list's best in-range congener when none made the top-k (T1, 2026-09-25;
+      accuracy effect unverified until a Mac `bench compare`)
+- [x] prior_suppressed (1): investigated (T2, 2026-09-25): the one row is Dryobates nuttallii lost to D. pubescens (visual 0.504
+      vs 0.485, p_geo 0.485 vs 0.909), not Cervus. Cervus mapping and p_geo are correct (19/25 right in v1.5); its 6 misses are
+      4 out_of_range (visual gives C. elaphus ~1.0) and 2 within_genus (C. albirostris borrows Wapiti's p_geo by the genus rule)
+- [ ] owner decision: genus fall-back for unlabelled species (a) keep borrowing the congener's full p_geo (today), (b) a fixed
+      fraction, (c) only when that congener's p_geo >= RANGE_TAU; (b)/(c) need a Mac bench compare
+- [x] kind check against the all-taxa list: size-corrected top-5 statistic behind the trial option `kind_size_correct`
+      (off by default, not in the fingerprint; T3, 2026-09-25). fix.py was never in the repo; built from commit 740f8b6's formula
+- [ ] owner's Mac: eval with `kind_size_correct=true` vs off, bench compare; decides whether it replaces taxa.ONE_WAY
 - [x] owner's Mac: golden + own RAW baselines (2026-09-24: baselines/golden-inat-v1.{4,5}.json, own-raw-2026-09-24-v1.{4,5}.json; docs/2026-09-24-*.md) (`bioscan bench run ... --tier golden|own`), speed tier, RAW EXIF check
 - [ ] golden other-animal slice: ~16 CA reptile/amphibian/insect/spider species × 25 via `bioscan gt inat` (docs/standards.md); measures accuracy.golden.other.*
 - rule: docs/standards.md "Now" column is refreshed with every Mac baseline (last: 2026-09-24 golden/own)
 - [x] service shutdown leaves decode-pool workers alive after SIGTERM (found 2026-09-24 on the Mac); fixed: `RunQueue.close()` (shutdown wait + cancel_futures) runs in the lifespan handler
 - [ ] (deferred, owner 2026-09-25: no CR3/NEF samples, not urgent) Phase 0 speed benchmark (docs/strategy): 2,000 files, ARW/CR3/NEF at 24 and 45 MP, USB vs SSD
 
-- [ ] run report, JSON first (design: docs/research/2026-09-24-report-design.md): `bioscan summarize` reducer ->
-      summary.json (categories, taxa, review queue with rule reasons); `bioscan report` renders it; review.json ->
-      `bioscan gt review`. First prototype: runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW, owner reviewed: OK)
+- [x] run report, JSON first (design: docs/research/2026-09-24-report-design.md): `bioscan summarize` -> summary.json
+      (categories, taxa, review queue with rule reasons); `bioscan report` renders it with cull's tiles (T4, 2026-09-25;
+      bioscan/cli/report.py, docs/usage.md). Not built: design §3 feedback (verdict buttons, review.json, `bioscan gt review`),
+      RAW thumbnails without a jpg copy; single_sighting threshold 0.8 is the design's guess
+      First prototype: runs/coyote-hills/build_pages.py (2026-09-24, 1424 ARW, owner reviewed: OK)
 
 ## v1.6 W6: geotag from GPX (branch v16/w6-geotag, 2026-09-24)
 Goal: photos without GPS get a position from the photographer's GPX track, for the location prior and captions.
@@ -97,7 +104,9 @@ Verify: tests/unit/test_geotag.py, test_geotag_bench.py, test_standards.py; `bio
       format_offset rounding; failed estimates count in offset_error_s; warning for --offset/--tz/--clock without --gpx
 - [x] Mac (2026-09-25): `bench run` on runs/geotag-synth/gt/perfect.csv vs golden and golden-nogeo: GPX positions = true GPS (0 answers differ); vs no coordinates top-1 +5.2 pts (birds 86.0 → 91.2, mammals 77.7 → 82.8). The gaps scenario run was stopped by the owner as unnecessary
 - [ ] (waiting: owner has no real GPX folder yet, 2026-09-25) a real GPX + camera folder, to check the synthetic numbers (watch auto-pause, canyons, cold start)
-- [ ] mixed cameras in one folder: one clock offset per camera model (EXIF Model) instead of one per run
+- [x] mixed cameras in one folder: one clock offset per camera (EXIF Make + Model) when it has its own clock/GPS photos,
+      else the folder's; `run --gpx` passes `camera_offsets` to the geotag stage; single-camera folders unchanged (T6, 2026-09-25).
+      No `--offset MODEL=SECONDS`: a clock photo per camera covers it
 
 ## 7. Mac 本地跑 v1.4 / v1.5 数据（2026-09-24，owner 的操作清单）
 - [x] git pull（875dc7a）+ uv sync
@@ -150,19 +159,24 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
 - [x] C1 evaluation: scripts/cull_synth.py (labelled rejects + bursts, seeded), album tier metrics, tests/models album
       smoke with loose floors (models-report-album.json), baselines/budget-album.toml, models.yml compare step,
       data/standards.toml album rows (profile album, plugin metrics), docs/standards.md §14
-- [ ] first models.yml run on v17/c1-cull: commit the printed candidate as baselines/ci-album.json (owner approves), tighten
-      ALBUM_FLOORS in tests/models, fill "Now" in docs/standards.md §14; until then every album number is unverified
-- [ ] quality thresholds were calibrated on 1/f-noise surrogates only (SOFT_BLUR 0.45, SHARP_ELSEWHERE 0.38, exposure
-      limits): re-check on the CI smoke set and a real album; expect keepers_lost from tight iNat crops (subject_cut)
+- [ ] first green models.yml run: commit the printed candidate as baselines/ci-album.json (owner approves), tighten
+      ALBUM_FLOORS in tests/models, fill "Now" in docs/standards.md §14; until then every album number is unverified.
+      Runs 36074125747 and 36087035644 were red on `quality.underexposed.reject_recall` 0.33 (fixed in T8 below)
+- [ ] quality thresholds were calibrated on 1/f-noise surrogates only (SOFT_BLUR 0.45, SHARP_ELSEWHERE 0.38): re-check on
+      a real album; expect keepers_lost from tight iNat crops (subject_cut). Exposure re-checked on the CI sources (T8)
 - [ ] cull speed on the Mac: quality measured ~70-110 ms per 2048 px frame on the container CPU (synthetic); scene adds
       one matrix product per chunk; measure with a real folder (album tier throughput)
-- [ ] XMP ratings / colour labels for picks and rejects behind a flag, never overwriting an existing sidecar (as geotag --xmp)
+- [x] `bioscan cull --xmp`: picks 3 stars, spares 2, rejects the Red label + reasons in a bioscan namespace; new sidecars only
+      (bioscan/xmp.py shared with geotag); the ratings reader skips cull-written sidecars (T5, 2026-09-25)
+- [ ] re-rating a photo that has a cull sidecar: the reader skips the whole sidecar, so stars added to it later are ignored
+      (docs/album.md says delete it first); skip only when the stars still match cull's if that bites
 - [ ] motion vs defocus as separate reasons (per-axis re-blur anisotropy) if the owner wants the split; today
       motion_or_defocus means "nothing in the frame is sharp" and a soft subject on smooth bokeh lands there
 - [ ] horizon tilt: measured for landscapes only and reported; decide whether a tilt over N degrees becomes a flag
 - [ ] next composition checks from the research doc: headroom, lead room (OWLv2 "head"/"eye" query), eye focus
 - [ ] `bioscan report` (TASKS above) can reuse cull's HTML writer (bioscan/cli/cull.py write_html)
-- [ ] mixed cameras whose clocks disagree: bursts are per camera already; a per-camera clock offset would align them
+- [x] mixed cameras whose clocks disagree: bursts stay per camera (merging bursts across cameras is a product decision, not
+      done); the per-camera offset lives in geotag (T6)
 - [x] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
       (branch v17/c2-aesthetic; details and next steps in "v1.7 C2" below)
 - [x] C1 + C2 merged: BUILTIN (identify, embed, jpg, geotag, aesthetics, quality, scene); album = identify (species
@@ -233,16 +247,21 @@ Next:
       CSV / HTML gallery, `--preds` re-export; thumbnails = the jpg copies shrunk in the CLI (the jpg product's /products entry
       is frozen by the A0 golden) (2026-09-24)
 - [ ] arena on the owner's rated trips (the head is not in-distribution there); rank-average of ours + Qwen3-VL-4B as one row
-- [ ] standards bars for the golden set after the first real run (group top-1 vs random, keepers lost @20 %)
+- [x] standards tier `aesthetic-golden` (Spearman lower bound >= 0.70, precision@k >= 0.55, keepers lost @20 <= 0.15, group
+      top-1 >= 0.50 when groups exist) + budget-aesthetic.toml limits from the EVA-100 intervals; baseline
+      baselines/aes-golden-v1-eva-head-v1.json (T7, 2026-09-25). Bars chosen by the agent, owner to confirm
 - [ ] a review/labelling page if filling images.csv by hand is slow
 
 ## 2026-09-25 parallel run (owner: no input needed; one worktree per track, Opus 5.5 agents, Fable reviews)
-- [ ] T1 out_of_range: range veto searches the whole list for an in-range congener (Corvus corax case)
-- [ ] T2 prior_suppressed: Cervus canadensis vs the mammal prior; mdd_map / geomodel coverage, genus back-off
-- [ ] T3 kind check against the all-taxa list: size-corrected top-5 statistic in the harness
-- [ ] T4 `bioscan summarize` (summary.json) + `bioscan report` (HTML via cull's writer), design docs/research/2026-09-24-report-design.md
-- [ ] T5 `bioscan cull --xmp`: ratings / colour labels for picks and rejects, never overwriting an existing sidecar
-- [ ] T6 one clock offset per camera model (EXIF Model) in geotag and cull bursts
-- [ ] T7 aesthetic golden set: EVA-100 baseline report committed under baselines/, standards bars + budget set from it
-- [ ] T8 (Fable) models.yml red: `quality.underexposed.reject_recall` 0.33 under its floor; find the cause, fix or recalibrate
+- [x] T1 out_of_range: range veto searches the whole list for an in-range congener (Corvus corax case)
+- [x] T2 prior_suppressed: Cervus canadensis vs the mammal prior; mdd_map / geomodel coverage, genus back-off
+- [x] T3 kind check against the all-taxa list: size-corrected top-5 statistic in the harness
+- [x] T4 `bioscan summarize` (summary.json) + `bioscan report` (HTML via cull's writer), design docs/research/2026-09-24-report-design.md
+- [x] T5 `bioscan cull --xmp`: ratings / colour labels for picks and rejects, never overwriting an existing sidecar
+- [x] T6 one clock offset per camera model (EXIF Model) in geotag and cull bursts
+- [x] T7 aesthetic golden set: EVA-100 baseline report committed under baselines/, standards bars + budget set from it
+- [x] T8 (Fable) models.yml red: `quality.underexposed.reject_recall` 0.33 under its floor. Cause: the mean-luma rule (frame
+      <= -0.26) assumes a mid-grey original; -2 EV of the CI sources lands between -0.05 and -0.36. Fix: a frame with tonal range
+      but no highlights (99.9th-percentile luma <= 0.55, -2 EV maps white to 0.54) is underexposed. Local rebuild of the synthetic
+      set from the 49 CI sources: 48/49 -2 EV flagged, 0/49 originals, 2/68 bursts, 3/147 blur/smear/shake. CI: pending
 Skipped this run: composition checks (headroom / lead room / eye focus), motion-vs-defocus split, horizon-tilt flag (owner decisions), real GPX folder, CR3/NEF, reptile/fish list (deferred by the owner)
