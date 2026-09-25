@@ -245,6 +245,6 @@ never overwrite the owner's own stars; fully automatic (LrInit watcher), one com
 
 - [x] L1 `bioscan/cli/lr.py` + `bioscan lr open|install` + tests/unit/test_lr.py + README (EN, zh-CN) section
 - [x] L2 `extensions/lightroom/bioscan.lrplugin` (Info, Apply, Watch, Metadata, dkjson) + extensions/lightroom/README.md
-- [x] L3 acceptance: ruff, pytest, luac -p, real-data `lr open --no-launch --to` (12 own RAW, wildlife + album profiles), CI green; LrC end unverified until the owner installs
-Found: `--profile album` turns species off, so every photo groups as 待确认; the documented one-liner uses `wildlife`.
+- [x] L3 acceptance: ruff, pytest, luac -p, real-data `lr open --no-launch --to` (12 own RAW, wildlife + album profiles), CI green; LrC end run on the owner's Mac (10 photos, 4 groups, stars 1-5, idempotent rerun); hand-changed-star and cancel paths unverified
+Found: `--profile album` turns species off, so every photo groups as 待确认; the documented one-liner uses `wildlife --want identify,embed,aesthetics` (stars from the EVA head merged in main).
 Found: `test_eval_on_a_preds_file_matches_golden` fails when the gitignored name-list CSVs are present in data/ (family names appear in bench-report.json); golden recorded without them, as CI runs.

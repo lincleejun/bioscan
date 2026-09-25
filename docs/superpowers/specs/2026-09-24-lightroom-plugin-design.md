@@ -108,4 +108,4 @@ Lightroom Classic 内嵌 **Lua 5.1**：不用 `goto`、`//`、位运算、`table
 ## 8. 验证与状态
 
 - 自动：`uv run ruff check .`、`uv run pytest`、`luac -p` 每个 Lua 文件（本机 luac 是 5.4，只能查语法，5.1 约束靠 review）、CI `ci.yml`。
-- 真实 Lightroom：只能在 owner 的 Mac 上手动做；本版交付时标 **unverified**，验收步骤在 `extensions/lightroom/README.md`。
+- 真实 Lightroom：2026-09-24 在 owner 的 Mac 上跑通（10 张：登记 10、打星 9、4 个 collection；复跑导入 0）。手改星级不被覆盖、取消/超时路径仍 unverified，步骤在 `extensions/lightroom/README.md`。

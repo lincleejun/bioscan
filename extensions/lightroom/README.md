@@ -6,8 +6,9 @@ into collections under a `bioscan` collection set, and stores the score, species
 metadata fields. All the rules live in Python (`bioscan lr open`); the plug-in only applies
 `latest.json`. Design: `docs/superpowers/specs/2026-09-24-lightroom-plugin-design.md`.
 
-Status: **unverified in Lightroom.** The Lua was syntax-checked and exercised against a stubbed SDK,
-not inside Lightroom Classic. Run the acceptance checklist below once before relying on it.
+Status: **run once in Lightroom Classic on the owner's Mac (2026-09-24, 14.x):** symlinked plug-in loaded from
+Modules, the watcher applied a 10-photo run at startup (10 added, 9 starred, 4 collections), a rerun of the same
+photos added nothing. Checklist steps 5 (a hand-changed star is kept) and the cancel/timeout paths are still unverified.
 
 ## Install
 
@@ -69,9 +70,9 @@ What it does to each photo:
 
 ## Log
 
-Errors and one line per apply go to the `bioscan` logger with the `logfile` action. The SDK guide puts
-that file at `~/Documents/bioscan.log`; recent Lightroom Classic versions write plug-in logs to
-`~/Documents/LrClassicLogs/bioscan.log` instead (unverified; check both). The watcher never shows a
+Errors and one line per apply go to the `bioscan` logger with the `logfile` action:
+`~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bioscan.log` (Lightroom Classic 14 on macOS; the SDK guide's
+`~/Documents/bioscan.log` is where older versions put it). The watcher never shows a
 dialog; only the menu item reports a missing or unreadable `latest.json` in a dialog.
 
 ## Lua constraints
@@ -98,6 +99,9 @@ Checked against the Lightroom SDK 6.0 API reference (a copy of Adobe's HTML refe
 `LrCatalog.html` in <https://github.com/micdah/LrControl/tree/master/Docs/Lightroom%20SDK%206.0/API%20Reference/modules>)
 and the Lightroom Classic SDK Guide 2020
 (<https://ioconsolerykerprodcdn.azureedge.net/static/installers/lr/sdk/2020/doc/Lightroom%20Classic%20SDK%20Guide%202020.pdf>).
+
+Verified in Lightroom Classic 14 (macOS): a symlinked `.lrplugin` in Modules loads; `LrInitPlugin` starts the
+watcher; `addPhoto`, ratings, keyword chains, collections, plug-in fields and `setActiveSources({set})` all worked.
 
 Verified in the documentation:
 
@@ -128,7 +132,5 @@ Unverified (not stated in the docs, or only testable in Lightroom):
   relying on it: each keyword level is created in its own gate before any photo is touched.
 - Whether a gate stays usable after an error is caught with `LrTasks.pcall` inside it (per-photo
   failures such as a failed `addPhoto`).
-- Whether Lightroom loads a symlinked `.lrplugin` from the Modules folder (hence `--copy`).
-- The log file location in current Lightroom Classic versions.
 - A Plug-in Manager "Reload" starts a second watcher loop until Lightroom restarts; applies are
   idempotent, so this only costs a little polling.
