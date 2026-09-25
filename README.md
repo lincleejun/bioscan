@@ -46,7 +46,7 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | | Command | Doc |
 |---|---|---|
 | **Identify** boxes and species, graded species / genus / family / unconfirmed; location prior from EXIF GPS or `--lat/--lon`; narrow to candidate taxa with `--candidates` | `bioscan run DIR` | [usage.md](docs/usage.md), [how-it-works.md](docs/how-it-works.md) |
-| **Geotag** photos from a watch or phone GPX track; clock offset from a photo of the clock; XMP sidecars | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
+| **Geotag** photos from a watch or phone GPX track; clock offset per camera from a photo of the clock or photos with GPS; XMP sidecars | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
 | **Cull an album**: rejects with reasons, bursts with their best frame, best photos per scene category, aesthetic ranking; HTML review page, CSV, symlinks, optional XMP stars and labels in new sidecars; never deletes | `bioscan cull DIR -r --html review.html` | [album.md](docs/album.md) |
 | **Summarize a run**: categories, taxa and a review queue with rule reasons as `summary.json`, rendered to an HTML report | `bioscan summarize preds.ndjson --out run`, `bioscan report run` | [usage.md](docs/usage.md#run-summary-and-report) |
 | **Score a folder**: aesthetic ranking exported as NDJSON, CSV and/or an HTML gallery with thumbnails; re-export offline from the NDJSON | `bioscan aesthetic score DIR -r --export json,csv,html --out aes` | [album.md](docs/album.md) |

@@ -8,6 +8,9 @@ It becomes UTC with, in order: the file's own offset (OffsetTimeOriginal, alread
 else the `tz` given (a fixed offset such as "-07:00" or a zone name such as "America/Los_Angeles",
 DST-aware), else the system's local zone. GPX times are UTC. The **clock offset** is camera time
 minus true time (a camera 37 s fast has +37 s); the corrected time is camera UTC minus the offset.
+The offset is per camera (EXIF Make + Model): in a folder of two or more cameras, each camera whose
+own photos give an offset (clock photos, else photos with GPS) uses it; a camera without, and every
+photo without a Make/Model, uses the folder's offset (all photos together, as for one camera).
 
 Fix rule (`locate`). Between two neighbouring track points a and b the position is linear in time
 when the points are at most `max_gap_s` apart, or, across a longer gap (a dropout or an auto-pause),
@@ -409,6 +412,7 @@ class Photo:
     lat: float | None = None                   # EXIF GPS
     lon: float | None = None
     clock: str | None = None                   # a clock photo: the true time the clock shows
+    camera: str | None = None                  # EXIF Make + Model (decode.camera_from); None: unknown
 
 
 @dataclass
@@ -429,6 +433,9 @@ class Result:
     offset: OffsetEstimate
     track_points: int
     warnings: list[str]
+    # the offset used per camera; empty with fewer than two cameras. A camera without its own maps
+    # to `offset` (the folder's).
+    cameras: dict[str, OffsetEstimate] = field(default_factory=dict)
 
     def counts(self) -> dict[str, int]:
         return {s: sum(f.source == s for f in self.fixes) for s in SOURCES}
@@ -460,20 +467,51 @@ def resolve_offset(photos: list[Photo], track: Track, tz: tzinfo | None, offset_
     return OffsetEstimate(0.0, "none")
 
 
+def camera_offsets(photos: list[Photo], track: Track, tz: tzinfo | None, folder: OffsetEstimate,
+                   estimate: bool = True) -> tuple[dict[str, OffsetEstimate], list[str]]:
+    """Two or more cameras (Photo.camera): each camera's own offset from its own clock photos or
+    photos with GPS (resolve_offset), else the folder's. ({camera: offset used}, warnings)."""
+    named = sorted({p.camera for p in photos if p.camera})
+    if len(named) < 2:
+        return {}, []
+    out, warnings = {}, []
+    for cam in named:
+        mine = [p for p in photos if p.camera == cam]
+        own = resolve_offset(mine, track, tz, None, estimate) if any(not has_gps(p) for p in mine) else None
+        if own is not None and own.method != "none":
+            out[cam] = own
+            if own.note:
+                warnings.append(f"{cam}: {own.note}")
+        else:
+            out[cam] = folder
+            if own is not None and own.note:
+                warnings.append(f"{cam}: {own.note}; the folder's offset is used")
+    return out, warnings
+
+
 def geotag(photos: list[Photo], track: Track, tz: tzinfo | None = None, offset_s: float | None = None,
            estimate: bool = True, max_gap_s: float = MAX_GAP_S, max_span_m: float = MAX_SPAN_M,
-           extrapolate_s: float = EXTRAPOLATE_S, max_still_s: float = MAX_STILL_S) -> Result:
+           extrapolate_s: float = EXTRAPOLATE_S, max_still_s: float = MAX_STILL_S,
+           given: dict[str, float] | None = None) -> Result:
     """One Fix per photo, in input order. EXIF GPS always wins (source exif); else the track at the
-    corrected capture time (gpx); else none. The offset is resolved once for all photos, so give
-    one camera per call."""
+    corrected capture time (gpx); else none. The folder's offset is resolved over all photos. A given
+    `offset_s` holds for every camera; else, with two or more cameras, each camera with its own
+    references gets its own (camera_offsets). `given` ({camera: offset}) sets cameras' offsets
+    outright (the stage: `bioscan run --gpx` estimated them over the whole folder)."""
     if any(not has_gps(p) for p in photos):
         off = resolve_offset(photos, track, tz, offset_s, estimate)
     else:                                       # every photo has GPS: nothing to place, nothing to estimate
         off = OffsetEstimate(offset_s or 0.0, "given" if offset_s is not None else "none")
-    fixes, warnings, misses = [], [], []
+    if given:
+        cams, warnings = {c: OffsetEstimate(v, "given") for c, v in given.items()}, []
+    elif offset_s is None:
+        cams, warnings = camera_offsets(photos, track, tz, off, estimate)
+    else:
+        cams, warnings = {}, []
+    fixes, misses = [], []
     for p in photos:
         t = capture_utc(p.taken_at, tz)
-        tt = None if t is None else t - off.offset_s
+        tt = None if t is None else t - cams.get(p.camera, off).offset_s
         if has_gps(p):
             fixes.append(Fix(p.path, p.lat, p.lon, "exif", utc=iso_utc(tt)))
             continue
@@ -486,15 +524,15 @@ def geotag(photos: list[Photo], track: Track, tz: tzinfo | None = None, offset_s
             continue
         fixes.append(Fix(p.path, round(pos.lat, 7), round(pos.lon, 7), "gpx", round(pos.dt_s, 1), round(pos.err_m, 1),
                          iso_utc(tt), None if pos.ele is None else round(pos.ele, 1)))
-    if off.note:
-        warnings.append(off.note)
+    if off.note and any(not has_gps(p) and cams.get(p.camera, off) is off for p in photos):
+        warnings.insert(0, off.note)                # only when some photo is placed with it
     timed = sum(1 for p in photos if not has_gps(p) and capture_utc(p.taken_at, tz) is not None)
     if timed and len(misses) > timed / 2:
         hours = statistics.median(misses) / 3600
         hint = (f" (median {hours:.1f} h away: a timezone or DST mistake? try --tz or --offset)" if hours >= 0.5
                 else "")
         warnings.append(f"{len(misses)} of {timed} photos fall outside the track{hint}")
-    return Result(fixes, off, len(track), warnings)
+    return Result(fixes, off, len(track), warnings, cams)
 
 
 # ---- XMP sidecars --------------------------------------------------------------------------------

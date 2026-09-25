@@ -252,13 +252,14 @@ Every timed point of one or more GPX files and their segments, merged in time or
 _Avoid_: route (a GPX `rte` has no times), log
 
 **Outing**:
-One photographer's photos of one trip with one camera and the track(s) recorded alongside: the unit `bioscan geotag`
-works on (one clock offset, one `--tz`), and a group in the synthetic scenarios (same observer and day).
+One photographer's photos of one trip and the track(s) recorded alongside: the unit `bioscan geotag` works on (one
+`--tz`, one clock offset per camera), and a group in the synthetic scenarios (same observer and day).
 _Avoid_: session, hike
 
 **Clock offset**:
 Camera time minus true time, in seconds (a camera 37 s fast has +37). Given (`--offset`), read from a clock photo, or
-estimated from reference photos; the corrected capture time is camera UTC minus it.
+estimated from reference photos; the corrected capture time is camera UTC minus it. It is per camera (EXIF Make +
+Model): with mixed cameras each one with its own clock or reference photos gets its own; the rest use the folder's.
 _Avoid_: time shift, drift (drift is only the slow part)
 
 **Reference photo**:

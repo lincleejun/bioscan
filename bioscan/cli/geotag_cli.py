@@ -19,20 +19,21 @@ CSV_FIELDS = ["path", "lat", "lon", "source", "dt_s", "err_m", "utc", "ele"]
 
 
 def read_photos(paths: list[str]) -> list[gt.Photo]:
-    """Capture time and EXIF GPS of each file, read the way the service's decode reads them."""
-    from bioscan.service.decode import read_exif  # Pillow; keep the CLI's import light
+    """Capture time, EXIF GPS and camera (Make + Model) of each file, read the way the service's
+    decode reads them."""
+    from bioscan.service.decode import read_meta  # Pillow; keep the CLI's import light
 
     out = []
     for path in paths:
         try:
             with open(path, "rb") as f:
                 data = f.read(HEAD_BYTES)
-                lat, lon, taken = read_exif(data)
+                lat, lon, taken, camera = read_meta(data)
                 if taken is None and len(data) == HEAD_BYTES:     # e.g. a preview past the head
-                    lat, lon, taken = read_exif(data + f.read())
+                    lat, lon, taken, camera = read_meta(data + f.read())
         except OSError:
-            lat = lon = taken = None
-        out.append(gt.Photo(path, taken, lat, lon))
+            lat = lon = taken = camera = None
+        out.append(gt.Photo(path, taken, lat, lon, camera=camera))
     return out
 
 
@@ -94,6 +95,12 @@ def describe_offset(o: gt.OffsetEstimate) -> str:
     return f"clock offset {gt.format_offset(o.offset_s)} (camera minus true time), {how}"
 
 
+def describe_cameras(res: gt.Result) -> list[str]:
+    """One line per camera of a folder with two or more (none for one camera)."""
+    return [f"{cam}: " + ("the folder's offset (no clock photo or GPS photo of its own)" if o is res.offset
+                          else describe_offset(o)) for cam, o in res.cameras.items()]
+
+
 def cmd_geotag(a) -> int:
     exts = formats.parse_ext(a.ext)
     paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)]
@@ -114,6 +121,8 @@ def cmd_geotag(a) -> int:
     c = res.counts()
     print(f"# {len(res.fixes)} photos: {c['exif']} exif, {c['gpx']} gpx, {c['none']} none; "
           f"{res.track_points} track points; {describe_offset(res.offset)}", file=sys.stderr)
+    for line in describe_cameras(res):
+        print(f"#   {line}", file=sys.stderr)
     for msg in res.warnings:
         print(f"warning: {msg}", file=sys.stderr)
     if a.xmp:
@@ -137,6 +146,8 @@ def run_coordinates(paths: list[str], a) -> tuple[dict[str, tuple[float, float]]
     c = res.counts()
     print(f"gpx: {c['gpx']} of {len(paths)} photos placed from the track ({c['exif']} have EXIF GPS, "
           f"{c['none']} no fix); {describe_offset(res.offset)}", file=sys.stderr)
+    for line in describe_cameras(res):
+        print(f"gpx:   {line}", file=sys.stderr)
     for msg in res.warnings:
         print(f"warning: {msg}", file=sys.stderr)
     return ({f.path: (f.lat, f.lon) for f in res.fixes if f.source == "gpx"},
@@ -146,7 +157,7 @@ def run_coordinates(paths: list[str], a) -> tuple[dict[str, tuple[float, float]]
 def stage_options(paths: list[str], a) -> tuple[dict, set[str] | None, set[str] | None]:
     """`bioscan run --gpx` when the profile runs the geotag stage (wildlife): the service places the
     photos, so the request carries options.geotag instead of per-file coordinates. The clock offset
-    is decided here, once for the whole folder (--offset, else --clock / GPS photos, as `bioscan
+    is decided here over the whole folder (--offset, else --clock / GPS photos, per camera as `bioscan
     geotag` does), because the stage sees one chunk at a time. Returns (options, the paths the track
     places, the paths with EXIF GPS); the two sets are None when no photo had to be read (--offset
     given, no --clock, no --lat)."""
@@ -170,19 +181,25 @@ def stage_options(paths: list[str], a) -> tuple[dict, set[str] | None, set[str] 
         res = run_geotag(paths, a.gpx, a.offset, a.tz, a.clock, a.max_gap, a.max_span, a.extrapolate,
                          max_still_s=a.max_still)
         opts["offset"] = repr(float(res.offset.offset_s))
+        own = {cam: repr(float(o.offset_s)) for cam, o in res.cameras.items() if o is not res.offset}
+        if own:
+            opts["camera_offsets"] = own
         placed = {f.path for f in res.fixes if f.source == "gpx"}
         exif_gps = {f.path for f in res.fixes if f.source == "exif"}
         how = describe_offset(res.offset)
         for msg in res.warnings:
             print(f"warning: {msg}", file=sys.stderr)
     print(f"gpx: the service's geotag stage places the photos without GPS; {how}", file=sys.stderr)
+    for line in [] if placed is None else describe_cameras(res):
+        print(f"gpx:   {line}", file=sys.stderr)
     return opts, placed, exif_gps
 
 
 def add_track_options(s, xmp: bool = False) -> None:
     """The options `geotag` and `run --gpx` share."""
-    s.add_argument("--offset", help="camera clock minus true time, e.g. +00:01:23 (camera 83 s fast) or --offset=-3600; "
-                                    "default: estimated from photos with GPS or --clock, else 0")
+    s.add_argument("--offset", help="camera clock minus true time, e.g. +00:01:23 (camera 83 s fast) or --offset=-3600, "
+                                    "for every camera; default: estimated from photos with GPS or --clock, per "
+                                    "camera (EXIF Make + Model) when the folder mixes cameras, else 0")
     s.add_argument("--tz", help="zone of capture times without an offset: --tz=-07:00, UTC-07:00 or America/Los_Angeles "
                                 "(default: the system's zone); a file's OffsetTimeOriginal always wins")
     s.add_argument("--clock", action="append", metavar="PHOTO=TIME",

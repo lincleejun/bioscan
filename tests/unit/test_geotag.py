@@ -10,6 +10,7 @@ import pytest
 import raw_fixtures as F
 
 from bioscan import geotag as gt
+from bioscan import profile
 from bioscan.cli import main as cli
 
 T0 = datetime(2026, 5, 1, 15, 0, 0, tzinfo=timezone.utc).timestamp()   # 08:00:00 at -07:00
@@ -251,6 +252,53 @@ def test_geotag_warns_about_a_timezone_mistake():
     assert any("timezone" in w for w in res.warnings)
 
 
+def mixed_cameras():
+    """Two cameras on one walk, each with its own GPS reference photos: A 37 s fast, B an hour
+    slow (DST missed); C has none. Returns (track, photos, the true time of each target)."""
+    walk = north_walk(1801)
+    tr = track(walk)
+    at = {w[0]: w for w in walk}
+    photos = []
+    for cam, off, t0 in (("A", 37.0, T0), ("B", -3600.0, T0 + 50)):
+        photos += [photo_at(f"{cam}ref{i}.jpg", t, off, lat=at[t][1], lon=at[t][2], camera=cam)
+                   for i, t in enumerate((t0 + 100, t0 + 700, t0 + 1300))]
+        photos.append(photo_at(f"{cam}.jpg", t0 + 400, off, camera=cam))
+    photos.append(photo_at("C.jpg", T0 + 900, camera="C"))
+    return tr, photos, {"A.jpg": T0 + 400, "B.jpg": T0 + 450, "C.jpg": T0 + 900}
+
+
+def test_mixed_cameras_get_their_own_clock_offsets():
+    tr, photos, true = mixed_cameras()
+    res = gt.geotag(photos, tr, gt.resolve_tz("-07:00"))
+    assert res.cameras["A"].method == "gps" and res.cameras["A"].offset_s == pytest.approx(37, abs=0.2)
+    assert res.cameras["B"].method == "gps" and res.cameras["B"].offset_s == pytest.approx(-3600, abs=0.2)
+    assert res.cameras["C"] is res.offset                     # no references of its own: the folder's
+    fixes = {f.path: f for f in res.fixes}
+    for name in ("A.jpg", "B.jpg"):
+        assert gt.distance_m(fixes[name].lat, fixes[name].lon, LAT0 + (true[name] - T0) * M_LAT, LON0) < 1
+    # one offset for the folder (today's rule, as with no Make/Model) misplaces at least one camera
+    blind = gt.geotag([gt.Photo(p.path, p.taken_at, p.lat, p.lon) for p in photos], tr, gt.resolve_tz("-07:00"))
+    assert blind.cameras == {}
+    assert any(f.source == "none" or gt.distance_m(f.lat, f.lon, LAT0 + (true[f.path] - T0) * M_LAT, LON0) > 30
+               for f in blind.fixes if f.path in ("A.jpg", "B.jpg"))
+    # a given offset holds for every camera; `given` sets cameras outright (the stage)
+    assert gt.geotag(photos, tr, gt.resolve_tz("-07:00"), offset_s=37).cameras == {}
+    staged = gt.geotag(photos, tr, gt.resolve_tz("-07:00"), 0.0, estimate=False,
+                       given={"A": res.cameras["A"].offset_s, "B": res.cameras["B"].offset_s})
+    assert [f.lat for f in staged.fixes][:-1] == [f.lat for f in res.fixes][:-1]   # C: 0 here, the folder's there
+
+
+def test_one_camera_is_unchanged_by_the_camera_name():
+    """A single-camera folder gives exactly what it gave before cameras were read: the camera name
+    changes nothing, and no per-camera offsets are reported."""
+    tr, photos, _ = mixed_cameras()
+    one = [p for p in photos if p.camera == "A"]
+    named = gt.geotag(one, tr, gt.resolve_tz("-07:00"))
+    blind = gt.geotag([gt.Photo(p.path, p.taken_at, p.lat, p.lon) for p in one], tr, gt.resolve_tz("-07:00"))
+    assert named == blind and named.cameras == {}
+    assert named.offset.offset_s == pytest.approx(37, abs=0.2)
+
+
 # ---- XMP --------------------------------------------------------------------------------------------
 
 def test_xmp_coordinates_and_packet():
@@ -278,9 +326,13 @@ def test_write_sidecar_never_clobbers(tmp_path):
 
 # ---- commands ----------------------------------------------------------------------------------------
 
-def jpeg(path, when, gps=False, offset=None):
+def jpeg(path, when, gps=False, offset=None, camera=None):
     exif = F.exif_ifd(when=when, offset=offset)
-    path.write_bytes(F.jpeg(F.tiff({0x0132: (F.ASCII, when)}, exif, F.GPS if gps else None)))
+    ifd0 = {0x0132: (F.ASCII, when)}
+    if camera:
+        make, model = camera.split(" ", 1)
+        ifd0 |= {0x010F: (F.ASCII, make), 0x0110: (F.ASCII, model)}
+    path.write_bytes(F.jpeg(F.tiff(ifd0, exif, F.GPS if gps else None)))
 
 
 WALK0 = F.LAT - 300 * M_LAT
@@ -327,6 +379,36 @@ def test_geotag_command_clock_photo_and_bad_input(folder, capsys):
     (folder / "empty.gpx").write_bytes(gpx([]))
     with pytest.raises(SystemExit, match="no timed track points"):
         cli.main(["geotag", str(photos), "--gpx", str(folder / "empty.gpx")])
+
+
+@pytest.fixture
+def two_cameras(folder):
+    """The folder's a, b, c as SONY ILCE-7RM5 (clock right; b has GPS), plus d and e from a FUJIFILM
+    X-T5 37 s fast: e has GPS (taken where b was, at b's true time), d at a's true time."""
+    for name, when, gps in (("a", "08:01:40", False), ("b", "08:05:00", True), ("c", "09:00:00", False)):
+        jpeg(folder / "photos" / f"{name}.jpg", f"2026:05:01 {when}", gps=gps, camera="SONY ILCE-7RM5")
+    jpeg(folder / "photos" / "d.jpg", "2026:05:01 08:02:17", camera="FUJIFILM X-T5")
+    jpeg(folder / "photos" / "e.jpg", "2026:05:01 08:05:37", gps=True, camera="FUJIFILM X-T5")
+    return folder
+
+
+def test_geotag_command_mixed_cameras(two_cameras, capsys):
+    code = cli.main(["geotag", str(two_cameras / "photos"), "--gpx", str(two_cameras / "walk.gpx"), "--tz=-07:00"])
+    assert code == 0
+    printed = capsys.readouterr()
+    rows = {r["path"].rsplit("/", 1)[1]: r for r in csv.DictReader(io.StringIO(printed.out))}
+    for name in ("a.jpg", "d.jpg"):                       # the same true time, each camera corrected
+        assert rows[name]["source"] == "gpx"
+        assert float(rows[name]["lat"]) == pytest.approx(WALK0 + 100 * M_LAT, abs=1e-5)
+    assert "#   FUJIFILM X-T5: clock offset +00:00:37" in printed.err
+    assert "#   SONY ILCE-7RM5: clock offset +00:00:00" in printed.err
+    photos, walk = str(two_cameras / "photos"), str(two_cameras / "walk.gpx")
+    staged = cli.build_payload(cli.parser().parse_args(["run", photos, "--gpx", walk, "--tz=-07:00",
+                                                        "--profile", "wildlife"]), profile.builtin())
+    assert staged["options"]["geotag"]["camera_offsets"] == {"FUJIFILM X-T5": "37.0", "SONY ILCE-7RM5": "0.0"}
+    a = cli.parser().parse_args(["run", photos, "--gpx", walk, "--tz=-07:00"])
+    inputs = {i["path"].rsplit("/", 1)[1]: i for i in cli.build_payload(a)["inputs"]}
+    assert inputs["d.jpg"]["lat"] == pytest.approx(inputs["a.jpg"]["lat"], abs=1e-5)
 
 
 def test_run_gpx_gives_per_file_coordinates_and_exif_stays_first(folder, monkeypatch):
