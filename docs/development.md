@@ -83,6 +83,8 @@ bioscan/cli/                     main client render gt eval bench (harness: repo
                                  config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
                                  aesbench (bioscan aesthetic ratings|train|eval) aesgolden (bench aesthetic)
                                  cull (bioscan cull: reducers, CSV, symlinks, HTML review, XMP)
+                                 lr (bioscan lr: Lightroom Classic latest.json, plugin install)
+extensions/lightroom/            the Lightroom Classic plugin (Lua) that applies latest.json
 scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 scripts/train_aesthetic_head.py  the EVA general head, in-process with the service's decode and SigLIP2
 scripts/aes_plant.py             planted copies (known answers) for the aesthetic golden set

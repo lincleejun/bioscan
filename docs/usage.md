@@ -192,6 +192,28 @@ Review reasons are rules, never a model: `unconfirmed` (level unconfirmed), `coa
 
 `report.html` is a view of `summary.json` alone, with `bioscan cull`'s stylesheet and photo tiles (the `jpg` copy, else the photo when a browser can show it, else its format): the one line and a proportional category strip, the taxa per kind with their best frame, the review queue grouped by suggested name with reasons in words and the candidates, counts of people and empty frames, errors, run facts. Not built yet (design §3): verdict buttons, `names.json`, `review.json` and `bioscan gt review`; thumbnails of RAW files without a `jpg` copy.
 
+### Lightroom Classic (experimental)
+
+One-time install, then restart Lightroom Classic once:
+
+```bash
+bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy)
+```
+
+Every scan after that is one line. `wildlife` keeps species on; add the `aesthetics` stage to get aesthetic stars (`album` alone turns species off, so every photo would land in `待确认`):
+
+```bash
+bioscan run DIR --profile wildlife --want identify,embed,aesthetics --json --out preds.ndjson && bioscan lr open preds.ndjson
+```
+
+`lr open` writes `~/Library/Application Support/bioscan/lightroom/latest.json` (atomically; `--to FILE` elsewhere) and brings Lightroom to the front (`--no-launch` skips that); the plugin picks the file up and applies it:
+
+- **Stars** 1-5 by quantile among the photos with an animal (about 20% per star) of `products.aesthetics.score` when the run has it, else of the best box's sharpness; photos with no animal get none. A photo that already has stars you gave it is never overwritten.
+- **Keywords**, hierarchical: `bioscan|kind|name`, where name is the common name at species level, the genus or family at those levels, and left out when unconfirmed.
+- **Collections** in the collection set `bioscan`: one per species, `待确认` (animal, no species) and `无动物` (no animal).
+
+Rerunning the same file adds no duplicates. The plugin and its manual acceptance steps are in `extensions/lightroom/README.md`.
+
 ### HTTP API
 
 ```sh
