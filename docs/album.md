@@ -28,6 +28,27 @@ The `aesthetics` stage gives each frame an aesthetic score from a small linear *
 - **Choosing between aesthetic models**: the aesthetic golden set (docs/research/2026-09-24-aesthetic-golden-set.md) scores *any* scorer's output, not only bioscan's head. Build it once: `bioscan bench aesthetic init ~/Pictures/Album --out ~/aes-golden` writes images.csv from your stars; add shot groups and their winners, keep/drop with a reason, categories and slices; then `uv run python scripts/aes_plant.py ~/aes-golden` adds planted copies whose answer is known (renamed, re-encoded or resized = same score; blurred or 2 EV off = lower). Score a model with `bioscan bench aesthetic score ~/aes-golden SCORES --out runs/aes/<model>` (SCORES = `bioscan run --json` output, or NDJSON `{path, score}` from any model), and compare two with `bench aesthetic compare` (McNemar on pairs and shot groups; budget baselines/budget-aesthetic.toml). The headline numbers are the winner of each shot group, pairwise accuracy, and keepers lost when the lowest 20 % of each trip is dropped.
 - **Licences.** EVA's annotations are **CC0 1.0** (its repository's LICENSE). Its images are AVA photos from dpchallenge.com whose copyright stays with the photographers: bioscan uses them only to compute vectors and never redistributes them. The head weights are trained locally or in this repository's CI, and the head file records its data, licence, n, date, seed and CV numbers. **AVA scores and AVA-trained weights are never used or distributed.** A personal head is fitted on your own ratings of your own photos and stays on your machine.
 
+## Scoring a folder: `bioscan aesthetic score`
+
+The ranking on its own, without the cull reducers: score a folder with the `album` profile and export it in any of
+three forms at once, so the same run can be looked at and kept as data.
+
+```sh
+bioscan aesthetic score ~/Pictures/2026-05-trip -r --export json,csv,html --out ~/Pictures/2026-05-trip/aesthetic
+bioscan aesthetic score --preds aesthetic.ndjson --export html --out aesthetic      # again, offline
+```
+
+`--export` takes `json` (default), `csv`, `html`, comma-separated; `--out` is a prefix:
+
+| file | what |
+|---|---|
+| `<out>.ndjson` | the run's events with a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
+| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, reject_reasons, sharpness, taken_at; failed decodes last |
+| `<out>.html` | a gallery sorted by score: thumbnails, score, stars, scene, reject reasons; sort, filter by folder / stars / reject reason / scene, search, click to enlarge. Thumbnails are the service's jpg copies in `<out>-files/`, shrunk to `--thumb-edge` (default 1024 px); `--no-thumbs` shows browser-readable originals instead |
+
+Stars are quintiles of the run's own scores (5 = top fifth), a relative rank and not a rating. A photo without a
+score (no head installed) sorts last with the head's note; nothing is rated, moved or deleted.
+
 ## Culling an album
 
 `bioscan cull` sorts a folder for review: rule-based rejects with their reasons, bursts with their best frame, and

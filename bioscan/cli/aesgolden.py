@@ -705,17 +705,162 @@ def compare_md(c: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def table_md(reports: list[dict]) -> str:
-    cols = ("pair_acc", "group_top1", "spearman", "ndcg_at_k", "drop_auc", "keepers_lost_at_20", "degrade_acc",
-            "invariance_rate", "missing_rate", "ms_median")
-    lines = ["| model | " + " | ".join(cols) + " |", "|---" * (len(cols) + 1) + "|"]
+# ---- table: the arena --------------------------------------------------------------------------------
+
+_OLD_COLS = ("pair_acc", "group_top1", "ndcg_at_k", "drop_auc", "keepers_lost_at_20", "degrade_acc",
+             "invariance_rate", "missing_rate")
+
+
+def _calibrated(scores: list[float], grades: list[float]) -> list[float]:
+    """Quantile calibration: the model's i-th lowest frame gets the i-th lowest grade (no fitted parameter)."""
+    order = sorted(range(len(scores)), key=lambda i: scores[i])
+    sorted_grades = sorted(grades)
+    out = [0.0] * len(scores)
+    for pos, i in enumerate(order):
+        out[i] = sorted_grades[pos]
+    return out
+
+
+def _cross_grade_pairs(scores: list[float], grades: list[float]) -> float | None:
+    """Of all frame pairs with different grades, the share where the higher-graded frame scores strictly higher
+    (a score tie counts as wrong). O(n · distinct grades) by sweeping the frames by score."""
+    order = sorted(range(len(scores)), key=lambda i: scores[i])
+    lower: dict[float, int] = defaultdict(int)
+    conc = i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and scores[order[j + 1]] == scores[order[i]]:
+            j += 1
+        for k in order[i:j + 1]:
+            conc += sum(c for g, c in lower.items() if g < grades[k])
+        for k in order[i:j + 1]:
+            lower[grades[k]] += 1
+        i = j + 1
+    counts = list(lower.values())
+    total = (sum(counts) ** 2 - sum(c * c for c in counts)) // 2
+    return conc / total if total else None
+
+
+def _arena_row(scores: list[float], grades: list[float]) -> tuple[float | None, float | None, float, float, float]:
+    cal = _calibrated(scores, grades)
+    err = [abs(c - g) for c, g in zip(cal, grades)]
+    n = len(err)
+    return (aes.spearman(scores, grades), _cross_grade_pairs(scores, grades), sum(err) / n,
+            sum(e == 0 for e in err) / n, sum(e <= 1 for e in err) / n)
+
+
+def arena(reports: list[dict], reps: int = BOOT, seed: int = 0) -> dict[str, Any]:
+    """N reports on one golden set, ranked by Spearman against the grades, with the deviation from the labels
+    in the labels' own units and a paired bootstrap (the same resampled shot groups for every model) of each
+    model's Spearman minus the leader's. Rank ties (`tie`) when that interval contains 0."""
+    if len({(r["meta"]["golden_sha256"], r["meta"]["split"]) for r in reports}) > 1:
+        raise bench.BenchError("reports come from different golden sets or splits: not comparable")
+    rated = [x for x in reports[0]["images"] if x["grade"] is not None]
+    paths = [x["path"] for x in rated]
+    grades = [float(x["grade"]) for x in rated]
+    S: list[list[float]] = []
     for r in reports:
-        a = r["metrics"]["all"]
-        lines.append(f"| {r['meta']['model'] or r['meta']['scores']} | " +
-                     " | ".join(_v(a.get(k)) for k in cols) + " |")
-    shas = {r["meta"]["golden_sha256"] for r in reports}
-    if len(shas) > 1:
-        lines += ["", "**Warning: these reports come from different golden sets; the rows are not comparable.**"]
+        by = {x["path"]: x["score"] for x in r["images"]}
+        if set(by) != {x["path"] for x in reports[0]["images"]}:
+            raise bench.BenchError(f"{r['meta']['model']}: not the same frames as {reports[0]['meta']['model']}")
+        S.append([by[p] if _finite(by.get(p)) else -1e300 for p in paths])
+    units: dict[str, list[int]] = defaultdict(list)
+    for i, x in enumerate(rated):
+        units[x["group"] or f"\0{x['path']}"].append(i)
+    keys = sorted(units)
+    rng = random.Random(seed)
+    draws: list[list[tuple]] = []            # draw -> model -> (srcc, pairs, mae, ...)
+    for _ in range(reps if len(keys) >= 3 else 0):
+        idx = [i for _k in keys for i in units[keys[rng.randrange(len(keys))]]]
+        g = [grades[i] for i in idx]
+        draws.append([_arena_row([s[i] for i in idx], g) for s in S])
+
+    def ci(col: int, j: int, base: int | None = None) -> list[float] | None:
+        vals = sorted(d[j][col] - (d[base][col] if base is not None else 0) for d in draws
+                      if d[j][col] is not None and (base is None or d[base][col] is not None))
+        if len(vals) < 10:
+            return None
+        return [_r(vals[int(0.025 * (len(vals) - 1))]), _r(vals[int(0.975 * (len(vals) - 1))])]
+
+    rows = []
+    for j, (r, s) in enumerate(zip(reports, S)):
+        srcc, pairs, mae, exact, pm1 = _arena_row(s, grades)
+        rows.append({"model": r["meta"]["model"] or r["meta"]["scores"], "n": len(grades), "spearman": _r(srcc),
+                     "spearman_ci": ci(0, j), "cross_grade_pair_acc": _r(pairs), "cross_grade_pair_acc_ci": ci(1, j),
+                     "grade_mae": _r(mae), "grade_mae_ci": ci(2, j), "exact": _r(exact), "within_one": _r(pm1),
+                     "ms_median": r["metrics"]["all"].get("ms_median"),
+                     "old": {k: r["metrics"]["all"].get(k) for k in _OLD_COLS}, "_j": j})
+    rows.sort(key=lambda x: -(x["spearman"] if x["spearman"] is not None else -2))
+    top = rows[0]["_j"]
+    for k, row in enumerate(rows, 1):
+        row["rank"] = k
+        row["delta_spearman_ci"] = None if row["_j"] == top else ci(0, row["_j"], top)
+        d = row["delta_spearman_ci"]
+        row["tie"] = bool(d and d[0] <= 0 <= d[1])
+    pct_g = ecdf(grades)
+    per_model = []
+    for s in S:
+        pct = ecdf(s)
+        cal = _calibrated(s, grades)
+        per_model.append([(s[i], pct(s[i]), cal[i], pct(s[i]) - pct_g(grades[i])) for i in range(len(paths))])
+    frames = []
+    for i, p in enumerate(paths):
+        res = [per_model[j][i] for j in range(len(S))]
+        frames.append({"path": p, "grade": grades[i], "off_by_two": sum(abs(r[2] - grades[i]) >= 2 for r in res),
+                       "max_abs_resid": max(abs(r[3]) for r in res), "models": res})
+    frames.sort(key=lambda f: -f["max_abs_resid"])
+    return {"n": len(grades), "reps": len(draws), "models": [r["meta"]["model"] or r["meta"]["scores"] for r in reports], "rows": rows,
+            "frames": frames}
+
+
+def _read_ref(path: str | Path | None) -> dict[str, dict]:
+    """Optional per-frame label context keyed by file stem (EVA's eva-golden-v1.csv: mean, sd, votes)."""
+    if not path:
+        return {}
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        return {r["image_id"]: r for r in csv.DictReader(f)}
+
+
+def table_md(reports: list[dict], *, reps: int = BOOT, ref: str | Path | None = None,
+             csv_path: str | Path | None = None, worst: int = 10) -> str:
+    a = arena(reports, reps=reps)
+    refs = _read_ref(ref)
+    old = [k for k in _OLD_COLS if any(r["old"].get(k) is not None for r in a["rows"])]
+    head = ["rank", "model", "Spearman [95% CI]", "cross-grade pairs [CI]", "grade MAE [CI]", "exact / ±1 grade",
+            "ΔSpearman vs top [CI]", "ms"] + old
+    lines = ["| " + " | ".join(head) + " |", "|---" * len(head) + "|"]
+    for r in a["rows"]:
+        pct = ("pair_acc", "group_top1", "keepers_lost_at_20", "degrade_acc", "invariance_rate", "missing_rate")
+        d = r["delta_spearman_ci"]
+        lines.append(f"| {r['rank']}{'=' if r['tie'] else ''} | {r['model']} | "
+                     f"{_v(r['spearman'])}{_ci(r['spearman_ci'])} | "
+                     f"{_v(r['cross_grade_pair_acc'], True)}{_ci(r['cross_grade_pair_acc_ci'], True)} | "
+                     f"{_v(r['grade_mae'])}{_ci(r['grade_mae_ci'])} | {_v(r['exact'], True)} / {_v(r['within_one'], True)} | "
+                     + ("–" if d is None else f"[{d[0]:+.3f}, {d[1]:+.3f}]") + f" | {_v(r['ms_median'])} | "
+                     + " | ".join(_v(r["old"].get(k), k in pct) for k in old) + " |")
+    lines += ["", f"n = {a['n']} rated frames, {a['reps']} bootstrap draws over shot groups. Ranked by Spearman; `=` "
+              "after a rank: the ΔSpearman interval against the leader contains 0, so the two are tied at this n. "
+              "Grade MAE / exact / ±1: after quantile calibration (the model's i-th lowest frame gets the i-th lowest "
+              "grade), in the labels' own units."]
+    if csv_path:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["path", "grade", "mean", "sd", "votes", "models_off_by_two", "max_abs_resid"]
+                       + [f"{m}:{x}" for m in a["models"] for x in ("score", "pct", "cal", "resid")])
+            for fr in a["frames"]:
+                e = refs.get(Path(fr["path"]).stem, {})
+                w.writerow([fr["path"], f"{fr['grade']:g}", e.get("mean", ""), e.get("sd", ""), e.get("votes", ""),
+                            fr["off_by_two"], f"{fr['max_abs_resid']:.3f}"]
+                           + [f"{v:.4g}" for r in fr["models"] for v in r])
+        lines += ["", f"per-frame residuals -> {csv_path}"]
+    if worst and a["frames"]:
+        lines += ["", "Largest disagreements (calibrated grade per model; residual = model percentile − grade "
+                  "percentile):", "", "| frame | grade | " + ("sd | " if refs else "") + " | ".join(a["models"]) + " |",
+                  "|---" * (2 + bool(refs) + len(a["models"])) + "|"]
+        for fr in a["frames"][:worst]:
+            sd = refs.get(Path(fr["path"]).stem, {}).get("sd", "")
+            lines.append(f"| {fr['path']} | {fr['grade']:g} | " + (f"{sd[:4]} | " if refs else "")
+                         + " | ".join(f"{r[2]:g}" for r in fr["models"]) + " |")
     return "\n".join(lines) + "\n"
 
 
@@ -790,7 +935,7 @@ def cmd_compare(a) -> int:
 
 
 def cmd_table(a) -> int:
-    print(table_md([load(p) for p in a.reports]))
+    print(table_md([load(p) for p in a.reports], reps=a.boot, ref=a.ref, csv_path=a.csv))
     return 0
 
 
@@ -825,6 +970,11 @@ def add_parser(b) -> None:
     s.add_argument("--json")
     s.set_defaults(func=cmd_compare)
 
-    s = g.add_parser("table", help="several reports side by side")
+    s = g.add_parser("table", help="the arena: several reports on one golden set, ranked, with their deviation "
+                                   "from the labels and a paired bootstrap against the leader")
     s.add_argument("reports", nargs="+")
+    s.add_argument("--boot", type=int, default=BOOT, help="bootstrap draws (default %(default)s)")
+    s.add_argument("--ref", help="label context CSV keyed by image_id = file stem (data/aesthetic/eva-golden-v1.csv: "
+                                 "mean, sd, votes), shown in the disagreement list and the CSV")
+    s.add_argument("--csv", help="write per-frame score, percentile, calibrated grade and residual for every model")
     s.set_defaults(func=cmd_table)
