@@ -86,3 +86,9 @@ def test_raw_orientation_from_libraw_flip(monkeypatch, tmp_path):
         upright = (40, 60) if flip in (5, 6) else (60, 40)
         assert (d.width, d.height) == upright and d.orientation == orientation, flip
         assert d.image.size == ((20, 30) if flip in (5, 6) else (30, 20))
+
+
+def test_camera_from_make_and_model():
+    assert decode.camera_from({0x010F: "Canon", 0x0110: "Canon EOS R5"}) == "Canon EOS R5"      # make said once
+    assert decode.camera_from({0x010F: "SONY", 0x0110: "ILCE-7RM5\x00"}) == "SONY ILCE-7RM5"
+    assert decode.camera_from({0x0110: "X-T5"}) == "X-T5" and decode.camera_from({}) is None

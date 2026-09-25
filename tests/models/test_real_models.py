@@ -20,6 +20,13 @@ error, per kind (a tripwire; `bioscan bench compare` with its budgets is the gat
 list loaded the kind check also weighs it, so this table is where its effect on birds and mammals
 shows. models-report.json (the harness report) is written from the main, switches-on run.
 
+The album profile is measured last: scripts/cull_synth.py degrades the first BIOSCAN_ALBUM_SOURCES
+(24) bird and mammal photos into labelled rejects (subject blur and smear, frame shake, cut-off
+crop, +-2 EV, shrunk subject) and bursts, the same engine runs them with "profile": "album", and
+the burst and select reducers and the harness score them (models-report-album.json, tier album:
+reject precision / recall per reason, keepers lost, burst pairwise F1, scene accuracy). Its floors
+are loose until the first CI run measures them.
+
 Inference cache (BIOSCAN_INFER_CACHE, a file; models.yml keeps it between runs): every model answer
 this module computes is stored by the exact pixels (and prompts) handed to the model, and the next
 run replays what it finds there. A change to decoding, crops or prompts misses and runs the model;
@@ -533,3 +540,102 @@ def test_accuracy_switches_do_not_regress(run, switched_off):
             f.write("\n".join(rows) + "\n")
     assert all(e["type"] != "error" for e in switched_off)
     assert not worse, worse
+
+
+# ---- album profile: the synthetic reject set (scripts/cull_synth.py) from these photos ---------------
+
+ALBUM_SOURCES = int(os.environ.get("BIOSCAN_ALBUM_SOURCES", "24"))
+# (plugin, scope, metric) -> (op, floor) on the album report's plugin_metrics. Loose first floors, set
+# before any real-model run (2026-09-24): they catch a broken stage, reducer or script, not a point of
+# accuracy; tighten them after the first CI run, like FLOORS above. data/standards.toml has the bars.
+ALBUM_FLOORS = {("quality", "all", "keepers_lost"): ("<=", 0.35),
+                ("quality", "all", "reject_recall"): (">=", 0.40),
+                ("quality", "all", "reject_precision"): (">=", 0.50),
+                ("quality", "soft", "reject_recall"): (">=", 0.30),
+                ("quality", "overexposed", "reject_recall"): (">=", 0.50),
+                ("quality", "underexposed", "reject_recall"): (">=", 0.50),
+                ("burst", "all", "burst_pair_f1"): (">=", 0.50),
+                ("scene", "all", "scene_acc"): (">=", 0.50)}
+
+
+@pytest.fixture(scope="module")
+def album(run, tmp_path_factory):
+    """The first ALBUM_SOURCES bird and mammal photos whose best box is clear of the edges, degraded
+    into labelled rejects and bursts (scene: wildlife), run through the album profile on the same
+    engine, then burst + select and the harness (models-report-album.json next to BIOSCAN_REPORT)."""
+    import importlib.util
+
+    from fastapi.testclient import TestClient
+
+    from bioscan import profile
+    from bioscan.cli import bench
+    from bioscan.cli import eval as ev
+    from bioscan.service.app import create_app
+
+    gt, events, engine = run
+    spec = importlib.util.spec_from_file_location("cull_synth", ROOT / "scripts" / "cull_synth.py")
+    synth = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(synth)
+    wildlife = {r["path"]: "wildlife" for r in gt if r["kind"] in ("bird", "mammal")}
+    sources = [s for s in synth.sources_from_events(events, wildlife)
+               if s["scene"] and synth.usable(tuple(s["box"]))][:ALBUM_SOURCES]
+    out = tmp_path_factory.mktemp("album")
+    rows = synth.build(sources, out, seed=7)
+    with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(4), chunk=16)) as c:
+        resp = c.post("/run", json={"inputs": [{"path": r["path"], "taken_at": r["taken_at"]} for r in rows],
+                                    "profile": "album"})
+        assert resp.status_code == 200, resp.text
+    evs = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    done = next((e for e in reversed(evs) if e["type"] == contract.DONE), None)
+    res = profile.resolve(profile.builtin(), "album")
+    rep = bench.build_report(rows, ev.load_preds(json.dumps(e) for e in evs),
+                             groundtruth=str(out / "groundtruth-album.csv"), done=done, lists={},
+                             complete=done is not None, tier="album", profile="album", reducers=res.reducer_run(),
+                             options={"want": list(res.want), "profile": "album", "device": engine.device,
+                                      "sources": len(sources), "seed": 7})
+    report = os.environ.get("BIOSCAN_REPORT")
+    if report:
+        bench.write_json(rep, Path(report).with_name(Path(report).stem + "-album.json"))
+        if Path(report).is_file():
+            counts: dict[str, int] = {}
+            for r in rows:
+                v = r["variant"].rstrip("0123456789")
+                counts[v] = counts.get(v, 0) + 1
+            with open(report, "a") as f:
+                f.write(f"\n## Album profile on the synthetic reject set\n\n{len(sources)} sources, {len(rows)} photos "
+                        f"({', '.join(f'{k} {v}' for k, v in counts.items())}); floors {ALBUM_FLOORS}.\n\n"
+                        + bench.plugin_md(rep["plugin_metrics"]) + "\n")
+    return rows, evs, rep
+
+
+def test_album_every_photo_gets_a_result(album):
+    rows, evs, _ = album
+    assert len(rows) >= 60, f"only {len(rows)} album photos (too few sources with a box clear of the edges)"
+    assert not [e for e in evs if e["type"] == "error"] and evs[-1]["ok"] == len(rows)
+    res = next(e for e in evs if e["type"] == "result")
+    assert list(res["products"]) == ["identify", "embed", "aesthetics", "quality", "scene"]
+    # aesthetics names its head ("v1@none" while no general head is committed); quality and scene
+    # report their settings fingerprints
+    assert set(res["engine"]["plugins"]) == {"aesthetics", "quality", "scene"}
+
+
+def test_album_floors(album):
+    pm = album[2]["plugin_metrics"]
+    low = {}
+    for (plugin, scope, metric), (op, floor) in ALBUM_FLOORS.items():
+        v = ((pm.get(plugin) or {}).get(scope) or {}).get(metric)
+        if v is None or (v < floor if op == ">=" else v > floor):
+            low[f"{plugin}.{scope}.{metric}"] = v
+    assert not low, f"album metrics past their floors: {low}"
+
+
+def test_album_report_compares_and_scores(album):
+    """bench compare and scorecard work on a real album report (models.yml then compares it with
+    baselines/ci-album.json once that exists)."""
+    from bioscan.cli import bench
+
+    rep = album[2]
+    c = bench.compare(rep, rep, bench.read_budget(ROOT / "baselines" / "budget-album.toml"))
+    assert c["verdict"] == "ok" and c["plugin_metrics"]["quality"]["all"]["keepers_lost"]["delta"] == 0
+    sc = bench.scorecard(rep, bench.read_standards(bench.STANDARDS_TOML), "album")
+    assert sc["rows"] and all(r["status"] != "n/a" for r in sc["rows"] if r["scope"] == "all")

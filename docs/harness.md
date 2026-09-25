@@ -14,6 +14,8 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 | `bench compare BASE NEW [--budget FILE] [--md OUT] [--json OUT]` | Deltas, paired images, McNemar, species changes, broken images, budget check. Exit 0 within budget, 1 over budget, 2 not comparable |
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
+| `aesthetic eval RATINGS --out DIR [--head H] [--personal P] [--blend B] [--k K] [--curve SIZES]` | Agreement of the aesthetic score with the owner's stars and picks, per trip, plus the learning curve; report.json read by `scorecard` (tier `aesthetic-own`) ([below](#aesthetic-agreement-with-the-owner-bioscan-aesthetic-eval)) |
+| `bench aesthetic init\|score\|compare\|table` | Any aesthetic scorer (a scores file) against the frozen aesthetic golden set: shot-group winners, pairwise accuracy, keepers lost when culling, planted checks, slice residuals; paired compare under baselines/budget-aesthetic.toml; `table` is the arena: N scorers ranked with their deviation from the labels ([below](#aesthetic-golden-set-bench-aesthetic)) |
 | `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
 `--names KIND=CSV` sets the name list used to tell whether a truth is in the list (`not_in_list`) and
@@ -43,14 +45,16 @@ bioscan bench analyze runs/2026-09-25-golden/report.json --md runs/2026-09-25-go
 A regression past the budget exits 1. Per CLAUDE.md, a change over budget needs the owner's acceptance;
 when it is accepted, the new report becomes the baseline in its own commit (`bench baseline ... --force`).
 
-**Profiles.** `bench run` and `eval` take `--profile NAME` (see README "Profiles and bioscan.toml"). The
+**Profiles.** `bench run` and `eval` take `--profile NAME` (see usage.md "Profiles and bioscan.toml"). The
 profile's stages must include identify, which is what the harness scores; eval still asks for `top_k` 5, and
 `--no-geo` / `--identify-opt` override the profile. The preds meta line records `"profile"` and the expanded
 `options`, so report.json's `meta.options` shows what ran. Without `--profile`, `BIOSCAN_PROFILE` or a
 `default_profile`, the request is byte for byte the one eval sent before profiles, so existing baselines stay
-comparable. report.json keeps the name in `meta.profile`, adds the rates of the plugins that ran in
-`plugin_metrics`, and the scorecard holds a report only to its profile's standards. Compare runs of
-different profiles only when you mean to (`album` switches species off); compare warns when they differ.
+comparable. Compare runs of different profiles only when you mean to: `album` switches species off, and
+`compare` warns when `meta.profile` differs. `meta.profile` records the profile, and each plugin's own
+metrics (`quality`, `burst`, `scene`, ...) go to [`plugin_metrics`](#plugin_metrics-and-plugin_images). A
+profile with reducers (album: burst, select) also records them in the preds meta line, and the report runs
+them over the results before scoring, as `bioscan cull` does.
 
 **Rescore without the service.** A preds file carries everything:
 `bioscan bench report runs/x/preds.ndjson data/inat/groundtruth-inat.csv --tier golden`. Rescoring after a
@@ -71,12 +75,6 @@ Both markdowns go to the job log and the job summary. When `baselines/ci-smoke.j
 yet, the step prints the new report between `===== BEGIN bioscan-report ci-smoke candidate =====` and
 `===== END … =====` and passes. Commit that JSON as `baselines/ci-smoke.json`.
 
-**Inference cache.** Branch and PR runs replay model outputs from earlier runs (keyed by the exact
-pixels and prompts a model gets; the cache is keyed on `bioscan/service/adapters/*.py` and `uv.lock`), so
-they compute only what reaches a model differently; the report's "Model time" section says how much. Their
-`identify_ms` and `images_per_s` are then not the models' speed. A `v*` tag and a `models` dispatch with
-`cold` run every model: take baselines from those.
-
 ### Mac commands (owner)
 
 ```sh
@@ -95,19 +93,21 @@ bioscan bench baseline runs/$(date +%F)-own/report.json --name own-raw-$(date +%
 
 ```json
 {"schema": "bioscan-report", "version": 1,
- "meta": {...}, "metrics": {...}, "plugin_metrics": {...}, "per_species": {...}, "per_family": {...},
- "images": [...]}
+ "meta": {...}, "metrics": {...}, "per_species": {...}, "per_family": {...}, "images": [...],
+ "plugin_metrics": {...}, "plugin_images": [...]}
 ```
 
 A reader refuses any other `schema` or `version`. Adding a key is not a version bump. Removing a key,
-or changing what one means, is.
+or changing what one means, is. `plugin_metrics`, `plugin_images`, `meta.profile` and `meta.reducers` were
+added in v1.7 (A6) without a bump: `bench report` on an existing preds file gives the same `metrics`,
+`per_species`, `per_family` and `images` as before (the A0 golden `tests/contract/golden/bench-report.json`
+holds them to that), and an older report without the new keys still loads, compares and scores.
 
 ### meta
 
 | Key | Meaning |
 |---|---|
 | `tier` | Standards tier of the run (`smoke`, `golden`, `own`, `public`, `mac`), from `--tier`; null when not given |
-| `profile` | The profile of the run, from the preds meta line (`eval`/`bench run --profile`); null when no profile was chosen, which is `full` (the request before profiles) |
 | `git_sha`, `git_dirty` | `git rev-parse HEAD` of the checkout that built the report (falls back to `$GITHUB_SHA`), and whether tracked files had changes |
 | `date` | UTC, ISO 8601 |
 | `engine` | `result.engine` of the run (version, settings, models, name lists, priors, detail_edge); a list when the run mixed engines |
@@ -121,6 +121,8 @@ or changing what one means, is.
 | `complete` | The service's `done` event is in the preds file (null for a file without a meta line) |
 | `done` | `{ok, failed, elapsed_ms}` of that event |
 | `name_lists` | Kinds with a name list for `in_list` |
+| `profile` | The profile the run expanded (`--profile`, from the preds meta line); null for a run without one, which the scorecard treats as `wildlife` |
+| `reducers` | `{reducer: options}` run over the results before scoring (from the preds meta line; album: burst, select); null when none ran |
 
 The engine is read from the `result` events, because the preds meta line is written before the service
 answers.
@@ -151,21 +153,6 @@ keys:
 
 Rates are fractions from 0 to 1, rounded to 6 places. Failed images count as misses everywhere, as in eval.
 
-### plugin_metrics
-
-`plugin_metrics[plugin][scope]` for each stage plugin that declares metrics (`Manifest.metrics`, a
-`Metric(name, description, row)` in its stdlib `__init__.py`) and whose output is in at least one
-result. Scopes are `all`, `bird`, `mammal`, `other`. Each scope has `n` (its images whose result carries
-the plugin's output) and, per metric, the rate and its Wilson interval `<metric>_ci`. A metric's `row`
-sees the image's output and its ground-truth row and returns hit, miss, or not counted. `{}` when no
-such plugin ran (identify's numbers are the core `metrics` above). The core `metrics` do not depend on
-which other stages ran.
-
-| Plugin | Metric | Definition |
-|---|---|---|
-| geotag | `gpx_rate` | `place_source` is `gpx`: placed from the track |
-| geotag | `no_place_rate` | `place_source` is `none`: no request, EXIF or track position |
-
 ### per_species, per_family
 
 `per_species[truth]`: `{kind, family, n, top1_hits, top1, confident_errors}`.
@@ -194,6 +181,28 @@ One row per ground-truth row:
 | `place_known` | The ground truth has lat/lon, or the first candidate has a `p_geo` |
 | `decode_ms`, `identify_ms` | Timings |
 
+### plugin_metrics and plugin_images
+
+A plugin (stage or reducer) declares its harness metrics in its manifest, `Manifest.metrics`: a tuple of
+`plugin.Metric(name, kind, row, lower_is_better)`. `row` is a standard-library function
+(`"package.module:function"`) that maps one ground-truth row and that image's result event (with the reducers'
+products added; an error event, or None when missing) to `{scope: value}`. An image adds nothing to a scope
+where the value is None, so a plugin that did not run, or a ground truth without its columns, leaves no trace.
+
+`plugin_images` keeps the values per image: `[{path, sha256, tier, values: {plugin: {metric: {scope: value}}}}]`,
+only for images with a value. `plugin_metrics[plugin][scope]` aggregates them; scope `all` comes first, then the
+others in name order. Each scope has `n` (images with any value of that plugin there) and, per metric:
+
+| kind | `<metric>` | `<metric>_ci` | `<metric>_n` |
+|---|---|---|---|
+| `rate` | share of True among the values | Wilson 95% interval | values counted (the denominator) |
+| `median` | median of the numbers | – | values counted |
+| `pair_precision`, `pair_recall` | each value is `[truth group, predicted group]`; over every pair of images, pairs in both groups ÷ pairs in the predicted (precision) or the truth (recall) group | Wilson 95% over the pairs | predicted or truth pairs |
+| `pair_f1` | harmonic mean of the two | – | images |
+
+Rates are fractions 0–1 rounded to 6 places, like `metrics`. The built-in metrics (album tier) are defined in
+[Album tier](#album-tier-culling-bench---profile-album).
+
 ## compare
 
 - **Paired images only.** Metrics, species changes and the budget are computed over the images the
@@ -218,9 +227,12 @@ One row per ground-truth row:
 - **Species.** Regressions and improvements count top-1 hits per truth over the paired images.
 - **Evidence.** `broken` and `fixed` list each image with its truth and its old and new answers: top-1,
   level, box kind, gate, p_visual, p_geo and posterior.
+- **Plugin metrics** (`plugin_metrics`). The same deltas for every plugin metric, `{plugin: {scope: {metric:
+  {base, new, delta, base_ci, new_ci}}}}` plus `n`, recomputed over the `plugin_images` entries the two
+  reports share (paired as below). Plugins and scopes on one side only are left out.
 - **Warnings.** The comparison warns when any of these differ between the reports: settings
-  fingerprint, engine, ground-truth sha, synonyms sha, profile (`meta.profile`, null read as `full`) or
-  request options.
+  fingerprint, engine (which includes `engine.plugins`, each new stage's version and settings
+  fingerprint), ground-truth sha, synonyms sha, request options, profile or reducer options.
 - **Exit 2.** The reports cannot be compared when either is unreadable or has the wrong schema, when no
   image pairs, or when the budget file is invalid.
 
@@ -242,11 +254,18 @@ max_lost = 1                         # no species may lose more than this many t
 
 [images]
 max_broken = 5                       # optional: at most this many broken images in total
+
+[[rule]]
+plugin = "quality"                   # a plugin rule: metric is one of that plugin's Manifest.metrics
+metric = "keepers_lost"
+scopes = ["all"]                     # default for a plugin rule: all; any plugin_metrics scope works
+max_rise_pts = 2.0                   # *_pts for its rates (rate, pair_*), *_pct for anything
 ```
 
 Every rule reads the paired-image metrics (`images_per_s`: whole-run), and `max_lost` / `max_broken`
-count paired images only. A metric that is null in either report is skipped. Unknown sections or keys
-are an error (exit 2).
+count paired images only. A plugin rule reads the paired plugin metrics. A metric that is null in either
+report, or a scope one of them lacks, is skipped. Unknown sections, keys, plugins or plugin metrics are an
+error (exit 2).
 The committed budget suits the 95-image CI smoke (42 birds, 35 mammals, 18 other animals). For its reasoning, see the comments in the file.
 
 ## analyze: failure classes
@@ -288,12 +307,11 @@ W2 owns the content; this is the schema the reader enforces.
 [[standard]]
 id = "accuracy.golden.bird.top1"      # <dimension>.<tier>.<scope>.<metric>[.nogeo]; unique
 tier = "golden"                       # optional: default is the id's second segment
-profile = "album"                     # optional: default full and wildlife (the identify-first profiles)
+profile = "wildlife"                  # optional: default wildlife; the report's meta.profile must match
 dimension = "accuracy"
 title = "Birds: top-1 species correct"
 scope = "bird"                        # all | bird | mammal | other
-metric = "top1"                       # a metrics key above, a geotag metric (tier geotag),
-                                      # a plugin metric "<plugin>.<metric>" (e.g. geotag.gpx_rate), or "manual"
+metric = "top1"                       # a metrics key above, a geotag metric (tier geotag), or "manual"
 op = ">="                             # ">=" or "<="
 industry = 0.95                       # optional (TOML has no null: omit the key)
 community = 0.90                      # the release bar; required, a number
@@ -306,19 +324,19 @@ source = "URL or why there is none"
 - **Tier.** The scorecard applies the standards of one tier. The tier comes from `--tier`, else from
   the report's `meta.tier`, else from the ground truth's tier when it has exactly one. With none of
   these, it exits 2. A tier that no standard in the file uses also exits 2, with the known tiers listed.
+- **Profile.** A standard has a `profile` (default `wildlife`) and applies only to a report of that profile
+  (`meta.profile`). A report without a profile, or with `full`, counts as `wildlife`: both score identify
+  with the contract's defaults, which is what every standard before v1.7 was written for.
+- **Plugin standards.** With `plugin = "<name>"`, `metric` is one of that plugin's metrics and `scope` one of
+  its `plugin_metrics` scopes (any string, e.g. a reject reason); the value and interval come from
+  `plugin_metrics[plugin][scope]`. Rates (`rate`, `pair_*` kinds) take unit `"fraction"`.
 - **Geo mode.** A report run with `--no-geo` is held only to the `.nogeo` standards. A normal report
   skips them.
-- **Profile.** A report is held only to the standards of its profile (`meta.profile`, null read as
-  `full`). A standard without `profile` holds for `full` and `wildlife`, which run identify with the
-  same options, so every report from before profiles keeps its scorecard. An `album` report (species
-  off) is held only to standards with `profile = "album"`.
-- **Plugin metrics.** A `<plugin>.<metric>` standard is read from `plugin_metrics[plugin][scope]`,
-  takes unit `fraction`, and is judged like any rate.
 - **Statistical rule** (docs/standards.md). A rate passes when its Wilson 95% bound clears the bar:
   the lower bound for `>=`, the upper bound for `<=`. Two cases are judged on the observed value
   instead:
-  - the smoke tier, whose bars are regression guards;
-  - metrics without an interval, i.e. speeds.
+  - the smoke and album tiers, whose bars are regression guards;
+  - metrics without an interval, i.e. speeds, medians and `pair_f1`.
 - **Gap.** The gap is the judged value minus the bar for `>=`, and the bar minus it for `<=`. A
   negative gap is short of the bar.
 - **Missing values.** A metric that is null (`ece` without `p_correct`, an empty scope) shows as `n/a`
@@ -327,9 +345,49 @@ source = "URL or why there is none"
 
 A minimal example is `tests/unit/fixtures/standards-example.toml`.
 
+## Album tier: culling (`bench ... --profile album`)
+
+The album profile (identify with species off, embed, aesthetics, quality, scene; reducers burst and select) is scored
+with the same report.json: its species `metrics` mean nothing there, its [`plugin_metrics`](#plugin_metrics-and-plugin_images)
+are the measure. The ground truth is a CSV with `path`, `tier`, `keep` (1/0), `reject_reasons` (`;`-joined, blank
+= none), `burst_id` (blank = in no burst) and `scene` (blank = unlabelled); a column it lacks measures nothing.
+
+**Synthetic reject set.** No labelled album exists yet, so `scripts/cull_synth.py` makes one from photos whose
+subject box is known (a preds file's best identify box, or a CSV): per source the original (keep 1), Gaussian blur
+and motion smear on the subject box (`soft_subject`), the same smear over the whole frame (`motion_or_defocus`), a
+crop cutting 40% of the box off (`subject_cut`), +2 and −2 EV in linear light (`overexposed`, `underexposed`), the
+photo shrunk onto a canvas so the subject covers 0.3% of it (`subject_too_small`), and for every third source a
+burst of 4 frames shifted by up to 2%, 0.2 s apart (keep 1, one `burst_id`). Every other photo is 10 minutes from the
+next. The script is deterministic from its seed (docstring: every variant and parameter).
+
+```sh
+bioscan run photos/ --json > runs/src.ndjson                        # any run with identify boxes
+uv run python scripts/cull_synth.py --preds runs/src.ndjson --out runs/album-synth --seed 7
+bioscan bench run runs/album-synth/groundtruth-album.csv --profile album --tier album --out runs/album
+bioscan bench scorecard runs/album/report.json                       # tier album, profile album
+```
+
+CI does the same in `tests/models` on 24 smoke photos (scene truth `wildlife`), writes `models-report-album.json`
+and `models.yml` compares it with `baselines/ci-album.json` under `baselines/budget-album.toml` (no baseline yet:
+it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =====` markers).
+
+| Plugin | Metric (kind) | Scopes | Definition |
+|---|---|---|---|
+| quality | `reject_precision` (rate) | `all`, `soft`, each reason | Of the images rejected for the scope (any reason; soft_subject or motion_or_defocus; that reason), the share whose truth has it |
+| quality | `reject_recall` (rate) | `all`, `soft`, each reason | Of the images whose truth has the scope's reason(s), the share rejected for it; a failed image counts as not rejected |
+| quality | `keepers_lost` (rate, lower is better) | `all` | Of the keep-labelled images, the share a rule rejected: the budget metric, since losing a keeper costs more than reviewing a reject |
+| burst | `burst_pair_precision`, `burst_pair_recall`, `burst_pair_f1` (pairs) | `all` | Over every pair of images: grouped by the reducer and by the truth; a frame in no burst is its own group |
+| scene | `scene_acc` (rate) | `all`, each truth label | The top label is the truth's |
+
+"Rejected" means select's reasons (after its waivers, e.g. underexposed at night) when the run had select, else
+quality's. `soft` pools `soft_subject` and `motion_or_defocus`, which differ only in whether anything else in the
+frame is sharp: a soft subject against smooth bokeh reads as `motion_or_defocus`. Synthetic degradations are cleaner
+than real ones, so these numbers are floors for the rules, not a claim about real albums; that needs the owner's
+labelled trips (TASKS.md).
+
 ## geotag: GPX geotagging (`bench geotag`)
 
-`bioscan geotag` places photos on a GPX track (README, "Geotag from a GPX track"). The owner has no GPX
+`bioscan geotag` places photos on a GPX track (geotag.md). The owner has no GPX
 to share, so `scripts/geotag_synth.py` builds tracks from the golden set's true positions and times.
 `bench geotag` then scores geotagging against the truth. This is a separate subcommand with its own
 report, and it does not feed `bench compare`, because compare is built around species answers: it
@@ -422,4 +480,131 @@ bioscan bench compare runs/$D-golden/report.json runs/$D-golden-gpx/report.json 
 
 `vs-nogeo` is what a GPX track buys a folder without GPS. `vs-truth` should show almost no change, because 99% of
 the fixes share the truth's prior cell. Compare warns that the ground-truth sha and the options differ, which is
-expected. Until these runs exist, the effect of GPX positions on species ID is **unverified**.
+expected. Measured 2026-09-25 on the Mac (perfect scenario, v1.5 build): vs-truth 0 fixed, 0 broken, every metric identical; vs-nogeo top-1 +5.2 pts (85 fixed, 1 broken, McNemar p ≈ 0). See results.md.
+
+## aesthetic: agreement with the owner (`bioscan aesthetic eval`)
+
+The `aesthetics` stage (album.md "Aesthetics") ranks frames by a linear head on the SigLIP2 frame
+vector. `bioscan aesthetic eval` measures how its ranking agrees with the owner's own ratings. Like
+`bench geotag`, it has its own report (schema `bioscan-aesthetic-report`, version 1) and feeds the shared
+scorecard, not `bench compare`: compare is built around species answers per image. It lives in
+`bioscan/cli/aesbench.py`, so it does not touch the species report's code.
+
+```sh
+# service running (bioscan serve): vectors come from its embed product, cached in --embeddings
+bioscan aesthetic ratings ~/Pictures/Album                               # what the XMP holds, per trip
+bioscan aesthetic eval ~/Pictures/Album --out runs/$D-aesthetic --embeddings runs/aes-vec.ndjson \
+    [--head builtin|PATH|none] [--personal PATH] [--blend 0.5] [--k 10] [--curve 50,100,200,500,1000] [--no-curve]
+bioscan bench scorecard runs/$D-aesthetic/report.json                    # tier aesthetic-own (docs/standards.md §13)
+```
+
+**Ground truth.** A folder of rated images (`xmp:Rating` in `<stem>.xmp`, `<name>.<ext>.xmp` or embedded) or a
+CSV `path,rating[,pick,label,trip]`, both read by one rule (`aesthetic.stars_of`, the XMP spec): 1-5 = stars;
+**0 or missing = unrated, skipped**; -1, or a reject pick flag without stars, = a **reject**, kept with grade 0
+(below one star) and pick -1; a pick flag without stars gives no grade and is skipped. The **trip** of
+an image is its first folder under the root (the CSV's `trip`, else its parent folder). Picks are the explicit
+pick flags when any row has one (`xmpDM:pick`, or the CSV), else stars >= `--pick-min` (4).
+
+**Heads scored.** `general` (the builtin head, or `--head PATH`), `personal` (`--personal`) and `blended`
+(`(1 - blend) * general + blend * personal`) when both exist. The **served** score, the one the stage would
+return with these options, is what `metrics.all` holds and what the scorecard judges.
+
+**Metrics** (per head in `by_head`, per trip in `per_trip`):
+
+| Key | Definition |
+|---|---|
+| `spearman` (`spearman_ci`) | Spearman ρ between score and stars over every rated frame; 95% interval by Fisher z with SE 1.06/√(n−3) |
+| `kendall` | Kendall τ-b, ties corrected |
+| `plcc` | Pearson r (a scale check; rankings use the two above) |
+| `spearman_trip_mean` | mean of the per-trip ρ (the pooled ρ also rewards telling trips apart) |
+| `ndcg_at_k` | NDCG@k (k 10) per trip with gain 2^stars − 1, averaged over trips |
+| `precision_at_k` (`_ci`, `_random`) | per trip, k = the owner's picks there: how many of the top-k frames by score are picks; pooled over trips (hits / picks, Wilson interval), next to what a random order gets (Σ k²/n / Σ k) |
+
+**Learning curve** (`curve`, needs numpy, so it is skipped with `--no-curve`). Trips are split into `--folds`
+folds (default 5); a trip is never split. For each fold and each size N (50, 100, 200, 500, 1,000), N ratings are
+drawn from the other folds' trips (3 seeded draws), a personal head is fitted (ridge, `--alpha`, pulled toward the
+general head when there is one) and scored on the held-out trips; the general head and the blend are scored on the
+same frames. A size larger than a fold's training set is skipped (`runs` 0). Each point is the mean ± sd of the
+held-out Spearman over folds and draws.
+
+**In-sample warning.** A personal head records the sha of the ratings it was fitted on (`ratings_sha256`). When it
+equals the evaluated set's, `meta.personal_in_sample` is true and report.md says the personal rows are optimistic.
+Fit on some trips, evaluate on others, or read the learning curve, which always holds trips out.
+
+**Training** (`bioscan aesthetic train`) shares the code: `--ratings SRC` fits a personal head (ridge on centred
+vectors, alpha by 5-fold CV over trips, pulled toward `--prior builtin|PATH|none`; default output
+`~/.config/bioscan/aesthetic-personal.json`), `--eva DIR` the general head from an EVA checkout. The EVA head is
+normally made by `scripts/train_aesthetic_head.py` in CI or on the Mac (data/aesthetic/README.md). Every fit is
+deterministic from its inputs and `--seed`. The CV score in a head's provenance is the best alpha's mean over the
+same folds that chose it (not nested CV), so it reads slightly optimistic.
+
+## aesthetic golden set (`bench aesthetic`)
+
+`bioscan aesthetic eval` scores bioscan's own heads against stars. `bench aesthetic` is the model-agnostic
+counterpart: it reads a **scores file** from any scorer and holds it to a frozen **aesthetic golden set**. The design,
+the research behind it and the target sizes are in docs/research/2026-09-24-aesthetic-golden-set.md. Standard library
+only (bioscan/cli/aesgolden.py); no service, no model.
+
+```sh
+bioscan bench aesthetic init ~/Pictures/Album/golden-trips --out ~/aes-golden [--cull runs/cull/cull.csv]
+# fill images.csv: group, best, keep, reasons, category, slices, split, stars2; optional pairs.csv (a,b,winner)
+uv run python scripts/aes_plant.py ~/aes-golden --n 60          # planted copies; refuses to run twice
+bioscan run ~/aes-golden -r --profile album --json --out runs/aes/eva.ndjson
+bioscan bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva [--repeat runs/aes/eva-2.ndjson]
+bioscan bench aesthetic score ~/aes-golden runs/aes/qrealign-4b.ndjson --out runs/aes/qrealign-4b
+bioscan bench aesthetic table runs/aes/*/report.json --ref data/aesthetic/eva-golden-v1.csv --csv runs/aes/arena-residuals.csv
+bioscan bench aesthetic compare runs/aes/eva/report.json runs/aes/qrealign-4b/report.json --md runs/aes/compare.md
+```
+
+**Scores file.** NDJSON: bioscan events (a `result` gives `products.aesthetics.score`, an `error` a failed frame;
+`meta`, `progress`, `done` are skipped), or one line per frame `{"path", "score", "model"?, "dims"?: {name: value},
+"reasons"?: [drop reason], "ms"?}`. Or CSV `path,score`. Relative paths are taken from the golden folder. A frame
+without a finite score counts as the lowest score everywhere.
+
+**images.csv / pairs.csv.** Columns and the drop-reason vocabulary are in the design doc (§4.1); a file with an
+unknown column, variant or reason is refused. Rows default to split `test`; `--split dev|all` scores the others.
+
+**report.json** (schema `bioscan-aesthetic-golden`, version 1): `meta` (golden path and sha256 of images.csv +
+pairs.csv, split, model, scores path and sha, git, date, tolerances), `metrics` per scope (`all`, `category:<c>`,
+`slice:<s>`), `dims`, `repeat`, `owner_ceiling`, `reasons`, `missing`, `extra`, and per-item `images`, `pairs`,
+`groups` for paired comparison. Keys of `metrics.all`:
+
+| Key | Definition |
+|---|---|
+| `expected`, `scored`, `missing_rate`, `failed`, `nonfinite`, `extra`, `duplicates` | Frames of the split plus their planted copies; how many have a finite score; error events; non-numeric scores; frames not in the set; paths scored twice |
+| `pair_acc`, `pairs`, `pairs_tied_by_owner` | Share of owner choices (pairs.csv, plus each group winner over every other member) where the chosen frame scores strictly higher. Owner ties are left out |
+| `group_top1`, `groups`, `group_top1_random` | Share of shot groups whose highest-scoring frame is the owner's winner; random = mean 1/size |
+| `keepers_lost_at_{10,20,30}`, `reject_precision_at_{10,20,30}` | Per trip, frames with a keep label sorted by score, the lowest q dropped: kept frames among the dropped / kept frames; dropped frames the owner dropped / dropped frames (pooled over trips) |
+| `drop_auc` | P(a frame the owner dropped scores below one they kept), ties half |
+| `spearman`(`_ci`), `kendall`, `plcc`, `spearman_trip_mean`, `ndcg_at_k`, `precision_at_k`(`_ci`, `_random`), `rated` | As `aesthetic eval` (same code, `aesbench.set_metrics`), with keep = 1 as the picks |
+| `degrade_acc`(`_ci`, `_n`, `_by_kind`) | Planted blur / ev-2 / ev+2 / jpeg10 copies scoring strictly below their original |
+| `invariance_rate`(`_ci`, `_n`, `_by_kind`), `invariance_max_shift` | Planted rename / jpeg95 / resize2048 copies within 5 percentile points of their original (percentiles of the split's scores) |
+| `residual`(`_ci`, `_n`) | Mean of (score percentile − stars percentile): above 0, the scorer likes the scope more than the owner does (every scope) |
+| `ms_median` | Median `ms` of the scores file, when given |
+
+**compare** refuses reports of different golden sets or splits (exit 2). It prints deltas for every shared metric,
+McNemar on the pairs and on the shot groups both reports scored, and a 95 % bootstrap interval of the Spearman change
+that resamples shot groups (`--boot`, default 1000, seed 0). `--budget` (default `baselines/budget-aesthetic.toml`
+when present) takes `[[rule]]` tables as in budget.toml, with any numeric key of `metrics` and `scopes` defaulting to
+`["all"]`. Exit 1 when over budget.
+
+**table** is the arena: N reports of one golden set and split (else exit 2), ranked by Spearman against the grades,
+each with the deviation from the labels in the labels' own units and a paired bootstrap against the leader:
+
+| column | what |
+|---|---|
+| Spearman [95% CI] | against stars, bootstrap over shot groups (`--boot`, default 1000, seed 0) |
+| cross-grade pairs [CI] | of all frame pairs with different stars, the share the model orders like the owner (a score tie counts as wrong): Spearman restricted to the pairs the labels actually separate, the most sensitive column at small n |
+| grade MAE [CI], exact / ±1 | after quantile calibration (the model's i-th lowest frame gets the i-th lowest grade, no fitted parameter): how many stars off on average, how often exactly right, how often within one |
+| ΔSpearman vs top [CI] | the same resamples for every model; an interval containing 0 marks the rank `=` (tied at this n) |
+| ms, and the owner-set columns (owner pairs, group top-1, NDCG, drop AUC, keepers lost @20 %, planted, missing) | only those with a value in some report |
+
+Below the table: the frames the models disagree on most (calibrated grade per model), with the label's sd when
+`--ref` gives it (`data/aesthetic/eva-golden-v1.csv`, keyed by file stem). `--csv` writes every frame's score,
+percentile, calibrated grade and residual (model percentile − grade percentile) per model, worst first. No Elo:
+every frame has an answer. Models within about 0.05 Spearman at n = 100 are not separable
+(docs/research/2026-09-24-aesthetic-arena.md). External scorers are run by `scripts/aes_arena_score.py` in their own
+environment; `--purge` removes the weights it downloaded once the scores are written, so only the service's own
+models stay in the cache. Reports of this tier list the owner's frame paths: they stay on the owner's machine unless
+the owner decides otherwise.
+

@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 from conftest import FAIL_SIZE, Fakes, client_for, make_jpg
 
+from bioscan import naming
+
 GOLDEN = Path(__file__).parent / "golden"
 REPO = str(Path(__file__).resolve().parents[2])
 REGOLDEN = os.environ.get("BIOSCAN_REGOLDEN") == "1"
@@ -191,6 +193,7 @@ def test_eval_on_a_preds_file_matches_golden(recorded, tmp_path):
     lines = [ln for ln in report.replace(str(tmp_path), TMP).replace(tmp, TMP).replace(REPO, "<repo>").splitlines()
              if not ln.startswith(("- generated", "- wall_s"))]
     check("eval-report.md", "\n".join(lines) + "\n")
-    rep = bench.report_from_preds(str(preds), str(gt), tier="golden")
+    lists = bench.load_name_lists({"bird": str(naming.AVILIST_MAP_CSV)})   # never data/mdd (gitignored, a developer's file)
+    rep = bench.report_from_preds(str(preds), str(gt), tier="golden", lists=lists)
     scored = {k: rep[k] for k in ("metrics", "per_species", "per_family", "images")}
     check("bench-report.json", json.dumps(scored, indent=1, ensure_ascii=False).replace(tmp, TMP).replace(REPO, "<repo>") + "\n")
