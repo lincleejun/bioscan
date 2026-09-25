@@ -63,15 +63,14 @@ Verify: workflows green on the pushed branch. ci green; models runs 3 and 5 gree
       checklists, encoded with BioCLIP's text tower like the AviList/MDD rows without ToL vectors); until then
       consider capping other_animal boxes whose kind lacks coverage at genus/unconfirmed
 - [x] out_of_range (3): the range veto now adds the list's best in-range congener when none made the top-k (T1, 2026-09-25;
-      accuracy effect unverified until a Mac `bench compare`)
+      accuracy effect unverified until a Mac `bench compare`; owner 2026-09-25: not now)
 - [x] prior_suppressed (1): investigated (T2, 2026-09-25): the one row is Dryobates nuttallii lost to D. pubescens (visual 0.504
       vs 0.485, p_geo 0.485 vs 0.909), not Cervus. Cervus mapping and p_geo are correct (19/25 right in v1.5); its 6 misses are
       4 out_of_range (visual gives C. elaphus ~1.0) and 2 within_genus (C. albirostris borrows Wapiti's p_geo by the genus rule)
-- [ ] owner decision: genus fall-back for unlabelled species (a) keep borrowing the congener's full p_geo (today), (b) a fixed
-      fraction, (c) only when that congener's p_geo >= RANGE_TAU; (b)/(c) need a Mac bench compare
+- [x] owner decision (2026-09-25): genus fall-back for unlabelled species stays as is (borrow the congener's full p_geo)
 - [x] kind check against the all-taxa list: size-corrected top-5 statistic behind the trial option `kind_size_correct`
       (off by default, not in the fingerprint; T3, 2026-09-25). fix.py was never in the repo; built from commit 740f8b6's formula
-- [ ] owner's Mac: eval with `kind_size_correct=true` vs off, bench compare; decides whether it replaces taxa.ONE_WAY
+- [ ] (owner 2026-09-25: not now) Mac: eval with `kind_size_correct=true` vs off, bench compare; decides whether it replaces taxa.ONE_WAY
 - [x] owner's Mac: golden + own RAW baselines (2026-09-24: baselines/golden-inat-v1.{4,5}.json, own-raw-2026-09-24-v1.{4,5}.json; docs/2026-09-24-*.md) (`bioscan bench run ... --tier golden|own`), speed tier, RAW EXIF check
 - [ ] golden other-animal slice: ~16 CA reptile/amphibian/insect/spider species × 25 via `bioscan gt inat` (docs/standards.md); measures accuracy.golden.other.*
 - rule: docs/standards.md "Now" column is refreshed with every Mac baseline (last: 2026-09-24 golden/own)
@@ -112,7 +111,7 @@ Verify: tests/unit/test_geotag.py, test_geotag_bench.py, test_standards.py; `bio
 - [x] git pull（875dc7a）+ uv sync
 - [x] tests/models/download.py：all-taxa 366,460 种，float16 716 MiB，缓存 763 MiB
 - [x] decode 元数据检查：ARW 29 / DNG 2 / RAF 263 / JPG 274 全部读到拍摄时间，均无 GPS；本机无 CR3/ORF/RW2/NEF
-- [x] v1.4 基线：worktree .worktrees/v14 @ 91b6bd6 → bench run golden/own → baselines/golden-inat-v1.4.json, own-raw-2026-09-24-v1.4.json
+- [x] v1.4 基线：worktree .worktrees/v14 @ 91b6bd6（2026-09-25 已删除；需要时 `git worktree add --detach .worktrees/v14 91b6bd6` 并复制 data/avilist、data/mdd 的 CSV） → bench run golden/own → baselines/golden-inat-v1.4.json, own-raw-2026-09-24-v1.4.json
 - [x] v1.5：main → bench run golden/own → baselines/golden-inat-v1.5.json, own-raw-2026-09-24-v1.5.json
 - [x] bench compare / analyze / scorecard → docs/2026-09-24-*.md；README Results 更新为 v1.4 vs v1.5 双行表
 - [x] 报告：Blocked on me / Changed / Found / Left（见会话）
@@ -159,8 +158,8 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
 - [x] C1 evaluation: scripts/cull_synth.py (labelled rejects + bursts, seeded), album tier metrics, tests/models album
       smoke with loose floors (models-report-album.json), baselines/budget-album.toml, models.yml compare step,
       data/standards.toml album rows (profile album, plugin metrics), docs/standards.md §14
-- [ ] first green models.yml run (36099637018, 2026-09-25): candidate saved as runs/ci-album-candidate-36099637018.json; owner
-      approves `cp` to baselines/ci-album.json (models.yml then compares against it). ALBUM_FLOORS tightened, §14 Now filled.
+- [x] first green models.yml run (36099637018, 2026-09-25): baselines/ci-album.json committed (owner approved 2026-09-25);
+      models.yml compares every album run against it under budget-album.toml. ALBUM_FLOORS tightened, §14 Now filled.
       §14 keepers_lost 10.7 % (6 of 56) fails its 5 % bar: the tight-iNat-crop question below, not the exposure rule.
       Runs 36074125747 and 36087035644 were red on `quality.underexposed.reject_recall` 0.33 (fixed in T8 below)
 - [ ] quality thresholds were calibrated on 1/f-noise surrogates only (SOFT_BLUR 0.45, SHARP_ELSEWHERE 0.38): re-check on
@@ -250,7 +249,7 @@ Next:
 - [ ] arena on the owner's rated trips (the head is not in-distribution there); rank-average of ours + Qwen3-VL-4B as one row
 - [x] standards tier `aesthetic-golden` (Spearman lower bound >= 0.70, precision@k >= 0.55, keepers lost @20 <= 0.15, group
       top-1 >= 0.50 when groups exist) + budget-aesthetic.toml limits from the EVA-100 intervals; baseline
-      baselines/aes-golden-v1-eva-head-v1.json (T7, 2026-09-25). Bars chosen by the agent, owner to confirm
+      baselines/aes-golden-v1-eva-head-v1.json (T7, 2026-09-25). Bars confirmed by the owner 2026-09-25 as the defaults
 - [ ] a review/labelling page if filling images.csv by hand is slow
 
 ## 2026-09-25 parallel run (owner: no input needed; one worktree per track, Opus 5.5 agents, Fable reviews)
