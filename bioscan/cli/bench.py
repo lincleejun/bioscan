@@ -56,7 +56,10 @@ GEOTAG_RATES = ("within_100m_rate", "within_1km_rate", "no_fix_rate", "false_fix
 GEOTAG_METRICS = ("n", "n_expected", "median_error_m", "p90_error_m", *GEOTAG_RATES, "offset_error_s")
 # `aesthetic eval` (bioscan.cli.aesbench): agreement of an aesthetic head with the owner's ratings.
 AESTHETIC_SCHEMA = "bioscan-aesthetic-report"
-AESTHETIC_RATES = ("precision_at_k",)
+# `bench aesthetic score` (bioscan.cli.aesgolden): any scorer on the frozen aesthetic golden set; the scorecard
+# also reads its culling and shot-group rates.
+AESTHETIC_GOLDEN_SCHEMA = "bioscan-aesthetic-golden"
+AESTHETIC_RATES = ("precision_at_k", "keepers_lost_at_20", "group_top1")
 AESTHETIC_METRICS = ("n", "spearman", "kendall", "plcc", "spearman_trip_mean", "ndcg_at_k", *AESTHETIC_RATES)
 
 
@@ -1120,7 +1123,7 @@ def _num(x, unit) -> str:
 def scorecard_md(sc: dict, rep: dict) -> str:
     lines = ["# bioscan bench scorecard", "",
              f"- report: git {str(rep['meta'].get('git_sha'))[:12]}, {rep['meta'].get('date')}, "
-             f"{rep['meta'].get('groundtruth')}",
+             f"{rep['meta'].get('groundtruth') or rep['meta'].get('golden')}",
              f"- tier: {sc['tier']}{' (no-geo run: .nogeo standards only)' if sc['nogeo'] else ''}, profile "
              f"{sc.get('profile', DEFAULT_PROFILE)}; {sc['skipped']} standards of other tiers, profiles or geo modes "
              "skipped", "",
@@ -1229,7 +1232,7 @@ def cmd_analyze(a) -> int:
 
 
 def cmd_scorecard(a) -> int:
-    rep = load_report(a.report, (REPORT_SCHEMA, GEOTAG_SCHEMA, AESTHETIC_SCHEMA))
+    rep = load_report(a.report, (REPORT_SCHEMA, GEOTAG_SCHEMA, AESTHETIC_SCHEMA, AESTHETIC_GOLDEN_SCHEMA))
     standards = read_standards(a.standards or STANDARDS_TOML)
     tier = a.tier or report_tier(rep)
     if not tier:

@@ -1,14 +1,36 @@
 # Regression budget for aesthetic golden-set reports
 # (`bioscan bench aesthetic compare BASE NEW --budget baselines/budget-aesthetic.toml`; the default when present).
 # Schema: [[rule]] metric (a key of report.json metrics), scopes (default ["all"]), one limit, optional min_n, note.
-# PROVISIONAL: no golden set has been scored yet. At the v1 target sizes (docs/research/2026-09-24-aesthetic-golden-set.md
-# §4.2) a pairwise accuracy is good to about ±4 pts and a group top-1 to about ±8 pts, so these limits allow about
-# half an interval of movement. Revisit after the first two real runs.
+# A metric that is null in both reports (pairs, groups and planted copies on EVA-100) is not checked.
+#
+# Sized from the first real run, eva-head-v1 on aes-golden-v1 = EVA-100 (baselines/aes-golden-v1-eva-head-v1.json,
+# n = 100 rated frames, 40 keepers): each limit is about half of that run's 95% interval, so a change the set can
+# resolve is blocked and one inside its noise passes. A larger set (the owner's) has narrower intervals and may be
+# held to a tighter file with --budget.
+
+[[rule]]
+metric = "spearman"
+max_drop_pts = 3.0
+note = "Spearman 0.877 [0.818, 0.917]: the lower half-interval is 6 pts, so a drop past 0.03 is blocked"
 
 [[rule]]
 metric = "keepers_lost_at_20"
-max_rise_pts = 2.0
-note = "dropping the weakest fifth of a trip must not cost more keepers"
+max_rise_pts = 2.5
+note = "one keeper of 40 is 2.5 pts; 0 lost has an upper bound of 8.8 pts, so one more keeper passes and two do not"
+
+[[rule]]
+metric = "precision_at_k"
+max_drop_pts = 5.0
+note = "one pick of 40 is 2.5 pts; 82.5% [68.0, 91.3] is about +-11 pts, so two picks fewer pass and three do not"
+
+[[rule]]
+metric = "missing_rate"
+max_rise_pts = 0.0
+note = "every frame must get a score"
+
+# Shot-group and planted-copy rules: EVA-100 has neither. Sized from the design's target sizes
+# (docs/research/2026-09-24-aesthetic-golden-set.md §4.2): pairwise accuracy is good to about +-4 pts at 600 pairs,
+# group top-1 to about +-8 pts at 150 groups; each limit is about half of that.
 
 [[rule]]
 metric = "pair_acc"
@@ -23,7 +45,3 @@ min_n = 50
 metric = "invariance_rate"
 max_drop_pts = 2.0
 note = "a score must not depend on the file name, encoding or size"
-
-[[rule]]
-metric = "missing_rate"
-max_rise_pts = 0.0

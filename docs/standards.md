@@ -51,6 +51,7 @@ must clear it, not just the observed rate.
 | `public` | **to build**: ≥ 5 regions, CC0/CC BY only, one observation per photo, ≤ 5 per observer, sequestered test split | ≥ 5,000 | full lists | CC0 / CC BY, redistributable | owner's Mac; published | claim we can show others |
 | `mac` | 2,000 RAW files, ARW + CR3 + NEF, 24 MP (plus 45 MP), from SSD and USB disk | 2,000 | full lists | private | M1-class Mac | speed |
 | `aesthetic-own` | the owner's rated frames (Lightroom stars / picks from XMP or a CSV), split by trip folder; profile `album` | the owner's (the learning curve needs 1,000+) | none | private | owner's Mac, service running | aesthetic ranking ([section 13](#13-aesthetics-agreement-with-the-owner-album)) |
+| `aesthetic-golden` | aes-golden-v1 = the 100 held-out EVA images, 20 per crowd star band (`data/aesthetic/eva-golden-v1.csv`); profile `album` | 100 (40 keepers, no shot groups) | none | CC0 (EVA) | anywhere with an EVA checkout; `bench aesthetic score` needs no model | any aesthetic scorer against crowd stars ([section 13](#13-aesthetics-agreement-with-the-owner-album)) |
 | `geotag` | synthetic GPX tracks through the golden photos' true positions, 7 scenarios (`scripts/geotag_synth.py`, seed 7) | 1,624 photos × 7 | none (no models) | derived from golden; tracks are generated, not shipped | anywhere: about 65 s to generate (~750 MB) and 80–85 s to score (measured 64 s + 82–85 s) | GPX geotagging ([section 12](#12-geotag-from-a-gpx-track-synthetic-tier)) |
 | `album` | synthetic reject set from 24 smoke photos (`scripts/cull_synth.py`, seed 7): originals, 7 degradations each, bursts; profile `album` | about 220 | none needed (species off) | derived from smoke; generated at test time, not shipped | CI `models.yml`, CPU | culling rules and reducers ([section 14](#14-culling-album-profile-synthetic-tier)) |
 
@@ -348,6 +349,31 @@ bioscan bench scorecard runs/<tag>-aesthetic/report.json
 Every bar here is a first guess: no aesthetic number has been measured on the owner's photos yet. The general
 head is committed (data/aesthetic/README.md: CV SRCC 0.792 on EVA, Spearman 0.877 on the 100 held-out EVA images).
 
+### Public golden set: EVA-100 (`aesthetic-golden`)
+
+The `aesthetic-golden` tier (profile `album`) is aes-golden-v1: the 100 EVA images held out of the general head,
+frozen (owner decision 2026-09-25). `bioscan bench aesthetic score` scores **any** scorer's scores file on it and
+`bioscan bench scorecard` reads the report. The bars are the first real run, eva-head-v1
+(`baselines/aes-golden-v1-eva-head-v1.json`, 2026-09-25, owner's Mac), minus a margin, judged on the 95 % bound.
+
+**What EVA's stars can and cannot stand in for.** They are the mean of 30-46 crowd votes on photo-contest
+entries with little wildlife, banded into five star levels with gaps between the bands. They can show that a
+scorer works and is not generic: it orders clearly better and clearly worse photos the way a crowd does, and it
+would not throw a well-liked photo into the bottom fifth. They cannot show agreement with the owner's taste, choice
+within a burst (EVA-100 has no shot groups), or culling of real wildlife frames; the band gaps also make the set
+easier than a real album. eva-head-v1 was fitted on the rest of EVA, so it is in-domain here and off-the-shelf
+scorers start behind it. The owner's set (above) remains the one that decides.
+
+| Standard | Industry bar | Community | Stretch | Now (eva-head-v1) | Why this bar |
+|---|---|---|---|---|---|
+| Spearman ρ, score vs crowd stars (100 frames) | none on these images; best off-the-shelf scorer in the arena 0.759 [0.670, 0.827] (Qwen3-VL-4B, docs/research/2026-09-24-aesthetic-arena.md) | **≥ 0.70** (lower 95% bound) | ≥ 0.80 | 0.877 [0.818, 0.917]: **met**, stretch met | needs a point value of about 0.79: above every off-the-shelf scorer we ran, 0.12 below today's lower bound |
+| Precision@k vs 4-5 star frames (k = 40) | none | **≥ 55%** (lower bound) | ≥ 65% | 82.5% [68.0, 91.3]: **met**, stretch met | random order scores 40% on this frozen set; 55% needs 28 of 40, five picks fewer than today |
+| Keepers lost when the lowest 20% are dropped (40 keepers) | none | **≤ 15%** (upper bound) | ≤ 10% | 0.0% [0.0, 8.8]: **met**, stretch met | random order loses 20%; the bar allows one keeper of 40 lost (upper bound 12.9%), not two (16.5%) |
+| Shot-group winner is the top-scored frame | none | **≥ 50%** (lower bound) | ≥ 70% | n/a: EVA-100 has no shot groups | only a set with groups is judged; the lower bound keeps a handful of groups from passing by luck; random is 1/group size |
+
+How measured: data/aesthetic/README.md ("aes-golden-v1"). `bioscan bench aesthetic compare
+baselines/aes-golden-v1-eva-head-v1.json NEW` holds a new scorer or head to `baselines/budget-aesthetic.toml`.
+
 [^pyiqa-iaa]: pyiqa's aesthetics benchmark (LAION v2 0.665, TOPIQ-IAA 0.791, Q-Align 0.822 SRCC on AVA): https://raw.githubusercontent.com/chaofengc/IQA-PyTorch/main/tests/IAA_benchmark_results.csv
 
 ## 14. Culling: album profile (synthetic tier)
@@ -458,7 +484,9 @@ declares, read from report.json `plugin_metrics`).
   `cell_change_rate`, `offset_error_s` (docs/harness.md defines them).
 - **Aesthetic metrics.** The `aesthetic-own` tier (ids `aesthetics.aesthetic_own.*`, explicit `tier = "aesthetic-own"`)
   reads a `bioscan aesthetic eval` report: `spearman`, `kendall`, `plcc`, `spearman_trip_mean` (unit `correlation`),
-  `ndcg_at_k` (unit `score`) and `precision_at_k` (a rate, `fraction`).
+  `ndcg_at_k` (unit `score`) and `precision_at_k` (a rate, `fraction`). The `aesthetic-golden` tier (ids
+  `aesthetics.aesthetic_golden.*`) reads a `bench aesthetic score` report (schema `bioscan-aesthetic-golden`) with
+  the same metrics plus the rates `keepers_lost_at_20` and `group_top1`.
 
 ## Industry references: what we could verify
 
