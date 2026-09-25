@@ -330,7 +330,7 @@ bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplu
 Every scan after that is one line:
 
 ```bash
-bioscan run DIR --profile album --json --out preds.ndjson && bioscan lr open preds.ndjson
+bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open preds.ndjson
 ```
 
 `lr open` writes `~/Library/Application Support/bioscan/lightroom/latest.json` (atomically; `--to FILE` elsewhere) and brings Lightroom to the front (`--no-launch` skips that); the plugin picks the file up and applies it:

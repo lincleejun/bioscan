@@ -296,7 +296,7 @@ bioscan lr install                 # 把 extensions/lightroom/bioscan.lrplugin �
 之后每次扫描一行：
 
 ```bash
-bioscan run DIR --profile album --json --out preds.ndjson && bioscan lr open preds.ndjson
+bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open preds.ndjson
 ```
 
 `lr open` 写 `~/Library/Application Support/bioscan/lightroom/latest.json`（原子写入；`--to FILE` 改写别处），并把 Lightroom 调到前台（`--no-launch` 不调）；插件读到该文件后应用：

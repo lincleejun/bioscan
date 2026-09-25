@@ -8,7 +8,7 @@
 
 成功判据（在 owner 的 Mac 上手动验收）：
 ```
-bioscan run DIR --profile album --json --out preds.ndjson && bioscan lr open preds.ndjson
+bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open preds.ndjson
 ```
 之后 Lightroom 弹到前台，Library 视图切到 `bioscan` collection set，照片带星、带关键字、在对应 collection 里；重跑同一文件不重复、不改 owner 自己打的星。
 
