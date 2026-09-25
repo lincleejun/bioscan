@@ -43,6 +43,14 @@ def test_a_stage_providing_a_base_fact_runs_before_its_readers():
     assert plugin.plan(["identify"], plugin.merge_options(None)).stages == ("identify",)   # place is a base fact
 
 
+def test_optional_read_orders_after_its_provider_and_plans_without_one():
+    reg = [m("zeta", provides=("boxes",)), m("alpha", reads=("boxes?", "image"))]
+    assert plugin.plan(["alpha", "zeta"], {"alpha": {}, "zeta": {}}, reg).stages == ("zeta", "alpha")
+    assert plugin.plan(["alpha"], {"alpha": {}}, reg).stages == ("alpha",)
+    assert plan_of(["scene"], BUILTIN).stages == ("scene",)                                    # scene alone still plans
+    assert plan_of(["scene", "identify"], BUILTIN).stages == ("identify", "scene")
+
+
 def test_missing_provider_names_the_stages_that_could_provide():
     reg = [*BUILTIN, m("count", reads=("boxes",))]
     with pytest.raises(ValueError, match=r"stage count reads 'boxes', which no stage of this run provides \(add identify\)"):

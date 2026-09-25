@@ -1,0 +1,263 @@
+# Open Images V7 -> bioscan scene labels: what `bioscan gt scene` samples per label (docs/standards.md,
+# "scene tier"; taxonomy in docs/research/2026-09-24-scene-taxonomy.md).
+#
+# One [label.<name>] per fetched label. `group` is the scene group (today's 8 labels); `scene` is the
+# fine label written to the CSV, or "" when Open Images cannot tell (bird portrait vs habitat: the
+# group is measured, the fine label is not). Class names are Open Images DisplayNames
+# (oidv7-class-descriptions.csv), matched case-insensitively:
+#   any  = the image has a human-verified positive label for at least one of these
+#   all  = ... for every one of these (an intersection, e.g. Bird and Flight)
+#   not  = ... for none of these (a positive there disqualifies)
+# An image that qualifies for more than one label is dropped from all of them (an unambiguous set).
+# Counts (human-verified positives, val + test, 2026-09-25, docs/research/2026-09-24-scene-datasets.md):
+# aurora 16, city_lights 141, moon 174, bird_flight 204 are the short labels; the rest exceed 200.
+
+[label.bird]
+group = "wildlife"
+scene = ""
+any = ["Bird"]
+not = ["Flight", "Flock", "Pet", "Person", "Cattle", "Sheep", "Horse"]
+
+[label.bird_flight]
+group = "wildlife"
+scene = "bird_flight"
+all = ["Bird", "Flight"]
+not = ["Flock", "Person"]
+
+[label.mammal]
+group = "wildlife"
+scene = ""
+all = ["Mammal", "Wildlife"]
+not = ["Person", "Pet", "Cattle", "Sheep", "Horse", "Working animal", "Herd", "Bird"]
+
+[label.other_animal]
+group = "wildlife"
+scene = "other_animal"
+any = ["Reptile", "Amphibian", "Fish"]
+not = ["Person", "Bird", "Mammal", "Food", "Underwater", "Coral reef", "Scuba diving"]
+
+[label.herd_flock]
+group = "wildlife"
+scene = "herd_flock"
+any = ["Flock", "Herd"]
+not = ["Person"]
+
+[label.domestic]
+group = "wildlife"
+scene = "domestic"
+any = ["Pet", "Cattle", "Sheep", "Horse", "Working animal"]
+not = ["Person", "Wildlife", "Herd", "Flock"]
+
+[label.mountain]
+group = "landscape"
+scene = "mountain"
+any = ["Mountain"]
+not = ["Animal", "Person", "Building", "Snow", "Glacier", "Lake", "River", "Night", "Bird", "Mammal"]
+
+[label.coast]
+group = "landscape"
+scene = "coast"
+any = ["Coast", "Beach"]
+not = ["Animal", "Person", "Building", "Mountain", "Night", "Bird", "Mammal", "Boat"]
+
+[label.freshwater]
+group = "landscape"
+scene = "freshwater"
+any = ["Lake", "River", "Waterfall", "Pond", "Stream", "Wetland"]
+not = ["Animal", "Person", "Building", "Mountain", "Coast", "Beach", "Night", "Bird", "Mammal", "Boat", "Snow"]
+
+[label.forest]
+group = "landscape"
+scene = "forest"
+any = ["Forest"]
+not = ["Animal", "Person", "Building", "Mountain", "Lake", "River", "Snow", "Bird", "Mammal", "Flower", "Fungus", "Mushroom"]
+
+[label.grassland]
+group = "landscape"
+scene = "grassland"
+any = ["Grassland", "Meadow", "Prairie", "Savanna", "Steppe"]
+not = ["Animal", "Person", "Building", "Mountain", "Forest", "Lake", "River", "Bird", "Mammal", "Flower", "Cattle", "Sheep", "Horse"]
+
+[label.desert]
+group = "landscape"
+scene = "desert"
+any = ["Desert", "Dune"]
+not = ["Animal", "Person", "Building", "Mountain", "Bird", "Mammal", "Night", "Beach", "Coast"]
+
+[label.snow_ice]
+group = "landscape"
+scene = "snow_ice"
+any = ["Snow", "Ice", "Glacier", "Iceberg"]
+not = ["Animal", "Person", "Building", "Bird", "Mammal", "Night", "Vehicle", "Sports"]
+
+[label.sky]
+group = "landscape"
+scene = "sky"
+any = ["Sunset", "Sunrise", "Cloud"]
+all = ["Sky"]
+not = ["Animal", "Person", "Building", "Mountain", "Bird", "Night", "Vehicle", "Beach", "Coast", "Lake", "River", "Forest", "Tree", "Star", "Moon"]
+
+[label.astro]
+group = "night"
+scene = "astro"
+any = ["Star", "Milky way", "Galaxy", "Constellation", "Astronomical object"]
+not = ["Animal", "Person", "Building", "Moon", "Full moon", "Aurora", "Illustration", "Drawing", "Diagram"]
+
+[label.aurora]
+group = "night"
+scene = "aurora"
+any = ["Aurora"]
+not = ["Animal", "Person", "Illustration", "Drawing"]
+
+[label.moon]
+group = "night"
+scene = "moon"
+any = ["Moon", "Full moon", "Lunar eclipse"]
+not = ["Animal", "Person", "Building", "Star", "Milky way", "Aurora", "Illustration", "Drawing", "Diagram"]
+
+[label.city_lights]
+group = "night"
+scene = "city_lights"
+any = ["Building", "Cityscape", "Skyline", "Street", "Skyscraper", "Downtown"]
+all = ["Night"]
+not = ["Animal", "Person", "Star", "Moon", "Aurora", "Milky way"]
+
+[label.portrait]
+group = "people"
+scene = "portrait"
+any = ["Portrait", "Portrait photography", "Selfie"]
+not = ["Animal", "Crowd", "Sports", "Concert", "Festival", "Wedding", "Party", "Parade", "Illustration", "Drawing", "Painting"]
+
+[label.group]
+group = "people"
+scene = "group"
+all = ["Crowd", "Person"]
+not = ["Animal", "Sports", "Concert", "Festival", "Wedding", "Party", "Parade", "Street"]
+
+[label.street]
+group = "people"
+scene = "street"
+all = ["Street", "Person"]
+not = ["Animal", "Sports", "Concert", "Festival", "Wedding", "Party", "Parade", "Crowd", "Night", "Vehicle"]
+
+[label.event]
+group = "people"
+scene = "event"
+any = ["Concert", "Festival", "Wedding", "Party", "Ceremony", "Parade"]
+not = ["Animal", "Sports", "Illustration", "Drawing", "Painting"]
+
+[label.sport]
+group = "people"
+scene = "sport"
+any = ["Team sport", "Ball game", "Running", "Swimming", "Cycling", "Skiing"]
+all = ["Person"]
+not = ["Animal", "Concert", "Festival", "Wedding", "Party", "Parade", "Illustration", "Drawing"]
+
+[label.flower]
+group = "macro"
+scene = "flower"
+any = ["Macro photography", "Close-up"]
+all = ["Flower"]
+not = ["Animal", "Person", "Insect", "Butterfly", "Bee", "Spider", "Fungus", "Mushroom", "Food", "Illustration", "Drawing", "Painting"]
+
+[label.plant]
+group = "macro"
+scene = "plant"
+any = ["Plant", "Leaf", "Tree"]
+all = ["Close-up"]
+not = ["Animal", "Person", "Flower", "Insect", "Butterfly", "Bee", "Spider", "Fungus", "Mushroom", "Food", "Illustration", "Drawing", "Painting", "Forest"]
+
+[label.fungi]
+group = "macro"
+scene = "fungi"
+any = ["Fungus", "Mushroom"]
+not = ["Animal", "Person", "Food", "Insect", "Flower", "Illustration", "Drawing", "Painting"]
+
+[label.insect_macro]
+group = "macro"
+scene = "insect_macro"
+any = ["Insect", "Butterfly", "Bee", "Spider", "Dragonfly", "Beetle", "Moth"]
+all = ["Macro photography"]
+not = ["Person", "Illustration", "Drawing", "Painting", "Bird", "Mammal"]
+
+[label.building]
+group = "architecture"
+scene = "building"
+any = ["Building", "Architecture", "Church", "Castle", "Temple", "Skyscraper"]
+not = ["Animal", "Person", "Night", "Cityscape", "Skyline", "Downtown", "Monument", "Sculpture", "Statue", "Memorial", "Room", "Interior design", "Vehicle", "Village", "Farm", "Barn", "Painting", "Illustration", "Drawing"]
+
+[label.interior]
+group = "architecture"
+scene = "interior"
+any = ["Room", "Interior design", "Living room", "Kitchen", "Bedroom"]
+not = ["Animal", "Person", "Food", "Pet", "Painting", "Illustration", "Drawing", "Screenshot"]
+
+[label.cityscape]
+group = "architecture"
+scene = "cityscape"
+any = ["Cityscape", "Skyline", "Downtown", "Urban area"]
+not = ["Animal", "Person", "Night", "Monument", "Sculpture", "Statue", "Painting", "Illustration", "Drawing"]
+
+[label.monument]
+group = "architecture"
+scene = "monument"
+any = ["Monument", "Memorial"]
+not = ["Animal", "Person", "Night", "Painting", "Illustration", "Drawing", "Cityscape", "Skyline"]
+
+[label.rural]
+group = "architecture"
+scene = "rural"
+any = ["Village", "Farm", "Barn"]
+not = ["Animal", "Person", "Night", "Cattle", "Sheep", "Horse", "Cityscape", "Skyline", "Downtown", "Painting", "Illustration", "Drawing"]
+
+[label.food_drink]
+group = "food"
+scene = "food_drink"
+any = ["Food", "Drink"]
+not = ["Animal", "Person", "Room", "Kitchen", "Painting", "Illustration", "Drawing", "Menu", "Screenshot", "Fungus", "Mushroom", "Flower"]
+
+[label.vehicle]
+group = "other"
+scene = "vehicle"
+any = ["Car", "Airplane", "Boat", "Motorcycle", "Bicycle", "Train"]
+not = ["Animal", "Person", "Night", "Cityscape", "Skyline", "Street", "Painting", "Illustration", "Drawing", "Sports", "Coast", "Beach"]
+
+[label.still_life]
+group = "other"
+scene = "still_life"
+any = ["Still life", "Still life photography"]
+not = ["Animal", "Person", "Food", "Drink", "Flower", "Painting", "Illustration", "Drawing"]
+
+[label.art]
+group = "other"
+scene = "art"
+any = ["Painting", "Graffiti", "Mural", "Street art", "Sculpture", "Statue"]
+not = ["Animal", "Person", "Monument", "Memorial", "Screenshot", "Document", "Illustration", "Drawing", "Building"]
+
+[label.utility]
+group = "other"
+scene = "utility"
+any = ["Screenshot", "Document", "Whiteboard", "Diagram", "Map", "Receipt", "Menu", "Newspaper", "Handwriting"]
+not = ["Animal", "Person", "Painting", "Food"]
+
+[label.abstract]
+group = "other"
+scene = "abstract"
+any = ["Pattern", "Abstract art", "Modern art"]
+not = ["Animal", "Person", "Painting", "Screenshot", "Document", "Building", "Flower", "Food", "Vehicle", "Bird", "Mammal", "Insect"]
+
+# Attributes: written to the CSV's light / setting / framing columns when an image has such a label
+# (blank otherwise). No harness metric reads them yet; they cost nothing to keep.
+[attribute.light]
+night = ["Night"]
+golden_hour = ["Sunset", "Sunrise"]
+blue_hour = ["Dusk", "Dawn"]
+
+[attribute.setting]
+underwater = ["Underwater", "Coral reef", "Scuba diving"]
+indoor = ["Room", "Interior design", "Living room", "Kitchen", "Bedroom"]
+
+[attribute.framing]
+close_up = ["Macro photography", "Close-up"]
+aerial = ["Aerial photography"]
+wide = ["Landscape"]

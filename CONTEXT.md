@@ -57,7 +57,8 @@ _Avoid_: GPS stage
 
 **Fact**:
 A named value a stage can read: `image`, `detail`, `time`, `place`, `vec`, `gate` from the host, or one a stage
-provides (`boxes` from identify) in `Item.facts`.
+provides (`boxes` from identify) in `Item.facts`. A manifest reads `fact?` for an optional fact: the stage runs after
+the provider when the plan has one and still plans without it (scene reads `boxes?`).
 
 **Plan**:
 What a run will do, decided before any model loads (`plugin.plan`): the wanted stages in report order, the run

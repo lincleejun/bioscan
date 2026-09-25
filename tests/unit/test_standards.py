@@ -23,7 +23,7 @@ DIMENSIONS = {"accuracy", "trust", "detection", "location", "directory", "speed"
               "onboarding", "privacy", "reproducibility", "aesthetics", "culling"}
 SCOPES = {"all", "bird", "mammal", "other"}
 OPS = {">=", "<="}
-TIERS = {"smoke", "golden", "own", "public", "mac", "geotag", "aesthetic_own", "aesthetic_golden", "album"}
+TIERS = {"smoke", "golden", "own", "public", "mac", "geotag", "aesthetic_own", "aesthetic_golden", "album", "scene"}
 PROFILES = {"wildlife", "album"}            # no profile = wildlife; full is held to the wildlife standards
 
 

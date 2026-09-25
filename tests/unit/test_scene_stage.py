@@ -25,6 +25,19 @@ def test_scores_share_the_gate_and_softmax_the_rest():
     assert sum(no_gate.values()) == pytest.approx(1.0) and no_gate["landscape"] > 0.99
 
 
+def test_gate_share_needs_a_box_when_identify_ran():
+    labels = {"landscape": ["a"], "wildlife": [], "food": ["b"]}
+    matrix = np.eye(3, 4, dtype=np.float32)[:2]
+    vec = np.array([1.0, 0.0, 0.0, 0.0], np.float32)
+    gate = {"bird": 0.5, "mammal": 0.2, "none": 0.3}
+    with_box = sc.scores(vec, gate, labels, matrix, 10.0, ["bird", "mammal"], boxes=[{"id": 1}])
+    assert with_box["wildlife"] == pytest.approx(0.7)
+    no_box = sc.scores(vec, gate, labels, matrix, 10.0, ["bird", "mammal"], boxes=[])
+    assert no_box["wildlife"] == 0.0 and no_box["landscape"] > 0.99 and sum(no_box.values()) == pytest.approx(1.0)
+    alone = sc.scores(vec, gate, labels, matrix, 10.0, ["bird", "mammal"], boxes=None)   # identify not in the run
+    assert alone["wildlife"] == pytest.approx(0.7)
+
+
 def horizon_photo(tilt_deg, w=400, h=300):
     """Bright sky over dark ground, the horizon rising `tilt_deg` to the right, some texture."""
     rng = np.random.default_rng(1)
@@ -57,7 +70,13 @@ def test_no_horizon_in_noise():
 ])
 def test_bad_options(labels, gate, message):
     with pytest.raises(ValueError, match=message):
-        check({"labels": labels, "wildlife_gate": gate})
+        check({"labels": labels, "wildlife_gate": gate, "wildlife_box": True})
+
+
+def test_wildlife_box_must_be_a_bool_and_boxes_is_an_optional_read():
+    with pytest.raises(ValueError, match="wildlife_box"):
+        check({**MANIFEST.defaults, "wildlife_box": "yes"})
+    assert "boxes?" in MANIFEST.reads and MANIFEST.defaults["wildlife_box"] is True
 
 
 def test_defaults_pass_and_settings_fingerprint():

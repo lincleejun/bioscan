@@ -211,6 +211,17 @@ def cmd_gt_inat(a):
     return 0
 
 
+def cmd_gt_scene(a):
+    if getattr(a, "from_manifest", None):
+        rows = gt.gt_scene_from(a.from_manifest, a.out)
+        print(f"{len(rows)} photos -> {Path(a.out) / 'groundtruth-scene.csv'}")
+        return 0
+    rows = gt.gt_scene(a.map, a.out, a.per_label, seed=a.seed, subsets=tuple(a.subset.split(",")), cache_dir=a.cache,
+                       dry_run=a.dry_run)
+    print(f"{len(rows)} photos -> {Path(a.out) / 'groundtruth-scene.csv'}" + (" (dry run: URLs as paths)" if a.dry_run else ""))
+    return 0
+
+
 def identify_opts(pairs: list[str] | None) -> dict:
     """["kind_check=false", "top_k=3"] -> {"kind_check": False, "top_k": 3}: JSON values, else the
     text. The service validates them (an unknown name is a 400)."""
@@ -345,6 +356,18 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--out")
     s.add_argument("--dry-run", action="store_true", help="print API URLs only, download nothing")
     s.set_defaults(func=cmd_gt_inat)
+    s = g.add_parser("scene", help="download Open Images V7 photos per scene label -> scene-tier CSV")
+    s.add_argument("--out", required=True, help="folder for <scene or group>/<subset>_<id>.jpg and groundtruth-scene.csv")
+    s.add_argument("--from", dest="from_manifest", metavar="CSV",
+                   help="re-fetch a committed set (e.g. data/scene/scene-v1.csv) by url + md5 instead of sampling; "
+                        "photos already there with that md5 are kept")
+    s.add_argument("--map", default=str(PROJECT_ROOT / "data" / "scene" / "oid-labels.toml"))
+    s.add_argument("--per-label", type=int, default=50)
+    s.add_argument("--seed", type=int, default=7)
+    s.add_argument("--subset", default="validation,test", help="Open Images subsets to draw from")
+    s.add_argument("--cache", help="where the Open Images CSVs are kept (default ~/.cache/bioscan/openimages)")
+    s.add_argument("--dry-run", action="store_true", help="fetch the label CSVs and count, download no photos")
+    s.set_defaults(func=cmd_gt_scene)
 
     s = sub.add_parser("eval", help="run identify over a ground-truth CSV and write report.md")
     s.add_argument("groundtruth")
