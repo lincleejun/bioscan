@@ -293,7 +293,7 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # identify 时每张图�
 bioscan lr install                 # 把 extensions/lightroom/bioscan.lrplugin 软链接进 Lightroom 的 Modules 目录（--copy 改为复制）
 ```
 
-之后每次扫描一行：
+之后每次扫描一行（用 `wildlife`：它开着物种识别；`album` 关掉物种，所有照片都会进“待确认”）：
 
 ```bash
 bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open preds.ndjson

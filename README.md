@@ -327,7 +327,7 @@ One-time install, then restart Lightroom Classic once:
 bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy)
 ```
 
-Every scan after that is one line:
+Every scan after that is one line (`wildlife` keeps species on; `album` turns it off, so every photo would land in `待确认`):
 
 ```bash
 bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open preds.ndjson
