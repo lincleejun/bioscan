@@ -68,6 +68,17 @@ def test_exposure_reasons():
     assert reasons(_ev(im, 2), [box(b)]) == ["overexposed"]
     assert reasons(_ev(im, -2), [box(b)]) == ["underexposed"]
     assert reasons(_ev(im, -2), [], SCENERY) == ["underexposed"]
+    # a bright scene two stops under is not dark on average, but nothing in it reaches two stops under
+    # white: the highlight rule catches it (the mean rule alone would not)
+    dim = _ev(_ev(im, 1.5), -2)
+    assert q.assess(dim, [box(b)], BIRD)["frame"]["exposure"] > q.UNDER_EXPOSURE
+    assert reasons(dim, [box(b)]) == ["underexposed"]
+    # a dark frame with one bright lamp keeps its highlights: only the mean rule applies, and it does
+    lamp = _ev(im, -3)
+    lamp.paste((255, 255, 255), (0, 0, 6, 6))
+    assert reasons(lamp, [box(b)]) == ["underexposed"]
+    # a flat mid-grey frame has no highlights and no tones either (fog, a test card): not underexposed
+    assert reasons(Image.new("RGB", im.size, (110, 110, 110)), [], SCENERY) == []
     # a dark subject in a normal frame (a black bird) is not underexposed
     dark = im.copy()
     dark.paste(_ev(im, -3).crop(px(im, b)), px(im, b)[:2])

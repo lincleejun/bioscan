@@ -43,7 +43,11 @@ CLIP_LOW = 8            # luma at or below: a clipped shadow
 OVER_CLIP = 0.08        # overexposed: at least this share of blown highlights, or ...
 OVER_EXPOSURE = 0.22    # ... exposure (mean luma - 0.5) at least this with half that share blown
 UNDER_EXPOSURE = -0.26  # underexposed: the frame's exposure at most this ...
-UNDER_SUBJECT = -0.25   # ... and the subject's (when there is one) at most this
+UNDER_SUBJECT = -0.25   # ... and the subject's (when there is one) at most this; or ...
+UNDER_HIGHLIGHT = 0.55  # ... the frame's 99.9th-percentile luma (0-1) at most this: nothing in it is brighter than
+                        # two stops under white (-2 EV maps white to 0.54), whatever the scene's mean, ...
+UNDER_RANGE = 0.2       # ... as long as the frame has tones to place (99.9th minus 0.1th percentile at least this;
+                        # a flat or foggy frame without highlights is low-contrast, not underexposed)
 CUT_MARGIN = 0.01       # a box edge this close to the frame edge (fraction of the side) touches it
 CUT_MAX_AREA = 0.5      # a box this large that touches an edge is a deliberate tight crop, not a cut
 TOO_SMALL = 0.005       # subject box under this share of the frame area: subject_too_small
@@ -115,13 +119,17 @@ def sharpest_tile(gray: np.ndarray, subject: tuple[float, float, float, float] |
 
 
 def exposure_reasons(frame: dict[str, Any], subject: dict[str, Any] | None) -> list[str]:
-    """overexposed from the subject (else the frame); underexposed from the frame, with the subject
-    (when there is one) dark as well."""
+    """overexposed from the subject (else the frame); underexposed from the frame: a frame with tonal range
+    but no highlights at all (its brightest pixels stay under UNDER_HIGHLIGHT), or dark on average with
+    the subject (when there is one) dark as well. A dark subject in a normally exposed frame is not
+    underexposed."""
     out = []
     bright = subject or frame
     if bright["clip_high"] >= OVER_CLIP or (bright["exposure"] >= OVER_EXPOSURE and bright["clip_high"] >= OVER_CLIP / 2):
         out.append("overexposed")
-    if frame["exposure"] <= UNDER_EXPOSURE and (subject is None or subject["exposure"] <= UNDER_SUBJECT):
+    no_highlights = frame["highlight"] <= UNDER_HIGHLIGHT and frame["highlight"] - frame["shadow"] >= UNDER_RANGE
+    if no_highlights or (
+            frame["exposure"] <= UNDER_EXPOSURE and (subject is None or subject["exposure"] <= UNDER_SUBJECT)):
         out.append("underexposed")
     return out
 
@@ -151,7 +159,10 @@ def assess(image: Image.Image, boxes: list[dict[str, Any]], gate: dict[str, floa
     q_frame = rules.quality(small, (0, 0, w, h))
     high, low = clipped(gray)
     frame: dict[str, Any] = {"sharpness": q_frame["sharpness"], "exposure": _r(float(gray.mean()) / 255.0 - 0.5),
-                             "clip_high": high, "clip_low": low}
+                             "clip_high": high, "clip_low": low,
+                             # internal, not reported: the frame's brightest and darkest 0.1 %
+                             "highlight": float(np.percentile(gray, 99.9)) / 255.0,
+                             "shadow": float(np.percentile(gray, 0.1)) / 255.0}
     best = max(boxes, key=lambda b: b.get("score", 0)) if boxes else None
     reasons: list[str] = []
     subject = None

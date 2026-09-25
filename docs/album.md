@@ -63,8 +63,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
 - **Rejects** (`quality`, rules only, each with a reason): `soft_subject` (the subject box is soft while something
   else in the frame is sharp: focus landed elsewhere), `motion_or_defocus` (nothing in the frame is sharp: shake,
   motion, or focus missed everything, which includes a soft subject against smooth bokeh), `overexposed` (8% of the
-  subject blown, or a bright subject with 4% blown), `underexposed` (the whole frame dark and the subject too; a dark
-  bird alone is not a reject), `subject_cut` (the box touches the frame edge and is not frame-filling),
+  subject blown, or a bright subject with 4% blown), `underexposed` (nothing in the frame brighter than two stops under white,
+  or the whole frame dark and the subject too; a dark bird alone is not a reject), `subject_cut` (the box touches the frame edge and is not frame-filling),
   `subject_too_small` (under 0.5% of the frame) and `no_subject` (the gate sees an animal, the detector boxes none).
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
