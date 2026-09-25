@@ -45,7 +45,7 @@ def _keyword(b: dict) -> list[str]:
     level, top, kind = contract.level_of(sp), contract.top_of(sp), b["kind"]
     tax = (top[0].get("taxonomy") or []) if top else []
     if level == "species" and top:
-        return [ROOT, kind, top[0]["common"] or top[0]["scientific"]]
+        return [ROOT, kind, top[0].get("common") or top[0]["scientific"]]
     if level == "genus" and len(tax) > 5:
         return [ROOT, kind, tax[5]]
     if level == "family" and len(tax) > 4:
@@ -69,13 +69,13 @@ def photo(ev: dict) -> dict:
              if contract.level_of(contract.species_of(b)) == "species" and contract.top_of(contract.species_of(b))]
     if named:
         top = contract.top_of(contract.species_of(max(named, key=lambda b: b["score"])))[0]
-        group, species, level = top["common"] or top["scientific"], top["scientific"], "species"
+        group, species, level = top.get("common") or top["scientific"], top["scientific"], "species"
     elif boxes:
         best = max(boxes, key=lambda b: b["score"])
         group, species, level = REVIEW, "", contract.level_of(contract.species_of(best)) or "unconfirmed"
     else:
         group, species, level = NONE, "", "none"
-    return {"path": ev["path"], "score": max((b["quality"]["sharpness"] for b in boxes), default=0.0),
+    return {"path": ev["path"], "score": max(((b.get("quality") or {}).get("sharpness", 0.0) for b in boxes), default=0.0),
             "keywords": keywords(ev), "group": group, "species": species, "level": level}
 
 
