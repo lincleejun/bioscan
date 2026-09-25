@@ -545,17 +545,18 @@ def test_accuracy_switches_do_not_regress(run, switched_off):
 # ---- album profile: the synthetic reject set (scripts/cull_synth.py) from these photos ---------------
 
 ALBUM_SOURCES = int(os.environ.get("BIOSCAN_ALBUM_SOURCES", "24"))
-# (plugin, scope, metric) -> (op, floor) on the album report's plugin_metrics. Loose first floors, set
-# before any real-model run (2026-09-24): they catch a broken stage, reducer or script, not a point of
-# accuracy; tighten them after the first CI run, like FLOORS above. data/standards.toml has the bars.
-ALBUM_FLOORS = {("quality", "all", "keepers_lost"): ("<=", 0.35),
-                ("quality", "all", "reject_recall"): (">=", 0.40),
-                ("quality", "all", "reject_precision"): (">=", 0.50),
-                ("quality", "soft", "reject_recall"): (">=", 0.30),
-                ("quality", "overexposed", "reject_recall"): (">=", 0.50),
-                ("quality", "underexposed", "reject_recall"): (">=", 0.50),
-                ("burst", "all", "burst_pair_f1"): (">=", 0.50),
-                ("scene", "all", "scene_acc"): (">=", 0.50)}
+# (plugin, scope, metric) -> (op, floor) on the album report's plugin_metrics. Set from the first green
+# run (36099637018, 2026-09-25: keepers_lost 10.7 %, recall 92.9 %, precision 96.3 %, soft 86.1 %, over/under
+# 95.8 %, burst F1 95.7 %, scene 91.5 %) minus about 4 images of the 24 per variant: they catch a broken stage,
+# reducer or script, not a point of accuracy. data/standards.toml has the bars; baselines/ci-album.json the compare.
+ALBUM_FLOORS = {("quality", "all", "keepers_lost"): ("<=", 0.20),
+                ("quality", "all", "reject_recall"): (">=", 0.80),
+                ("quality", "all", "reject_precision"): (">=", 0.85),
+                ("quality", "soft", "reject_recall"): (">=", 0.70),
+                ("quality", "overexposed", "reject_recall"): (">=", 0.75),
+                ("quality", "underexposed", "reject_recall"): (">=", 0.75),
+                ("burst", "all", "burst_pair_f1"): (">=", 0.80),
+                ("scene", "all", "scene_acc"): (">=", 0.80)}
 
 
 @pytest.fixture(scope="module")

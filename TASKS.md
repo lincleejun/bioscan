@@ -159,8 +159,9 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
 - [x] C1 evaluation: scripts/cull_synth.py (labelled rejects + bursts, seeded), album tier metrics, tests/models album
       smoke with loose floors (models-report-album.json), baselines/budget-album.toml, models.yml compare step,
       data/standards.toml album rows (profile album, plugin metrics), docs/standards.md §14
-- [ ] first green models.yml run: commit the printed candidate as baselines/ci-album.json (owner approves), tighten
-      ALBUM_FLOORS in tests/models, fill "Now" in docs/standards.md §14; until then every album number is unverified.
+- [ ] first green models.yml run (36099637018, 2026-09-25): candidate saved as runs/ci-album-candidate-36099637018.json; owner
+      approves `cp` to baselines/ci-album.json (models.yml then compares against it). ALBUM_FLOORS tightened, §14 Now filled.
+      §14 keepers_lost 10.7 % (6 of 56) fails its 5 % bar: the tight-iNat-crop question below, not the exposure rule.
       Runs 36074125747 and 36087035644 were red on `quality.underexposed.reject_recall` 0.33 (fixed in T8 below)
 - [ ] quality thresholds were calibrated on 1/f-noise surrogates only (SOFT_BLUR 0.45, SHARP_ELSEWHERE 0.38): re-check on
       a real album; expect keepers_lost from tight iNat crops (subject_cut). Exposure re-checked on the CI sources (T8)
@@ -263,5 +264,7 @@ Next:
 - [x] T8 (Fable) models.yml red: `quality.underexposed.reject_recall` 0.33 under its floor. Cause: the mean-luma rule (frame
       <= -0.26) assumes a mid-grey original; -2 EV of the CI sources lands between -0.05 and -0.36. Fix: a frame with tonal range
       but no highlights (99.9th-percentile luma <= 0.55, -2 EV maps white to 0.54) is underexposed. Local rebuild of the synthetic
-      set from the 49 CI sources: 48/49 -2 EV flagged, 0/49 originals, 2/68 bursts, 3/147 blur/smear/shake. CI: pending
+      set from the 49 CI sources: 48/49 -2 EV flagged, 0/49 originals, 2/68 bursts, 3/147 blur/smear/shake. CI run 36099637018
+      green (15 passed): underexposed recall 95.8 % [79.8, 99.3], every other album metric unchanged; §14 Now filled, ALBUM_FLOORS
+      tightened to the measured numbers minus ~4 images
 Skipped this run: composition checks (headroom / lead room / eye focus), motion-vs-defocus split, horizon-tilt flag (owner decisions), real GPX folder, CR3/NEF, reptile/fish list (deferred by the owner)

@@ -389,15 +389,15 @@ losing a keeper costs more than reviewing a reject.
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
-| Keep-labelled photos a rule rejects | none published | **≤ 5%** | ≤ 1% | unmeasured (first CI run) | rejects must be conservative |
-| Degraded photos rejected, any reason | none published | **≥ 70%** | ≥ 90% | unmeasured | most technical failures caught before review |
-| Rejected photos that are degraded | none published | **≥ 80%** | ≥ 95% | unmeasured | a reject list worth trusting |
-| Soft subjects and shaken frames rejected as soft | none published | **≥ 70%** | ≥ 90% | unmeasured | subject focus is what wildlife cullers sell |
-| +2 EV rejected as overexposed; −2 EV as underexposed | none published | **≥ 80%** each | ≥ 95% | unmeasured | two stops is a clear miss |
-| Crops cutting 40% of the subject rejected as cut | none published | **≥ 60%** | ≥ 90% | unmeasured | needs the detector to box a partial animal |
-| Subjects at 0.3% of the frame rejected as too small | none published | **≥ 50%** | ≥ 80% | unmeasured | a subject the detector misses is not rejected |
-| Burst grouping, pairwise F1 | none published; cosine near-duplicate detection is the usual method (thresholds 0.93–0.95, unverified) | **≥ 80%** | ≥ 95% | unmeasured | one pick per burst |
-| Scene label correct (the smoke photos are all wildlife) | none; SigLIP2 zero-shot is reported below its paper (unverified) | **≥ 80%** | ≥ 95% | unmeasured | one label only until an album with scene labels exists |
+| Keep-labelled photos a rule rejects | none published | **≤ 5%** | ≤ 1% | 10.7% [5.0, 21.5] (6 of 56; CI run 36099637018, 2026-09-25) **FAIL** | rejects must be conservative |
+| Degraded photos rejected, any reason | none published | **≥ 70%** | ≥ 90% | 92.9% [87.9, 95.9] (CI 2026-09-25) | most technical failures caught before review |
+| Rejected photos that are degraded | none published | **≥ 80%** | ≥ 95% | 96.3% [92.2, 98.3] (CI 2026-09-25) | a reject list worth trusting |
+| Soft subjects and shaken frames rejected as soft | none published | **≥ 70%** | ≥ 90% | 86.1% [76.3, 92.3] (CI 2026-09-25) | subject focus is what wildlife cullers sell |
+| +2 EV rejected as overexposed; −2 EV as underexposed | none published | **≥ 80%** each | ≥ 95% | 95.8% / 95.8% [79.8, 99.3] (CI 2026-09-25; −2 EV was 33.3% before the no-highlights rule) | two stops is a clear miss |
+| Crops cutting 40% of the subject rejected as cut | none published | **≥ 60%** | ≥ 90% | 95.8% [79.8, 99.3] (CI 2026-09-25) | needs the detector to box a partial animal |
+| Subjects at 0.3% of the frame rejected as too small | none published | **≥ 50%** | ≥ 80% | 62.5% [42.7, 78.8] (CI 2026-09-25) | a subject the detector misses is not rejected |
+| Burst grouping, pairwise F1 | none published; cosine near-duplicate detection is the usual method (thresholds 0.93–0.95, unverified) | **≥ 80%** | ≥ 95% | 95.7% (CI 2026-09-25) | one pick per burst |
+| Scene label correct (the smoke photos are all wildlife) | none; SigLIP2 zero-shot is reported below its paper (unverified) | **≥ 80%** | ≥ 95% | 91.5% [87.1, 94.5] (CI 2026-09-25) | one label only until an album with scene labels exists |
 
 How measured: CI `models.yml` (tests/models, `models-report-album.json`), or on any photos with boxes:
 ```sh
