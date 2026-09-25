@@ -147,3 +147,15 @@ on SigLIP2 trained on EVA (CC0) + owner ratings; architecture steps 0-4 before c
 - [ ] C2 aesthetic head on SigLIP2 (EVA CC0 general head; owner-rating personalisation; learning curve in bench)
 - [ ] cull ground truth: owner's Lightroom stars/labels on 2-3 trips (reject reason, burst winner, category);
       synthetic reject set (blur / cut-off / exposure degradations of iNat photos) for the rule stages
+
+---
+
+# TASKS — Lightroom Classic plugin (experiment, 2026-09-24)
+
+Spec: docs/superpowers/specs/2026-09-24-lightroom-plugin-design.md. Decisions (owner): sharpness quantile
+stars as a placeholder for C2; LrC Lua plugin reads a file (no HTTP, no XMP); keywords + collection set;
+never overwrite the owner's own stars; fully automatic (LrInit watcher), one command after the scan.
+
+- [ ] L1 `bioscan/cli/lr.py` + `bioscan lr open|install` + tests/unit/test_lr.py + README (EN, zh-CN) section
+- [ ] L2 `extensions/lightroom/bioscan.lrplugin` (Info, Apply, Watch, Metadata, dkjson) + extensions/lightroom/README.md
+- [ ] L3 acceptance: ruff, pytest, luac -p, real-data `lr open --no-launch --to`, CI green; LrC end unverified until the owner installs
