@@ -15,8 +15,9 @@ LrTasks.startAsyncTask(function()
     local ok, err = LrTasks.pcall(function()
       local mtime = LrFileUtils.fileAttributes(Apply.PATH).fileModificationDate
       if mtime and mtime ~= seen then
-        seen = mtime
-        Apply.apply({})
+        -- seen is recorded only on success, so a failed apply (write-access timeout at startup,
+        -- a batch failure) is retried; the longer sleep keeps a bad file from spinning the log.
+        if Apply.apply({}) then seen = mtime else LrTasks.sleep(28) end
       end
     end)
     if not ok then log:error("watcher: " .. tostring(err)) end

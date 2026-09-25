@@ -99,6 +99,8 @@ Lightroom Classic 内嵌 **Lua 5.1**：不用 `goto`、`//`、位运算、`table
 - `Watch.lua`：`LrTasks.startAsyncTask`：先 `sleep(5)`，然后每 2 秒查 `LrFileUtils.fileAttributes(path).fileModificationDate`；变化时读文件取 `run`，与 `LrPrefs.prefsForPlugin().lastRun` 不同才 apply，成功后记下。全部 `pcall`，异常写 `LrLogger("bioscan")`（`enable("logfile")`），不弹框。
 - `extensions/lightroom/README.md`：安装（`bioscan lr install`，重启 LrC 一次）、日常流程、手动验收清单（10 张 → 检查星/关键字/collection → 重跑不重复 → 手动改星后重跑不被覆盖）、日志位置、Lua 5.1 约束、dkjson 版本。
 
+**As built（2026-09-24）**：六个文件，多一个 `ApplyMenu.lua`（菜单脚本不在 async task 里，且 require 的模块分不清自己是不是菜单入口）；`Info.lua` 加 `LrForceInitPlugin = true`。写权限的分法不是每 200 张一个 gate，而是：先按关键字深度每层一个 gate 建 collection set、collection 和该层关键字（SDK 没承诺同一 gate 里新建的关键字能当父级），然后每 200 张两个 gate（先 addPhoto 缺的，再写元数据），gate 内每张照片各自 `LrTasks.pcall`，一张失败不回滚其余。插件字段 `stars` 只在 bioscan 真写了星级时更新（否则 owner 的星会被当成我们的）。汇总多两项：`失败 N（见日志）`、`未完成`。菜单 apply 成功也记 `lastRun`；监听器只在 apply 成功时记住文件时间，失败约 30 秒后重试。
+
 ## 7. 错误处理
 
 见 5、6：缺文件、坏 JSON、路径不存在、addPhoto 失败、写权限超时都只影响那一张或那一次，计数后继续；监听器永不弹框。

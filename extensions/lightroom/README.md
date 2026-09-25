@@ -35,9 +35,8 @@ short message gives the counts: photos matched, starred, imported, skipped becau
 your stars, and missing on disk (plus failures, if any).
 
 To apply the same file again by hand: Library > Plug-in Extras > **bioscan: Apply latest scan**. The
-menu item always applies, even if that run was applied already. Use it when the message ends in
-`未完成` (a batch timed out, failed or was cancelled): the watcher only reacts when `latest.json`
-changes, so it does not retry on its own.
+menu item always applies, even if that run was applied already. A run that ends in `未完成` (a batch timed out, failed or was
+cancelled) is retried by the watcher about 30 seconds later; the menu item does it now.
 
 What it does to each photo:
 
@@ -46,6 +45,7 @@ What it does to each photo:
 - **Stars.** `stars` 1-5 is written only if the photo has no stars, or still has the stars bioscan
   wrote last time (kept in the `bioscan stars` field). Stars you set by hand are not overwritten (unless you happen to set exactly the value bioscan wrote).
   `stars = 0` (no animal) leaves the rating alone.
+  A rating you cleared to 0 by hand counts as unrated, so the next `lr open` stars that photo again.
 - **Keywords.** Each `keywords` entry is a path, root first; missing levels are created, the photo gets
   the last one. Keywords are only added, never removed.
 - **Collections.** The photo is added to the collection named `group` inside the `bioscan` set.
