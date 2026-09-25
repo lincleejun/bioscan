@@ -17,6 +17,12 @@ SWITCHES = {
     "kind_check": True,      # species evidence may move a box between KIND_CHECK kinds
     "mammal_geo": True,      # the mammal list's location prior (MDD rows, genus back-off)
 }
+# Trials: fixes off by default until an eval on real photos says they help. Not in the settings
+# fingerprint while off by default (no default output changes); a trial that becomes a default
+# moves to SWITCHES.
+TRIALS = {
+    "kind_size_correct": False,   # kind check: each list's evidence above its chance level (rules.chance_top)
+}
 
 
 
@@ -24,7 +30,7 @@ def check(o: dict[str, Any]) -> None:
     top_k = o["top_k"]
     if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 50:
         raise ValueError("options.identify.top_k must be an integer 1-50")
-    for key in ("geo", "species", *SWITCHES):
+    for key in ("geo", "species", *SWITCHES, *TRIALS):
         if not isinstance(o[key], bool):
             raise ValueError(f"options.identify.{key} must be a boolean")
     c = o["candidates"]
@@ -53,6 +59,7 @@ MANIFEST = Manifest(
              "species": {"type": "boolean", "default": True},
              # accuracy fixes, on by default; false switches one off to measure it (docs/how-it-works.md)
              **{k: {"type": "boolean", "default": v} for k, v in SWITCHES.items()},
+             **{k: {"type": "boolean", "default": v} for k, v in TRIALS.items()},
              "candidates": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_CANDIDATES,
                             "default": [],
                             "description": "Optional. Rank species only among these taxa: scientific names "

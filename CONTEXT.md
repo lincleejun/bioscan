@@ -82,6 +82,16 @@ run, never inside the service stream: `burst` and `select` (`bioscan/cull.py`; m
 `plugins.REDUCERS`). Its output goes under `products[<reducer>]` of the CLI's copy of each result.
 _Avoid_: stage (a stage sees one chunk)
 
+**Run summary**:
+`summary.json` (`bioscan summarize`): one run's categories (gate classes), taxa and review queue, reduced from a
+saved preds file by the CLI, never by the service. `bioscan report` renders it and reads nothing else.
+_Avoid_: report (that is the page), digest
+
+**Review reason**:
+Why a box or frame is in a run summary's review queue, one of `unconfirmed`, `coarse_level`, `out_of_range`,
+`no_list`, `gate_no_box`, `single_sighting` (docs/usage.md). Rules only, never a model.
+_Avoid_: flag, warning, low confidence
+
 **Product**:
 A named result a run can ask for per image (`identify`, `embed`, `jpg`, `geotag`, `aesthetics`, `quality`, `scene`): the output of the stage of that name
 (`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.
@@ -115,8 +125,8 @@ _Avoid_: grade, confidence
 
 **Range veto**:
 Where the place is known and the list has a location prior, a top candidate whose own p_geo is below
-ε (`rules.RANGE_EPS`) cannot get level species; an in-range congener (p_geo ≥ τ, `rules.RANGE_TAU`)
-among the candidates is listed first. Identify option `range_veto`.
+ε (`rules.RANGE_EPS`) cannot get level species; the best in-range congener (p_geo ≥ τ, `rules.RANGE_TAU`)
+anywhere in the list is listed first, taking the last top-k slot if it was not returned. Identify option `range_veto`.
 _Avoid_: geo filter, out-of-range filter
 
 **Kind check**:
@@ -125,7 +135,15 @@ and, for other_animal boxes only, the all-taxa list when loaded; each list its o
 `rules.KIND_TOP` names hold most of the visual evidence (list size does not count), whatever the gate
 and crop check said;
 a box that moved on a thin margin (`rules.KIND_SURE`) gets level unconfirmed. Identify option `kind_check`.
+Size-corrected (trial `kind_size_correct`): each list's best logits minus their chance level for its size
+(`rules.chance_top`) before the lists are compared.
 _Avoid_: second crop check, reclassify
+
+**Trial**:
+An identify option for an accuracy fix that is off by default until an eval on real photos says it helps
+(`identify.TRIALS`, today `kind_size_correct`); not in the settings fingerprint while off by default. One that
+becomes a default moves to the switches (`identify.SWITCHES`).
+_Avoid_: experiment, flag
 
 **Candidate**:
 One ranked name for a box: scientific, common, taxonomy, p_visual, p_geo, posterior.
@@ -234,13 +252,14 @@ Every timed point of one or more GPX files and their segments, merged in time or
 _Avoid_: route (a GPX `rte` has no times), log
 
 **Outing**:
-One photographer's photos of one trip with one camera and the track(s) recorded alongside: the unit `bioscan geotag`
-works on (one clock offset, one `--tz`), and a group in the synthetic scenarios (same observer and day).
+One photographer's photos of one trip and the track(s) recorded alongside: the unit `bioscan geotag` works on (one
+`--tz`, one clock offset per camera), and a group in the synthetic scenarios (same observer and day).
 _Avoid_: session, hike
 
 **Clock offset**:
 Camera time minus true time, in seconds (a camera 37 s fast has +37). Given (`--offset`), read from a clock photo, or
-estimated from reference photos; the corrected capture time is camera UTC minus it.
+estimated from reference photos; the corrected capture time is camera UTC minus it. It is per camera (EXIF Make +
+Model): with mixed cameras each one with its own clock or reference photos gets its own; the rest use the folder's.
 _Avoid_: time shift, drift (drift is only the slow part)
 
 **Reference photo**:
@@ -325,7 +344,8 @@ _Avoid_: class (the gate has classes), tag
 What the `select` reducer decides per photo: `pick` (the best of its burst and in the top `per_category` of its
 scene category), `spare` (a keeper past that), `duplicate` (not the best of its burst, or near-identical to a
 pick) or `reject`; with the category, rank and reasons it forms the photo's cull record (`cull.records`).
-_Avoid_: rating, stars (those are the owner's, in XMP)
+`cull --xmp` writes it into new XMP sidecars as stars (pick 3, spare 2) and a Red label (reject).
+_Avoid_: rating, stars (those are the owner's, in XMP; the `--xmp` stars only encode the selection)
 
 **Aesthetic score**:
 `products.aesthetics.score`: the `aesthetics` stage's per-frame score (the general head, blended with a personal head

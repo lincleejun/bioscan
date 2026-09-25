@@ -43,11 +43,13 @@ class Geotag(StageBase):
     def run(self, engine: Any, items: list[Item], o: dict[str, Any]) -> list[Any]:
         if not o["gpx"]:
             return [None] * len(items)
-        photos = [gt.Photo(it.inp["path"], it.taken_at, it.lat, it.lon) for it in items]
+        photos = [gt.Photo(it.inp["path"], it.taken_at, it.lat, it.lon, camera=getattr(it.dec, "camera", None))
+                  for it in items]
         res = gt.geotag(photos, track(o["gpx"]), gt.resolve_tz(o["camera_utc_offset"] or None),
                         gt.parse_offset(o["offset"]) if o["offset"] else 0.0, estimate=False,
                         max_gap_s=o["max_gap_s"], max_span_m=o["max_span_m"], extrapolate_s=o["extrapolate_s"],
-                        max_still_s=o["max_still_s"])
+                        max_still_s=o["max_still_s"],
+                        given={c: gt.parse_offset(v) for c, v in o["camera_offsets"].items()})
         out: list[Any] = []
         for it, f in zip(items, res.fixes):
             if f.source == "exif":

@@ -11,6 +11,7 @@ from pathlib import Path
 from bioscan import contract, formats, profile, serve_config
 from bioscan.cli import aesbench, bench, client, geotag_cli, gt, lr
 from bioscan.cli import cull as cull_cli
+from bioscan.cli import report as report_cli
 from bioscan.cli.config import PROFILE_HELP, eval_request, expand, load_config, request_options
 from bioscan.cli.config import add_parser as add_config_parser
 from bioscan.cli.render import Renderer
@@ -362,6 +363,7 @@ def parser() -> argparse.ArgumentParser:
     geotag_cli.add_parser(sub)
     aesbench.add_parser(sub)
     cull_cli.add_parser(sub)
+    report_cli.add_parser(sub)
     lr.add_parser(sub)
 
     n = sub.add_parser("names", help="species name lists").add_subparsers(dest="names_cmd", required=True)

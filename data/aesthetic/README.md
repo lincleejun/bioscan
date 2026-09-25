@@ -58,6 +58,23 @@ Chosen by `scripts/eva_golden.py select` from `votes_filtered.csv` at the pinned
 The list is frozen: `select` refuses to overwrite it, and a new list is a new version (and a new head). Only ids
 and CC0 scores are committed; `eva_golden.py build --eva DIR --out DIR` links the photos from a local EVA checkout.
 
+**aes-golden-v1 = EVA-100, baseline = eva-head-v1** (owner decision 2026-09-25). These 100 images are the aesthetic
+golden set, frozen as version v1; the general head's report on them is `baselines/aes-golden-v1-eva-head-v1.json`
+(Spearman 0.877 [0.818, 0.917], precision@k 82.5 % against 40 % for random order, no keeper lost when the lowest
+20 % are dropped). `data/standards.toml` tier `aesthetic-golden` and `baselines/budget-aesthetic.toml` are set from
+it. To re-score the head or any other scorer (no service needed for the last three steps):
+
+```sh
+uv run python scripts/eva_golden.py build --eva ~/.cache/bioscan/eva --out ~/aes-golden-eva
+bioscan run ~/aes-golden-eva -r --profile album --json --out runs/aes/eva-head-v1.ndjson   # service running
+bioscan bench aesthetic score ~/aes-golden-eva runs/aes/eva-head-v1.ndjson --out runs/aes/eva-head-v1
+bioscan bench scorecard runs/aes/eva-head-v1/report.json
+bioscan bench aesthetic compare baselines/aes-golden-v1-eva-head-v1.json runs/aes/eva-head-v1/report.json
+```
+
+EVA's stars are a crowd's taste on contest photos with little wildlife. They stand in for "is this a working,
+non-generic aesthetic scorer"; they do not stand in for the owner's stars (tier `aesthetic-own`, docs/standards.md §13).
+
 ## How to produce it
 
 The vectors go through the service's own code: `bioscan.service.decode` (the 2048 px image) and

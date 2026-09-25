@@ -7,7 +7,9 @@ location prior. Off unless `gpx` names a track: a run without one is unchanged. 
 profile, never in full. The options are `bioscan geotag`'s: gpx (--gpx), camera_utc_offset (--tz:
 the zone of capture times without an offset; empty = the service's zone), offset (--offset: the
 camera clock minus true time; empty = 0, the stage sees one chunk so it does not estimate one;
-`bioscan run --gpx` estimates it over the whole folder and sends it), max_gap_s, max_span_m,
+`bioscan run --gpx` estimates it over the whole folder and sends it), camera_offsets (a camera's
+own offset by its EXIF Make + Model, which `bioscan run --gpx` sends for a folder of mixed cameras;
+a camera not named uses offset), max_gap_s, max_span_m,
 max_still_s, extrapolate_s (--max-gap, --max-span, --max-still, --extrapolate)."""
 from __future__ import annotations
 
@@ -37,6 +39,14 @@ def check(o: dict[str, Any]) -> None:
                 parse(o[key])
             except ValueError as e:
                 raise ValueError(f"options.geotag.{key}: {e}") from None
+    c = o["camera_offsets"]
+    if not isinstance(c, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in c.items()):
+        raise ValueError("options.geotag.camera_offsets must map camera to an offset string")
+    for cam, v in c.items():
+        try:
+            gt.parse_offset(v)
+        except ValueError as e:
+            raise ValueError(f"options.geotag.camera_offsets[{cam!r}]: {e}") from None
 
 
 MANIFEST = Manifest(
@@ -55,6 +65,9 @@ MANIFEST = Manifest(
                                                   "America/Los_Angeles; empty = the service's zone"},
              "offset": {"type": "string", "default": "",
                         "description": "camera clock minus true time: +00:01:23 or seconds; empty = 0"},
+             "camera_offsets": {"type": "object", "additionalProperties": {"type": "string"}, "default": {},
+                                "description": "a camera's own offset by EXIF Make + Model ('SONY ILCE-7RM5': "
+                                               "'+37'); a camera not named uses offset"},
              "max_gap_s": {"type": "number", "minimum": 0, "default": gt.MAX_GAP_S},
              "max_span_m": {"type": "number", "minimum": 0, "default": gt.MAX_SPAN_M},
              "max_still_s": {"type": "number", "minimum": 0, "default": gt.MAX_STILL_S},

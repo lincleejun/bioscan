@@ -24,6 +24,8 @@ def test_cli_modules_do_not_import_heavy_deps(tmp_path):
             "import tempfile as _t, os as _o; _d = _t.mkdtemp(); cc = bioscan.cli.cull; "
             "cc.write_html(recs, r, [], _o.path.join(_d, 'p.html')); cc.write_csv(recs, [], _o.path.join(_d, 'c.csv')); "
             "cc.write_links(recs, _o.path.join(_d, 'l')); "
+            # `bioscan summarize` and `bioscan report`
+            "import bioscan.cli.report as rp; rp.render(rp.summarize(r), _o.path.join(_d, 'report.html')); "
             "bioscan.profile.resolve(bioscan.profile.builtin(), 'album'); "
             # what `bioscan run --profile` and `bioscan config show` do before any request is sent
             "import tempfile, pathlib; d = tempfile.mkdtemp(); pathlib.Path(d, 'a.jpg').touch(); "

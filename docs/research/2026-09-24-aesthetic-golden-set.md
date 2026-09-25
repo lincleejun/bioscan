@@ -192,7 +192,7 @@ Spearman and NDCG are context. A model that wins on Spearman but loses keepers d
 3. **Table**: `bench aesthetic table runs/aes/*/report.json` puts all candidates side by side.
 4. **Compare** the candidate with the current baseline: paired McNemar on pairs and on groups, and a
    bootstrap interval for the Spearman change resampled by shot group. `baselines/budget-aesthetic.toml`
-   (provisional) holds the regression limits. Exit 1 = over budget, which needs the owner's acceptance
+   holds the regression limits (sized from the EVA-100 baseline, 2026-09-25). Exit 1 = over budget, which needs the owner's acceptance
    (CLAUDE.md).
 5. **Ship rule.** A candidate replaces the baseline when it is significantly better on group top-1 or
    pairwise accuracy (McNemar p < 0.05), is not worse on keepers lost @20 % by more than the budget, keeps

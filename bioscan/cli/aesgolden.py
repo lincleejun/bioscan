@@ -37,7 +37,8 @@ from typing import Any
 from bioscan import aesthetic as aes
 from bioscan.cli import aesbench, bench
 
-SCHEMA, VERSION = "bioscan-aesthetic-golden", 1
+SCHEMA, VERSION = bench.AESTHETIC_GOLDEN_SCHEMA, 1
+TIER, PROFILE = "aesthetic-golden", "album"     # data/standards.toml tier `bench scorecard` holds a report to
 IMAGES_CSV, PAIRS_CSV = "images.csv", "pairs.csv"
 IMAGE_FIELDS = ("path", "split", "trip", "group", "best", "category", "stars", "stars2", "keep", "reasons",
                 "slices", "variant_of", "variant")
@@ -479,7 +480,7 @@ def evaluate(g: dict[str, Any], sc: dict[str, Any], *, split: str | None = "test
                if len(retest) > 2 else None}
     reasons = reason_metrics(base, entries)
     sha, dirty = bench._git()
-    meta = {"golden": g["root"], "golden_sha256": g["sha256"], "split": split, "k": k,
+    meta = {"tier": TIER, "profile": PROFILE, "golden": g["root"], "golden_sha256": g["sha256"], "split": split, "k": k,
             "model": model or sc["model"], "scores": os.path.abspath(scores_path) if scores_path else None,
             "scores_sha256": bench.sha256_of(scores_path) if scores_path else None, "git_sha": sha,
             "git_dirty": dirty, "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

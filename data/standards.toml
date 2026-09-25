@@ -1147,3 +1147,70 @@ stretch = 0.50
 unit = "fraction"
 how = "bioscan aesthetic eval <ratings> --out runs/<tag>-aesthetic (picks: explicit, else stars >= 4); the report shows the random-order share next to it; bioscan bench scorecard runs/<tag>-aesthetic/report.json"
 source = "no published figure; Lightroom's Assisted Culling and Aftershoot publish no pick precision"
+
+# ---------------------------------------------------------------- aesthetics (public golden set, EVA-100)
+# Tier `aesthetic-golden`, profile `album`: `bioscan bench aesthetic score` holds any scorer to the frozen
+# aes-golden-v1 set (the 100 held-out EVA images, data/aesthetic/eva-golden-v1.csv); `bioscan bench scorecard
+# REPORT` reads it. Agreement with EVA's crowd stars, not with the owner: it catches a broken or generic scorer, it
+# does not show the owner's taste. Bars are the first real run (eva-head-v1, baselines/aes-golden-v1-eva-head-v1.json)
+# minus a margin, judged on the 95% bound. EVA-100 has no shot groups, so group_top1 is n/a there.
+
+[[standard]]
+id = "aesthetics.aesthetic_golden.all.spearman"
+dimension = "aesthetics"
+title = "Aesthetic score vs EVA crowd stars on EVA-100: Spearman rank correlation"
+tier = "aesthetic-golden"
+profile = "album"
+scope = "all"
+metric = "spearman"
+op = ">="
+community = 0.70
+stretch = 0.80
+unit = "correlation"
+how = "bioscan bench aesthetic score ~/aes-golden-eva <scores> --out runs/aes/<model>; bioscan bench scorecard runs/aes/<model>/report.json; judged on the lower 95% bound (n 100)"
+source = "no published figure on these 100 images; the arena (docs/research/2026-09-24-aesthetic-arena.md) puts the best off-the-shelf scorer at 0.759 [0.670, 0.827], eva-head-v1 at 0.877 [0.818, 0.917]"
+
+[[standard]]
+id = "aesthetics.aesthetic_golden.all.precision_at_k"
+dimension = "aesthetics"
+title = "EVA-100: of the top-40 frames by score, share the crowd gave 4-5 stars (random order 40%)"
+tier = "aesthetic-golden"
+profile = "album"
+scope = "all"
+metric = "precision_at_k"
+op = ">="
+community = 0.55
+stretch = 0.65
+unit = "fraction"
+how = "bioscan bench aesthetic score ~/aes-golden-eva <scores> --out runs/aes/<model>; bioscan bench scorecard runs/aes/<model>/report.json; judged on the lower Wilson bound (40 keepers)"
+source = "no published figure; random order scores precision_at_k_random = 0.40 on this frozen set, eva-head-v1 0.825 [0.681, 0.913]"
+
+[[standard]]
+id = "aesthetics.aesthetic_golden.all.keepers_lost_at_20"
+dimension = "aesthetics"
+title = "EVA-100: dropping the lowest-scored 20% loses this share of the 4-5 star frames (random order 20%)"
+tier = "aesthetic-golden"
+profile = "album"
+scope = "all"
+metric = "keepers_lost_at_20"
+op = "<="
+community = 0.15
+stretch = 0.10
+unit = "fraction"
+how = "bioscan bench aesthetic score ~/aes-golden-eva <scores> --out runs/aes/<model>; bioscan bench scorecard runs/aes/<model>/report.json; judged on the upper Wilson bound (40 keepers)"
+source = "no published figure; eva-head-v1 loses 0 of 40 [0, 0.088]; the community bar allows one keeper lost (upper bound 0.129), not two (0.165)"
+
+[[standard]]
+id = "aesthetics.aesthetic_golden.all.group_top1"
+dimension = "aesthetics"
+title = "Shot groups whose highest-scored frame is the labelled winner (n/a on EVA-100: no groups)"
+tier = "aesthetic-golden"
+profile = "album"
+scope = "all"
+metric = "group_top1"
+op = ">="
+community = 0.50
+stretch = 0.70
+unit = "fraction"
+how = "bioscan bench aesthetic score <golden with groups> <scores> --out runs/aes/<model>; bioscan bench scorecard runs/aes/<model>/report.json; judged on the lower Wilson bound over groups, so a handful of groups cannot pass; the report prints group_top1_random (mean 1/group size)"
+source = "no published figure; a bar of 0.50 is well above random (mean 1/group size) for groups of 3 or more; set from the first scored set with at least 50 groups"

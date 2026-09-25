@@ -3,8 +3,9 @@
 category, an HTML review page and the reduced results as NDJSON. `--preds FILE` reduces a saved
 NDJSON (`bioscan run --json`, a previous `cull --json`) offline, without the service.
 
-Nothing is ever deleted or moved, and no sidecar is written: rejects are only listed with their
-reasons. Standard library only, like the rest of the CLI."""
+Nothing is ever deleted or moved: rejects are only listed with their reasons. `--xmp` writes new XMP
+sidecars (stars, a colour label) only where a photo has none. Standard library only, like the rest of
+the CLI."""
 from __future__ import annotations
 
 import csv
@@ -17,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from bioscan import contract, cull, formats, profile
+from bioscan import contract, cull, formats, profile, xmp
 from bioscan.cli import client
 from bioscan.cli.config import expand, load_config, request_options
 
@@ -144,6 +145,41 @@ def write_links(records: list[dict[str, Any]], out: str) -> int:
     return made
 
 
+# `--xmp`: the selection as stars and colour labels a photo editor filters on. Every pick is already its
+# burst's best, so a burst win earns no extra star. Rejects get no stars (unrated). The bioscan
+# namespace marks the sidecar, so `bioscan aesthetic` never reads these stars as the owner's.
+XMP_STARS = {"pick": 3, "spare": 2}
+XMP_REJECT_LABEL = "Red"
+XMP_NS = xmp.CULL_NS
+
+
+def xmp_packet(r: dict[str, Any]) -> str | None:
+    """The sidecar for one cull record: picks 3 stars, spares 2, rejects the Red label and their
+    reasons; None for a duplicate (nothing to write)."""
+    status = r["status"]
+    if status in XMP_STARS:
+        props = [f'xmp:Rating="{XMP_STARS[status]}"']
+    elif status == "reject":
+        props = [f'xmp:Label="{XMP_REJECT_LABEL}"',
+                 f'bioscan:reasons="{html.escape(";".join(r["reasons"]))}"']
+    else:
+        return None
+    return xmp.packet("bioscan cull", ['xmlns:xmp="http://ns.adobe.com/xap/1.0/"', f'xmlns:bioscan="{XMP_NS}"',
+                                       *props, f'bioscan:status="{html.escape(status)}"'])
+
+
+def write_xmp(records: list[dict[str, Any]]) -> Counter:
+    """A new `<stem>.xmp` per pick, spare and reject; a photo that has a sidecar is left alone.
+    Counts by outcome: written, exists, missing (the photo is not on this disk, e.g. an old --preds)."""
+    done: Counter = Counter()
+    for r in records:
+        text = xmp_packet(r)
+        if text is None:
+            continue
+        done[xmp.write_new(r["path"], text) if Path(r["path"]).is_file() else "missing"] += 1
+    return done
+
+
 def write_json(meta: dict[str, Any], events: list[dict[str, Any]], path: str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -188,20 +224,21 @@ figcaption { padding: 5px 7px; font-size: 12px; word-break: break-all; }
 """
 
 
-def _src(ev: dict[str, Any] | None, path: str, base: Path) -> str | None:
-    """The image to show: the service's jpg copy, else the photo itself when a browser can show it."""
-    jpg = (cull.products(ev or {}).get("jpg") or {}).get("path")
+def figure(path: str, jpg: str | None, base: Path, caption: str, cls: str = "") -> str:
+    """One photo tile (also `bioscan report`'s): the service's jpg copy, else the photo itself when a
+    browser can show it, else its format. `caption` is HTML, already escaped."""
     shown = jpg or (path if Path(path).suffix.lower() in BROWSER_IMAGES else None)
-    return None if shown is None else os.path.relpath(shown, base)
+    img = (f'<img loading="lazy" src="{html.escape(os.path.relpath(shown, base))}" alt="">' if shown
+           else f'<div class="noimg">{html.escape(Path(path).suffix.upper().lstrip("."))}</div>')
+    return (f'<figure class="{html.escape(cls)}" title="{html.escape(path)}">{img}<figcaption>'
+            f'{caption}</figcaption></figure>')
 
 
 def _figure(r: dict[str, Any], ev: dict[str, Any] | None, base: Path, note: str = "") -> str:
-    src = _src(ev, r["path"], base)
-    img = (f'<img loading="lazy" src="{html.escape(src)}" alt="">' if src
-           else f'<div class="noimg">{html.escape(Path(r["path"]).suffix.upper().lstrip("."))}</div>')
+    jpg = (cull.products(ev or {}).get("jpg") or {}).get("path")
     tag = f'<span class="tag {r["status"]}">{html.escape(r["status"] or "")}</span>'
-    return (f'<figure class="{html.escape(r["status"] or "")}" title="{html.escape(r["path"])}">{img}<figcaption>'
-            f'{tag} {html.escape(Path(r["path"]).name)}{" · " + html.escape(note) if note else ""}</figcaption></figure>')
+    return figure(r["path"], jpg, base, f'{tag} {html.escape(Path(r["path"]).name)}'
+                  f'{" · " + html.escape(note) if note else ""}', r["status"] or "")
 
 
 def write_html(records: list[dict[str, Any]], events: list[dict[str, Any]], fails: list[dict[str, Any]], path: str,
@@ -282,6 +319,10 @@ def cmd_cull(a) -> int:
         write_csv(records, fails, a.csv)
     if a.link_dir:
         print(f"{write_links(records, a.link_dir)} new links -> {a.link_dir}")
+    if a.xmp:
+        done = write_xmp(records)
+        missing = f", {done['missing']} photos not found" if done["missing"] else ""
+        print(f"xmp: {done[xmp.WRITTEN]} sidecars written, {done[xmp.EXISTS]} left alone (a sidecar exists){missing}")
     if a.html:
         write_html(records, reduced, fails, a.html, f"bioscan cull: {len(records) + len(fails)} photos")
     print(summary(records, fails))
@@ -308,6 +349,9 @@ def add_parser(sub) -> None:
                                                  "writes to OUT's <stem>-files/ folder)")
     s.add_argument("--no-thumbs", action="store_true", help="HTML without JPEG copies (JPEG/PNG inputs show as they are)")
     s.add_argument("--link-dir", metavar="OUT", help="symlink each pick into OUT/<category>/ (never replaces a file)")
+    s.add_argument("--xmp", action="store_true",
+                   help="write <stem>.xmp for each photo without a sidecar: picks 3 stars, spares 2, rejects the "
+                        "Red label with their reasons (an existing sidecar and the photo are never changed)")
     s.add_argument("--preds", metavar="FILE", help="reduce a saved NDJSON (bioscan run --json, cull --json) offline")
     s.add_argument("-r", "--recursive", action="store_true")
     s.add_argument("--ext", default=formats.DEFAULT_EXT)

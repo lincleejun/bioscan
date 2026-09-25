@@ -3,6 +3,8 @@ Pure functions and the thresholds they use; pipeline.py wires them to the models
 from __future__ import annotations
 
 from collections import defaultdict
+from functools import lru_cache
+from statistics import NormalDist
 from typing import Any
 
 import numpy as np
@@ -33,7 +35,8 @@ RANGE_TAU = 0.05
 # every list: that removes most of the size effect between the curated lists (AviList 11k, MDD 7k),
 # but not between them and the ~366k-row all-taxa list, whose best rows sit higher by chance alone
 # (expected top-5 of N random scores: ~3.5 sd at 7-11k, ~4.4 sd at 366k). Hence the all-taxa list
-# only competes for other_animal boxes (taxa.ONE_WAY). With less than KIND_SURE of the evidence on
+# only competes for other_animal boxes (taxa.ONE_WAY). The trial option kind_size_correct subtracts
+# that chance level per list first (kind_evidence_logits); off by default until measured on real photos. With less than KIND_SURE of the evidence on
 # the winning kind, a box whose kind moved is graded unconfirmed (any name above that would assert
 # a kind the evidence cannot).
 KIND_TOP = 5
@@ -115,7 +118,8 @@ def range_veto(cands: list[dict[str, Any]], direct: list[bool] | None = None) ->
     """(candidates, vetoed). `cands` ranked by posterior; `direct[i]` says whether cands[i]'s p_geo
     is evidence about that species itself (None = all are). Vetoed when the top one has a direct
     p_geo (the place is known and its list has a prior) below RANGE_EPS: it may not be graded
-    species, and the first congener with a direct p_geo >= RANGE_TAU, if any, moves to the front.
+    species, and the first congener (same known genus) with a direct p_geo >= RANGE_TAU, if any,
+    moves to the front. pipeline._named adds the list's best such congener when none made the top-k.
     The Raven ranked below a Philippine crow in California comes first again; the level is then
     the genus the two share. A p_geo borrowed from the genus (unlabelled policy "genus") vetoes
     nothing: a Californian jackrabbit is not absent because BirdNET's labelled hares are."""
@@ -123,7 +127,7 @@ def range_veto(cands: list[dict[str, Any]], direct: list[bool] | None = None) ->
     if not cands or cands[0]["p_geo"] is None or not direct[0] or cands[0]["p_geo"] >= RANGE_EPS:
         return cands, False
     genus = cands[0]["taxonomy"][5]
-    mate = next((c for c, d in zip(cands[1:], direct[1:]) if d and c["taxonomy"][5] == genus
+    mate = next((c for c, d in zip(cands[1:], direct[1:]) if d and genus and c["taxonomy"][5] == genus
                  and c["p_geo"] is not None and c["p_geo"] >= RANGE_TAU), None)
     return ([mate, *(c for c in cands if c is not mate)] if mate else cands), True
 
@@ -138,16 +142,35 @@ def kind_evidence(probs: np.ndarray, rows_of: dict[str, slice]) -> dict[str, flo
     return {k: v / total if total > 0 else 1.0 / len(top) for k, v in top.items()}
 
 
-def kind_evidence_logits(logits: dict[str, np.ndarray]) -> dict[str, float]:
+def kind_evidence_logits(logits: dict[str, np.ndarray], size_correct: bool = False) -> dict[str, float]:
     """kind_evidence from each list's own scaled similarities (BioCLIP logits over its rows, or the
     rows candidates leave it): exp of its KIND_TOP highest, summed, normalised over kinds. The joint
     softmax's denominator cancels in that normalisation, so this equals kind_evidence over the
-    stacked lists without ever stacking them (the all-taxa list would make that ~1.9 GB)."""
-    top = {k: _top(np.asarray(z, dtype=np.float64)) for k, z in logits.items()}
+    stacked lists without ever stacking them (the all-taxa list would make that ~1.9 GB).
+
+    size_correct (identify option "kind_size_correct", a trial): the i-th best logit of a list of N
+    rows first loses sigma * E[i-th best of N standard normals], sigma = the spread of that box's
+    logits over the list: what a list of that size and spread scores by chance alone. The evidence
+    is then what each list holds above chance, so a longer list no longer wins by size."""
+    top = {}
+    for k, z in logits.items():
+        z = np.asarray(z, dtype=np.float64)
+        t = _top(z)
+        if size_correct and len(z) > 1:
+            t = t - float(z.std()) * np.asarray(chance_top(len(z))[-len(t):])
+        top[k] = t
     peak = max(float(t.max()) for t in top.values() if len(t))
     mass = {k: float(np.exp(t - peak).sum()) for k, t in top.items()}
     total = sum(mass.values())
     return {k: v / total if total > 0 else 1.0 / len(mass) for k, v in mass.items()}
+
+
+@lru_cache(maxsize=256)
+def chance_top(n: int) -> tuple[float, ...]:
+    """Expected KIND_TOP highest of n standard normals, ascending (Blom's approximation of the
+    normal order statistics: the i-th highest sits at the (n - i + 0.625) / (n + 0.25) quantile)."""
+    inv = NormalDist().inv_cdf
+    return tuple(inv((n - i + 0.625) / (n + 0.25)) for i in range(min(KIND_TOP, n), 0, -1))
 
 
 def _top(z: np.ndarray) -> np.ndarray:

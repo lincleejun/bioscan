@@ -15,7 +15,7 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
 | `aesthetic eval RATINGS --out DIR [--head H] [--personal P] [--blend B] [--k K] [--curve SIZES]` | Agreement of the aesthetic score with the owner's stars and picks, per trip, plus the learning curve; report.json read by `scorecard` (tier `aesthetic-own`) ([below](#aesthetic-agreement-with-the-owner-bioscan-aesthetic-eval)) |
-| `bench aesthetic init\|score\|compare\|table` | Any aesthetic scorer (a scores file) against the frozen aesthetic golden set: shot-group winners, pairwise accuracy, keepers lost when culling, planted checks, slice residuals; paired compare under baselines/budget-aesthetic.toml; `table` is the arena: N scorers ranked with their deviation from the labels ([below](#aesthetic-golden-set-bench-aesthetic)) |
+| `bench aesthetic init\|score\|compare\|table` | Any aesthetic scorer (a scores file) against the frozen aesthetic golden set: shot-group winners, pairwise accuracy, keepers lost when culling, planted checks, slice residuals; paired compare under baselines/budget-aesthetic.toml; report.json read by `scorecard` (tier `aesthetic-golden`); `table` is the arena: N scorers ranked with their deviation from the labels ([below](#aesthetic-golden-set-bench-aesthetic)) |
 | `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
 `--names KIND=CSV` sets the name list used to tell whether a truth is in the list (`not_in_list`) and
@@ -564,8 +564,8 @@ without a finite score counts as the lowest score everywhere.
 **images.csv / pairs.csv.** Columns and the drop-reason vocabulary are in the design doc (§4.1); a file with an
 unknown column, variant or reason is refused. Rows default to split `test`; `--split dev|all` scores the others.
 
-**report.json** (schema `bioscan-aesthetic-golden`, version 1): `meta` (golden path and sha256 of images.csv +
-pairs.csv, split, model, scores path and sha, git, date, tolerances), `metrics` per scope (`all`, `category:<c>`,
+**report.json** (schema `bioscan-aesthetic-golden`, version 1): `meta` (tier `aesthetic-golden` and profile `album`
+for `bench scorecard`, golden path and sha256 of images.csv + pairs.csv, split, model, scores path and sha, git, date, tolerances), `metrics` per scope (`all`, `category:<c>`,
 `slice:<s>`), `dims`, `repeat`, `owner_ceiling`, `reasons`, `missing`, `extra`, and per-item `images`, `pairs`,
 `groups` for paired comparison. Keys of `metrics.all`:
 
@@ -587,6 +587,15 @@ McNemar on the pairs and on the shot groups both reports scored, and a 95 % boot
 that resamples shot groups (`--boot`, default 1000, seed 0). `--budget` (default `baselines/budget-aesthetic.toml`
 when present) takes `[[rule]]` tables as in budget.toml, with any numeric key of `metrics` and `scopes` defaulting to
 `["all"]`. Exit 1 when over budget.
+
+**aes-golden-v1 = EVA-100, baseline = eva-head-v1.** The frozen golden set v1 is the 100 held-out EVA images
+(`data/aesthetic/eva-golden-v1.csv`, built with `scripts/eva_golden.py build`); its first baseline is the general
+head's report, `baselines/aes-golden-v1-eva-head-v1.json`. To re-score: `bioscan run ~/aes-golden-eva -r --profile
+album --json --out runs/aes/<model>.ndjson` (or any scorer's scores file), `bench aesthetic score ~/aes-golden-eva
+runs/aes/<model>.ndjson --out runs/aes/<model>`, then `bench scorecard runs/aes/<model>/report.json` (tier
+`aesthetic-golden`, docs/standards.md §13) and `bench aesthetic compare baselines/aes-golden-v1-eva-head-v1.json
+runs/aes/<model>/report.json` (budget sized at about half of that run's 95 % intervals). A report scored before
+the tier existed has no `meta.tier` or `meta.profile`: score its scores file again (no model needed).
 
 **table** is the arena: N reports of one golden set and split (else exit 2), ranked by Spearman against the grades,
 each with the deviation from the labels in the labels' own units and a paired bootstrap against the leader:
