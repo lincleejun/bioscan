@@ -20,6 +20,8 @@ Coverage = share of images graded to species; precision = Top-1 among those; con
 
 **Aesthetic score**, 100 EVA photos the general head never saw (20 per star, crowd consensus): Spearman 0.877 [0.82, 0.92] against the crowd's stars, drop AUC 0.98, 0% keepers lost when the lowest 20% is dropped. **Album culling** rules are measured on a synthetic reject set only (224 frames made from the CI photos: reject recall 84%, precision 96%; underexposure recall 33%, below its 80% floor); unverified on real albums.
 
+**Scene category** (album profile), 1,861 CC BY photos from Open Images V7 in 8 groups (`data/scene/scene-v1.csv`): group correct 70.6% overall; people 87%, food 88%, macro 86%, wildlife 77%; night, landscape, other and architecture 59–65% (the 8 default labels are too coarse there; a finer taxonomy is in progress, [#34](https://github.com/lincleejun/bioscan/issues/34)).
+
 **GPS from a GPX track**, synthetic tracks from the golden set: median error 7 m, 97% within 100 m, no false fix. Fed to identification, GPX positions give the same answers as true GPS (0 of 1,625 differ) and +5.2 points Top-1 over no coordinates.
 
 ## Quick start

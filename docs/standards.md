@@ -422,8 +422,14 @@ fine labels starts to mean something once the stage reports them.
 
 | Bar | Industry | Community | Stretch | Our status | Why |
 |---|---|---|---|---|---|
-| Scene group correct, all photos | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | unmeasured | what `select` buckets on |
-| Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | unmeasured | one weak group hides in the mean |
+| Scene group correct, all photos | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | 70.6% [68.4, 72.6] (Mac 2026-09-25, `baselines/scene-v1-8labels.json`; 61.1% before `wildlife_box`) | what `select` buckets on |
+| Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | pass: people 87.2%, food 88.0%, macro 86.0%, wildlife 76.7%; fail: night 64.6%, landscape 62.5%, other 59.2%, architecture 58.8% (same run) | one weak group hides in the mean |
+
+The failing groups are where the 8 default labels and their prompts are too coarse (the default `other`
+prompts describe an indoor room, so interiors land there; city lights at night read as architecture;
+reptiles and fish read as macro because gate `other_animal` is not in `wildlife_gate`): the finer
+taxonomy of `docs/research/2026-09-24-scene-taxonomy.md` is the planned fix, measured against this
+baseline (#34).
 
 Caveats: Open Images labels are object tags, not genre judgements (a "Portrait" label is not always a
 portrait photograph), so a first run's failures need a look at the photos before the bar is trusted;
