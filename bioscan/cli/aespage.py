@@ -79,7 +79,13 @@ aside{width:280px;flex:none;overflow:auto;background:var(--panel);border-right:1
 .ov{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px}
 .ov .big{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.1}.ov .sub{color:var(--mute);font-size:12px;margin-top:2px}
 .bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--line);margin:10px 0 6px}.bar i{display:block;height:100%}.bar .k{background:var(--keep)}.bar .x{background:var(--drop)}
-.leg{display:flex;gap:10px;font-size:11px;color:var(--ink2)}.leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:0}
+.leg{display:flex;gap:10px;font-size:11px;color:var(--ink2)}
+.ovacts{display:flex;gap:6px;margin-top:12px}.ovacts .btn{flex:1;justify-content:center;height:32px;padding:0 6px;font-size:12px;white-space:nowrap}.btn:disabled{opacity:.45;cursor:default;border-color:var(--line)}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50}#modal.on{display:flex}
+#modal .box{background:var(--card);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px;max-width:440px;width:92vw}
+#modal h3{margin:0 0 8px;font-size:15px}#modal p{margin:0 0 16px;color:var(--ink2);font-size:13px;line-height:1.5;word-break:break-all}
+#modal .mb{display:flex;justify-content:flex-end;gap:8px}#modal .danger{background:var(--drop);color:#fff;border-color:var(--drop)}
+#toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:45;background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow);display:none;max-width:80vw}#toast.on{display:block}.leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:0}
 .hist{margin-top:10px;display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:center;font-size:11px}
 .hist button{text-align:left;color:var(--star);letter-spacing:.5px;padding:2px 4px;border-radius:4px}.hist button.on{background:var(--acc-bg)}
 .hist .h{color:var(--ink2);font-variant-numeric:tabular-nums}.hist .n{color:var(--mute);font-variant-numeric:tabular-nums}
@@ -152,10 +158,11 @@ ICONS = {
 JS = r"""
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],grid=$('#grid');
 const KEY='bioscan:'+ROOT,saved=(()=>{try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}})();
-const DEC=saved.dec||{},MERGE=saved.merge||{};
+const DEC=saved.dec||{},MERGE=saved.merge||{},GONE=new Set(saved.gone||[]);
+const LIVE=()=>DATA.filter(r=>!GONE.has(r.p));
 const F={sort:'st',dir:'',stars:new Set(),rej:'',scenes:new Set(),sp:'',dec:'',q:'',group:''};
 let merging=null,shown=[],cur=-1,sel=new Set(),anchor=-1;
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({dec:DEC,merge:MERGE}))}catch(e){}};
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({dec:DEC,merge:MERGE,gone:[...GONE]}))}catch(e){}};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const BY={};for(const r of DATA)if(r.sp&&!BY[r.sp])BY[r.sp]={cn:r.cn,lv:r.lv,tx:r.tx};
 function eff(r){let sp=r.sp,n=0;while(sp&&MERGE[sp]&&n++<20)sp=MERGE[sp];if(sp===r.sp)return r;const b=BY[sp]||{};return{...r,sp,cn:b.cn||null,lv:b.lv||r.lv,tx:b.tx||[sp]}}
@@ -174,7 +181,7 @@ function pass(r){const q=F.q;
     &&(F.rej===''||(F.rej==='clean'&&!r.rr.length)||(F.rej==='any'&&r.rr.length)||r.rr.includes(F.rej))
     &&(F.dec===''||(F.dec==='u'?!DEC[r.p]:DEC[r.p]===F.dec))&&(!F.group||keyOf(r)===F.group||keyOf(r).startsWith(F.group+'/'))}
 function render(){
-  shown=DATA.map(eff).filter(pass).sort(SORTS[F.sort][1]);sel.clear();anchor=-1;
+  shown=LIVE().map(eff).filter(pass).sort(SORTS[F.sort][1]);sel.clear();anchor=-1;
   grid.innerHTML=shown.length?shown.map((r,i)=>`<figure class="card ${DEC[r.p]||''}" data-i="${i}" data-p="${esc(r.p)}"><div class="im">${r.t?`<img loading="lazy" src="${esc(r.t)}" alt="">`:'<span class="no">no thumbnail</span>'}
 <div class="ov1"><span class="badge">${r.s==null?'–':r.s.toFixed(3)}</span>${r.st?`<span class="badge st">${'★'.repeat(r.st)}</span>`:''}</div><span class="mk">${DEC[r.p]==='k'?'✓':'✕'}</span>
 <span class="zoom" title="open">${ICON_ZOOM}</span><div class="hov"><button class="k">keep</button><button class="x">drop</button></div></div>
@@ -186,14 +193,16 @@ function ghead(){const k=shown.filter(r=>DEC[r.p]==='k').length,x=shown.filter(r
   const parts=[];if(F.sp&&!F.group)parts.push(F.sp==='named'?'named':F.sp==='unnamed'?'unnamed':label(BY[F.sp]||{sp:F.sp}));if(F.stars.size)parts.push([...F.stars].sort().reverse().map(s=>s+'★').join(' '));if(F.dec)parts.push({k:'keep',x:'drop',u:'unmarked'}[F.dec]);
   $('#gtitle').textContent=title+(parts.length&&title==='All photos'?'':'' )+(parts.length?' · '+parts.join(' · '):'');
   $('#gmeta').innerHTML=`<b>${shown.length}</b> photos · <b class="kc">${k}</b> keep · <b class="xc">${x}</b> drop · ${shown.length-k-x} unmarked`}
-function overview(){const k=DATA.filter(r=>DEC[r.p]==='k').length,x=DATA.filter(r=>DEC[r.p]==='x').length,n=DATA.length;
+function overview(){const live=LIVE(),k=live.filter(r=>DEC[r.p]==='k').length,x=live.filter(r=>DEC[r.p]==='x').length,n=live.length;
+  $('#ovn').textContent=n+' photos';$('#exp').textContent=`Export ${k} keep${k===1?'':'s'}…`;$('#del').textContent=`Delete ${x} drop${x===1?'':'s'}…`;
+  $('#exp').disabled=!FSA||!k;$('#del').disabled=!FSA||!x;
   $('#ovbar').innerHTML=`<i class="k" style="width:${100*k/n}%"></i><i class="x" style="width:${100*x/n}%"></i>`;
   $('#ovleg').innerHTML=`<span><i style="background:var(--keep)"></i>${k} keep</span><span><i style="background:var(--drop)"></i>${x} drop</span><span><i style="background:var(--line2)"></i>${n-k-x} unmarked</span>`;
-  const h={};for(const r of DATA)if(r.st)h[r.st]=(h[r.st]||0)+1;
+  const h={};for(const r of live)if(r.st)h[r.st]=(h[r.st]||0)+1;
   $('#hist').innerHTML=[5,4,3,2,1].map(s=>`<button class="${F.stars.has(s)?'on':''}" data-s="${s}" title="filter to ${s} stars">${'★'.repeat(s)}</button><span class="h">${CUTS[5-s]!=null?'≥ '+CUTS[5-s].toFixed(3):'the rest'}</span><span class="n">${h[s]||0}</span>`).join('')}
 /* ---- tree ---- */
 function tree(){const root={n:0,kids:{}};
-  for(const r0 of DATA){const r=eff(r0);let node=root;node.n++;for(const k of (r.sp?r.tx:['(unnamed)'])){node=node.kids[k]||(node.kids[k]={n:0,kids:{}});node.n++}if(r.sp){node.leaf=r.sp;node.cn=r.cn}}
+  for(const r0 of LIVE()){const r=eff(r0);let node=root;node.n++;for(const k of (r.sp?r.tx:['(unnamed)'])){node=node.kids[k]||(node.kids[k]={n:0,kids:{}});node.n++}if(r.sp){node.leaf=r.sp;node.cn=r.cn}}
   const row=(k,c,key)=>`<div class="row${F.group===key?' on':''}" data-k="${esc(key)}"${c.leaf?` data-sp="${esc(c.leaf)}"`:''}><span class="tg">${Object.keys(c.kids).length?'▶':''}</span><span class="nm">${esc(c.cn||k)}${c.cn?`<small>${esc(k)}</small>`:''}</span>${c.leaf?`<span class="mg${merging===c.leaf?' on':''}" data-sp="${esc(c.leaf)}" title="merge this name into another">⇢</span>`:''}<span class="n">${c.n}</span></div>`;
   const html=(node,pre,depth)=>Object.keys(node.kids).sort((a,b)=>node.kids[b].n-node.kids[a].n).map(k=>{const c=node.kids[k],key=pre?pre+'/'+k:k;
     return Object.keys(c.kids).length?`<details${depth<2||(F.group&&F.group.startsWith(key))?' open':''}><summary>${row(k,c,key)}</summary><div class="kids">${html(c,key,depth+1)}</div></details>`:`<div class="leaf">${row(k,c,key)}</div>`}).join('');
@@ -249,7 +258,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('.pop'))closePops()})
 function sortmenu(){$('#pop-sort').innerHTML=Object.entries(SORTS).map(([k,[l]])=>`<button class="item${F.sort===k?' on':''}" data-k="${k}">${l}</button>`).join('')}
 $('#pop-sort').onclick=e=>{const b=e.target.closest('.item');if(!b)return;F.sort=b.dataset.k;sortmenu();render();closePops()};
 function filtermenu(){const seg=(name,opts,cur,multi)=>`<h4>${name}</h4><div class="seg" data-f="${name}">${opts.map(([v,l,cls])=>`<button class="${cls||''}${(multi?cur.has(v):cur===v)?' on':''}" data-v="${esc(v)}">${l}</button>`).join('')}</div>`;
-  const spOpts=Object.values(Object.fromEntries(DATA.map(eff).filter(r=>r.sp).map(r=>[r.sp,{sp:r.sp,cn:r.cn,lv:r.lv}]))).sort((a,b)=>label(a).localeCompare(label(b)));
+  const spOpts=Object.values(Object.fromEntries(LIVE().map(eff).filter(r=>r.sp).map(r=>[r.sp,{sp:r.sp,cn:r.cn,lv:r.lv}]))).sort((a,b)=>label(a).localeCompare(label(b)));
   $('#pop-filter').innerHTML=seg('stars',[[5,'★★★★★','st'],[4,'★★★★','st'],[3,'★★★','st'],[2,'★★','st'],[1,'★','st']],F.stars,true)
     +seg('marks',[['','all'],['k','keep'],['x','drop'],['u','unmarked']],F.dec)
     +seg('rejects',[['','all'],['clean','none'],['any','any'],...REASONS.map(r=>[r,r.replace(/_/g,' ')])],F.rej)
@@ -278,6 +287,38 @@ $('#export').onclick=()=>{const out={schema:1,root:ROOT,created:new Date().toISO
 $('#import').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{const d=JSON.parse(t);for(const p of d.keep||[])DEC[p]='k';for(const p of d.drop||[])DEC[p]='x';Object.assign(MERGE,d.merge||{});save();refresh()}).catch(()=>{});e.target.value='';closePops()};
 $('#clearmarks').onclick=()=>{if(!Object.keys(DEC).length)return;for(const k in DEC)delete DEC[k];save();refresh();closePops()};
 function refresh(){render();tree();filtermenu()}
+/* ---- export keeps / delete drops on disk (File System Access API: Chrome, Edge) ---- */
+const FSA=typeof window.showDirectoryPicker==='function';let srcDir=null,toastT=0;
+function toast(msg,ms){const t=$('#toast');clearTimeout(toastT);t.textContent=msg;t.classList.toggle('on',!!msg);if(msg&&ms)toastT=setTimeout(()=>t.classList.remove('on'),ms)}
+function confirmBox(title,text,yes){return new Promise(res=>{$('#mt').textContent=title;$('#mp').textContent=text;$('#myes').textContent=yes;$('#modal').classList.add('on');
+  const done=v=>{$('#modal').classList.remove('on');$('#myes').onclick=$('#mno').onclick=null;res(v)};$('#myes').onclick=()=>done(true);$('#mno').onclick=()=>done(false)})}
+const relOf=r=>r.p.startsWith(ROOT+'/')?r.p.slice(ROOT.length+1):r.p.split('/').pop();
+const sidecars=name=>[name.replace(/\.[^.]+$/,'')+'.xmp',name+'.xmp'];
+async function walk(dir,rel){const parts=rel.split('/');let d=dir;for(const p of parts.slice(0,-1))d=await d.getDirectoryHandle(p);return[d,parts[parts.length-1]]}
+async function source(mode){
+  if(srcDir&&((await srcDir.queryPermission({mode}))==='granted'||(await srcDir.requestPermission({mode}))==='granted'))return srcDir;
+  toast('Choose the photo folder: '+ROOT);const dir=await showDirectoryPicker({mode,id:'bioscan-photos'});
+  const probe=LIVE()[0];if(probe){try{const[d,n]=await walk(dir,relOf(probe));await d.getFileHandle(n)}catch(e){throw new Error(`That folder has no ${relOf(probe)}; choose ${ROOT}`)}}
+  return srcDir=dir}
+async function exportKeeps(){const keeps=LIVE().filter(r=>DEC[r.p]==='k');if(!keeps.length)return;
+  try{const src=await source('read');toast('Choose the folder to copy the keeps into');const dst=await showDirectoryPicker({mode:'readwrite',id:'bioscan-export'});
+    let n=0,skip=0,side=0;
+    for(const r of keeps){const[d,name]=await walk(src,relOf(r));
+      for(const nm of[name,...sidecars(name)]){let fh;try{fh=await d.getFileHandle(nm)}catch(e){continue}
+        let there=true;try{await dst.getFileHandle(nm)}catch(e){there=false}if(there){if(nm===name)skip++;continue}
+        const out=await dst.getFileHandle(nm,{create:true});await(await fh.getFile()).stream().pipeTo(await out.createWritable());nm===name?n++:side++}
+      toast(`copying… ${n+skip} / ${keeps.length}`)}
+    toast(`copied ${n} photo${n===1?'':'s'}${side?` and ${side} XMP sidecar${side===1?'':'s'}`:''} to “${dst.name}”${skip?`; ${skip} already there, left as is`:''}`,8000)}
+  catch(e){toast(e.name==='AbortError'?'':e.message,8000)}}
+async function deleteDrops(){const drops=LIVE().filter(r=>DEC[r.p]==='x');if(!drops.length)return;
+  if(!await confirmBox(`Delete ${drops.length} dropped photo${drops.length===1?'':'s'} from disk?`,`The original files and their XMP sidecars are removed under ${ROOT}. This cannot be undone from here.`,'Delete'))return;
+  try{const src=await source('readwrite');let n=0,miss=0;
+    for(const r of drops){const[d,name]=await walk(src,relOf(r));try{await d.removeEntry(name);n++}catch(e){miss++}
+      for(const nm of sidecars(name)){try{await d.removeEntry(nm)}catch(e){}}GONE.add(r.p);delete DEC[r.p];toast(`deleting… ${n+miss} / ${drops.length}`)}
+    save();refresh();toast(`deleted ${n} photo${n===1?'':'s'}${miss?`; ${miss} already gone`:''}`,8000)}
+  catch(e){save();refresh();toast(e.name==='AbortError'?'':e.message,8000)}}
+$('#exp').onclick=exportKeeps;$('#del').onclick=deleteDrops;
+if(!FSA)$('#exp').title=$('#del').title='needs Chrome or Edge; save the decisions file (⋯) and run bioscan aesthetic apply instead';
 if(!DATA.some(r=>r.sp)){$('#body').classList.add('notree');$('#btn-tree').classList.remove('on')}
 sortmenu();refresh();
 """
@@ -308,16 +349,17 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             f'<button class="tb on" id="btn-tree" title="overview and taxon tree">{i["tree"]}</button>'
             f'<button class="tb" id="btn-more" data-pop="pop-more" title="more">{i["more"]}</button>'
             '<div class="pop" id="pop-sort"></div><div class="pop" id="pop-filter" style="min-width:300px"></div>'
-            '<div class="pop" id="pop-more"><h4>decisions</h4><button class="item" id="export">export bioscan-decisions.json</button>'
-            '<label class="item" style="cursor:pointer">import a decisions file<input type="file" id="import" accept=".json" hidden></label>'
+            '<div class="pop" id="pop-more"><h4>decisions file (for bioscan aesthetic apply)</h4><button class="item" id="export">save bioscan-decisions.json</button>'
+            '<label class="item" style="cursor:pointer">load a decisions file<input type="file" id="import" accept=".json" hidden></label>'
             '<button class="item" id="clearmarks">clear all marks</button><hr><h4>thumbnail size</h4>'
             '<input type="range" id="size" min="140" max="360" step="10" value="200"><hr>'
             '<h4>keys</h4><div style="padding:4px 10px;color:var(--ink2);font-size:12px;line-height:1.9">click selects · <kbd>⇧</kbd> click ranges · <kbd>⌘</kbd> click adds · <kbd>⌘A</kbd> all shown<br>'
             '<kbd>K</kbd> keep · <kbd>X</kbd> drop · <kbd>U</kbd> unmark · <kbd>↵</kbd> / double-click opens<br>'
             'in the lightbox: <kbd>←</kbd> <kbd>→</kbd> move · <kbd>Esc</kbd> closes</div></div></div></header>'
-            '<div class="body" id="body"><aside><div class="ov"><div class="big">' + str(len(rows)) + ' photos</div>'
+            '<div class="body" id="body"><aside><div class="ov"><div class="big" id="ovn">' + str(len(rows)) + ' photos</div>'
             f'<div class="sub">{html.escape(sub)}</div><div class="bar" id="ovbar"></div><div class="leg" id="ovleg"></div>'
-            '<div class="hist" id="hist"></div></div>'
+            '<div class="hist" id="hist"></div><div class="ovacts"><button class="btn k" id="exp">Export keeps…</button>'
+            '<button class="btn x" id="del">Delete drops…</button></div></div>'
             '<div class="tree" id="treebox"><h4>taxa <a class="cl" id="treeclear">show all</a></h4><div id="tree"></div>'
             '<div class="hint" id="hint"></div></div></aside>'
             '<main><div class="ghead"><h2 id="gtitle"></h2><span class="m" id="gmeta"></span>'
@@ -326,6 +368,8 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             '<div class="grid" id="grid" tabindex="0"></div></main></div>'
             '<div class="selbar" id="selbar"><b id="seln"></b><button class="k" id="sel-k">keep</button><button class="x" id="sel-x">drop</button>'
             '<button id="sel-u">unmark</button><button class="c" id="sel-c">✕</button></div>'
+            '<div id="toast"></div><div id="modal"><div class="box"><h3 id="mt"></h3><p id="mp"></p><div class="mb"><button class="btn" id="mno">Cancel</button>'
+            '<button class="btn danger" id="myes"></button></div></div></div>'
             '<div id="lb"><div class="stage" id="lbstage"><img id="lbi" alt=""><div class="nav prev" id="lbprev">‹</div><div class="nav next" id="lbnext">›</div>'
             '<button class="close" id="lbc">×</button></div><div class="bar"><span id="lbn"></span><span class="f" id="lbf"></span>'
             '<span class="sp" id="lbsp"></span><button class="k" id="lbk">keep</button><button class="x" id="lbx">drop</button></div></div>'
