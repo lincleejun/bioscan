@@ -126,7 +126,7 @@ def test_select_rejects_unknown_waive_reasons():
 def test_waive_keys_are_scene_labels_groups_or_attributes():
     scene = {"labels": {"night": ["x"], "wildlife": []}, "groups": {"nature": ["wildlife"]},
              "attributes": {"light": {"night": ["x"], "day": ["y"]}}}
-    cull.check_waive_keys({"night": [], "nature": [], "light=night": []}, scene)
+    cull.check_waive_keys({"night": [], "nature": [], "light=night": [], "uncategorised": []}, scene)
     for bad in ("nigth", "light=dusk", "mood=night"):
         with pytest.raises(ValueError, match=rf"select.waive: unknown category '{bad}'.*light=day"):
             cull.check_waive_keys({bad: []}, scene)

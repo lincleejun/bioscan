@@ -152,10 +152,11 @@ def check_select(o: dict[str, Any]) -> None:
 
 
 def check_waive_keys(waive: dict[str, Any], scene_options: dict[str, Any] | None) -> None:
-    """Each waive key names a scene label, a scene group or attribute=value; unchecked without scene options."""
+    """Each waive key names a scene label, a scene group, attribute=value or `uncategorised`; unchecked without
+    scene options."""
     if scene_options is None:
         return
-    known = [*scene_options["labels"], *scene_options.get("groups", {})]
+    known = [UNCATEGORISED, *scene_options["labels"], *scene_options.get("groups", {})]   # no scene = its own bucket
     known += [f"{a}={v}" for a, values in scene_options.get("attributes", {}).items() for v in values]
     for key in waive:
         if key not in known:
