@@ -138,3 +138,37 @@ def test_album_scene_taxonomy_groups_attributes_and_horizon_by_group(client, eng
     s = result(events(client.post("/run", json={"inputs": [{"path": p}], "want": ["scene"],
                                                 "options": {"scene": same}})))["products"]["scene"]
     assert (s["label"], s["group"], s["horizon"]) == ("mountain", "other", None)
+
+
+def test_a_tilted_landscape_horizon_is_a_flag_not_a_reject(client, engine, tmp_path, monkeypatch):
+    """#26 end to end on the fakes: the scene stage measures a landscape's horizon, select turns a tilt
+    past horizon_flag_deg into a flag, and the photo keeps its selection, keep and stars."""
+    from bioscan import cull, profile
+    from bioscan.cli import aesscore
+    from bioscan.plugins.scene import stage as scene_stage
+
+    d = tmp_path / "album"
+    d.mkdir()
+    paths = [make_jpg(d / f"{i}.jpg") for i in range(2)]
+    scene = {"labels": {"wild": [], "coast": ["same"], "mountain": ["same"], "other": ["same"]},   # landscape: 2 of 3
+             "groups": {"wildlife": ["wild"], "landscape": ["coast", "mountain"], "other": ["other"]},
+             "wildlife_gate": ["none"]}
+    body = {"inputs": [{"path": p, "taken_at": f"2026-05-01T08:0{i}:00"} for i, p in enumerate(paths)],
+            "want": ["identify", "embed", "quality", "scene"],
+            "options": {"identify": {"species": False}, "scene": scene}}
+    reducers = profile.resolve(profile.builtin(), "album").reducer_run()
+
+    def run(tilt):
+        monkeypatch.setattr(scene_stage, "horizon", lambda image: {"tilt_deg": tilt, "strength": 1.0})
+        evs = events(client.post("/run", json=body))
+        return evs, {r["path"]: r for r in cull.records(cull.apply(evs, reducers))}
+
+    level_evs, level = run(1.0)
+    tilted_evs, tilted = run(-4.0)
+    assert {r["category"] for r in tilted.values()} == {"landscape"}
+    assert all(r["flags"] == ["horizon_tilt"] for r in tilted.values()) and all(r["flags"] == [] for r in level.values())
+    drop = lambda recs: {p: {k: v for k, v in r.items() if k != "flags"} for p, r in recs.items()}   # noqa: E731
+    assert drop(tilted) == drop(level)                                         # status, keep, reasons unchanged
+    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(evs)}  # noqa: E731
+    assert stars(tilted_evs) == stars(level_evs)
+    assert [r["flags"] for r in aesscore.rows_of(tilted_evs)] == [["horizon_tilt"]] * 2
