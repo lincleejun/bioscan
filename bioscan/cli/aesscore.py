@@ -262,7 +262,12 @@ function render(){
 <div class="meta"><div class="row1"><span class="score">${r.s==null?'–':r.s.toFixed(3)}</span><span class="stars">${r.st?'★'.repeat(r.st)+'☆'.repeat(5-r.st):''}</span><span class="scene">${esc(r.sc||'')}</span></div>
 ${r.sp?`<div class="sp">${r.cn?esc(r.cn)+' ':''}<i>${esc(r.sp)}</i>${r.lv!=='species'?` <small>(${esc(r.lv)})</small>`:''}</div>`:''}<div class="file">${esc(r.f)}</div>${r.d?`<div class="dir">${esc(r.d)}</div>`:''}<div class="rr">${r.rr.length?r.rr.map(x=>`<span>${esc(x)}</span>`).join(''):'<span class="clean">no reject reason</span>'}</div>${act(r)}</div></div>`).join('');
 }
-function refresh(){render();tree()}
+const label=b=>(b.cn?b.cn+' · '+b.sp:b.sp+(b.lv&&b.lv!=='species'?' ('+b.lv+')':''));
+function fillSp(){const sel=$('#sp'),keep=sel.value,seen={};for(const r0 of DATA){const r=eff(r0);if(r.sp&&!seen[r.sp])seen[r.sp]={sp:r.sp,cn:r.cn,lv:r.lv}}
+  const opts=Object.values(seen).map(b=>({v:b.sp,l:label(b)})).sort((a,b)=>a.l.localeCompare(b.l));
+  sel.innerHTML='<option value="">all</option><option value="named">named</option><option value="unnamed">unnamed</option>'+opts.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('');
+  sel.value=[...sel.options].some(o=>o.value===keep)?keep:''}
+function refresh(){fillSp();render();tree()}
 function mark(p,v){DEC[p]===v?delete DEC[p]:DEC[p]=v;save();
   for(const c of grid.querySelectorAll(`.card[data-p="${CSS.escape(p)}"]`)){c.className='card '+(DEC[p]||'');for(const a of c.querySelectorAll('.act a'))a.classList.toggle('on',DEC[p]===a.dataset.v)}
   const nk=DATA.filter(r=>DEC[r.p]==='k').length,nx=DATA.filter(r=>DEC[r.p]==='x').length;$('#count').textContent=`${shown.length} photos · ${nk} keep · ${nx} drop`;
@@ -315,7 +320,6 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
     dirs = sorted({d["d"] for d in data if d["d"]})
     scenes = sorted({d["sc"] for d in data if d.get("sc")})
     reasons = sorted({x for d in data for x in d["rr"]})
-    species = sorted({d["sp"] for d in data if d.get("sp")})
     c = cuts(rows)
     legend = (f"Stars are quintiles of this run's scores: 5★ ≥ {c[0]:.3f}, 4★ ≥ {c[1]:.3f}, 3★ ≥ {c[2]:.3f}, "
               f"2★ ≥ {c[3]:.3f}, else 1★. " if c else "") + \
@@ -336,7 +340,7 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             '<option value="any">any</option>' + "".join(f"<option>{html.escape(x)}</option>" for x in reasons)
             + '</select></label><label>species<select id="sp"><option value="">all</option><option value="named">named'
             '</option><option value="unnamed">unnamed</option>'
-            + "".join(f"<option>{html.escape(x)}</option>" for x in species) + '</select></label>'
+            '</select></label>'
             '<label>marks<select id="dec"><option value="">all</option><option value="k">keep</option>'
             '<option value="x">drop</option><option value="u">unmarked</option></select></label>'
             '<div class="chips" id="scenes"></div>'

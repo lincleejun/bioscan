@@ -170,7 +170,8 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
     assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "", "genus"),
                                                                         ("Rangifer tarandus", "Caribou", "species")]
     page = (tmp_path / "aes.html").read_text()
-    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and "<option>Rangifer</option>" in page
+    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and '"sp":"Rangifer"' in page
+    assert "<option>" not in page.split("<script>")[0].split('id="sp"')[1].split("</select>")[0]   # the JS fills it
     # without --species the request keeps the album profile's species=false and the columns stay empty
     assert main(["aesthetic", "score", str(d), "--export", "csv", "--out", str(out)]) == 0
     assert sent["payload"]["options"]["identify"]["species"] is False
