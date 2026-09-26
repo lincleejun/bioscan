@@ -138,3 +138,25 @@ def test_album_scene_taxonomy_groups_attributes_and_horizon_by_group(client, eng
     s = result(events(client.post("/run", json={"inputs": [{"path": p}], "want": ["scene"],
                                                 "options": {"scene": same}})))["products"]["scene"]
     assert (s["label"], s["group"], s["horizon"]) == ("mountain", "other", None)
+
+
+def test_a_soft_frame_reports_motion_or_defocus_as_its_own_reason(client, tmp_path):
+    """Whole-frame softness comes out as `motion` (a 1-D smear) or `defocus` (soft on both axes) in
+    reject_reasons, both in the manifest's vocabulary; the old merged name is not reported."""
+    import numpy as np
+    from PIL import ImageFilter
+    from unit.cull_fixtures import photo
+
+    from bioscan.plugins.quality import MANIFEST
+
+    im, _ = photo(8)
+    a = np.asarray(im, np.float32)
+    smeared = Image.fromarray(np.mean([np.roll(a, k, 1) for k in range(15)], 0).astype(np.uint8))
+    smeared.save(tmp_path / "motion.jpg", quality=95)
+    im.filter(ImageFilter.GaussianBlur(3)).save(tmp_path / "defocus.jpg", quality=95)
+    evs = events(client.post("/run", json={"inputs": [{"path": str(tmp_path / f"{n}.jpg")} for n in ("motion", "defocus")],
+                                           "want": ["identify", "quality"], "options": {"identify": {"species": False}}}))
+    got = {e["path"].rsplit("/", 1)[-1]: e["products"]["quality"]["reject_reasons"] for e in evs if e["type"] == "result"}
+    assert got == {"motion.jpg": ["motion"], "defocus.jpg": ["defocus"]}
+    assert "motion" in MANIFEST.description and "defocus" in MANIFEST.description
+    assert "motion_or_defocus" not in MANIFEST.output["reject_reasons"]

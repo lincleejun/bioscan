@@ -610,14 +610,14 @@ tier = "album"
 profile = "album"
 plugin = "quality"
 dimension = "culling"
-title = "Album: blurred subjects and shaken frames rejected as soft (soft_subject or motion_or_defocus)"
+title = "Album: blurred subjects and shaken frames rejected as soft (soft_subject, motion or defocus)"
 scope = "soft"
 metric = "reject_recall"
 op = ">="
 community = 0.70
 stretch = 0.90
 unit = "fraction"
-how = "album smoke, plugin_metrics.quality.soft (variants blur, smear, shake)"
+how = "album smoke, plugin_metrics.quality.soft (variants blur, smear, shake, defocus)"
 source = "no published figure; subject-focus scoring is what Lightroom and Aftershoot sell, without numbers"
 
 [[standard]]

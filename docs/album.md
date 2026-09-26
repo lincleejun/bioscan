@@ -69,8 +69,9 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
 ```
 
 - **Rejects** (`quality`, rules only, each with a reason): `soft_subject` (the subject box is soft while something
-  else in the frame is sharp: focus landed elsewhere), `motion_or_defocus` (nothing in the frame is sharp: shake,
-  motion, or focus missed everything, which includes a soft subject against smooth bokeh), `overexposed` (8% of the
+  else in the frame is sharp: focus landed elsewhere), `motion` and `defocus` (nothing in the frame is sharp,
+  which includes a soft subject against smooth bokeh; `motion` when the frame kept its detail along one axis and lost
+  it along the other, as a shake or a pan leaves it, `defocus` when it is soft both ways), `overexposed` (8% of the
   subject blown, or a bright subject with 4% blown), `underexposed` (nothing in the frame brighter than two stops under white,
   or the whole frame dark and the subject too; a dark bird alone is not a reject), `subject_cut` (the box touches the frame edge and is not frame-filling),
   `subject_too_small` (under 0.5% of the frame) and `no_subject` (the gate sees an animal, the detector boxes none).
@@ -119,3 +120,10 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   reject too), it counts as your rating.
 - **Accuracy**: unverified on real albums. CI measures the rules and reducers on a synthetic reject set made from the
   smoke photos (docs/harness.md "Album tier", docs/standards.md §14).
+- **motion vs defocus** (`MOTION_RATIO` = 1.4 in `bioscan/plugins/quality/stage.py`): set on the synthetic set only
+  (#28 brings real rejects). `scripts/cull_synth.py` over the 1,026 photos of `runs/2026-09-23-inat-v2` (iNat, the
+  subject box from the run standing in for the detector), 2026-09-25: of the whole-frame motion smears (`shake`) the
+  rules gave a whole-frame reason, 851 of 869 (97.9%) read `motion`; of the whole-frame Gaussian blurs (`defocus`),
+  875 of 888 (98.5%) read `defocus`. At 1.5 motion drops to 94.1% (defocus 99.2%), at 1.3 defocus to 96.4%. The split
+  changes no reject: which photos get a whole-frame reason is the same as before it. Real shake is rarely one clean
+  line and real defocus is not a Gaussian, so expect less on real albums.

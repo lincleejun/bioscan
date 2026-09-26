@@ -149,8 +149,8 @@ def check_select(o: dict[str, Any]) -> None:
     if not isinstance(w, dict) or not all(isinstance(v, list) and all(isinstance(x, str) for x in v) for v in w.values()):
         raise ValueError("select.waive must be an object {group, label or attribute=value: [reject reasons]}")
     for reason in (r for v in w.values() for r in v):
-        if reason not in REJECT_REASONS:
-            raise ValueError(f"select.waive: unknown reject reason {reason!r} (known: {', '.join(REJECT_REASONS)})")
+        if reason not in SCOPES:
+            raise ValueError(f"select.waive: unknown reject reason {reason!r} (known: {', '.join(SCOPES)})")
 
 
 def check_waive_keys(waive: dict[str, Any], scene_options: dict[str, Any] | None) -> None:
@@ -186,7 +186,7 @@ def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
     category = ((s.get("group") or s.get("label")) if o["by"] == "group" else s.get("label")) or UNCATEGORISED
     raw = list(q.get("reject_reasons") or [])
     keys = {s.get("group"), s.get("label")} | {f"{n}={a.get('label')}" for n, a in (s.get("attributes") or {}).items()}
-    lifted = {r for k in keys if k for r in o["waive"].get(k, [])}
+    lifted = {x for k in keys if k for r in o["waive"].get(k, []) for x in (r, *ALIASES.get(r, ()))}
     aesthetic = (p.get("aesthetics") or {}).get("score")   # null when no head scored it (a note says why)
     taken, _ = capture(ev)
     return {"path": ev["path"], "category": category, "reasons": [r for r in raw if r not in lifted],
@@ -310,9 +310,17 @@ def records(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 # Ground truth (scripts/cull_synth.py, or an owner's labels): keep (1/0), reject_reasons (";"-joined),
 # burst_id (blank = in no burst), scene (blank = unlabelled). A column the CSV lacks measures nothing.
 
-REJECT_REASONS = ("soft_subject", "motion_or_defocus", "overexposed", "underexposed", "subject_cut",
+REJECT_REASONS = ("soft_subject", "motion", "defocus", "overexposed", "underexposed", "subject_cut",
                   "subject_too_small", "no_subject")      # = bioscan.plugins.quality.REASONS
-SOFT = ("soft_subject", "motion_or_defocus")              # scope "soft": either (they differ only in the background)
+# Older names still accepted in waivers and ground truth, and scored as a scope of their own: either reason.
+ALIASES = {"motion_or_defocus": ("motion", "defocus")}
+SOFT = ("soft_subject", "motion", "defocus", "motion_or_defocus")   # scope "soft": any (they differ only in the background)
+SCOPES = REJECT_REASONS + tuple(ALIASES)
+
+
+def _has(reasons: set[str], scope: str) -> bool:
+    """Whether `reasons` has the reason `scope`, or for an alias scope, any of its reasons."""
+    return scope in reasons or bool(reasons & set(ALIASES.get(scope, ())))
 
 
 def split_reasons(text: str | None) -> list[str]:
@@ -347,7 +355,9 @@ def row_reject_precision(truth: dict[str, Any], pred: dict[str, Any] | None) -> 
     if t is None or not p:
         return {}
     out: dict[str, Any] = {"all": bool(t), "soft": bool(t & set(SOFT)) if p & set(SOFT) else None}
-    out |= {r: (r in t) if r in p else None for r in REJECT_REASONS}
+    # a truth alias matches either of its reasons: truth motion_or_defocus is right for motion and for defocus
+    t = t | {r for a, rs in ALIASES.items() if a in t for r in rs}
+    out |= {r: _has(t, r) if _has(p, r) else None for r in SCOPES}
     return out
 
 
@@ -359,7 +369,7 @@ def row_reject_recall(truth: dict[str, Any], pred: dict[str, Any] | None) -> dic
         return {}
     p = final_reasons(pred) or set()
     out: dict[str, Any] = {"all": bool(p), "soft": bool(p & set(SOFT)) if t & set(SOFT) else None}
-    out |= {r: (r in p) if r in t else None for r in REJECT_REASONS}
+    out |= {r: _has(p, r) if _has(t, r) else None for r in SCOPES}
     return out
 
 
