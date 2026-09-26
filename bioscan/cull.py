@@ -21,6 +21,9 @@ Statuses: pick (selected), spare (a keeper beyond the top per_category), duplica
 not its best, or a near-duplicate of a pick), reject (a quality reject reason; `waive` lifts reasons
 per scene group, label or attribute value `name=value`: underexposed is normal at night).
 
+Flags: notes that never change a status, rank or keep (a flag is not a reason): `horizon_tilt` when the
+scene stage's horizon (measured for landscapes only) tilts more than `horizon_flag_deg` either way.
+
 Standard library only: the CLI imports it."""
 from __future__ import annotations
 
@@ -35,6 +38,8 @@ from typing import Any
 ONE_CAMERA = "(one camera)"
 UNCATEGORISED = "uncategorised"
 STATUSES = ("pick", "spare", "duplicate", "reject")
+FLAGS = ("horizon_tilt",)
+HORIZON_FLAG_DEG = 3.0
 
 
 # ---- reading result events ------------------------------------------------------------------
@@ -139,7 +144,7 @@ def check_select(o: dict[str, Any]) -> None:
     n = o["per_category"]
     if isinstance(n, bool) or not isinstance(n, int) or n < 0:
         raise ValueError("select.per_category must be an integer >= 0 (0 = no limit)")
-    for k in ("dup_cosine", "sharp_tie", "exposure_ok"):
+    for k in ("dup_cosine", "sharp_tie", "exposure_ok", "horizon_flag_deg"):
         v = o[k]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
             raise ValueError(f"select.{k} must be a number >= 0")
@@ -178,6 +183,12 @@ def _exposure(q: dict[str, Any]) -> float | None:
     return region.get("exposure")
 
 
+def flags(ev: dict[str, Any], horizon_flag_deg: float = HORIZON_FLAG_DEG) -> list[str]:
+    """The photo's flags (FLAGS): horizon_tilt when products.scene.horizon tilts more than horizon_flag_deg."""
+    h = (products(ev).get("scene") or {}).get("horizon") or {}
+    return ["horizon_tilt"] if abs(h.get("tilt_deg") or 0.0) > horizon_flag_deg else []
+
+
 def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
     """What select ranks one result by."""
     p = products(ev)
@@ -190,7 +201,7 @@ def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
     aesthetic = (p.get("aesthetics") or {}).get("score")   # null when no head scored it (a note says why)
     taken, _ = capture(ev)
     return {"path": ev["path"], "category": category, "reasons": [r for r in raw if r not in lifted],
-            "waived": [r for r in raw if r in lifted], "sharpness": _sharpness(q),
+            "waived": [r for r in raw if r in lifted], "flags": flags(ev, o["horizon_flag_deg"]), "sharpness": _sharpness(q),
             "cut": bool((q.get("subject") or {}).get("cut")), "exposure": _exposure(q),
             "aesthetic": aesthetic if isinstance(aesthetic, (int, float)) and not isinstance(aesthetic, bool) else None,
             "t": seconds(taken), "vec": vector(ev), "burst": (p.get("burst") or {}).get("id")}
@@ -220,7 +231,7 @@ def category_order(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def select(events: list[dict[str, Any]], o: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """path -> {status, keep, reasons, waived, category, rank, burst_rank, duplicate_of, sharpness,
+    """path -> {status, keep, reasons, waived, flags, category, rank, burst_rank, duplicate_of, sharpness,
     aesthetic}."""
     frames = [facts(ev, o) for ev in events if ev.get("type") == "result"]
     groups: dict[str, list[dict[str, Any]]] = {}
@@ -250,7 +261,7 @@ def select(events: list[dict[str, Any]], o: dict[str, Any]) -> dict[str, dict[st
                 f["status"] = "spare"
     for f in frames:
         out[f["path"]] = {"status": f["status"], "keep": f["status"] == "pick", "reasons": f["reasons"],
-                          "waived": f["waived"], "category": f["category"], "rank": f.get("rank"),
+                          "waived": f["waived"], "flags": f["flags"], "category": f["category"], "rank": f.get("rank"),
                           "burst_rank": f["burst_rank"], "duplicate_of": f["duplicate_of"],
                           "sharpness": None if f["sharpness"] is None else round(f["sharpness"], 4),
                           "aesthetic": f["aesthetic"]}
@@ -286,7 +297,7 @@ def apply(events: Iterable[dict[str, Any]], reducers: dict[str, dict[str, Any]])
     return out
 
 
-RECORD_FIELDS = ("path", "status", "keep", "category", "rank", "reasons", "waived", "burst", "burst_size",
+RECORD_FIELDS = ("path", "status", "keep", "category", "rank", "reasons", "waived", "flags", "burst", "burst_size",
                  "burst_rank", "duplicate_of", "sharpness", "aesthetic", "taken_at")
 
 
@@ -300,7 +311,7 @@ def records(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         s, b = p.get("select") or {}, p.get("burst") or {}
         out.append({"path": ev["path"], "status": s.get("status"), "keep": bool(s.get("keep")),
                     "category": s.get("category"), "rank": s.get("rank"), "reasons": s.get("reasons") or [],
-                    "waived": s.get("waived") or [], "burst": b.get("id"), "burst_size": b.get("size", 1),
+                    "waived": s.get("waived") or [], "flags": s.get("flags") or [], "burst": b.get("id"), "burst_size": b.get("size", 1),
                     "burst_rank": s.get("burst_rank"), "duplicate_of": s.get("duplicate_of"),
                     "sharpness": s.get("sharpness"), "aesthetic": s.get("aesthetic"), "taken_at": capture(ev)[0]})
     return out

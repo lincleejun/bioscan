@@ -14,7 +14,9 @@ at the copy's full size). The service writes the page's jpg copies in `<out>-fil
 browser-readable originals and marks the rest.
 
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
-and reject reasons come from the album profile's scene and quality stages. `--species` turns the
+and reject reasons come from the album profile's scene and quality stages; flags (horizon_tilt: a
+landscape's horizon tilts more than the profile's `select.horizon_flag_deg`) only mark a photo, they
+never change its stars. `--species` turns the
 profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
 genus or family, as `bioscan summarize` counts it) with an English name beside it (`rp.common_of`: the common name, or
 "a vireo" / "a hawk or eagle" above species), and the page groups and filters by it. The page
@@ -41,8 +43,8 @@ FORMATS = ("json", "csv", "html")
 THUMB_EDGE = 1024
 EDGE = 3072
 DEFAULT_OUT = "aesthetic-scores"
-CSV_FIELDS = ("rank", "path", "score", "stars", "scene", "species", "common", "level", "reject_reasons", "sharpness",
-              "taken_at")
+CSV_FIELDS = ("rank", "path", "score", "stars", "scene", "species", "common", "level", "reject_reasons", "flags",
+              "sharpness", "taken_at")
 
 
 def parse_export(spec: str) -> list[str]:
@@ -114,8 +116,9 @@ def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[
     return best[1:] if best else (None, None, None, [])
 
 
-def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """One row per result, best first (a photo without a finite score comes last); stars = quintile."""
+def rows_of(events: list[dict[str, Any]], horizon_flag_deg: float = cull.HORIZON_FLAG_DEG) -> list[dict[str, Any]]:
+    """One row per result, best first (a photo without a finite score comes last); stars = quintile;
+    flags as select sets them (cull.flags)."""
     rows = []
     for ev in events:
         if ev.get("type") != contract.RESULT:
@@ -128,7 +131,7 @@ def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         scene = f"{sc['label']} ({sc['group']})" if sc.get("group") not in (None, sc.get("label")) else sc.get("label")
         rows.append({"path": ev["path"], "score": score, "scene": scene,
                      "species": species, "common": common, "level": level, "lineage": lineage,
-                     "reject_reasons": list(q.get("reject_reasons") or []),
+                     "reject_reasons": list(q.get("reject_reasons") or []), "flags": cull.flags(ev, horizon_flag_deg),
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})
     rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["path"]))
@@ -151,7 +154,7 @@ def write_csv(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: str
         w.writeheader()
         for r in rows:
             w.writerow({**r, "score": "" if r["score"] is None else f"{r['score']:.4f}", "stars": r["stars"] or "",
-                        "reject_reasons": ";".join(r["reject_reasons"])})
+                        "reject_reasons": ";".join(r["reject_reasons"]), "flags": ";".join(r["flags"])})
         for r in fails:
             w.writerow({"path": r["path"], "reject_reasons": "failed: " + " | ".join(r["messages"])})
 
@@ -198,7 +201,8 @@ def cmd_score(a) -> int:
     if "html" in exports:
         shrink(events, a.thumb_edge)
     complete = any(e.get("type") == contract.DONE for e in events)
-    rows, fails = rows_of(events), cc.failed(events)
+    flag_deg = expand(load_config(), cc.DEFAULT_PROFILE, None, {}).reducer_options["select"]["horizon_flag_deg"]
+    rows, fails = rows_of(events, flag_deg), cc.failed(events)
     written = []
     if "json" in exports:
         cc.write_json(head, events, f"{out}.ndjson")

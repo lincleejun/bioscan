@@ -10,7 +10,7 @@ from bioscan import cull, profile
 
 BURST = {"max_gap_s": 1.5, "min_cosine": 0.92}
 SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2, "by": "group",
-          "waive": {"night": ["underexposed"]}}
+          "waive": {"night": ["underexposed"]}, "horizon_flag_deg": 3.0}
 
 
 def test_burst_chains_one_camera_close_in_time_and_alike():
@@ -138,7 +138,7 @@ def test_apply_copies_checks_and_passes_errors_through():
         cull.apply(events, {"select": {"per_category": -1}})
     assert cull.records(out)[0] | {"taken_at": None} == {
         "path": "a", "status": "pick", "keep": True, "category": "wildlife", "rank": 1, "reasons": [], "waived": [],
-        "burst": None, "burst_size": 1, "burst_rank": 1, "duplicate_of": None, "sharpness": 0.8, "aesthetic": None,
+        "flags": [], "burst": None, "burst_size": 1, "burst_rank": 1, "duplicate_of": None, "sharpness": 0.8, "aesthetic": None,
         "taken_at": None}
 
 
@@ -213,3 +213,32 @@ def test_scene_manifest_declares_both_metrics():
     from bioscan.plugins.scene import MANIFEST
     assert [m.name for m in MANIFEST.metrics] == ["scene_acc", "group_acc"]
     assert all(m.kind == "rate" for m in MANIFEST.metrics)
+
+
+def tilted(path, t, tilt, group="landscape", **kw):
+    """A scene with the scene stage's horizon measure (null = none found, and always null outside landscape)."""
+    e = scened(path, t, "coast" if group == "landscape" else "bird_portrait", group, **kw)
+    e["products"]["scene"]["horizon"] = None if tilt is None else {"tilt_deg": tilt, "strength": 0.5}
+    return e
+
+
+def test_select_flags_a_tilted_horizon_and_the_flag_never_changes_the_selection():
+    events = [tilted("level", 0, 2.9), tilted("tilted", 10, 3.1), tilted("down", 20, -3.1),
+              tilted("none", 30, None), tilted("bird", 40, None, group="wildlife"),
+              tilted("soft", 50, 8.0, reasons=["soft_subject"])]
+    r = run(events, per_category=0)
+    assert {p: x["flags"] for p, x in r.items()} == {"level": [], "tilted": ["horizon_tilt"], "down": ["horizon_tilt"],
+                                                      "none": [], "bird": [], "soft": ["horizon_tilt"]}
+    level = [ev | {"products": ev["products"] | {"scene": ev["products"]["scene"] | {"horizon": None}}} for ev in events]
+    same = run(level, per_category=0)
+    assert {p: {k: v for k, v in x.items() if k != "flags"} for p, x in r.items()} == \
+        {p: {k: v for k, v in x.items() if k != "flags"} for p, x in same.items()}        # a flag is not a reason
+    assert r["tilted"]["status"] == "pick" and r["tilted"]["reasons"] == [] and r["soft"]["reasons"] == ["soft_subject"]
+    assert run(events, horizon_flag_deg=5.0)["tilted"]["flags"] == []
+    assert run([ev("old", 0.0)])["old"]["flags"] == []                                  # preds before flags: none
+
+
+@pytest.mark.parametrize("bad", [-1, "3", True, float("nan")])
+def test_select_checks_horizon_flag_deg(bad):
+    with pytest.raises(ValueError, match="select.horizon_flag_deg"):
+        cull.check_select(SELECT | {"horizon_flag_deg": bad})
