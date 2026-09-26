@@ -318,8 +318,10 @@ they were fitted on (50, 100, 200, 500, 1,000), next to the general head and the
 ## Culling
 
 **Reject reason**:
-Why a rule rejects a photo, one of `soft_subject`, `motion_or_defocus`, `overexposed`, `underexposed`,
+Why a rule rejects a photo, one of `soft_subject`, `motion`, `defocus`, `overexposed`, `underexposed`,
 `subject_cut`, `subject_too_small`, `no_subject` (the `quality` stage; `select` may waive one per scene category).
+`motion_or_defocus`, the name before `motion` and `defocus` were split, is still accepted in waivers and ground
+truth, where it means either.
 Rules only: a photo is never rejected for taste.
 _Avoid_: flaw, defect, score
 

@@ -40,7 +40,7 @@ def test_the_set_is_labelled_and_deterministic(made, tmp_path):
     by = {(Path(r["path"]).name): r for r in rows}
     assert by["s000-original.jpg"]["keep"] == 1 and by["s000-original.jpg"]["reject_reasons"] == ""
     assert {by[f"s001-{v}.jpg"]["reject_reasons"] for v in ("blur", "smear")} == {"soft_subject"}
-    assert by["s001-shake.jpg"]["reject_reasons"] == "motion_or_defocus"
+    assert (by["s001-shake.jpg"]["reject_reasons"], by["s001-defocus.jpg"]["reject_reasons"]) == ("motion", "defocus")
     assert (by["s001-over.jpg"]["reject_reasons"], by["s001-under.jpg"]["reject_reasons"]) == ("overexposed", "underexposed")
     assert by["s001-small.jpg"]["reject_reasons"] == "subject_too_small" and by["s001-cut.jpg"]["keep"] == 0
     bursts = [r for r in rows if r["burst_id"]]
@@ -63,7 +63,7 @@ def test_the_script_command_line(made, tmp_path, capsys):
                        "--burst-every", "0"]) == 0
     with open(tmp_path / "o" / "groundtruth-album.csv", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert len(rows) == 8 and {r["scene"] for r in rows} == {"wildlife"} and "8 photos from 1 sources" in capsys.readouterr().out
+    assert len(rows) == 9 and {r["scene"] for r in rows} == {"wildlife"} and "9 photos from 1 sources" in capsys.readouterr().out
     preds = tmp_path / "p.ndjson"
     preds.write_text('{"type": "result", "path": "/a.jpg", "products": {"identify": {"boxes": [{"xyxy": [0.1, 0.1, 0.2, 0.2], '
                      '"score": 0.3}, {"xyxy": [0.3, 0.3, 0.6, 0.6], "score": 0.9}]}}}\n{"type": "done"}\n')
@@ -73,7 +73,8 @@ def test_the_script_command_line(made, tmp_path, capsys):
 def test_the_rules_find_what_the_script_did(made):
     """On the tiny set, with the subject box where the script put it (a stand-in for the detector),
     every degradation gets its own reason and the originals none. The bokeh source (p3) turns a
-    soft subject into motion_or_defocus: nothing else in its frame is sharp (documented)."""
+    soft subject into defocus (Gaussian) or motion (smear): nothing else in its frame is sharp, so the
+    frame's own axes decide (documented)."""
     sources, _, rows = made
     for r in rows:
         if r["variant"] == "small":
@@ -88,7 +89,7 @@ def test_the_rules_find_what_the_script_did(made):
         got = q.assess(im, [box(b)], {"bird": 0.9})["reject_reasons"]
         want = r["reject_reasons"]
         if Path(src["path"]).name == "p3.jpg" and want == "soft_subject":
-            want = "motion_or_defocus"
+            want = {"blur": "defocus", "smear": "motion"}[r["variant"]]
         assert ";".join(got) == want, (r["path"], got)
 
 
@@ -138,6 +139,19 @@ def test_bad_reducers_in_a_meta_line_are_a_bench_error():
 def test_wildlife_ground_truth_measures_no_album_metric():
     rows = [{"path": "x", "scientific": "Megascops asio", "kind": "bird", "tier": "golden"}]
     assert bench.build_report(rows, {"x": result("x", 0.0)})["plugin_metrics"] == {}
+
+
+def test_truth_motion_or_defocus_counts_either_new_reason():
+    """Ground truth labelled before the split (motion_or_defocus) is right for motion and for defocus,
+    and scored in its own scope, so an old baseline's scope stays comparable."""
+    rows = [truth("m", 0, "motion_or_defocus"), truth("d", 0, "motion_or_defocus"), truth("n", 0, "motion"),
+            truth("s", 0, "soft_subject")]
+    preds = {"m": result("m", 0.0, reasons=["motion"]), "d": result("d", 10.0, reasons=["defocus"]),
+             "n": result("n", 20.0, reasons=["defocus"]), "s": result("s", 30.0, reasons=["soft_subject"])}
+    qa = bench.build_report(rows, preds, tier="album", profile="album", reducers=ALBUM)["plugin_metrics"]["quality"]
+    assert qa["motion_or_defocus"]["reject_recall"] == 1.0 and qa["motion_or_defocus"]["reject_precision"] == 1.0
+    assert qa["motion"]["reject_precision"] == 1.0 and qa["motion"]["reject_recall"] == 0.0   # n: truth motion, got defocus
+    assert qa["defocus"]["reject_precision"] == 0.5 and qa["soft"]["reject_recall"] == 1.0
 
 
 def test_compare_album_reports_under_the_album_budget():

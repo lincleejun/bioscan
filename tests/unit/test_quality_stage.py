@@ -47,13 +47,32 @@ def test_soft_subject_against_a_sharp_background_and_a_shaken_frame():
     soft = im.copy()
     soft.paste(im.filter(ImageFilter.GaussianBlur(4)).crop(px(im, b)), px(im, b)[:2])
     assert reasons(soft, [box(b)]) == ["soft_subject"]
-    shaken = im.filter(ImageFilter.BoxBlur(5))
-    assert reasons(shaken, [box(b)]) == ["motion_or_defocus"]
-    assert reasons(shaken, [], SCENERY) == ["motion_or_defocus"]            # no subject: the frame alone
+    shaken = im.filter(ImageFilter.BoxBlur(5))                              # a 2-D box: soft on both axes
+    assert reasons(shaken, [box(b)]) == ["defocus"]
+    assert reasons(shaken, [], SCENERY) == ["defocus"]                      # no subject: the frame alone
     bokeh, _ = photo(3, bokeh=True)                                         # nothing sharp: documented
     blurred = bokeh.copy()
     blurred.paste(bokeh.filter(ImageFilter.GaussianBlur(4)).crop(px(im, b)), px(im, b)[:2])
-    assert reasons(blurred, [box(b)]) == ["motion_or_defocus"]
+    assert reasons(blurred, [box(b)]) == ["defocus"]
+
+
+def line_blur(im, length, axis):
+    """A 1-D box kernel of `length` px along `axis` (0 vertical, 1 horizontal): motion or shake."""
+    a = np.asarray(im, np.float32)
+    return Image.fromarray(np.mean([np.roll(a, k - length // 2, axis) for k in range(length)], 0).astype(np.uint8))
+
+
+@pytest.mark.parametrize("seed", [8, 9, 10])
+def test_a_soft_frame_is_motion_when_one_axis_kept_its_detail_else_defocus(seed):
+    im, b = photo(seed)
+    assert reasons(im, [box(b)]) == [] and reasons(im, [], SCENERY) == []                   # sharp: no reason
+    for boxes, gate in (([box(b)], BIRD), ([], SCENERY)):
+        assert reasons(im.filter(ImageFilter.GaussianBlur(3)), boxes, gate) == ["defocus"]   # isotropic
+        assert reasons(line_blur(im, 15, 1), boxes, gate) == ["motion"]                      # horizontal kernel
+        assert reasons(line_blur(im, 15, 0), boxes, gate) == ["motion"]                      # vertical kernel
+    lo, hi = sorted(1 - x for x in q.blur_axes(q.luma(line_blur(im, 15, 1))))
+    assert hi >= q.MOTION_RATIO * lo and q.blur(q.luma(im)) == max(q.blur_axes(q.luma(im)))
+    assert q.smear(np.full((50, 50), 120, np.float32)) == "defocus"                         # too flat to tell
 
 
 def _ev(im, stops):
@@ -111,6 +130,7 @@ def test_reasons_come_in_the_declared_order():
 def test_settings_are_the_thresholds_and_feed_the_fingerprint(monkeypatch):
     s = q.STAGE.settings()
     assert s["SOFT_BLUR"] == q.SOFT_BLUR and s["TOO_SMALL"] == q.TOO_SMALL and "THIRDS" in s
+    assert s["MOTION_RATIO"] == q.MOTION_RATIO
     assert all(k.isupper() for k in s)
     fp = plugin.fingerprint(MANIFEST.version, s)
     monkeypatch.setattr(q, "SOFT_BLUR", 0.5)

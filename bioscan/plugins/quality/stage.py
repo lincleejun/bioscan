@@ -8,12 +8,15 @@ Crete et al. (2007), which blurs a region again with a 9-tap box filter and asks
 pixel-to-pixel variation that removes. A sharp region loses most of it (blur near 0.1-0.3), an
 already soft one little (0.5 and up); a region with almost no variation (sky, a wall) has no value.
 
-soft_subject vs motion_or_defocus: a soft subject (blur >= SOFT_BLUR) in a frame with a tile in
+soft_subject vs motion / defocus: a soft subject (blur >= SOFT_BLUR) in a frame with a tile in
 focus elsewhere (blur <= SHARP_ELSEWHERE: focus landed on the background), or with no detail
 elsewhere to judge, is soft_subject; when no detailed tile outside the subject is in focus, the
 whole frame is soft (camera shake, motion over everything, or focus missed everything, which
-includes a soft subject against smooth bokeh): motion_or_defocus. A frame without a subject can
-only be motion_or_defocus, when none of its tiles is in focus."""
+includes a soft subject against smooth bokeh). A frame without a subject can only be whole-frame
+soft, when none of its tiles is in focus. Whole-frame soft is split by the same measure per axis
+(smear): a 1-D smear leaves detail along one axis, so one axis much sharper than the other
+(MOTION_RATIO) is motion, soft on both is defocus. MOTION_RATIO is set on the synthetic set only
+(scripts/cull_synth.py, docs/album.md) until real rejects exist (#28)."""
 from __future__ import annotations
 
 import math
@@ -30,6 +33,7 @@ SUBJECT_CORE = 0.7      # blur is measured on the box's central 70 % (per side),
 BLUR_TAPS = 9           # re-blur kernel length (Crete et al.)
 SOFT_BLUR = 0.45        # subject blur at or above this: the subject is soft
 SHARP_ELSEWHERE = 0.38  # a frame tile at or below this blur is in focus; none is: the whole frame is soft
+MOTION_RATIO = 1.4      # nothing sharp: motion when one axis keeps this many times the other's detail (synthetic-only, #28)
 MIN_DETAIL = 0.004      # a region whose mean step between neighbours (luma 0-1) is below this has no blur value
 TILES = 4               # the frame's sharpest part: the best of TILES x TILES tiles
 TILE_SUBJECT = 0.5      # tiles at least this much inside the subject box do not count as "elsewhere"
@@ -64,13 +68,13 @@ def luma(image: Image.Image) -> np.ndarray:
     return np.asarray(image.convert("L"), dtype=np.float32)
 
 
-def blur(gray: np.ndarray) -> float | None:
-    """Re-blur measure of one region (luma 0-255): 0 sharp .. 1 soft, the worse of the two axes;
-    None when the region is too small or too flat to tell."""
+def blur_axes(gray: np.ndarray) -> tuple[float, float] | None:
+    """Re-blur measure of one region (luma 0-255) along each axis, (down the rows, along the
+    columns): 0 sharp .. 1 soft; None when the region is too small or too flat to tell."""
     g = gray.astype(np.float64) / 255.0
     if min(g.shape) < BLUR_TAPS + 2:
         return None
-    worst = None
+    out = []
     for axis in (0, 1):
         a = np.moveaxis(g, axis, 0)
         pad = np.pad(a, ((BLUR_TAPS // 2 + 1, BLUR_TAPS // 2), (0, 0)), mode="edge")
@@ -81,9 +85,27 @@ def blur(gray: np.ndarray) -> float | None:
             return None
         d_b = np.abs(np.diff(smooth, axis=0))
         lost = float(np.maximum(0.0, d_f - d_b).sum())
-        b = 1.0 - lost / float(d_f.sum())
-        worst = b if worst is None else max(worst, b)
-    return worst
+        out.append(1.0 - lost / float(d_f.sum()))
+    return out[0], out[1]
+
+
+def blur(gray: np.ndarray) -> float | None:
+    """Re-blur measure of one region: the worse of its two axes (blur_axes)."""
+    axes = blur_axes(gray)
+    return None if axes is None else max(axes)
+
+
+def smear(gray: np.ndarray) -> str:
+    """Why a frame with nothing sharp is soft: motion when one axis kept much more of its detail than
+    the other (a 1-D smear: sharpness 1 - blur, averaged over the TILES x TILES tiles with detail,
+    at least MOTION_RATIO times the other axis's), else defocus (also when no tile has detail)."""
+    h, w = gray.shape
+    axes = [a for i in range(TILES) for j in range(TILES)
+            if (a := blur_axes(gray[h * i // TILES:h * (i + 1) // TILES, w * j // TILES:w * (j + 1) // TILES]))]
+    if not axes:
+        return "defocus"
+    lo, hi = sorted(1.0 - float(np.mean(b)) for b in zip(*axes))
+    return "motion" if hi >= MOTION_RATIO * max(lo, 1e-6) else "defocus"
 
 
 def clipped(gray: np.ndarray) -> tuple[float, float]:
@@ -189,7 +211,7 @@ def assess(image: Image.Image, boxes: list[dict[str, Any]], gate: dict[str, floa
                    "centre_dist": _r(centre)}
         if sb is not None and sb >= SOFT_BLUR:
             nothing_sharp = elsewhere is not None and elsewhere > SHARP_ELSEWHERE
-            reasons.append("motion_or_defocus" if nothing_sharp else "soft_subject")
+            reasons.append(smear(gray) if nothing_sharp else "soft_subject")
         reasons += exposure_reasons(frame, subject)
         if cut:
             reasons.append("subject_cut")
@@ -199,7 +221,7 @@ def assess(image: Image.Image, boxes: list[dict[str, Any]], gate: dict[str, floa
         sharpest = sharpest_tile(gray, None)
         frame["blur"] = _r(sharpest)
         if sharpest is not None and sharpest > SHARP_ELSEWHERE:
-            reasons.append("motion_or_defocus")
+            reasons.append(smear(gray))
         reasons += exposure_reasons(frame, None)
         if gate and sum(gate.get(k, 0.0) for k in ANIMALS) >= NO_SUBJECT_GATE:
             reasons.append("no_subject")
