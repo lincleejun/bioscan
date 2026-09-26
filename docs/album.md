@@ -95,9 +95,9 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   label `xmp:Label="Red"`, no stars (so it stays unrated), and its reasons in `bioscan:reasons` (`;`-joined; namespace
   `https://github.com/lincleejun/bioscan/ns/cull/1.0/`); duplicates get nothing. Every pick is already the best of
   its burst, so a burst win adds no star. Filter on 3 stars for the picks, 2 and up for every keeper, Red for the
-  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: the ratings
-  reader (`bioscan aesthetic ratings|train|eval`, `bench aesthetic init`) skips any sidecar that carries the bioscan namespace.
-  An editor that keeps unknown properties when you re-rate a photo keeps that mark too, so delete the cull sidecar
-  before rating a photo whose stars should count.
+  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: cull
+  records them in `bioscan:stars` (0 for a reject), and the ratings reader (`bioscan aesthetic ratings|train|eval`,
+  `bench aesthetic init`) skips a cull sidecar still carrying those stars. Once you change its stars (to -1 for a
+  reject too), it counts as your rating.
 - **Accuracy**: unverified on real albums. CI measures the rules and reducers on a synthetic reject set made from the
   smoke photos (docs/harness.md "Album tier", docs/standards.md §14).
