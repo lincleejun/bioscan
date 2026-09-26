@@ -244,7 +244,8 @@ def stars_of(rating: float | None, pick: int) -> tuple[float, int] | None:
 
 
 NS = {"x": "adobe:ns:meta/", "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-      "xmp": "http://ns.adobe.com/xap/1.0/", "xmpDM": "http://ns.adobe.com/xmp/1.0/DynamicMedia/"}
+      "xmp": "http://ns.adobe.com/xap/1.0/", "xmpDM": "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+      "bioscan": xmp.CULL_NS}
 
 
 def _xmp_value(root: ET.Element, ns: str, name: str) -> str | None:
@@ -265,11 +266,11 @@ def parse_xmp(text: str | bytes) -> dict[str, Any] | None:
     xmp:Rating -1 (Lightroom/Bridge reject) -> rating REJECT_GRADE, pick -1.
     xmpDM:pick (1 / -1) is read where a tool writes it; Lightroom Classic keeps its pick flags
     in the catalogue, so they only arrive through a CSV.
-    A packet `bioscan cull --xmp` wrote (its namespace) is not the owner's: None, like no packet."""
+    A packet `bioscan cull --xmp` wrote (its namespace) is not the owner's while its xmp:Rating
+    (missing = 0) still equals the `bioscan:stars` cull recorded: None, like no packet. Re-rated,
+    it is parsed like any other; one without `bioscan:stars` (an older cull) is always None."""
     if isinstance(text, bytes):
         text = text.decode("utf-8", "replace")
-    if xmp.CULL_NS in text:
-        return None
     start = text.find("<x:xmpmeta")
     if start < 0:
         start = text.find("<rdf:RDF")
@@ -288,6 +289,13 @@ def parse_xmp(text: str | bytes) -> dict[str, Any] | None:
         r = float(rating) if rating is not None else None
     except ValueError:
         r = None
+    if xmp.CULL_NS in text:
+        culled = _xmp_value(root, "bioscan", "stars")
+        try:
+            if culled is None or float(culled) == (r or 0):
+                return None
+        except ValueError:
+            return None
     p = 0
     if pick is not None:
         try:
