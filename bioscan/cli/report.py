@@ -57,7 +57,7 @@ def common_of(sp: dict[str, Any] | None) -> str | None:
     if level == "species":
         return top[0].get("common")
     words = Counter(c["common"].split()[-1].lower() for c in top
-                    if c.get("common") and c["taxonomy"][LEVEL_RANK[level]] == name)
+                    if (c.get("common") or "").strip() and c["taxonomy"][LEVEL_RANK[level]] == name)
     if not words:
         return None
     (w, n), *rest = words.most_common(2)
