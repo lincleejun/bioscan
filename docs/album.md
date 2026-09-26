@@ -75,8 +75,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26).
 - **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes. The album profile
   names 40 fine labels (`label`) in 8 groups (`group`): wildlife, landscape, night, people, macro, architecture, food,
-  other (docs/research/2026-09-24-scene-taxonomy.md §3.2). The wildlife group gets the gate's bird + mammal +
-  other_animal share (only when identify found a box: `wildlife_box`, since the gate drifts on photos without
+  other (docs/research/2026-09-24-scene-taxonomy.md §3.2). The wildlife group gets the gate's bird + mammal share
+  (not other_animal: the gate calls fungi and plants that, scene tier 2026-09-26) (only when identify found a box: `wildlife_box`, since the gate drifts on photos without
   animals), split by its own prompts; its label, in order (`wildlife_rules`): 4 identify boxes or more is
   `herd_flock`; `bird_flight` or `domestic` when its prompts give it more than 0.5; the best box's kind and area
   (8% of the frame or more a `_portrait`, less a `_habitat`; `other_animal`); with no box, its prompts' top. The

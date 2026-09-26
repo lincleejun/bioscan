@@ -423,14 +423,16 @@ metric is `group_acc` ([harness.md](harness.md), "Album tier"): the stage's `gro
 
 | Bar | Industry | Community | Stretch | Our status | Why |
 |---|---|---|---|---|---|
-| Scene group correct, all photos (8 labels; the taxonomy's is unverified until re-run) | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | 70.6% [68.4, 72.6] (Mac 2026-09-25, `baselines/scene-v1-8labels.json`; 61.1% before `wildlife_box`) | what `select` buckets on |
-| Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | pass: people 87.2%, food 88.0%, macro 86.0%, wildlife 76.7%; fail: night 64.6%, landscape 62.5%, other 59.2%, architecture 58.8% (same run) | one weak group hides in the mean |
+| Scene group correct, all photos | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | 77.8% [75.8, 79.6] (Mac 2026-09-26, 40-label taxonomy, PR #43; 70.6% with the 8 labels, `baselines/scene-v1-8labels.json`; 61.1% before `wildlife_box`) | what `select` buckets on |
+| Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | pass: macro 90.5%, people 90.0%, night 77.0%, wildlife 76.3%, architecture 74.8%, other 73.6%, landscape 70.5%, food 70.0% (same run; with the 8 labels: people 87.2%, food 88.0%, macro 86.0%, wildlife 76.7%, night 64.6%, landscape 62.5%, other 59.2%, architecture 58.8%) | one weak group hides in the mean |
 
 The failing groups are where the 8 default labels and their prompts are too coarse (the default `other`
 prompts describe an indoor room, so interiors land there; city lights at night read as architecture;
-reptiles and fish read as macro because gate `other_animal` is not in `wildlife_gate`): the finer
-taxonomy of `docs/research/2026-09-24-scene-taxonomy.md`, now the album default, is the fix to measure
-against this baseline (#34).
+reptiles and fish read as macro because gate `other_animal` is not in `wildlife_gate`). The finer
+taxonomy of `docs/research/2026-09-24-scene-taxonomy.md`, the album default since #34, lifts the mean to
+77.8% and every group to 70% or more. Adding `other_animal` to `wildlife_gate` (the proposal's TOML) lifts
+wildlife to 92.7% but drops macro to 47.0% (the gate calls fungi and plants other_animal; mean 74.9%), so
+the album keeps bird + mammal; the gate, not the scene stage, is where reptiles and fungi part ways.
 
 Caveats: Open Images labels are object tags, not genre judgements (a "Portrait" label is not always a
 portrait photograph), so a first run's failures need a look at the photos before the bar is trusted;
