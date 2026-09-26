@@ -243,6 +243,18 @@ def stars_of(rating: float | None, pick: int) -> tuple[float, int] | None:
     return float(rating), pick
 
 
+def quintile_stars(scores: Sequence[float]) -> tuple[list[int], list[float]]:
+    """Stars per input position by rank, best first (ties keep the caller's order): 5 - int(5 * i / n), so
+    the top fifth gets 5. Also the cuts: the lowest score among stars 5, 4, 3, 2 ([] under 5 scores)."""
+    order = sorted(range(len(scores)), key=lambda j: -scores[j])
+    stars = [0] * len(scores)
+    for i, j in enumerate(order):
+        stars[j] = 5 - int(5 * i / len(scores))
+    if len(scores) < 5:
+        return stars, []
+    return stars, [min(s for s, k in zip(scores, stars) if k == star) for star in (5, 4, 3, 2)]
+
+
 NS = {"x": "adobe:ns:meta/", "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
       "xmp": "http://ns.adobe.com/xap/1.0/", "xmpDM": "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
       "bioscan": xmp.CULL_NS}

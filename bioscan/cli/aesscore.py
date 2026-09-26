@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from bioscan import contract, cull, formats
+from bioscan import aesthetic, contract, cull, formats
 from bioscan.cli import cull as cc
 from bioscan.cli import report as rp
 from bioscan.cli.config import expand, load_config, request_options
@@ -119,18 +119,16 @@ def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})
     rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["path"]))
-    n = sum(r["score"] is not None for r in rows)
+    stars = iter(aesthetic.quintile_stars([r["score"] for r in rows if r["score"] is not None])[0])
     for i, r in enumerate(rows):
         r["rank"] = i + 1
-        r["stars"] = 5 - int(5 * i / n) if r["score"] is not None and n else None
+        r["stars"] = next(stars) if r["score"] is not None else None
     return rows
 
 
 def cuts(rows: list[dict[str, Any]]) -> list[float]:
     """The lowest score of stars 5, 4, 3, 2 (the quintile boundaries)."""
-    scored = [r["score"] for r in rows if r["score"] is not None]
-    n = len(scored)
-    return [scored[int(n * k / 5) - 1] for k in range(1, 5)] if n >= 5 else []
+    return aesthetic.quintile_stars([r["score"] for r in rows if r["score"] is not None])[1]
 
 
 def write_csv(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: str) -> None:
