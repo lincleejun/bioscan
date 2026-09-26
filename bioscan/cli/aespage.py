@@ -84,7 +84,7 @@ aside{width:280px;flex:none;overflow:auto;background:var(--panel);border-right:1
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50}#modal.on{display:flex}
 #modal .box{background:var(--card);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px;max-width:440px;width:92vw}
 #modal h3{margin:0 0 8px;font-size:15px}#modal p{margin:0 0 16px;color:var(--ink2);font-size:13px;line-height:1.5;word-break:break-all}
-#modal .mb{display:flex;justify-content:flex-end;gap:8px}#modal .danger{background:var(--drop);color:#fff;border-color:var(--drop)}
+#modal .mb{display:flex;justify-content:flex-end;gap:8px}#modal .danger{background:var(--acc);color:#fff;border-color:var(--acc)}#modal.del .danger{background:var(--drop);border-color:var(--drop)}
 #toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:45;background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow);display:none;max-width:80vw}#toast.on{display:block}.leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:0}
 .hist{margin-top:10px;display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:center;font-size:11px}
 .hist button{text-align:left;color:var(--star);letter-spacing:.5px;padding:2px 4px;border-radius:4px}.hist button.on{background:var(--acc-bg)}
@@ -290,18 +290,21 @@ function refresh(){render();tree();filtermenu()}
 /* ---- export keeps / delete drops on disk (File System Access API: Chrome, Edge) ---- */
 const FSA=typeof window.showDirectoryPicker==='function';let srcDir=null,toastT=0;
 function toast(msg,ms){const t=$('#toast');clearTimeout(toastT);t.textContent=msg;t.classList.toggle('on',!!msg);if(msg&&ms)toastT=setTimeout(()=>t.classList.remove('on'),ms)}
-function confirmBox(title,text,yes){return new Promise(res=>{$('#mt').textContent=title;$('#mp').textContent=text;$('#myes').textContent=yes;$('#modal').classList.add('on');
+function confirmBox(title,text,yes){return new Promise(res=>{$('#mt').textContent=title;$('#mp').textContent=text;$('#myes').textContent=yes;$('#modal').classList.add('on');$('#modal').classList.toggle('del',yes==='Delete');
   const done=v=>{$('#modal').classList.remove('on');$('#myes').onclick=$('#mno').onclick=null;res(v)};$('#myes').onclick=()=>done(true);$('#mno').onclick=()=>done(false)})}
 const relOf=r=>r.p.startsWith(ROOT+'/')?r.p.slice(ROOT.length+1):r.p.split('/').pop();
 const sidecars=name=>[name.replace(/\.[^.]+$/,'')+'.xmp',name+'.xmp'];
 async function walk(dir,rel){const parts=rel.split('/');let d=dir;for(const p of parts.slice(0,-1))d=await d.getDirectoryHandle(p);return[d,parts[parts.length-1]]}
-async function source(mode){
-  if(srcDir&&((await srcDir.queryPermission({mode}))==='granted'||(await srcDir.requestPermission({mode}))==='granted'))return srcDir;
-  toast('Choose the photo folder: '+ROOT);const dir=await showDirectoryPicker({mode,id:'bioscan-photos'});
+async function granted(mode){return !!srcDir&&(await srcDir.queryPermission({mode}))==='granted'}
+async function source(mode){                                   // called right after a click: each picker needs its own user gesture
+  if(srcDir&&(await granted(mode)||(await srcDir.requestPermission({mode}))==='granted'))return srcDir;
+  const dir=await showDirectoryPicker({mode,id:'bioscan-photos'});
   const probe=LIVE()[0];if(probe){try{const[d,n]=await walk(dir,relOf(probe));await d.getFileHandle(n)}catch(e){throw new Error(`That folder has no ${relOf(probe)}; choose ${ROOT}`)}}
   return srcDir=dir}
 async function exportKeeps(){const keeps=LIVE().filter(r=>DEC[r.p]==='k');if(!keeps.length)return;
-  try{const src=await source('read');toast('Choose the folder to copy the keeps into');const dst=await showDirectoryPicker({mode:'readwrite',id:'bioscan-export'});
+  try{if(!await granted('read')){if(!await confirmBox('Export keeps · step 1 of 2',`Choose the folder that holds the photos: ${ROOT}`,'Choose photo folder…'))return;await source('read')}
+    if(!await confirmBox('Export keeps · step 2 of 2',`Choose the folder to copy ${keeps.length} kept photo${keeps.length===1?'':'s'} (and their XMP sidecars) into.`,'Choose destination…'))return;
+    const src=srcDir,dst=await showDirectoryPicker({mode:'readwrite',id:'bioscan-export'});
     let n=0,skip=0,side=0;
     for(const r of keeps){const[d,name]=await walk(src,relOf(r));
       for(const nm of[name,...sidecars(name)]){let fh;try{fh=await d.getFileHandle(nm)}catch(e){continue}
@@ -311,8 +314,8 @@ async function exportKeeps(){const keeps=LIVE().filter(r=>DEC[r.p]==='k');if(!ke
     toast(`copied ${n} photo${n===1?'':'s'}${side?` and ${side} XMP sidecar${side===1?'':'s'}`:''} to “${dst.name}”${skip?`; ${skip} already there, left as is`:''}`,8000)}
   catch(e){toast(e.name==='AbortError'?'':e.message,8000)}}
 async function deleteDrops(){const drops=LIVE().filter(r=>DEC[r.p]==='x');if(!drops.length)return;
-  if(!await confirmBox(`Delete ${drops.length} dropped photo${drops.length===1?'':'s'} from disk?`,`The original files and their XMP sidecars are removed under ${ROOT}. This cannot be undone from here.`,'Delete'))return;
-  try{const src=await source('readwrite');let n=0,miss=0;
+  if(!await confirmBox(`Delete ${drops.length} dropped photo${drops.length===1?'':'s'} from disk?`,`The original files and their XMP sidecars are removed under ${ROOT}. This cannot be undone from here.${srcDir?'':' The folder picker opens next: choose '+ROOT+'.'}`,'Delete'))return;
+  try{const src=await source('readwrite');let n=0,miss=0;         // the confirm click is the gesture for the picker
     for(const r of drops){const[d,name]=await walk(src,relOf(r));try{await d.removeEntry(name);n++}catch(e){miss++}
       for(const nm of sidecars(name)){try{await d.removeEntry(nm)}catch(e){}}GONE.add(r.p);delete DEC[r.p];toast(`deleting… ${n+miss} / ${drops.length}`)}
     save();refresh();toast(`deleted ${n} photo${n===1?'':'s'}${miss?`; ${miss} already gone`:''}`,8000)}
