@@ -172,3 +172,34 @@ def test_a_tilted_landscape_horizon_is_a_flag_not_a_reject(client, engine, tmp_p
     stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(evs)}  # noqa: E731
     assert stars(tilted_evs) == stars(level_evs)
     assert [r["flags"] for r in aesscore.rows_of(tilted_evs)] == [["horizon_tilt"]] * 2
+
+
+def test_a_bird_at_the_frame_top_is_a_tight_headroom_flag_not_a_reject(client, engine, tmp_path, monkeypatch):
+    """#27 step 1 on the fakes: identify's box touching the frame top gives the tight_headroom flag in
+    the cull records and aesthetic score's rows; status, keep, reasons and stars stay as they were."""
+    from conftest import FakeOWLv2
+
+    from bioscan import cull, profile
+    from bioscan.cli import aesscore
+
+    d = tmp_path / "album"
+    d.mkdir()
+    paths = [make_jpg(d / f"{i}.jpg") for i in range(2)]
+    body = {"inputs": [{"path": p, "taken_at": f"2026-05-01T08:0{i}:00"} for i, p in enumerate(paths)],
+            "want": ["identify", "embed", "quality", "scene"], "options": {"identify": {"species": False}}}
+    reducers = profile.resolve(profile.builtin(), "album").reducer_run()
+
+    def run(top):
+        monkeypatch.setattr(FakeOWLv2, "box", staticmethod(lambda size: (0.3 * size[0], top * size[1],
+                                                                         0.6 * size[0], (top + 0.5) * size[1])))
+        evs = events(client.post("/run", json=body))
+        return evs, {r["path"]: r for r in cull.records(cull.apply(evs, reducers))}
+
+    room_evs, room = run(0.2)
+    tight_evs, tight = run(0.015)            # above quality's CUT_MARGIN (0.01, subject_cut), under headroom_min
+    assert all(r["flags"] == ["tight_headroom"] for r in tight.values()) and all(r["flags"] == [] for r in room.values())
+    drop = lambda recs: {p: {k: v for k, v in r.items() if k != "flags"} for p, r in recs.items()}   # noqa: E731
+    assert drop(tight) == drop(room)                                           # status, keep, reasons unchanged
+    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(evs)}  # noqa: E731
+    assert stars(tight_evs) == stars(room_evs)
+    assert [r["flags"] for r in aesscore.rows_of(tight_evs)] == [["tight_headroom"]] * 2

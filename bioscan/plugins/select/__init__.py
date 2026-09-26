@@ -8,7 +8,7 @@ from bioscan.plugin import Manifest
 
 MANIFEST = Manifest(
     name="select",
-    version=3,
+    version=4,
     description="Best of each burst (not rejected, subject sharpness, not cut off, exposure, aesthetic if "
                 "present), then the top per_category of each scene category, near-duplicates skipped.",
     reads=("quality", "scene", "burst", "embed"),
@@ -26,7 +26,11 @@ MANIFEST = Manifest(
                                       "that do not reject there; unknown categories and reasons are rejected"},
              "horizon_flag_deg": {"type": "number", "minimum": 0, "default": cull.HORIZON_FLAG_DEG,
                                   "description": "a landscape whose horizon (scene) tilts more than this, in degrees "
-                                                 "either way, gets the horizon_tilt flag (never a reject)"}},
+                                                 "either way, gets the horizon_tilt flag (never a reject)"},
+             "headroom_min": {"type": "number", "minimum": 0, "maximum": 1, "default": cull.HEADROOM_MIN,
+                              "description": "the subject's box starting less than this share of the frame height "
+                                             "below the frame top (and filling under half the frame) gets the "
+                                             "tight_headroom flag (never a reject); 0 turns it off"}},
     output={"status": "|".join(cull.STATUSES), "keep": "bool: status pick", "reasons": "quality's reasons, "
             "minus waived", "waived": "[reason]", "flags": f"[{'|'.join(cull.FLAGS)}]: notes that change no status, "
             "rank or keep", "category": "scene group or label (by) | uncategorised",

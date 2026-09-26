@@ -325,8 +325,9 @@ _Avoid_: flaw, defect, score
 
 **Flag**:
 A note `select` puts on a photo that never changes its status, rank, keep or stars (a flag is not a reject reason):
-`horizon_tilt` when the scene stage's horizon (landscapes only) tilts more than `horizon_flag_deg`, default 3°. It
-shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
+`horizon_tilt` when the scene stage's horizon (landscapes only) tilts more than `horizon_flag_deg`, default 3°;
+`tight_headroom` when the subject's box starts less than `headroom_min` (default 0.02) of the frame height below the
+frame top and fills under half the frame. It shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
 _Avoid_: warning, soft reject
 
 **Subject**:
