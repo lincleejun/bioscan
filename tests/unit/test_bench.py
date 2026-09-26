@@ -161,6 +161,14 @@ def test_report_tables_and_image_rows(report):
     assert rows["/g.jpg"]["family_truth"] == rows["/g.jpg"]["family_pred"] == "Canidae"
 
 
+def test_preds_without_meta_complete_only_with_done(tmp_path):
+    # a `run --json --out` file has no meta line; completeness still comes from `done` (#50)
+    preds, gt = write_case(tmp_path, events()[1:])
+    assert bench.report_from_preds(preds, gt, lists={})["meta"]["complete"] is True
+    preds, gt = write_case(tmp_path, events()[1:-1], name="cut.ndjson")
+    assert bench.report_from_preds(preds, gt, lists={})["meta"]["complete"] is False
+
+
 def test_report_without_name_list_leaves_in_list_unknown(tmp_path):
     preds, gt = write_case(tmp_path)
     rep = bench.report_from_preds(preds, gt, lists={})
