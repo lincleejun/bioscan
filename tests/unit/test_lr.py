@@ -10,6 +10,8 @@ from bioscan.cli import lr
 from bioscan.cli.main import PROJECT_ROOT, main
 
 OWL = ["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", "Megascops kennicottii"]
+VIREO = ["Animalia", "Chordata", "Aves", "Passeriformes", "Vireonidae", "Vireo"]
+HAWK = ["Animalia", "Chordata", "Aves", "Accipitriformes", "Accipitridae", "Buteo"]
 
 
 def cand(sci, common=None, taxonomy=OWL):
@@ -204,3 +206,17 @@ def test_score_prefers_the_aesthetic_score_when_the_run_has_one():
     assert lr.photo(ev)["score"] == 0.73
     ev["products"]["aesthetics"]["score"] = None          # head missing: back to sharpness
     assert lr.photo(ev)["score"] == 0.4
+
+
+def test_keywords_name_genus_and_family_in_english_then_latin():
+    vireos = [cand("Vireo gilvus", "Warbling Vireo", VIREO[:6] + ["Vireo gilvus"]),
+              cand("Vireo olivaceus", "Red-eyed Vireo", VIREO[:6] + ["Vireo olivaceus"])]
+    hawks = [cand("Buteo jamaicensis", "Red-tailed Hawk", HAWK[:6] + ["Buteo jamaicensis"]),
+             cand("Aquila chrysaetos", "Golden Eagle", HAWK[:5] + ["Aquila", "Aquila chrysaetos"]),
+             cand("Haliaeetus leucocephalus", "Bald Eagle", HAWK[:5] + ["Haliaeetus", "Haliaeetus leucocephalus"]),
+             cand("Accipiter cooperii", "Cooper's Hawk", HAWK[:5] + ["Accipiter", "Accipiter cooperii"])]
+    assert lr.keywords(result("/a", box(level="species", top=vireos), box(level="genus", top=vireos),
+                              box(level="family", top=hawks), box(level="genus", top=[cand("Megascops kennicottii")]),
+                              box(level="unconfirmed", top=vireos))) == [
+        ["bioscan", "bird", "Warbling Vireo"], ["bioscan", "bird", "a vireo (Vireo)"],
+        ["bioscan", "bird", "a hawk or eagle (Accipitridae)"], ["bioscan", "bird", "Megascops"], ["bioscan", "bird"]]
