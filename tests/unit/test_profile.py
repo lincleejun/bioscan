@@ -97,7 +97,8 @@ def test_payload_errors_unchanged(photos):
 def test_payload_with_a_profile(photos, tmp_path):
     body = build_payload(parser().parse_args(["run", str(photos), "--profile", "album"]), BUILTIN)
     assert body["want"] == ["identify", "embed", "aesthetics", "quality", "scene"] and "profile" not in body
-    assert body["options"] == {"identify": {"top_k": 5, "geo": True, "species": False}}
+    assert body["options"] == {"identify": {"top_k": 5, "geo": True, "species": False},
+                               "scene": BUILTIN.layers[0].data["profile"]["album"]["options"]["scene"]}   # the taxonomy
     body = build_payload(parser().parse_args(["run", str(photos), "--profile", "album", "--top-k", "2",
                                               "--want", "identify"]), BUILTIN)
     assert body["want"] == ["identify"] and body["options"] == {"identify": {"top_k": 2, "geo": True, "species": False}}
@@ -186,7 +187,8 @@ def test_eval_request():
     assert cli_config.eval_request(None, False, {}, BUILTIN) is None          # the request eval always sent
     r = cli_config.eval_request("album", False, {"kind_check": False}, BUILTIN)
     assert r == {"profile": "album", "want": ["identify", "embed", "aesthetics", "quality", "scene"],
-                 "options": {"identify": {"top_k": 5, "geo": True, "kind_check": False, "species": False}},
+                 "options": {"identify": {"top_k": 5, "geo": True, "kind_check": False, "species": False},
+                             "scene": BUILTIN.layers[0].data["profile"]["album"]["options"]["scene"]},
                  "reducers": profile.resolve(BUILTIN, "album").reducer_run()}
     assert "reducers" not in cli_config.eval_request("wildlife", False, {}, BUILTIN)
     assert cli_config.eval_request("wildlife", True, {}, BUILTIN)["options"]["identify"]["geo"] is False

@@ -111,3 +111,30 @@ def test_quality_rejects_a_dark_frame_and_reads_the_camera(client, tmp_path):
     q = result(events(client.post("/run", json={"inputs": [{"path": str(p)}], "want": ["identify", "quality"]})))
     assert q["products"]["quality"]["reject_reasons"] == ["underexposed"]
     assert q["products"]["quality"]["capture"]["camera"] == "NIKON CORPORATION NIKON Z 9"
+
+
+def test_album_scene_taxonomy_groups_attributes_and_horizon_by_group(client, engine, tmp_path, monkeypatch):
+    """The album profile's taxonomy on the fake Engine: the gate (bird 0.93 + mammal 0.02 +
+    other_animal 0.01) and one bird box at 13% of the frame make the wildlife group, its main label
+    by the rules; the horizon is measured for the landscape group, not for a label named landscape."""
+    from bioscan.plugins.scene import stage as scene_stage
+
+    monkeypatch.setattr(scene_stage, "horizon", lambda image: {"tilt_deg": 0.0, "strength": 1.0})
+    p = make_jpg(tmp_path / "a.jpg")
+    s = result(events(client.post("/run", json={"inputs": [{"path": p}], "profile": "album"})))["products"]["scene"]
+    assert list(s) == ["label", "group", "scores", "group_scores", "attributes", "horizon"]
+    assert s["group"] == "wildlife" and s["group_scores"]["wildlife"] == 0.96 and s["horizon"] is None
+    assert s["label"] == "bird_portrait"                            # rule 3: bird box, area 0.13 >= 0.08
+    assert len(s["scores"]) == 40 and abs(sum(s["group_scores"].values()) - 1) < 1e-3
+    assert list(s["attributes"]) == ["light", "setting", "framing"]
+    assert all(abs(sum(a["scores"].values()) - 1) < 1e-3 and a["label"] in a["scores"] for a in s["attributes"].values())
+    same = {"labels": {"wild": [], "mountain": ["same"], "coast": ["same"], "landscape": ["same"]},
+            "groups": {"wildlife": ["wild"], "landscape": ["mountain", "coast"], "other": ["landscape"]},
+            "wildlife_gate": ["none"]}                                 # share 0.04; landscape group 2/3 of the rest
+    s = result(events(client.post("/run", json={"inputs": [{"path": p}], "want": ["scene"],
+                                                "options": {"scene": same}})))["products"]["scene"]
+    assert (s["label"], s["group"]) == ("mountain", "landscape") and s["horizon"] == {"tilt_deg": 0.0, "strength": 1.0}
+    same["groups"] = {"wildlife": ["wild"], "landscape": ["landscape"], "other": ["mountain", "coast"]}
+    s = result(events(client.post("/run", json={"inputs": [{"path": p}], "want": ["scene"],
+                                                "options": {"scene": same}})))["products"]["scene"]
+    assert (s["label"], s["group"], s["horizon"]) == ("mountain", "other", None)
