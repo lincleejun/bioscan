@@ -4,6 +4,12 @@
 
 **What animal is in the photo, where, and which species.** A local identification service for wildlife photography: give it a folder of RAW or JPG files and get back, per image, animal boxes, the species (birds and mammals against curated lists, every other animal against the TreeOfLife all-taxa list), a confidence and a grade. It also places photos on a GPX track and culls an album into picks, bursts and rejects. A resident HTTP service plus a thin CLI; runs on MPS on a Mac; no photo ever leaves the machine.
 
+## Promo video
+
+[![bioscan promo video (88 s)](assets/bioscan-promo-cover.jpg)](assets/bioscan-promo.mp4)
+
+[Watch the 88-second promo](assets/bioscan-promo.mp4) — what bioscan does, the geo prior, the measured numbers, and the other tools.
+
 ## Results
 
 Measured on the owner's M-series Mac (MPS), 2026-09-24, v1.5 (`875dc7a`). Full tables, the v1.4 comparison, failure classes and the scorecard: [docs/results.md](docs/results.md). The bars these are held to: [docs/standards.md](docs/standards.md).
