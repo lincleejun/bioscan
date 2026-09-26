@@ -71,7 +71,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   `subject_too_small` (under 0.5% of the frame) and `no_subject` (the gate sees an animal, the detector boxes none).
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
-  without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for `night`.
+  without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for `night`;
+  an unknown category or reason in `waive` is rejected.
 - **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes: landscape, people,
   wildlife (the gate's bird + mammal share, and only when identify found a box: `wildlife_box`, since the gate drifts on
   photos without animals), macro, architecture, food, night, other. Change the labels and prompts with

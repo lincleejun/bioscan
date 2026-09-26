@@ -20,7 +20,8 @@ MANIFEST = Manifest(
              "exposure_ok": {"type": "number", "minimum": 0, "default": 0.2,
                              "description": "|exposure| up to this is within limits"},
              "waive": {"type": "object", "default": {"night": ["underexposed"]},
-                       "description": "category -> reject reasons that do not reject there"}},
+                       "description": "category -> reject reasons that do not reject there; unknown "
+                                      "categories and reasons are rejected"}},
     output={"status": "|".join(cull.STATUSES), "keep": "bool: status pick", "reasons": "quality's reasons, "
             "minus waived", "waived": "[reason]", "category": "scene label | uncategorised",
             "rank": "in its category, best first | null", "burst_rank": "1 = best of its burst",
