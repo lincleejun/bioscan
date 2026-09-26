@@ -49,7 +49,7 @@ def test_score_exports_json_csv_html_and_reads_its_own_ndjson_back(tmp_path, mon
     rc = main(["aesthetic", "score", str(d), "--export", "json,csv,html", "--out", str(out), "--thumb-edge", "640"])
     assert rc == 1                                                       # one photo failed
     body = sent["payload"]
-    assert body["want"][-1] == "jpg" and body["options"]["jpg"] == {"out_dir": str(out.parent / "aes-files")}
+    assert body["want"][-1] == "jpg" and body["options"]["jpg"] == {"out_dir": str(out.parent / "aes-files"), "edge": 3072}
     assert "aesthetics" in body["want"] and len(body["inputs"]) == 6
 
     with open(f"{out}.csv") as f:
@@ -60,7 +60,8 @@ def test_score_exports_json_csv_html_and_reads_its_own_ndjson_back(tmp_path, mon
     assert rows[0]["scene"] == "landscape" and rows[0]["rank"] == "1" and rows[2]["scene"] == "coast (landscape)"
 
     page = (out.parent / "aes.html").read_text()
-    assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "5★ ≥ 0.900" in page
+    assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "const CUTS=[0.9, 0.7, 0.6, 0.5]" in page
+    assert f'"p":"{d / "e.jpg"}"' in page and f'const ROOT="{d}"' in page                # marks and export need the path
     text = capsys.readouterr().out
     assert "7 photos: 5 scored, 1 without a score, 1 failed" in text and "note: no head" in text
     assert f"-> {out}.ndjson" in text and f"-> {out}.html" in text
@@ -71,14 +72,48 @@ def test_score_exports_json_csv_html_and_reads_its_own_ndjson_back(tmp_path, mon
     assert rc == 1 and (tmp_path / "again.html").exists() and not (tmp_path / "again.csv").exists()
 
 
-def test_shrink_downscales_the_jpg_copies_in_place(tmp_path):
+def test_shrink_writes_a_thumbnail_next_to_the_copy_and_keeps_the_copy(tmp_path):
     from PIL import Image
     p = tmp_path / "a-0.jpg"
     Image.new("RGB", (400, 300)).save(p)
     ev = result("/x/a.ARW", 0.0)
     ev["products"]["jpg"] = {"path": str(p), "width": 400, "height": 300}
-    assert sc.shrink([ev], 100) == 1 and Image.open(p).size == (100, 75) and ev["products"]["jpg"]["width"] == 100
-    assert sc.shrink([ev], 100) == 0                                     # already small: untouched
+    assert sc.shrink([ev], 100) == 1 and Image.open(p).size == (400, 300)
+    assert sc.thumb_of(str(p)) == str(tmp_path / "a-0-t.jpg") and Image.open(tmp_path / "a-0-t.jpg").size == (100, 75)
+    assert sc.shrink([ev], 100) == 0                                     # thumbnail there: untouched
+    assert sc.shrink([ev], 400) == 0                                     # copy not larger than the edge: none needed
+    # the page shows the thumbnail in the grid and the copy in the lightbox; a jpg original shows itself
+    rows = [{"path": "/x/a.ARW", "jpg": str(p), "score": 0.5, "stars": 3, "scene": None, "reject_reasons": [],
+             "species": None, "common": None, "level": None, "lineage": []},
+            {"path": str(tmp_path / "b.jpg"), "jpg": None, "score": None, "stars": None, "scene": "landscape",
+             "reject_reasons": ["dark"], "species": "Buteo", "common": None, "level": "genus", "lineage": ["Aves", "Buteo"]}]
+    a, b = sc.page_rows(rows, tmp_path, "/x")
+    assert a["t"] == "a-0-t.jpg" and a["l"] == "a-0.jpg" and "o" not in a and a["tx"] == [] and a["p"] == "/x/a.ARW"
+    assert b["t"] == "b.jpg" and "l" not in b and "o" not in b and b["tx"] == ["Aves", "Buteo"] and "s" not in b
+
+
+def test_apply_copies_keeps_and_moves_drops_with_sidecars(tmp_path, capsys):
+    src = tmp_path / "card"
+    src.mkdir()
+    for n in ("a.ARW", "a.xmp", "b.ARW", "c.ARW"):
+        (src / n).write_bytes(b"x")
+    dec = tmp_path / "bioscan-decisions.json"
+    dec.write_text(json.dumps({"schema": 1, "keep": [str(src / "a.ARW"), str(src / "gone.ARW")],
+                               "drop": [str(src / "b.ARW")], "merge": {}}))
+    with pytest.raises(SystemExit, match="--keep-to"):
+        main(["aesthetic", "apply", str(dec)])
+    assert main(["aesthetic", "apply", str(dec), "--keep-to", str(tmp_path / "keep"), "--drop-to", str(tmp_path / "drop"),
+                 "--dry-run"]) == 1                                                       # gone.ARW is missing
+    assert not (tmp_path / "keep").exists() and (src / "b.ARW").exists()
+    out = capsys.readouterr()
+    assert "keep: 1 of 2 copied to" in out.out and "(dry run)" in out.out and "missing:" in out.err
+    assert main(["aesthetic", "apply", str(dec), "--keep-to", str(tmp_path / "keep"), "--drop-to", str(tmp_path / "drop")]) == 1
+    assert sorted(x.name for x in (tmp_path / "keep").iterdir()) == ["a.ARW", "a.xmp"] and (src / "a.ARW").exists()
+    assert [x.name for x in (tmp_path / "drop").iterdir()] == ["b.ARW"] and not (src / "b.ARW").exists()
+    assert (src / "c.ARW").exists()                                                       # unmarked: untouched
+    # a second run finds the keep already there and skips it, the drop already moved (missing)
+    assert main(["aesthetic", "apply", str(dec), "--keep-to", str(tmp_path / "keep"), "--drop-to", str(tmp_path / "drop")]) == 1
+    assert "already at" in capsys.readouterr().err and (tmp_path / "keep" / "a.ARW").read_bytes() == b"x"
 
 
 def test_export_spec_and_arguments_are_checked(tmp_path):
@@ -148,7 +183,7 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
     assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "a caribou", "genus"),
                                                                         ("Rangifer tarandus", "Caribou", "species")]
     page = (tmp_path / "aes.html").read_text()
-    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and '<option value="Rangifer">a caribou — Rangifer</option>' in page
+    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and '"sp":"Rangifer"' in page
     # without --species the request keeps the album profile's species=false and the columns stay empty
     assert main(["aesthetic", "score", str(d), "--export", "csv", "--out", str(out)]) == 0
     assert sent["payload"]["options"]["identify"]["species"] is False

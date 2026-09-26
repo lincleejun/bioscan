@@ -24,7 +24,7 @@ def test_builtin_plan_is_todays_order_and_models():
     off = plugin.plan(["identify"], plugin.merge_options({"identify": {"species": False}}))
     assert off.models == ("owlv2", "siglip2")
     jpg = plugin.plan(["jpg"], plugin.merge_options(None))
-    assert jpg.models == () and not jpg.frame and not jpg.detail
+    assert jpg.models == () and not jpg.frame and jpg.detail       # the copy may come from the detail image
 
 
 def test_providers_run_before_readers_whatever_their_names():

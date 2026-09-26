@@ -60,9 +60,6 @@ def test_species_genus_and_family_rows_carry_english_names(tmp_path):
                    "vireo.jpg": ("Vireo", "a vireo", "genus"),
                    "hawk.jpg": ("Accipitridae", "a hawk or eagle", "family")}
     page = (tmp_path / "aes.html").read_text()
-    for opt in ('<option value="Spinus psaltria">Lesser Goldfinch — Spinus psaltria</option>',
-                '<option value="Vireo">a vireo — Vireo</option>',
-                '<option value="Accipitridae">a hawk or eagle — Accipitridae</option>'):
-        assert opt in page
-    data = json.loads(page.split("const DATA=", 1)[1].split(";const DIRS", 1)[0])
+    # the page's taxon tree and cards read the English name from DATA (no species <select> since the redesign)
+    data = json.loads(page.split("const DATA=", 1)[1].split(";const ROOT", 1)[0])
     assert {(d["sp"], d["cn"], d["lv"]) for d in data} == set(got.values())
