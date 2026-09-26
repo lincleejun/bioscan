@@ -90,7 +90,7 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
         bxs = contract.boxes_of(ident)
         if gate in ANIMALS and not bxs:
             review.append({**where, "box": None, "kind": gate, "level": None, "reasons": ["gate_no_box"],
-                           "suggested": None, "top": []})
+                           "suggested": None, "common": None, "top": []})
         for b in bxs:
             boxes_by_kind[b["kind"]] = boxes_by_kind.get(b["kind"], 0) + 1
             if "species" not in b:                  # species off: nothing to name, nothing to review
@@ -107,7 +107,8 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
             if top and top[0].get("p_geo") is not None and top[0]["p_geo"] < RANGE_EPS:
                 reasons.append("out_of_range")
             item = {**where, "box": b["id"], "kind": b["kind"], "level": level, "reasons": reasons,
-                    "suggested": name or (top[0]["scientific"] if top else None), "top": top[:TOP]}
+                    "suggested": name or (top[0]["scientific"] if top else None), "common": common_of(sp),
+                    "top": top[:TOP]}
             if name:
                 p = top[0]["posterior"]
                 t = taxa.setdefault(name, {
@@ -227,7 +228,8 @@ def render(s: dict[str, Any], path: str) -> None:
     for r in s["review"]:
         groups.setdefault(r["suggested"], []).append(r)
     for name, items in groups.items():
-        parts.append(f'<h3>{_label(name)} <span class="muted">{len(items)}</span></h3><div class="grid">')
+        common = next((r.get("common") for r in items if r.get("common")), None)
+        parts.append(f'<h3>{_label(name, common, items[0]["level"])} <span class="muted">{len(items)}</span></h3><div class="grid">')
         for r in items:
             box = "frame" if r["box"] is None else f'box {r["box"]}'
             cap = (f'{E(Path(r["path"]).name)} · {box} · {E(r["kind"])} · {E(r["level"] or "no level")}<br>'
