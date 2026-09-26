@@ -10,8 +10,10 @@
   species BirdNET keeps apart, so one row may carry several labels joined by geo.LABEL_SEP; the
   location prior takes their max.
 
-    uv run python scripts/build_name_map.py
-    uv run python scripts/build_name_map.py --list mammal --mdd-synonyms MDD/Species_Syn_Current_v2.5.csv
+    uv run python scripts/build_name_map.py --force
+    uv run python scripts/build_name_map.py --list mammal --mdd-synonyms MDD/Species_Syn_Current_v2.5.csv --force
+
+An existing map is never overwritten without `--force` (exit 2 before any model loads, nothing written).
 
 Labels default to the BirdNET geo model the service loads (geo.GEO_MODEL); `--labels FILE` (one
 "Scientific_Common" label per line, the model's order) builds without it. Mammal labels need the
@@ -150,6 +152,14 @@ def mammal_labels_of(labels: list[str], taxonomy_csv: Path) -> list[str]:
     return [lab for lab in labels if lab.split("_", 1)[0] in mammals]
 
 
+def refuse_overwrite(paths, force: bool):
+    """Exit 2, writing nothing, when a target exists and --force was not given."""
+    for p in paths:
+        if Path(p).exists() and not force:
+            print(f"{p} exists; pass --force to overwrite it", file=sys.stderr)
+            raise SystemExit(2)
+
+
 def write(path: Path, cols, rows):
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, cols, lineterminator="\n")
@@ -204,7 +214,10 @@ def main(argv=None):
     p.add_argument("--mdd", help="MDD species CSV (default: the one under data/mdd)")
     p.add_argument("--mdd-synonyms", help="MDD Species_Syn_Current_*.csv (mammals)")
     p.add_argument("--birdnet-taxonomy", default=str(BIRDNET_TAXONOMY), help="BirdNET taxonomy CSV (mammals)")
+    p.add_argument("--force", action="store_true", help="overwrite the committed map(s)")
     a = p.parse_args(argv)
+    refuse_overwrite([OUT / names.LISTS["mammal"].label_map] if a.list == "mammal"
+                     else [OUT / "avilist_map.csv", OUT / "candidates.csv"], a.force)
     (main_mammals if a.list == "mammal" else main_birds)(a)
 
 
