@@ -343,3 +343,21 @@ def test_build_mdd_map_exact_synonym_lump_and_review():
     assert "lump: Cebus albifrons <- Cebus versicolor_V, Cebus yuracus_Y" in report
     with pytest.raises(SystemExit, match="REVIEWED"):
         bnm.build_mdd(rows, labels, index, reviewed={})      # lutreolus -> lutreola or fuscipes: a human decides
+
+
+def test_build_name_map_refuses_to_overwrite_without_force(tmp_path, monkeypatch, capsys):
+    """An existing map stops the run before any model loads (exit 2, file untouched); --force passes."""
+    import pytest
+
+    bnm = _build_name_map()
+    target = tmp_path / "avilist_map.csv"
+    target.write_text("committed\n")
+    before = target.stat().st_mtime_ns
+    monkeypatch.setattr(bnm, "OUT", tmp_path)
+    monkeypatch.setattr(bnm, "main_birds", lambda a: pytest.fail("ran past the guard"))
+    with pytest.raises(SystemExit) as e:
+        bnm.main([])
+    assert e.value.code == 2 and str(target) in capsys.readouterr().err
+    assert target.read_text() == "committed\n" and target.stat().st_mtime_ns == before
+    bnm.refuse_overwrite([target], force=True)                   # --force: the guard lets it through
+    bnm.refuse_overwrite([tmp_path / "absent.csv"], force=False)  # nothing to overwrite

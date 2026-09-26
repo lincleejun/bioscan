@@ -96,8 +96,8 @@ uv run python -c "from bioscan import aesthetic as a; h = a.load_head(a.BUILTIN_
 **Mac** (MPS; weights already in ~/.cache/huggingface from tests/models/download.py):
 
 ```sh
-uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva
-# -> data/aesthetic/eva-head-v1.json; ~700 MB download once, vectors cached in ~/.cache/bioscan/eva/embeddings.ndjson
+uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva --force
+# -> data/aesthetic/eva-head-v1.json (refuses to overwrite the committed file without --force); ~700 MB download once, vectors cached in ~/.cache/bioscan/eva/embeddings.ndjson
 ```
 
 or, with the service running (`bioscan serve`), through its `embed` product:
