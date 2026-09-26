@@ -104,7 +104,8 @@ or, with the service running (`bioscan serve`), through its `embed` product:
 
 ```sh
 uv run python scripts/train_aesthetic_head.py --download-only --eva-dir ~/.cache/bioscan/eva
-uv run bioscan aesthetic train --eva ~/.cache/bioscan/eva --embeddings ~/.cache/bioscan/eva/served.ndjson
+uv run bioscan aesthetic train --eva ~/.cache/bioscan/eva --embeddings ~/.cache/bioscan/eva/served.ndjson --force
+# --force: the committed head exists; without it the command refuses (exit 2) before embedding
 ```
 
 Before committing the head: check the CV SRCC in its provenance (a generic head on EVA should rank
