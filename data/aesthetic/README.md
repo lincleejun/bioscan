@@ -96,15 +96,16 @@ uv run python -c "from bioscan import aesthetic as a; h = a.load_head(a.BUILTIN_
 **Mac** (MPS; weights already in ~/.cache/huggingface from tests/models/download.py):
 
 ```sh
-uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva
-# -> data/aesthetic/eva-head-v1.json; ~700 MB download once, vectors cached in ~/.cache/bioscan/eva/embeddings.ndjson
+uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva --force
+# -> data/aesthetic/eva-head-v1.json (refuses to overwrite the committed file without --force); ~700 MB download once, vectors cached in ~/.cache/bioscan/eva/embeddings.ndjson
 ```
 
 or, with the service running (`bioscan serve`), through its `embed` product:
 
 ```sh
 uv run python scripts/train_aesthetic_head.py --download-only --eva-dir ~/.cache/bioscan/eva
-uv run bioscan aesthetic train --eva ~/.cache/bioscan/eva --embeddings ~/.cache/bioscan/eva/served.ndjson
+uv run bioscan aesthetic train --eva ~/.cache/bioscan/eva --embeddings ~/.cache/bioscan/eva/served.ndjson --force
+# --force: the committed head exists; without it the command refuses (exit 2) before embedding
 ```
 
 Before committing the head: check the CV SRCC in its provenance (a generic head on EVA should rank

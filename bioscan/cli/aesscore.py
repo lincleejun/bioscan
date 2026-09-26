@@ -16,7 +16,8 @@ browser-readable originals and marks the rest.
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
 and reject reasons come from the album profile's scene and quality stages. `--species` turns the
 profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
-genus or family, as `bioscan summarize` counts it) and the page groups and filters by it. The page
+genus or family, as `bioscan summarize` counts it) with an English name beside it (`rp.common_of`: the common name, or
+"a vireo" / "a hawk or eagle" above species), and the page groups and filters by it. The page
 keeps its marks in the browser and exports them as `bioscan-decisions.json`; `bioscan aesthetic apply`
 copies the keeps to a folder and/or moves the drops to another (with their XMP sidecars). Nothing is
 ever deleted. Standard library only, like the rest of the CLI."""
@@ -30,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from bioscan import contract, cull, formats, xmp
+from bioscan import aesthetic, contract, cull, formats, xmp
 from bioscan.cli import cull as cc
 from bioscan.cli import report as rp
 from bioscan.cli.aespage import page_rows, thumb_of, write_html  # noqa: F401  (page_rows: tests)
@@ -109,7 +110,7 @@ def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[
             top = contract.top_of(sp)[0]
             if best is None or top["posterior"] > best[0]:
                 lineage = [*(top.get("taxonomy") or [])[2:rp.LEVEL_RANK[level]], name]
-                best = (top["posterior"], name, top.get("common") if level == "species" else None, level, lineage)
+                best = (top["posterior"], name, rp.common_of(sp), level, lineage)
     return best[1:] if best else (None, None, None, [])
 
 
@@ -124,24 +125,23 @@ def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         s = a.get("score")
         score = float(s) if isinstance(s, (int, float)) and not isinstance(s, bool) and s == s else None
         species, common, level, lineage = named(ev)
-        rows.append({"path": ev["path"], "score": score, "scene": sc.get("label"),
+        scene = f"{sc['label']} ({sc['group']})" if sc.get("group") not in (None, sc.get("label")) else sc.get("label")
+        rows.append({"path": ev["path"], "score": score, "scene": scene,
                      "species": species, "common": common, "level": level, "lineage": lineage,
                      "reject_reasons": list(q.get("reject_reasons") or []),
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})
     rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["path"]))
-    n = sum(r["score"] is not None for r in rows)
+    stars = iter(aesthetic.quintile_stars([r["score"] for r in rows if r["score"] is not None])[0])
     for i, r in enumerate(rows):
         r["rank"] = i + 1
-        r["stars"] = 5 - int(5 * i / n) if r["score"] is not None and n else None
+        r["stars"] = next(stars) if r["score"] is not None else None
     return rows
 
 
 def cuts(rows: list[dict[str, Any]]) -> list[float]:
     """The lowest score of stars 5, 4, 3, 2 (the quintile boundaries)."""
-    scored = [r["score"] for r in rows if r["score"] is not None]
-    n = len(scored)
-    return [scored[int(n * k / 5) - 1] for k in range(1, 5)] if n >= 5 else []
+    return aesthetic.quintile_stars([r["score"] for r in rows if r["score"] is not None])[1]
 
 
 def write_csv(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: str) -> None:

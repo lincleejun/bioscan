@@ -23,9 +23,11 @@ def photos(tmp_path, names=("a.jpg", "b.jpg", "c.ARW", "d.jpg", "e.jpg", "f.jpg"
 def stream(d, out):
     """Six results (one without a score, one reject) and a failed decode."""
     evs = [result(str(d / "a.jpg"), 0.0), result(str(d / "b.jpg"), 0.3), result(str(d / "c.ARW"), 30.0, reasons=["soft_subject"]),
-           result(str(d / "d.jpg"), 60.0, label="landscape"), result(str(d / "e.jpg"), 90.0), result(str(d / "f.jpg"), 120.0),
+           result(str(d / "d.jpg"), 60.0, label="landscape"), result(str(d / "e.jpg"), 90.0), result(str(d / "f.jpg"), 120.0,
+                                                                                                  label="coast"),
            {"type": "error", "path": str(d / "g.jpg"), "product": None, "message": "decode: broken"},
            {"type": "done", "schema": 1, "ok": 6, "failed": 1, "elapsed_ms": 1.0}]
+    evs[5]["products"]["scene"]["group"] = "landscape"                  # a taxonomy scene: label with its group
     for ev, s in zip(evs, (0.7, 0.4, 0.5, 0.9, None, 0.6)):
         ev["products"]["aesthetics"] = {"score": s, "general": s, "personal": None, "head_id": "h"} if s is not None \
             else {"score": None, "general": None, "personal": None, "head_id": None, "note": "no head"}
@@ -55,7 +57,7 @@ def test_score_exports_json_csv_html_and_reads_its_own_ndjson_back(tmp_path, mon
     assert [r["path"].rsplit("/", 1)[1] for r in rows] == ["d.jpg", "a.jpg", "f.jpg", "c.ARW", "b.jpg", "e.jpg", "g.jpg"]
     assert [r["stars"] for r in rows[:5]] == ["5", "4", "3", "2", "1"] and rows[5]["stars"] == "" == rows[5]["score"]
     assert rows[3]["reject_reasons"] == "soft_subject" and rows[6]["reject_reasons"].startswith("failed:")
-    assert rows[0]["scene"] == "landscape" and rows[0]["rank"] == "1"
+    assert rows[0]["scene"] == "landscape" and rows[0]["rank"] == "1" and rows[2]["scene"] == "coast (landscape)"
 
     page = (out.parent / "aes.html").read_text()
     assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "const CUTS=[0.9, 0.7, 0.6, 0.5]" in page
@@ -136,6 +138,17 @@ def test_rows_rank_missing_scores_last_and_stars_are_quintiles():
     assert sc.cuts(rows) == [0.8, 0.6, 0.4, 0.2]
 
 
+def test_legend_cuts_are_the_lowest_score_of_each_star():
+    # #51: 7 scores, n not a multiple of 5; the legend must match the cards
+    evs = [result(f"/p/{i}.jpg", 0.0) for i in range(7)]
+    for i, ev in enumerate(evs):
+        ev["products"]["aesthetics"] = {"score": (4 + i) / 10}
+    rows = sc.rows_of(evs)
+    assert [r["stars"] for r in rows] == [5, 5, 4, 3, 3, 2, 1]
+    lowest = [min(r["score"] for r in rows if r["stars"] == k) for k in (5, 4, 3, 2)]
+    assert sc.cuts(rows) == lowest == [0.9, 0.8, 0.6, 0.5]
+
+
 def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
     d = photos(tmp_path, ("a.jpg", "b.jpg"))
@@ -148,7 +161,7 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
            {"type": "done", "schema": 1, "ok": 2, "failed": 0, "elapsed_ms": 1.0}]
     evs[0]["products"]["aesthetics"] = {"score": 0.6}
     evs[1]["products"]["aesthetics"] = {"score": 0.8}
-    # two boxes: the surer one names the photo; a genus-level box shows its genus, no common name
+    # two boxes: the surer one names the photo; a genus-level box shows its genus and an English word for it
     evs[0]["products"]["identify"] = {"gate": {"class": "mammal"}, "boxes": [
         {"id": 0, "kind": "mammal", "species": {"list": "mdd", "level": "species",
                                                 "top": [cand("Rangifer tarandus", "Caribou", 0.9)]}},
@@ -167,7 +180,7 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
     assert sent["payload"]["options"]["identify"]["species"] is True
     with open(f"{out}.csv") as f:
         rows = list(csv.DictReader(f))
-    assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "", "genus"),
+    assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "a caribou", "genus"),
                                                                         ("Rangifer tarandus", "Caribou", "species")]
     page = (tmp_path / "aes.html").read_text()
     assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and '"sp":"Rangifer"' in page

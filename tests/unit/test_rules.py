@@ -30,6 +30,19 @@ def test_species_level(cands, level):
     assert rules.species_level(cands) == level
 
 
+@pytest.mark.parametrize("family,level", [
+    ("", "unconfirmed"),         # the list leaves family empty: no rollup under ""
+    ("Colubridae", "family"),    # a shared named family still rolls up
+])
+def test_species_level_family_rollup_needs_a_name(family, level):
+    cands = [cand(0.2, g, family) for g in "ABCDE"]  # five genera, 1.0 total
+    assert rules.species_level(cands) == level
+
+
+def test_species_level_empty_family_keeps_genus_rollup():
+    assert rules.species_level([cand(0.35, "A", "", "x"), cand(0.3, "A", "", "y")]) == "genus"
+
+
 def test_judge():
     g = lambda **kw: {**dict.fromkeys(siglip2.GATE_CLASSES, 0.0), **kw}  # noqa: E731
     assert rules.judge("bird", g(none=0.9)) is None

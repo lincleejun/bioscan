@@ -128,6 +128,36 @@ def test_train_needs_one_source_and_enough_vectors(service, tmp_path):
               "--out", str(tmp_path / "h.json")])
 
 
+def test_train_eva_refuses_to_overwrite_a_head_without_force(tmp_path, monkeypatch, capsys):
+    class Embedded(Exception):
+        pass
+
+    def embed(*_):
+        raise Embedded
+    monkeypatch.setattr(aes, "read_eva", lambda root: [("/e.jpg", 5.0, 1)])
+    monkeypatch.setattr(aesbench, "embed_paths", embed)
+    head = tmp_path / "eva-head-v1.json"
+    head.write_text("committed")
+    before = head.stat().st_mtime_ns
+    with pytest.raises(SystemExit) as e:
+        main(["aesthetic", "train", "--eva", str(tmp_path), "--out", str(head)])
+    assert e.value.code == 2 and f"{head} exists; pass --force" in capsys.readouterr().err
+    assert head.read_text() == "committed" and head.stat().st_mtime_ns == before
+    with pytest.raises(Embedded):                                         # --force passes the guard
+        main(["aesthetic", "train", "--eva", str(tmp_path), "--out", str(head), "--force"])
+
+
+def test_train_ratings_overwrites_the_personal_head_without_force(service, tmp_path, monkeypatch):
+    table, _ = service
+    rows, vecs = planted(4, 20)
+    table.update(vecs)
+    monkeypatch.setattr(aes, "BUILTIN_HEAD", tmp_path / "absent.json")
+    out = tmp_path / "me.json"
+    out.write_text("old")
+    assert main(["aesthetic", "train", "--ratings", ratings_csv(tmp_path, rows), "--out", str(out)]) == 0
+    assert aes.load_head(out).provenance["n"] == len(rows)
+
+
 def test_eval_report_and_scorecard(service, tmp_path, capsys, monkeypatch):
     table, _ = service
     rows, vecs = planted(6, 60, seed=3)
@@ -246,7 +276,7 @@ def test_train_script_end_to_end_on_a_fake_engine(tmp_path, monkeypatch, capsys)
     assert "EVA n 60" in text and "CV SRCC" in text
     # a rerun reads every vector from the cache: no engine is built
     n = len(FakeFrameEngine.instances)
-    assert script.main(["--eva-dir", str(eva), "--out", str(out)]) == 0
+    assert script.main(["--eva-dir", str(eva), "--out", str(out), "--force"]) == 0
     assert len(FakeFrameEngine.instances) == n
     assert math.isfinite(head.bias)
 
@@ -294,3 +324,21 @@ def test_train_script_download_joins_and_unzips_the_parts(tmp_path, monkeypatch)
     fetched.clear()
     script.download(root)
     assert fetched == []                                                         # nothing fetched again
+
+
+def test_train_script_refuses_to_overwrite_the_head_without_force(tmp_path, capsys):
+    """An existing --out stops the run before download/embedding (exit 2, file untouched); --force passes."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import train_aesthetic_head as script
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+    out = tmp_path / "eva-head-v1.json"
+    out.write_text("{}")
+    before = out.stat().st_mtime_ns
+    with pytest.raises(SystemExit) as e:
+        script.main(["--eva-dir", str(tmp_path / "missing"), "--out", str(out)])
+    assert e.value.code == 2 and str(out) in capsys.readouterr().err
+    assert out.read_text() == "{}" and out.stat().st_mtime_ns == before
+    script.refuse_overwrite(out, force=True)                      # --force: the guard lets it through
+    script.refuse_overwrite(tmp_path / "absent.json", force=False)

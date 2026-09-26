@@ -93,8 +93,8 @@ def judge(kind: str, crop_gate: dict[str, float]) -> str | None:
 
 
 def species_level(cands: list[dict[str, Any]], species_ok: bool = True) -> str:
-    """species when top-1 is clear (and `species_ok`), else the genus or family the top-5 agree on,
-    else unconfirmed."""
+    """species when top-1 is clear (and `species_ok`), else the genus or family the top-5 agree on
+    (a rank the list leaves empty never counts), else unconfirmed."""
     if not cands:
         return "unconfirmed"
     ordered = sorted(cands, key=lambda c: -c["posterior"])
@@ -107,9 +107,11 @@ def species_level(cands: list[dict[str, Any]], species_ok: bool = True) -> str:
     for c in ordered[:5]:
         genus[c["taxonomy"][5]] += c["posterior"]
         family[c["taxonomy"][4]] += c["posterior"]
-    if max(genus.values()) >= ROLLUP:
+    genus.pop("", None)
+    family.pop("", None)
+    if max(genus.values(), default=0.0) >= ROLLUP:
         return "genus"
-    if max(family.values()) >= ROLLUP:
+    if max(family.values(), default=0.0) >= ROLLUP:
         return "family"
     return "unconfirmed"
 

@@ -113,6 +113,36 @@ def test_xmp_sidecars_for_picks_and_rejects_never_over_an_existing_one(tmp_path,
     assert "xmp: 0 sidecars written, 2 left alone (a sidecar exists), 1 photos not found" in capsys.readouterr().out
 
 
+def test_xmp_packet_records_the_stars_cull_wrote():
+    stars = {s: aesthetic._xmp_value(ET.fromstring(cc.xmp_packet({"status": s, "reasons": ["blur"]})
+                                                   .split("?>", 1)[1].rsplit("<?xpacket", 1)[0]), "bioscan", "stars")
+             for s in ("pick", "spare", "reject")}
+    assert stars == {"pick": "3", "spare": "2", "reject": "0"}
+    assert cc.xmp_packet({"status": "duplicate", "reasons": []}) is None
+
+
+def rerated(status, rating):
+    """A cull sidecar the owner re-rated in an editor that keeps the bioscan properties."""
+    text = cc.xmp_packet({"status": status, "reasons": ["blur"]})
+    if 'xmp:Rating="' in text:
+        return text.replace(f'xmp:Rating="{cc.XMP_STARS[status]}"', f'xmp:Rating="{rating}"')
+    return text.replace('xmp:Label=', f'xmp:Rating="{rating}" xmp:Label=')
+
+
+def test_parse_xmp_skips_a_cull_sidecar_only_while_it_keeps_culls_stars():
+    for status in ("pick", "spare", "reject"):                     # unchanged: cull's stars, not the owner's
+        assert aesthetic.parse_xmp(cc.xmp_packet({"status": status, "reasons": ["blur"]})) is None
+    assert aesthetic.parse_xmp(rerated("pick", 3)) is None
+    assert aesthetic.parse_xmp(rerated("reject", 0)) is None         # an explicit 0 is still "no stars"
+    assert aesthetic.parse_xmp(rerated("pick", 4)) == {"rating": 4.0, "pick": 0, "label": ""}
+    assert aesthetic.parse_xmp(rerated("spare", 5))["rating"] == 5.0
+    assert aesthetic.parse_xmp(rerated("reject", 4)) == {"rating": 4.0, "pick": 0, "label": "Red"}
+    assert aesthetic.parse_xmp(rerated("reject", -1)) == {"rating": aesthetic.REJECT_GRADE, "pick": -1, "label": "Red"}
+    old = cc.xmp_packet({"status": "pick", "reasons": []}).replace('bioscan:stars="3"', "")
+    assert "bioscan:stars" not in old
+    assert aesthetic.parse_xmp(old.replace('xmp:Rating="3"', 'xmp:Rating="5"')) is None   # before bioscan:stars: skipped whole
+
+
 def test_link_name_clash_gets_a_suffix(tmp_path):
     (tmp_path / "x").mkdir()
     (tmp_path / "y").mkdir()

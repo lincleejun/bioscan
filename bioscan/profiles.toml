@@ -29,3 +29,93 @@ reducers = ["burst", "select"]
 
 [profile.album.options.identify]
 species = false
+
+# The scene taxonomy (docs/research/2026-09-24-scene-taxonomy.md §3.2): 8 groups of 40 fine labels,
+# three attributes; select buckets by group.
+[profile.album.options.scene]
+wildlife_gate = ["bird", "mammal", "other_animal"]
+
+[profile.album.options.scene.groups]
+wildlife     = ["bird_portrait", "bird_flight", "bird_habitat", "mammal_portrait", "mammal_habitat", "other_animal", "herd_flock", "domestic"]
+landscape    = ["mountain", "coast", "freshwater", "forest", "grassland", "desert", "snow_ice", "sky"]
+night        = ["astro", "aurora", "moon", "city_lights"]
+people       = ["portrait", "group", "street", "event", "sport"]
+macro        = ["flower", "plant", "fungi", "insect_macro"]
+architecture = ["building", "interior", "cityscape", "monument", "rural"]
+food         = ["food_drink"]
+other        = ["utility", "abstract", "vehicle", "still_life", "art"]
+
+[profile.album.options.scene.labels]
+# wildlife: the group's share comes from the gate; within it wildlife_rules first, these prompts where no rule applies
+bird_portrait   = ["a close-up photo of a bird perched", "a frame-filling portrait of a bird", "a bird on a branch, sharp eye"]
+bird_flight     = ["a bird flying with wings spread", "a bird in flight against the sky", "a raptor soaring"]
+bird_habitat    = ["a small bird in a wide natural scene", "a bird far away in its habitat", "a wetland with a distant bird"]
+mammal_portrait = ["a close-up photo of a wild mammal", "a deer or a fox looking at the camera", "a frame-filling wild animal"]
+mammal_habitat  = ["a wild mammal small in a wide landscape", "an animal far away on a hillside", "an elk in a meadow at distance"]
+other_animal    = ["a photo of a reptile or an amphibian", "a lizard, a snake, a frog or a turtle", "a fish or a marine animal"]
+herd_flock      = ["a large flock of birds", "a herd of animals", "many animals together in one frame"]
+domestic        = ["a pet dog or a cat", "farm animals, cows, sheep or horses", "a domestic animal"]
+# landscape
+mountain    = ["a photo of mountains and peaks", "an alpine valley", "a mountain ridge with clouds"]
+coast       = ["a photo of the sea and a beach", "ocean waves on rocks", "a coastline with cliffs"]
+freshwater  = ["a lake with reflections", "a river or a stream", "a waterfall"]
+forest      = ["a photo of a forest", "trees in a woodland", "a path through the woods"]
+grassland   = ["a wide meadow or prairie", "rolling green fields", "a savanna or grassland"]
+desert      = ["a desert with sand dunes", "a canyon of red rock", "a dry arid landscape"]
+snow_ice    = ["a snow-covered landscape", "a glacier or an iceberg", "a frozen winter scene"]
+sky         = ["a colourful sunset or sunrise sky", "dramatic storm clouds", "a rainbow over a landscape"]
+# night
+astro       = ["the milky way over a landscape", "a night sky full of stars", "astrophotography, star trails"]
+aurora      = ["the northern lights, aurora borealis", "green aurora curtains in the night sky"]
+moon        = ["a photo of the moon", "a full moon over a landscape", "a lunar eclipse"]
+city_lights = ["city lights at night", "a night street with neon signs", "a skyline after dark, long exposure"]
+# people
+portrait    = ["a portrait of one person", "a headshot with a blurred background", "a person looking at the camera"]
+group       = ["a group of people posing", "a family photo", "friends together at a table"]
+street      = ["a candid street photo with people", "people walking in a city street", "a busy market with people"]
+event       = ["a wedding ceremony", "a party or a celebration", "a concert or a stage performance"]
+sport       = ["an athlete in action", "a sports game in a stadium", "people running, cycling or climbing"]
+# macro
+flower       = ["a close-up photo of a flower", "a blossom with petals filling the frame", "wildflowers, macro"]
+plant        = ["a close-up of leaves or a plant", "moss, ferns or bark detail", "a tree in blossom"]
+fungi        = ["a mushroom on the forest floor", "fungi growing on a log", "toadstools, macro"]
+insect_macro = ["a macro photo of an insect", "a butterfly or a bee on a flower", "a dragonfly, close-up"]
+# architecture
+building  = ["a photo of a building exterior", "modern architecture, glass and steel", "a house or a church facade"]
+interior  = ["an indoor photo of a room", "the interior of a building", "a hall with columns and arches"]
+cityscape = ["a city skyline", "an urban scene with many buildings", "a view over rooftops"]
+monument  = ["a historic monument or a landmark", "ancient ruins", "a castle or a temple"]
+rural     = ["a farm with a barn", "a village in the countryside", "a rural road with fences"]
+# food
+food_drink = ["a photo of food on a plate", "a meal at a restaurant", "a cup of coffee or a glass of wine"]
+# other (vehicle, still_life and art are in the other group)
+vehicle    = ["a photo of a car", "a train, a boat or an aircraft", "a motorbike or a bicycle"]
+still_life = ["a still life of objects on a table", "a product photo of an object", "an arrangement of everyday items"]
+art        = ["a painting or a mural", "a sculpture or a statue", "graffiti on a wall"]
+utility  = ["a screenshot or a document", "a receipt, a whiteboard or a sign with text", "a scan of a page"]
+abstract = ["an abstract photo of textures and patterns", "blurred colours and shapes", "a minimalist abstract composition"]
+
+[profile.album.options.scene.wildlife_rules]
+portrait_area = 0.08     # best box area >= this share of the frame -> *_portrait, else *_habitat
+flock_boxes   = 4        # this many boxes or more -> herd_flock
+
+[profile.album.options.scene.attributes.light]
+day         = ["a photo taken in daylight", "bright midday light"]
+golden_hour = ["warm low sunlight at golden hour", "long shadows at sunset light"]
+blue_hour   = ["blue hour twilight", "dusk, just after sunset"]
+night       = ["a photo taken at night", "a dark scene lit by artificial light"]
+
+[profile.album.options.scene.attributes.setting]
+outdoor    = ["an outdoor photo", "a scene in open air"]
+indoor     = ["an indoor photo", "inside a building"]
+underwater = ["an underwater photo", "a diver's view under the sea"]
+
+[profile.album.options.scene.attributes.framing]
+close_up = ["a close-up, the subject fills the frame", "a macro or a tight portrait"]
+medium   = ["a medium shot with some surroundings", "the subject and its environment"]
+wide     = ["a wide shot of a whole scene", "a wide-angle landscape"]
+aerial   = ["an aerial photo from a drone", "a top-down view from above"]
+
+[profile.album.options.select]
+by = "group"                              # bucket by scene group (default) or "label"
+waive = { night = ["underexposed"] }   # keys: a group, a label or attribute=value; "light=night" is off: a -2 EV day photo reads as night (CI 2026-09-26)

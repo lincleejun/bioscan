@@ -19,6 +19,9 @@
 Runtime (estimate, unmeasured): download 1-3 min; 4,070 images through SigLIP2 base/224 on a 4-core
 CI runner ~0.1-0.2 s each (7-14 min); on an M-series Mac with MPS 1-3 min; the fit takes seconds.
 
+An existing `--out` (by default the committed head) is never overwritten without `--force` (exit 2
+before any download or embedding, nothing written); `--download-only` writes no head and is not checked.
+
 The same fit through a running service instead: `bioscan aesthetic train --eva EVA_DIR`.
 """
 from __future__ import annotations
@@ -122,6 +125,13 @@ def embed(paths: list[str], cache: Path | None, device: str | None) -> dict[str,
     return vecs
 
 
+def refuse_overwrite(path, force: bool) -> None:
+    """Exit 2, writing nothing, when the head file exists and --force was not given."""
+    if Path(path).exists() and not force:
+        print(f"{path} exists; pass --force to overwrite it", file=sys.stderr)
+        raise SystemExit(2)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--eva-dir", default=str(Path("~/.cache/bioscan/eva").expanduser()),
@@ -136,7 +146,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--print-base64", action="store_true", help="print the head file base64 between markers")
+    ap.add_argument("--force", action="store_true", help="overwrite an existing --out (e.g. the committed head)")
     a = ap.parse_args(argv)
+    if not a.download_only:
+        refuse_overwrite(a.out, a.force)
 
     root = Path(a.eva_dir).expanduser()
     if a.download or a.download_only:

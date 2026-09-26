@@ -58,7 +58,7 @@ def test_review_reasons_and_taxon_keying():
     m = taxa["Calidris mauri"]
     assert (m["level"], m["boxes"], m["images"], m["common"]) == ("species", 2, 1, "CALIDRIS MAURI")
     assert m["best"]["box"] == 1 and len(m["members"]) == 2 and m["posterior"] == {"max": 0.9, "median": 0.9}
-    assert taxa["Calidris"]["taxonomy"][-1] == "Calidris" and taxa["Calidris"]["common"] is None
+    assert taxa["Calidris"]["taxonomy"][-1] == "Calidris" and taxa["Calidris"]["common"] == "an alpina or mauri"
     got = {(r["path"][3], r["box"]): r["reasons"] for r in s["review"]}
     assert got == {("b", 0): ["coarse_level", "single_sighting"], ("c", 0): ["unconfirmed"],
                    ("d", 0): ["out_of_range", "single_sighting"], ("e", 0): ["no_list"], ("f", None): ["gate_no_box"]}
@@ -103,3 +103,45 @@ def test_summarize_then_report_on_the_command_line(tmp_path, capsys):
         assert f'title="{r["path"]}"' in page
     assert page.count("<figure") == len(s["taxa"]) + len(s["review"])
     assert all(v in page for v in rp.REASONS.values()) and "broken" in page
+
+
+def _c(sci, common, family="Accipitridae"):
+    genus = sci.split()[0]
+    return {"scientific": sci, "common": common, "p_visual": 0.2, "p_geo": None, "posterior": 0.2,
+            "taxonomy": ["Animalia", "Chordata", "Aves", "Accipitriformes", family, genus, sci]}
+
+
+def _sp(level, top):
+    return {"list": "avilist-2025", "level": level, "top": top}
+
+
+def test_common_of_species_is_the_first_candidates_common_name():
+    assert rp.common_of(_sp("species", [_c("Spinus psaltria", "Lesser Goldfinch", "Fringillidae")])) == "Lesser Goldfinch"
+
+
+def test_common_of_genus_is_the_shared_last_word_with_an_article():
+    vireos = [_c("Vireo gilvus", "Warbling Vireo", "Vireonidae"), _c("Vireo olivaceus", "Red-eyed Vireo", "Vireonidae")]
+    assert rp.common_of(_sp("genus", vireos)) == "a vireo"
+    eagles = [_c("Aquila chrysaetos", "Golden Eagle"), _c("Aquila heliaca", "Eastern Imperial Eagle")]
+    assert rp.common_of(_sp("genus", eagles)) == "an eagle"
+    flys = [_c("Empidonax difficilis", "Pacific-slope Flycatcher", "Tyrannidae"),
+            _c("Empidonax traillii", "Willow Flycatcher", "Tyrannidae")]
+    assert rp.common_of(_sp("genus", flys)) == "a flycatcher"
+
+
+def test_common_of_family_names_the_two_commonest_words_and_ignores_other_taxa():
+    top = [_c("Buteo jamaicensis", "Red-tailed Hawk"), _c("Aquila chrysaetos", "Golden Eagle"),
+           _c("Haliaeetus leucocephalus", "Bald Eagle"), _c("Accipiter cooperii", "Cooper's Hawk"),
+           _c("Pandion haliaetus", "Osprey", "Pandionidae"), _c("Cathartes aura", "Turkey Vulture", "Cathartidae")]
+    assert rp.common_of(_sp("family", top)) == "a hawk or eagle"
+    one_off = [_c("Buteo jamaicensis", "Red-tailed Hawk"), _c("Buteo lineatus", "Red-shouldered Hawk"),
+               _c("Aquila chrysaetos", "Golden Eagle")]
+    assert rp.common_of(_sp("family", one_off)) == "a hawk"        # a lone second word is left out
+    # genus level: only the candidates of the box's genus count (Buteo), not the eagle below it
+    assert rp.common_of(_sp("genus", one_off)) == "a hawk"
+
+
+def test_common_of_without_names_or_level_is_none():
+    assert rp.common_of(_sp("genus", [_c("Vireo gilvus", "", "Vireonidae")])) is None
+    assert rp.common_of(_sp("unconfirmed", [_c("Vireo gilvus", "Warbling Vireo", "Vireonidae")])) is None
+    assert rp.common_of(None) is None

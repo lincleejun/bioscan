@@ -118,7 +118,7 @@ holds them to that), and an older report without the new keys still loads, compa
 | `options` | The request options from the preds meta line, plus `synonyms` |
 | `n` | Images in the ground truth |
 | `preds`, `preds_sha256`, `preds_schema` | The preds file |
-| `complete` | The service's `done` event is in the preds file (null for a file without a meta line) |
+| `complete` | The service's `done` event is in the preds file, meta line or not; a stream cut short (e.g. `run --json` interrupted) is scored but reported `false` |
 | `done` | `{ok, failed, elapsed_ms}` of that event |
 | `name_lists` | Kinds with a name list for `in_list` |
 | `profile` | The profile the run expanded (`--profile`, from the preds meta line); null for a run without one, which the scorecard treats as `wildlife` |
@@ -378,8 +378,8 @@ it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =
 | quality | `reject_recall` (rate) | `all`, `soft`, each reason | Of the images whose truth has the scope's reason(s), the share rejected for it; a failed image counts as not rejected |
 | quality | `keepers_lost` (rate, lower is better) | `all` | Of the keep-labelled images, the share a rule rejected: the budget metric, since losing a keeper costs more than reviewing a reject |
 | burst | `burst_pair_precision`, `burst_pair_recall`, `burst_pair_f1` (pairs) | `all` | Over every pair of images: grouped by the reducer and by the truth; a frame in no burst is its own group |
-| scene | `scene_acc` (rate) | `all`, each truth label | The top label is the truth's `scene` |
-| scene | `group_acc` (rate) | `all`, each truth group | The scene group (`products.scene.group` when the stage reports one, else the label) is the truth's `scene_group`: the 8 built-in labels today, the groups of docs/research/2026-09-24-scene-taxonomy.md later; the `scene` tier's metric |
+| scene | `scene_acc` (rate) | `all`, each truth label | The top label, or its group, is the truth's `scene` (a fine label or a group name) |
+| scene | `group_acc` (rate) | `all`, each truth group | The scene group (`products.scene.group` when the stage reports one, else the label) is the truth's `scene_group`: the album profile's 8 groups (docs/research/2026-09-24-scene-taxonomy.md), which are the 8 built-in labels of a stage without `groups`; the `scene` tier's metric |
 
 "Rejected" means select's reasons (after its waivers, e.g. underexposed at night) when the run had select, else
 quality's. `soft` pools `soft_subject` and `motion_or_defocus`, which differ only in whether anything else in the

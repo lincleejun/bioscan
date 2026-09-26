@@ -63,7 +63,7 @@ def read_preds_meta(path) -> dict:
 
 
 def preds_complete(path) -> bool:
-    """True when the service's `done` event made it into the file (schema 1 files only)."""
+    """True when the service's `done` event made it into the file; a stream cut short scores but is incomplete."""
     with open(path, "rb") as f:
         return any(json.loads(line).get("type") == contract.DONE for line in f if line.strip())
 
@@ -229,7 +229,7 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
                     print(f"\r{n}/{len(rows)}", end="", file=sys.stderr, flush=True)
         print(file=sys.stderr)
     preds_meta = read_preds_meta(preds_path)
-    complete = preds_complete(preds_path) if preds_meta else True   # older files cannot tell
+    complete = preds_complete(preds_path)   # `done` decides, meta line or not (run --json writes none)
     with open(preds_path, "rb") as f:
         preds = load_preds(f)
     metrics = compute(rows, preds)

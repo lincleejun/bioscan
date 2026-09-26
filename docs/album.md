@@ -46,7 +46,7 @@ name of its surest box (species, or genus / family when only that held up, as `b
 | file | what |
 |---|---|
 | `<out>.ndjson` | the run's events with a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
-| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, sharpness, taken_at (the three name columns are empty without `--species`); failed decodes last |
+| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, sharpness, taken_at (the three name columns are empty without `--species`; `common` is the English name at every level: "Lesser Goldfinch", or "a vireo" / "a hawk or eagle" for a genus or family, from the common names of the taxon's candidates); failed decodes last |
 | `<out>.html` | the review page: a photo grid (score, stars, name, reject reason on each card), an overview panel (marks progress, the score cut of each star) and a **taxon tree** (class → order → family → genus → species, with counts; click a branch to see only it, ⇢ merges one name into another). Search, sort and filters (stars, marks, reject reason, scene, species, folder) live in the toolbar's popovers; active filters show as chips. **Marks**: click selects a card, shift-click a range, ⌘-click adds, ⌘A all shown; a floating bar keeps / drops / unmarks the selection, the group header does the same for everything in view (the branch or filter), <kbd>K</kbd> / <kbd>X</kbd> / <kbd>U</kbd> work on the selection and in the lightbox. Marks stay in the browser and export as `bioscan-decisions.json` (⋯ menu; import puts them back). The **lightbox** (double-click, ↵ or the corner button) shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
 
 `bioscan aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
@@ -76,18 +76,31 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   `subject_too_small` (under 0.5% of the frame) and `no_subject` (the gate sees an animal, the detector boxes none).
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
-  without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for `night`.
-- **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes: landscape, people,
-  wildlife (the gate's bird + mammal share, and only when identify found a box: `wildlife_box`, since the gate drifts on
-  photos without animals), macro, architecture, food, night, other. Change the labels and prompts with
-  `[profile.album.options.scene.labels]`. Landscapes also get a horizon tilt (reported, not a reject).
+  without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for the
+  `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26); an unknown
+  category or reason in `waive` is rejected.
+- **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes. The album profile
+  names 40 fine labels (`label`) in 8 groups (`group`): wildlife, landscape, night, people, macro, architecture, food,
+  other (docs/research/2026-09-24-scene-taxonomy.md §3.2). The wildlife group gets the gate's bird + mammal +
+  other_animal share (only when identify found a box: `wildlife_box`, since the gate drifts on photos without
+  animals), split by its own prompts; its label, in order (`wildlife_rules`): 4 identify boxes or more is
+  `herd_flock`; `bird_flight` or `domestic` when its prompts give it more than 0.5; the best box's kind and area
+  (8% of the frame or more a `_portrait`, less a `_habitat`; `other_animal`); with no box, its prompts' top. The
+  other labels share one softmax; a group scores the sum
+  of its labels (`group_scores`). Three attributes are scored apart: `light` (day, golden_hour, blue_hour, night),
+  `setting` (outdoor, indoor, underwater), `framing` (close_up, medium, wide, aerial). Change them under
+  `[profile.album.options.scene]` (`labels`, `groups`, `attributes`, `wildlife_rules`); without `groups` the stage
+  keeps its 8 built-in labels, one per category. The landscape group also gets a horizon tilt (reported, not a reject).
+  In `aesthetic score`'s CSV and HTML the scene column shows the label with its group, e.g. `coast (landscape)`.
 - **Bursts** (`burst`): frames of one camera (EXIF Make and Model) at most 1.5 s apart, using the sub-second capture
   time, whose frame vectors have cosine at least 0.92.
 - **Selection** (`select`): the best frame of each burst: not rejected, subject sharpness (within 0.03 of the sharpest
   counts as equal), not cut off, exposure within ±0.2, then the aesthetic score when a run has one (it only reorders,
-  never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category, skipping a
+  never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category (`by`: the
+  scene group, the default, or `"label"` for the fine label), skipping a
   photo whose frame vector is 0.95 alike to one already picked. Each photo gets a status: `pick`, `spare` (a keeper
-  past the top N), `duplicate` or `reject`.
+  past the top N), `duplicate` or `reject`. `waive` lifts reject reasons per scene group, label or attribute value:
+  `waive = { night = ["underexposed"] }` by default; an attribute key reads `"light=night" = ["underexposed"]`.
 - **Outputs**: `--csv` (one row per photo: status, keep, category, rank, reasons, burst, burst rank, duplicate of,
   sharpness, aesthetic, capture time; failed photos too), `--link-dir` (a symlink per pick in `<dir>/<category>/`,
   never replacing a file), `--html` (a page with picks per category, spares, bursts, rejects by reason and failures;
@@ -100,9 +113,9 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   label `xmp:Label="Red"`, no stars (so it stays unrated), and its reasons in `bioscan:reasons` (`;`-joined; namespace
   `https://github.com/lincleejun/bioscan/ns/cull/1.0/`); duplicates get nothing. Every pick is already the best of
   its burst, so a burst win adds no star. Filter on 3 stars for the picks, 2 and up for every keeper, Red for the
-  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: the ratings
-  reader (`bioscan aesthetic ratings|train|eval`, `bench aesthetic init`) skips any sidecar that carries the bioscan namespace.
-  An editor that keeps unknown properties when you re-rate a photo keeps that mark too, so delete the cull sidecar
-  before rating a photo whose stars should count.
+  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: cull
+  records them in `bioscan:stars` (0 for a reject), and the ratings reader (`bioscan aesthetic ratings|train|eval`,
+  `bench aesthetic init`) skips a cull sidecar still carrying those stars. Once you change its stars (to -1 for a
+  reject too), it counts as your rating.
 - **Accuracy**: unverified on real albums. CI measures the rules and reducers on a synthetic reject set made from the
   smoke photos (docs/harness.md "Album tier", docs/standards.md §14).

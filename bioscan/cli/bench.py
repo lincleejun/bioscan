@@ -452,7 +452,7 @@ def report_from_preds(preds_path: str, gt_csv: str, synonyms: bool = True,
     return build_report(rows, preds, groundtruth=gt_csv,
                         synonyms_sha256=sha256_of(ev.SYNONYMS_CSV) if synonyms else None, preds_meta=meta,
                         done=done_of(preds_path), lists=load_name_lists(default_name_lists()) if lists is None else lists,
-                        preds_path=str(preds_path), complete=ev.preds_complete(preds_path) if meta else None,
+                        preds_path=str(preds_path), complete=ev.preds_complete(preds_path),
                         options=options, tier=tier)
 
 
