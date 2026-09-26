@@ -123,7 +123,7 @@ def test_album_scene_taxonomy_groups_attributes_and_horizon_by_group(client, eng
     p = make_jpg(tmp_path / "a.jpg")
     s = result(events(client.post("/run", json={"inputs": [{"path": p}], "profile": "album"})))["products"]["scene"]
     assert list(s) == ["label", "group", "scores", "group_scores", "attributes", "horizon"]
-    assert s["group"] == "wildlife" and s["group_scores"]["wildlife"] == 0.95 and s["horizon"] is None
+    assert s["group"] == "wildlife" and s["group_scores"]["wildlife"] == 0.96 and s["horizon"] is None
     assert s["label"] == "bird_portrait"                            # rule 3: bird box, area 0.13 >= 0.08
     assert len(s["scores"]) == 40 and abs(sum(s["group_scores"].values()) - 1) < 1e-3
     assert list(s["attributes"]) == ["light", "setting", "framing"]

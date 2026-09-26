@@ -33,7 +33,7 @@ species = false
 # The scene taxonomy (docs/research/2026-09-24-scene-taxonomy.md §3.2): 8 groups of 40 fine labels,
 # three attributes; select buckets by group.
 [profile.album.options.scene]
-wildlife_gate = ["bird", "mammal"]
+wildlife_gate = ["bird", "mammal", "other_animal"]
 
 [profile.album.options.scene.groups]
 wildlife     = ["bird_portrait", "bird_flight", "bird_habitat", "mammal_portrait", "mammal_habitat", "other_animal", "herd_flock", "domestic"]
