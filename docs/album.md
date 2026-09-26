@@ -72,7 +72,7 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
   without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for the
-  `night` group and for the attribute `light=night`.
+  `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26).
 - **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes. The album profile
   names 40 fine labels (`label`) in 8 groups (`group`): wildlife, landscape, night, people, macro, architecture, food,
   other (docs/research/2026-09-24-scene-taxonomy.md §3.2). The wildlife group gets the gate's bird + mammal +
@@ -94,7 +94,7 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   scene group, the default, or `"label"` for the fine label), skipping a
   photo whose frame vector is 0.95 alike to one already picked. Each photo gets a status: `pick`, `spare` (a keeper
   past the top N), `duplicate` or `reject`. `waive` lifts reject reasons per scene group, label or attribute value:
-  `waive = { night = ["underexposed"], "light=night" = ["underexposed"] }`.
+  `waive = { night = ["underexposed"] }` by default; an attribute key reads `"light=night" = ["underexposed"]`.
 - **Outputs**: `--csv` (one row per photo: status, keep, category, rank, reasons, burst, burst rank, duplicate of,
   sharpness, aesthetic, capture time; failed photos too), `--link-dir` (a symlink per pick in `<dir>/<category>/`,
   never replacing a file), `--html` (a page with picks per category, spares, bursts, rejects by reason and failures;

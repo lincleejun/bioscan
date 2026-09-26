@@ -118,4 +118,4 @@ aerial   = ["an aerial photo from a drone", "a top-down view from above"]
 
 [profile.album.options.select]
 by = "group"                              # bucket by scene group (default) or "label"
-waive = { night = ["underexposed"], "light=night" = ["underexposed"] }   # keys: a group, a label or attribute=value
+waive = { night = ["underexposed"] }   # keys: a group, a label or attribute=value; "light=night" is off: a -2 EV day photo reads as night (CI 2026-09-26)
