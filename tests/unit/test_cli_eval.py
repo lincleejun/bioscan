@@ -201,7 +201,16 @@ def test_old_preds_without_meta_still_score(tmp_path):
     preds = tmp_path / "p.ndjson"
     preds.write_text("".join(json.dumps(p) + "\n" for p in PREDS if p["type"] != "done"))
     report, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "o"), False, "http://x", str(preds))
-    assert complete and "from the command line; preds file has no meta line" in report
+    # no meta line is no excuse: without `done` (e.g. a `run --json` cut short) the run is incomplete (#50)
+    assert complete is False and "- complete: False" in report
+    assert "from the command line; preds file has no meta line" in report
+
+
+def test_run_json_preds_with_done_are_complete(tmp_path):
+    preds = tmp_path / "p.ndjson"   # `run --json --out` output: result events and `done`, no meta line
+    preds.write_text("".join(json.dumps(p) + "\n" for p in PREDS))
+    report, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "o"), False, "http://x", str(preds))
+    assert complete is True and "- complete: True" in report
 
 
 def test_hyphen_and_case_only_differences_match():

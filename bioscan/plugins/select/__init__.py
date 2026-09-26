@@ -23,7 +23,7 @@ MANIFEST = Manifest(
                     "description": "the category: the scene group (the label when the stage reports none) or label"},
              "waive": {"type": "object", "default": {"night": ["underexposed"]},
                        "description": "scene group, label or attribute=value (light=night) -> reject reasons "
-                                      "that do not reject there"}},
+                                      "that do not reject there; unknown categories and reasons are rejected"}},
     output={"status": "|".join(cull.STATUSES), "keep": "bool: status pick", "reasons": "quality's reasons, "
             "minus waived", "waived": "[reason]", "category": "scene group or label (by) | uncategorised",
             "rank": "in its category, best first | null", "burst_rank": "1 = best of its burst",

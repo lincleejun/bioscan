@@ -46,8 +46,8 @@ name of its surest box (species, or genus / family when only that held up, as `b
 | file | what |
 |---|---|
 | `<out>.ndjson` | the run's events with a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
-| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, sharpness, taken_at (the three name columns are empty without `--species`); failed decodes last |
-| `<out>.html` | a gallery sorted by score: thumbnails, score, stars, scene, name, reject reasons; sort, filter by folder / stars / reject reason / scene / species, search by file or name, click to enlarge. Thumbnails are the service's jpg copies in `<out>-files/`, shrunk to `--thumb-edge` (default 1024 px); `--no-thumbs` shows browser-readable originals instead |
+| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, sharpness, taken_at (the three name columns are empty without `--species`; `common` is the English name at every level: "Lesser Goldfinch", or "a vireo" / "a hawk or eagle" for a genus or family, from the common names of the taxon's candidates); failed decodes last |
+| `<out>.html` | a gallery sorted by score: thumbnails, score, stars, scene, name, reject reasons; sort, filter by folder / stars / reject reason / scene / species (English — Latin), search by file or name, click to enlarge. Thumbnails are the service's jpg copies in `<out>-files/`, shrunk to `--thumb-edge` (default 1024 px); `--no-thumbs` shows browser-readable originals instead |
 
 Stars are quintiles of the run's own scores (5 = top fifth), a relative rank and not a rating. A photo without a
 score (no head installed) sorts last with the head's note; nothing is rated, moved or deleted.
@@ -72,7 +72,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
   without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for the
-  `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26).
+  `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26); an unknown
+  category or reason in `waive` is rejected.
 - **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes. The album profile
   names 40 fine labels (`label`) in 8 groups (`group`): wildlife, landscape, night, people, macro, architecture, food,
   other (docs/research/2026-09-24-scene-taxonomy.md §3.2). The wildlife group gets the gate's bird + mammal +
@@ -107,9 +108,9 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   label `xmp:Label="Red"`, no stars (so it stays unrated), and its reasons in `bioscan:reasons` (`;`-joined; namespace
   `https://github.com/lincleejun/bioscan/ns/cull/1.0/`); duplicates get nothing. Every pick is already the best of
   its burst, so a burst win adds no star. Filter on 3 stars for the picks, 2 and up for every keeper, Red for the
-  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: the ratings
-  reader (`bioscan aesthetic ratings|train|eval`, `bench aesthetic init`) skips any sidecar that carries the bioscan namespace.
-  An editor that keeps unknown properties when you re-rate a photo keeps that mark too, so delete the cull sidecar
-  before rating a photo whose stars should count.
+  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: cull
+  records them in `bioscan:stars` (0 for a reject), and the ratings reader (`bioscan aesthetic ratings|train|eval`,
+  `bench aesthetic init`) skips a cull sidecar still carrying those stars. Once you change its stars (to -1 for a
+  reject too), it counts as your rating.
 - **Accuracy**: unverified on real albums. CI measures the rules and reducers on a synthetic reject set made from the
   smoke photos (docs/harness.md "Album tier", docs/standards.md §14).

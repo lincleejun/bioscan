@@ -103,6 +103,17 @@ def test_rows_rank_missing_scores_last_and_stars_are_quintiles():
     assert sc.cuts(rows) == [0.8, 0.6, 0.4, 0.2]
 
 
+def test_legend_cuts_are_the_lowest_score_of_each_star():
+    # #51: 7 scores, n not a multiple of 5; the legend must match the cards
+    evs = [result(f"/p/{i}.jpg", 0.0) for i in range(7)]
+    for i, ev in enumerate(evs):
+        ev["products"]["aesthetics"] = {"score": (4 + i) / 10}
+    rows = sc.rows_of(evs)
+    assert [r["stars"] for r in rows] == [5, 5, 4, 3, 3, 2, 1]
+    lowest = [min(r["score"] for r in rows if r["stars"] == k) for k in (5, 4, 3, 2)]
+    assert sc.cuts(rows) == lowest == [0.9, 0.8, 0.6, 0.5]
+
+
 def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
     d = photos(tmp_path, ("a.jpg", "b.jpg"))
@@ -115,7 +126,7 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
            {"type": "done", "schema": 1, "ok": 2, "failed": 0, "elapsed_ms": 1.0}]
     evs[0]["products"]["aesthetics"] = {"score": 0.6}
     evs[1]["products"]["aesthetics"] = {"score": 0.8}
-    # two boxes: the surer one names the photo; a genus-level box shows its genus, no common name
+    # two boxes: the surer one names the photo; a genus-level box shows its genus and an English word for it
     evs[0]["products"]["identify"] = {"gate": {"class": "mammal"}, "boxes": [
         {"id": 0, "kind": "mammal", "species": {"list": "mdd", "level": "species",
                                                 "top": [cand("Rangifer tarandus", "Caribou", 0.9)]}},
@@ -134,10 +145,10 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
     assert sent["payload"]["options"]["identify"]["species"] is True
     with open(f"{out}.csv") as f:
         rows = list(csv.DictReader(f))
-    assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "", "genus"),
+    assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "a caribou", "genus"),
                                                                         ("Rangifer tarandus", "Caribou", "species")]
     page = (tmp_path / "aes.html").read_text()
-    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and "<option>Rangifer</option>" in page
+    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and '<option value="Rangifer">a caribou — Rangifer</option>' in page
     # without --species the request keeps the album profile's species=false and the columns stay empty
     assert main(["aesthetic", "score", str(d), "--export", "csv", "--out", str(out)]) == 0
     assert sent["payload"]["options"]["identify"]["species"] is False

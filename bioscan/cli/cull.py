@@ -147,7 +147,8 @@ def write_links(records: list[dict[str, Any]], out: str) -> int:
 
 # `--xmp`: the selection as stars and colour labels a photo editor filters on. Every pick is already its
 # burst's best, so a burst win earns no extra star. Rejects get no stars (unrated). The bioscan
-# namespace marks the sidecar, so `bioscan aesthetic` never reads these stars as the owner's.
+# namespace marks the sidecar and `bioscan:stars` records the stars written (0 for a reject), so
+# `bioscan aesthetic` never reads them as the owner's until the owner changes them.
 XMP_STARS = {"pick": 3, "spare": 2}
 XMP_REJECT_LABEL = "Red"
 XMP_NS = xmp.CULL_NS
@@ -155,7 +156,7 @@ XMP_NS = xmp.CULL_NS
 
 def xmp_packet(r: dict[str, Any]) -> str | None:
     """The sidecar for one cull record: picks 3 stars, spares 2, rejects the Red label and their
-    reasons; None for a duplicate (nothing to write)."""
+    reasons, each with `bioscan:stars` (what was written, 0 for a reject); None for a duplicate."""
     status = r["status"]
     if status in XMP_STARS:
         props = [f'xmp:Rating="{XMP_STARS[status]}"']
@@ -165,7 +166,8 @@ def xmp_packet(r: dict[str, Any]) -> str | None:
     else:
         return None
     return xmp.packet("bioscan cull", ['xmlns:xmp="http://ns.adobe.com/xap/1.0/"', f'xmlns:bioscan="{XMP_NS}"',
-                                       *props, f'bioscan:status="{html.escape(status)}"'])
+                                       *props, f'bioscan:status="{html.escape(status)}"',
+                                       f'bioscan:stars="{XMP_STARS.get(status, 0)}"'])
 
 
 def write_xmp(records: list[dict[str, Any]]) -> Counter:

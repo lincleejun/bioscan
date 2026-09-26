@@ -71,9 +71,9 @@ The BirdNET prior model is licensed non-commercially; for commercial use, drop t
 
 ## Name mapping
 
-`data/names/avilist_map.csv`: for each AviList species, its TreeOfLife name and BirdNET label and how each was matched (exact / synonym / none). `synonyms.csv` is the hand-maintained alias table, each row with a source and a note; `candidates.csv` lists suspected spelling differences found by the script, for human review only, never adopted automatically. Rebuild with `uv run python scripts/build_name_map.py`.
+`data/names/avilist_map.csv`: for each AviList species, its TreeOfLife name and BirdNET label and how each was matched (exact / synonym / none). `synonyms.csv` is the hand-maintained alias table, each row with a source and a note; `candidates.csv` lists suspected spelling differences found by the script, for human review only, never adopted automatically. Rebuild with `uv run python scripts/build_name_map.py --force` (refuses to overwrite the committed file without it).
 
-`data/names/mdd_map.csv`: for each MDD species, its BirdNET label(s) and how they matched. Only BirdNET labels of class Mammalia count. Matching is exact name first, then the MDD synonym table (reviewed; see `data/README.md`). MDD lumps some species that BirdNET splits (e.g. four white-fronted capuchins into *Cebus albifrons*); such a row lists every label joined by `|`, and the prior takes the largest. Rebuild with `uv run python scripts/build_name_map.py --list mammal --mdd-synonyms MDD/Species_Syn_Current_v2.5.csv`.
+`data/names/mdd_map.csv`: for each MDD species, its BirdNET label(s) and how they matched. Only BirdNET labels of class Mammalia count. Matching is exact name first, then the MDD synonym table (reviewed; see `data/README.md`). MDD lumps some species that BirdNET splits (e.g. four white-fronted capuchins into *Cebus albifrons*); such a row lists every label joined by `|`, and the prior takes the largest. Rebuild with `uv run python scripts/build_name_map.py --list mammal --mdd-synonyms MDD/Species_Syn_Current_v2.5.csv --force` (refuses to overwrite the committed file without it).
 
 The 748 AviList species without a BirdNET label get 0 in the location prior (mostly extinct species or species BirdNET lumps with a sister, such as *Tyto javanica*, which should stay suppressed). To find the gaps that actually matter at a place:
 ```sh

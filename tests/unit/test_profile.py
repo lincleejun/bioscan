@@ -46,6 +46,11 @@ def test_builtin_profiles():
     assert wild.options["geotag"]["gpx"] == [] and "geotag" not in profile.resolve(BUILTIN, "full").want
 
 
+def test_waive_keys_must_name_a_scene_category():
+    with pytest.raises(ValueError, match="select.waive: unknown category 'nigth'"):
+        profile.resolve(BUILTIN, "album", reducer_options={"select": {"waive": {"nigth": ["underexposed"]}}})
+
+
 def test_no_profile_resolves_as_before(tmp_path):
     """The service's request without a profile: `full`, i.e. every stage's defaults under the request."""
     from bioscan.plugin import merge_options

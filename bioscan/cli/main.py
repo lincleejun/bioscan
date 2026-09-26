@@ -136,14 +136,16 @@ def build_payload(a, config: profile.Config | None = None) -> dict:
                 inp["lat"], inp["lon"] = placed[inp["path"]]
     if a.lat is not None:
         # Request coordinates override EXIF on the service side, so only fill images whose
-        # EXIF has none -- that keeps "EXIF wins" semantics for the batch default.
-        if gpx:   # the EXIF was already read (Pillow) for the track: no exiftool needed
-            has_gps = exif_gps.__contains__
-        else:
-            exif = gt.read_exif(paths)  # all blank without exiftool -> every image gets the default
-            has_gps = lambda p: exif.get(p, {}).get("lat", "") != ""  # noqa: E731
+        # EXIF has none -- that keeps "EXIF wins" semantics for the batch default. The EXIF is read
+        # with Pillow, as for the track (read above when --gpx is given); exiftool is not needed.
+        if not gpx:
+            try:
+                exif_gps = {ph.path for ph in geotag_cli.read_photos(paths) if ph.lat is not None}
+            except ImportError as e:
+                raise SystemExit(f"--lat/--lon needs Pillow to read EXIF GPS, so a photo's own GPS wins over "
+                                 f"the batch coordinate; the EXIF reader did not import ({e})") from None
         for inp in inputs:
-            if not has_gps(inp["path"]) and "lat" not in inp:
+            if inp["path"] not in exif_gps and "lat" not in inp:
                 inp["lat"], inp["lon"] = a.lat, a.lon
     always = {m: {k: res.options[m][k] for k in keys} for m, keys in ALWAYS_SENT.items()}
     return {"inputs": inputs, "want": want, "options": request_options(res, always)}

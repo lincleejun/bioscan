@@ -14,7 +14,8 @@ browser-readable originals and marks the rest.
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
 and reject reasons come from the album profile's scene and quality stages. `--species` turns the
 profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
-genus or family, as `bioscan summarize` counts it) and the page filters by it. Nothing is rated,
+genus or family, as `bioscan summarize` counts it) with an English name beside it (`rp.common_of`: the
+common name, or "a vireo" / "a hawk or eagle" above species), and the page filters by it. Nothing is rated,
 moved or deleted. Standard library only, like the rest of the CLI."""
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from bioscan import contract, cull, formats
+from bioscan import aesthetic, contract, cull, formats
 from bioscan.cli import cull as cc
 from bioscan.cli import report as rp
 from bioscan.cli.config import expand, load_config, request_options
@@ -98,7 +99,7 @@ def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
         if name:
             top = contract.top_of(sp)[0]
             if best is None or top["posterior"] > best[0]:
-                best = (top["posterior"], name, top.get("common") if level == "species" else None, level)
+                best = (top["posterior"], name, rp.common_of(sp), level)
     return best[1:] if best else (None, None, None)
 
 
@@ -119,18 +120,16 @@ def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})
     rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["path"]))
-    n = sum(r["score"] is not None for r in rows)
+    stars = iter(aesthetic.quintile_stars([r["score"] for r in rows if r["score"] is not None])[0])
     for i, r in enumerate(rows):
         r["rank"] = i + 1
-        r["stars"] = 5 - int(5 * i / n) if r["score"] is not None and n else None
+        r["stars"] = next(stars) if r["score"] is not None else None
     return rows
 
 
 def cuts(rows: list[dict[str, Any]]) -> list[float]:
     """The lowest score of stars 5, 4, 3, 2 (the quintile boundaries)."""
-    scored = [r["score"] for r in rows if r["score"] is not None]
-    n = len(scored)
-    return [scored[int(n * k / 5) - 1] for k in range(1, 5)] if n >= 5 else []
+    return aesthetic.quintile_stars([r["score"] for r in rows if r["score"] is not None])[1]
 
 
 def write_csv(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: str) -> None:
@@ -230,7 +229,10 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
     dirs = sorted({d["d"] for d in data if d["d"]})
     scenes = sorted({d["sc"] for d in data if d["sc"]})
     reasons = sorted({x for d in data for x in d["rr"]})
-    species = sorted({d["sp"] for d in data if d["sp"]})
+    species: dict[str, str | None] = {}
+    for d in data:
+        if d["sp"]:
+            species[d["sp"]] = species.get(d["sp"]) or d["cn"]
     c = cuts(rows)
     legend = (f"Stars are quintiles of this run's scores: 5★ ≥ {c[0]:.3f}, 4★ ≥ {c[1]:.3f}, 3★ ≥ {c[2]:.3f}, "
               f"2★ ≥ {c[3]:.3f}, else 1★. " if c else "") + \
@@ -248,7 +250,8 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             '<option value="any">any</option>' + "".join(f"<option>{html.escape(x)}</option>" for x in reasons)
             + '</select></label><label>species<select id="sp"><option value="">all</option><option value="named">named'
             '</option><option value="unnamed">unnamed</option>'
-            + "".join(f"<option>{html.escape(x)}</option>" for x in species) + '</select></label>'
+            + "".join(f'<option value="{html.escape(x)}">{html.escape(f"{cn} — {x}" if cn else x)}</option>'
+                      for x, cn in sorted(species.items())) + '</select></label>'
             '<div class="chips" id="scenes"></div>'
             '<input type="search" id="q" placeholder="file or species name"><span id="count"></span></header>'
             f'<div class="legend">{html.escape(legend)}</div><main id="grid"></main>'

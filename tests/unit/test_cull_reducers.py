@@ -142,6 +142,22 @@ def test_apply_copies_checks_and_passes_errors_through():
         "taken_at": None}
 
 
+def test_select_rejects_unknown_waive_reasons():
+    cull.check_select(SELECT)
+    with pytest.raises(ValueError, match=r"'underexpose'.*underexposed"):
+        cull.check_select(SELECT | {"waive": {"night": ["underexpose"]}})
+
+
+def test_waive_keys_are_scene_labels_groups_or_attributes():
+    scene = {"labels": {"night": ["x"], "wildlife": []}, "groups": {"nature": ["wildlife"]},
+             "attributes": {"light": {"night": ["x"], "day": ["y"]}}}
+    cull.check_waive_keys({"night": [], "nature": [], "light=night": [], "uncategorised": []}, scene)
+    for bad in ("nigth", "light=dusk", "mood=night"):
+        with pytest.raises(ValueError, match=rf"select.waive: unknown category '{bad}'.*light=day"):
+            cull.check_waive_keys({bad: []}, scene)
+    cull.check_waive_keys({"nigth": []}, None)                        # no scene options: keys unchecked
+
+
 def test_profiles_carry_reducer_options(tmp_path):
     f = tmp_path / "bioscan.toml"
     f.write_text('[profile.x]\nstages = ["identify"]\nreducers = ["burst", "select"]\n'

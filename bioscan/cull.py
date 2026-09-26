@@ -148,6 +148,21 @@ def check_select(o: dict[str, Any]) -> None:
     w = o["waive"]
     if not isinstance(w, dict) or not all(isinstance(v, list) and all(isinstance(x, str) for x in v) for v in w.values()):
         raise ValueError("select.waive must be an object {group, label or attribute=value: [reject reasons]}")
+    for reason in (r for v in w.values() for r in v):
+        if reason not in REJECT_REASONS:
+            raise ValueError(f"select.waive: unknown reject reason {reason!r} (known: {', '.join(REJECT_REASONS)})")
+
+
+def check_waive_keys(waive: dict[str, Any], scene_options: dict[str, Any] | None) -> None:
+    """Each waive key names a scene label, a scene group, attribute=value or `uncategorised`; unchecked without
+    scene options."""
+    if scene_options is None:
+        return
+    known = [UNCATEGORISED, *scene_options["labels"], *scene_options.get("groups", {})]   # no scene = its own bucket
+    known += [f"{a}={v}" for a, values in scene_options.get("attributes", {}).items() for v in values]
+    for key in waive:
+        if key not in known:
+            raise ValueError(f"select.waive: unknown category {key!r} (known: {', '.join(known)})")
 
 
 def _sharpness(q: dict[str, Any]) -> float | None:

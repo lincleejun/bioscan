@@ -17,7 +17,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from bioscan import contract
+from bioscan import aesthetic, contract
 
 REVIEW = "待确认"      # group of photos with an animal but no species-level box
 NONE = "无动物"        # group of photos with no box
@@ -85,11 +85,11 @@ def stars(photos: list[dict]) -> None:
     """Sets each photo's "stars": 1-5 by score quantile among photos with a box (about 20% each), 0 without one."""
     # ponytail: a within-run quantile, not a calibrated map from the aesthetic score; fit the map once the
     # owner's stars are in (bioscan aesthetic eval). Runs without the aesthetics stage rank by sharpness.
-    ranked = sorted((p for p in photos if p["level"] != "none"), key=lambda p: (p["score"], p["path"]))
+    ranked = sorted((p for p in photos if p["level"] != "none"), key=lambda p: (-p["score"], p["path"]))
     for p in photos:
         p["stars"] = 0
-    for i, p in enumerate(ranked):
-        p["stars"] = 1 + (5 * i) // len(ranked)
+    for p, k in zip(ranked, aesthetic.quintile_stars([p["score"] for p in ranked])[0]):
+        p["stars"] = k
 
 
 def write_latest(photos: list[dict], source: str, target: Path) -> None:

@@ -3,13 +3,14 @@
 A sidecar is written only where the photo has none (`<stem>.xmp` for Lightroom, Capture One and Bridge,
 or darktable/digiKam's `<name>.<ext>.xmp`): an existing one (the editor's develop settings, keywords,
 the owner's own stars) is never touched or merged, and the photo file itself is never written. Reading
-XMP ratings back is `bioscan.aesthetic.parse_xmp`, which ignores a packet carrying CULL_NS."""
+XMP ratings back is `bioscan.aesthetic.parse_xmp`, which ignores a packet carrying CULL_NS while its stars
+are still the ones cull recorded in `bioscan:stars`."""
 from __future__ import annotations
 
 from pathlib import Path
 
 WRITTEN, EXISTS = "written", "exists"
-CULL_NS = "https://github.com/lincleejun/bioscan/ns/cull/1.0/"   # marks a `cull --xmp` sidecar; the ratings reader skips it
+CULL_NS = "https://github.com/lincleejun/bioscan/ns/cull/1.0/"   # marks a `cull --xmp` sidecar; skipped until re-rated
 
 
 def packet(tool: str, attrs: list[str]) -> str:

@@ -34,7 +34,7 @@ uv run bioscan config show                             # the profile, plan and s
 bioscan run /path/to/photos                            # filters and sorts by extension; -r recurses
 bioscan run a.ARW b.ARW --want identify,embed --json --out preds.ndjson
 bioscan run DIR --want jpg --jpg-out /tmp/jpg          # upright JPG, long edge 2048, named <stem>-<first 8 of sha256>.jpg
-bioscan run DIR --lat 37.4 --lon -122.1                # batch default coordinate for images without EXIF GPS (the location prior matters)
+bioscan run DIR --lat 37.4 --lon -122.1                # batch default coordinate for images without EXIF GPS, which the CLI reads with Pillow (no exiftool needed)
 bioscan run DIR --no-geo --top-k 10 --no-species
 ```
 The service loads only the models a run's stages need under its options: `--want embed` loads SigLIP2 alone, and `--no-species` (identify option `species: false`, with no `candidates`) loads SigLIP2 and OWLv2 but never BioCLIP or the name lists, so a service that has only served such runs reports no name lists in `result.engine.models.names`.
@@ -183,7 +183,7 @@ bioscan report run                                # -> run/report.html (reads su
 | `source` | the preds path and its sha256, the engine (version, settings, models) of the first result, first and last capture time |
 | `counts` | images (results + failed), ok, failed, boxes, elapsed_ms (from `done`) |
 | `categories` | the gate classes in fixed order (bird, mammal, other_animal, person, none), zeros included. An image counts under its gate class; for the animal classes, boxes, taxa and review items count by box kind (the kind check may have moved a box) |
-| `taxa` | one row per named taxon, most boxes first: the name at the box's level (species, else the genus or family of the first candidate), common name (species only), level, kind, taxonomy down to that level, list, images, boxes, the first candidate's posterior (max, median), `best` (highest posterior × sharpness), every member box with its first 3 candidates, capture span |
+| `taxa` | one row per named taxon, most boxes first: the name at the box's level (species, else the genus or family of the first candidate), common name (at species level the first candidate's; at genus or family "a"/"an" and the last word most of the taxon's candidates' common names share, e.g. "a vireo", "a hawk or eagle"; null when none has one), level, kind, taxonomy down to that level, list, images, boxes, the first candidate's posterior (max, median), `best` (highest posterior × sharpness), every member box with its first 3 candidates, capture span |
 | `review` | the review queue, sorted by suggested name then capture time: sha256, path, jpg copy, box id (null for a whole frame), kind, level, reasons, suggested name, first 3 candidates |
 | `rules` | the thresholds used: `single_sighting_max_posterior` 0.8, `range_eps` 0.01 |
 | `errors` | every error event: path, product (null = decode), message |

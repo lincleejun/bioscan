@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,26 @@ def taxon(sp: dict[str, Any] | None) -> str | None:
     if not top or level not in LEVEL_RANK:
         return None
     return top[0]["taxonomy"][LEVEL_RANK[level]] if level != "species" else top[0]["scientific"]
+
+
+def common_of(sp: dict[str, Any] | None) -> str | None:
+    """The English name of the box's taxon: the first candidate's common name at species level; at genus or
+    family, "a"/"an" and the last word the taxon's candidates' common names end in most often, plus
+    "or <the next word>" when that one ends two names or ties ("a vireo", "a hawk or eagle"). None when
+    unconfirmed or no candidate of the taxon has a common name."""
+    name, level = taxon(sp), contract.level_of(sp)
+    if not name:
+        return None
+    top = contract.top_of(sp)
+    if level == "species":
+        return top[0].get("common")
+    words = Counter(c["common"].split()[-1].lower() for c in top
+                    if (c.get("common") or "").strip() and c["taxonomy"][LEVEL_RANK[level]] == name)
+    if not words:
+        return None
+    (w, n), *rest = words.most_common(2)
+    label = ("an " if w[0] in "aeiou" else "a ") + w
+    return f"{label} or {rest[0][0]}" if rest and (rest[0][1] >= 2 or rest[0][1] == n) else label
 
 
 def _span(times: list[str | None]) -> tuple[str | None, str | None]:
@@ -90,7 +111,7 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
             if name:
                 p = top[0]["posterior"]
                 t = taxa.setdefault(name, {
-                    "name": name, "common": top[0].get("common") if level == "species" else None, "level": level,
+                    "name": name, "common": common_of(sp), "level": level,
                     "kind": b["kind"], "taxonomy": top[0]["taxonomy"][:LEVEL_RANK[level] + 1], "list": sp.get("list"),
                     "members": [], "_sharp": []})
                 t["members"].append({**where, "box": b["id"], "posterior": p, "top": top[:TOP]})
@@ -164,10 +185,11 @@ table { border-collapse: collapse; font-size: 13px; } td, th { border: 1px solid
 E = html.escape
 
 
-def _label(name: str | None, common: str | None = None) -> str:
+def _label(name: str | None, common: str | None = None, level: str | None = None) -> str:
     if not name:
         return '<span class="muted">no name</span>'
-    return (f'<span class="common">{E(common)}</span> <i>{E(name)}</i>' if common else f"<i>{E(name)}</i>")
+    rank = f' <span class="muted">({E(level)})</span>' if level in ("genus", "family") else ""
+    return (f'<span class="common">{E(common)}</span> <i>{E(name)}</i>' if common else f"<i>{E(name)}</i>") + rank
 
 
 def _candidates(top: list[dict[str, Any]]) -> str:
@@ -196,7 +218,7 @@ def render(s: dict[str, Any], path: str) -> None:
         parts.append(f'<h3>{E(c)} <span class="muted">{cats[c]["boxes"]} boxes</span></h3><div class="grid taxa">')
         for t in mine:
             b = t["best"]
-            cap = (f'{_label(t["name"], t["common"])}<br><span class="muted">{E(t["level"])} · {t["boxes"]} boxes in '
+            cap = (f'{_label(t["name"], t["common"], t["level"])}<br><span class="muted">{E(t["level"])} · {t["boxes"]} boxes in '
                    f'{t["images"]} photos</span>')
             parts.append(cull_cli.figure(b["path"], b["jpg"], base, cap))
         parts.append("</div>")

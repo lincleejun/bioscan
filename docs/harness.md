@@ -118,7 +118,7 @@ holds them to that), and an older report without the new keys still loads, compa
 | `options` | The request options from the preds meta line, plus `synonyms` |
 | `n` | Images in the ground truth |
 | `preds`, `preds_sha256`, `preds_schema` | The preds file |
-| `complete` | The service's `done` event is in the preds file (null for a file without a meta line) |
+| `complete` | The service's `done` event is in the preds file, meta line or not; a stream cut short (e.g. `run --json` interrupted) is scored but reported `false` |
 | `done` | `{ok, failed, elapsed_ms}` of that event |
 | `name_lists` | Kinds with a name list for `in_list` |
 | `profile` | The profile the run expanded (`--profile`, from the preds meta line); null for a run without one, which the scorecard treats as `wildlife` |
