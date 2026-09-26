@@ -71,18 +71,30 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   `subject_too_small` (under 0.5% of the frame) and `no_subject` (the gate sees an animal, the detector boxes none).
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
-  without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for `night`.
-- **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes: landscape, people,
-  wildlife (the gate's bird + mammal share, and only when identify found a box: `wildlife_box`, since the gate drifts on
-  photos without animals), macro, architecture, food, night, other. Change the labels and prompts with
-  `[profile.album.options.scene.labels]`. Landscapes also get a horizon tilt (reported, not a reject).
+  without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for the
+  `night` group and for the attribute `light=night`.
+- **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes. The album profile
+  names 40 fine labels (`label`) in 8 groups (`group`): wildlife, landscape, night, people, macro, architecture, food,
+  other (docs/research/2026-09-24-scene-taxonomy.md §3.2). The wildlife group gets the gate's bird + mammal +
+  other_animal share (only when identify found a box: `wildlife_box`, since the gate drifts on photos without
+  animals), split by its own prompts; its label, in order (`wildlife_rules`): 4 identify boxes or more is
+  `herd_flock`; `bird_flight` or `domestic` when its prompts give it more than 0.5; the best box's kind and area
+  (8% of the frame or more a `_portrait`, less a `_habitat`; `other_animal`); with no box, its prompts' top. The
+  other labels share one softmax; a group scores the sum
+  of its labels (`group_scores`). Three attributes are scored apart: `light` (day, golden_hour, blue_hour, night),
+  `setting` (outdoor, indoor, underwater), `framing` (close_up, medium, wide, aerial). Change them under
+  `[profile.album.options.scene]` (`labels`, `groups`, `attributes`, `wildlife_rules`); without `groups` the stage
+  keeps its 8 built-in labels, one per category. The landscape group also gets a horizon tilt (reported, not a reject).
+  In `aesthetic score`'s CSV and HTML the scene column shows the label with its group, e.g. `coast (landscape)`.
 - **Bursts** (`burst`): frames of one camera (EXIF Make and Model) at most 1.5 s apart, using the sub-second capture
   time, whose frame vectors have cosine at least 0.92.
 - **Selection** (`select`): the best frame of each burst: not rejected, subject sharpness (within 0.03 of the sharpest
   counts as equal), not cut off, exposure within ±0.2, then the aesthetic score when a run has one (it only reorders,
-  never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category, skipping a
+  never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category (`by`: the
+  scene group, the default, or `"label"` for the fine label), skipping a
   photo whose frame vector is 0.95 alike to one already picked. Each photo gets a status: `pick`, `spare` (a keeper
-  past the top N), `duplicate` or `reject`.
+  past the top N), `duplicate` or `reject`. `waive` lifts reject reasons per scene group, label or attribute value:
+  `waive = { night = ["underexposed"], "light=night" = ["underexposed"] }`.
 - **Outputs**: `--csv` (one row per photo: status, keep, category, rank, reasons, burst, burst rank, duplicate of,
   sharpness, aesthetic, capture time; failed photos too), `--link-dir` (a symlink per pick in `<dir>/<category>/`,
   never replacing a file), `--html` (a page with picks per category, spares, bursts, rejects by reason and failures;

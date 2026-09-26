@@ -13,13 +13,13 @@ least `min_cosine` are chained into a burst, in time order.
 select: per burst, the best frame by these criteria in order: not rejected, subject sharpness
 (within `sharp_tie` of the burst's sharpest counts as equal), not cut off, exposure within
 `exposure_ok`, then the aesthetic score (products.aesthetics.score) when the run has one. Then per
-scene category (products.scene.label), the best frames are ranked (aesthetic when present, then
-sharpness) and the top `per_category` are picked, skipping one whose frame vector has cosine at least
-`dup_cosine` with a frame already picked. Aesthetics only reorders: it never rejects.
+scene category (`by`: products.scene.group, else its label; or the label), the best frames are
+ranked (aesthetic when present, then sharpness) and the top `per_category` are picked, skipping one
+whose frame vector has cosine at least `dup_cosine` with a frame already picked. Aesthetics only reorders: it never rejects.
 
 Statuses: pick (selected), spare (a keeper beyond the top per_category), duplicate (in a burst but
 not its best, or a near-duplicate of a pick), reject (a quality reject reason; `waive` lifts reasons
-per category: underexposed is normal at night).
+per scene group, label or attribute value `name=value`: underexposed is normal at night).
 
 Standard library only: the CLI imports it."""
 from __future__ import annotations
@@ -143,9 +143,11 @@ def check_select(o: dict[str, Any]) -> None:
         v = o[k]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
             raise ValueError(f"select.{k} must be a number >= 0")
+    if o["by"] not in ("group", "label"):
+        raise ValueError("select.by must be group or label")
     w = o["waive"]
     if not isinstance(w, dict) or not all(isinstance(v, list) and all(isinstance(x, str) for x in v) for v in w.values()):
-        raise ValueError("select.waive must be an object {category: [reject reasons]}")
+        raise ValueError("select.waive must be an object {group, label or attribute=value: [reject reasons]}")
 
 
 def _sharpness(q: dict[str, Any]) -> float | None:
@@ -165,9 +167,11 @@ def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
     """What select ranks one result by."""
     p = products(ev)
     q = p.get("quality") or {}
-    category = (p.get("scene") or {}).get("label") or UNCATEGORISED
+    s = p.get("scene") or {}
+    category = ((s.get("group") or s.get("label")) if o["by"] == "group" else s.get("label")) or UNCATEGORISED
     raw = list(q.get("reject_reasons") or [])
-    lifted = set(o["waive"].get(category, []))
+    keys = {s.get("group"), s.get("label")} | {f"{n}={a.get('label')}" for n, a in (s.get("attributes") or {}).items()}
+    lifted = {r for k in keys if k for r in o["waive"].get(k, [])}
     aesthetic = (p.get("aesthetics") or {}).get("score")   # null when no head scored it (a note says why)
     taken, _ = capture(ev)
     return {"path": ev["path"], "category": category, "reasons": [r for r in raw if r not in lifted],
@@ -362,12 +366,13 @@ def row_burst(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, A
 
 
 def row_scene(truth: dict[str, Any], pred: dict[str, Any] | None) -> dict[str, Any]:
-    """Whether the top scene label is the truth's, in `all` and in the truth label's own scope."""
+    """Whether the top scene label, or its group, is the truth's `scene` (a fine label or a group name),
+    in `all` and in the truth label's own scope."""
     label = (truth.get("scene") or "").strip()
     s = products(pred or {}).get("scene")
     if not label or not s:
         return {}
-    hit = s.get("label") == label
+    hit = label in (s.get("label"), s.get("group"))
     return {"all": hit, label: hit}
 
 

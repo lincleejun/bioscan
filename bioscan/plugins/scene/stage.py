@@ -32,20 +32,70 @@ def text_matrix(model: Any, labels: dict[str, list[str]]) -> np.ndarray:
 
 
 def scores(vec: np.ndarray, gate: dict[str, float] | None, labels: dict[str, list[str]], matrix: np.ndarray,
-           scale: float, gate_classes: list[str], boxes: list | None = None) -> dict[str, float]:
-    """{label: score} summing to 1: the gate label (no prompts) gets the gate's share of
-    `gate_classes`, the text labels a softmax over their similarity of the rest. `boxes` is
-    identify's list when it ran (an empty list means it found nothing: the share is 0), None when
-    it did not (the gate share stands)."""
+           scale: float, gate_classes: list[str], boxes: list | None = None,
+           gated: list[str] | None = None) -> dict[str, float]:
+    """{label: score} summing to 1. The `gated` labels (default: the one without prompts) share the
+    gate's probability of `gate_classes`: one prompt-less label takes all of it, prompted ones split it
+    by their own softmax. The other labels split the rest by one softmax over their similarity.
+    `boxes` is identify's list when it ran (an empty list means it found nothing: the share is 0),
+    None when it did not (the gate share stands)."""
     z = scale * (np.asarray(vec, dtype=np.float32) @ matrix.T)
-    p = np.exp(z - z.max())
-    p = p / p.sum()
-    gated = [k for k, v in labels.items() if not v]
+    row = {k: i for i, k in enumerate(k for k, v in labels.items() if v)}
+    gated = [k for k, v in labels.items() if not v] if gated is None else gated
     share = min(1.0, max(0.0, sum((gate or {}).get(c, 0.0) for c in gate_classes))) if gated else 0.0
     if boxes is not None and not boxes:
         share = 0.0
-    it = iter(p)
-    return {k: (share if not v else (1.0 - share) * float(next(it))) for k, v in labels.items()}
+    rest = [k for k in labels if k not in gated]
+    p = dict(zip(rest, softmax(z, [row[k] for k in rest])))
+    if gated and all(labels[k] for k in gated):                  # prompted gate labels: their own softmax
+        p.update(zip(gated, (share * float(v) for v in softmax(z, [row[k] for k in gated]))))
+    else:
+        p.update(dict.fromkeys(gated, share))
+    return {k: p[k] if k in gated else (1.0 - share) * float(p[k]) for k in labels}
+
+
+def softmax(z: np.ndarray, rows: list[int]) -> np.ndarray:
+    """The softmax of z[rows], in their order."""
+    if not rows:
+        return z[:0]
+    p = np.exp(z[rows] - z[rows].max())
+    return p / p.sum()
+
+
+def wildlife_label(inner: dict[str, float], boxes: list | None, rules: dict[str, Any]) -> str:
+    """The gate group's main label (proposal §3.3), from its in-group softmax `inner` and identify's
+    boxes, each rule only when the gate group has its label: herd_flock at flock_boxes boxes or
+    more; bird_flight or domestic when it tops the softmax above 0.5; the best box's kind x area
+    (bird/mammal _portrait at portrait_area of the frame or more, else _habitat; other_animal);
+    else the softmax top."""
+    top = max(inner, key=lambda k: inner[k])
+    if "herd_flock" in inner and boxes and len(boxes) >= rules["flock_boxes"]:
+        return "herd_flock"
+    if top in ("bird_flight", "domestic") and inner[top] > 0.5:
+        return top
+    if boxes:
+        best = max(boxes, key=lambda b: b.get("score", 0))
+        x0, y0, x1, y1 = best["xyxy"]                      # normalised 0-1
+        area = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+        kind = best.get("kind")
+        name = f"{kind}_{'portrait' if area >= rules['portrait_area'] else 'habitat'}" \
+            if kind in ("bird", "mammal") else kind
+        if name in inner:
+            return name
+    return top
+
+
+def grouped(sc: dict[str, float], groups: dict[str, list[str]], gate_group: str, boxes: list | None,
+            rules: dict[str, Any]) -> tuple[str, str, dict[str, float]]:
+    """(label, group, {group: score}): the top group by the sum of its labels' scores; its main
+    label is the gate group's rule label, else its top label."""
+    gs = {g: sum(sc[k] for k in members) for g, members in groups.items()}
+    group = max(gs, key=lambda g: gs[g])
+    members = groups[group]
+    if group == gate_group:
+        share = gs[group] or 1.0
+        return wildlife_label({k: sc[k] / share for k in members}, boxes, rules), group, gs
+    return max(members, key=lambda k: sc[k]), group, gs
 
 
 def horizon(image: Image.Image) -> dict[str, float] | None:
@@ -106,17 +156,32 @@ class Scene(StageBase):
             return self._text[key]
 
     def run(self, engine: Any, items: list[Item], o: dict[str, Any]) -> list[Any]:
-        labels = o["labels"]
+        labels, groups = o["labels"], o["groups"]
         matrix = self.matrix(engine, labels)
+        attrs = {n: (values, self.matrix(engine, values)) for n, values in o["attributes"].items()}
         scale = float(getattr(engine.siglip2, "logit_scale", None) or LOGIT_SCALE)
+        gated = groups[o["gate_group"]] if groups else None
 
         def one(it: Item) -> dict[str, Any]:
-            boxes = it.facts.get("boxes") if o["wildlife_box"] else None
-            sc = scores(it.vec, it.gate, labels, matrix, scale, o["wildlife_gate"], boxes)
-            top = max(sc, key=lambda k: sc[k])
-            it.facts["scene"] = top
-            return {"label": top, "scores": {k: round(v, 4) for k, v in sc.items()},
-                    "horizon": horizon(it.dec.image) if top == LANDSCAPE else None}
+            boxes = it.facts.get("boxes")
+            sc = scores(it.vec, it.gate, labels, matrix, scale, o["wildlife_gate"],
+                        boxes if o["wildlife_box"] else None, gated)
+            out: dict[str, Any] = {"label": max(sc, key=lambda k: sc[k])}
+            if groups:
+                out["label"], out["group"], gs = grouped(sc, groups, o["gate_group"], boxes, o["wildlife_rules"])
+            out["scores"] = {k: round(v, 4) for k, v in sc.items()}
+            if groups:
+                out["group_scores"] = {k: round(v, 4) for k, v in gs.items()}
+            if attrs:
+                out["attributes"] = {}
+                for n, (values, m) in attrs.items():
+                    a = scores(it.vec, None, values, m, scale, [])
+                    out["attributes"][n] = {"label": max(a, key=lambda k: a[k]),
+                                            "scores": {k: round(v, 4) for k, v in a.items()}}
+            group = out.get("group", out["label"])
+            it.facts["scene"], it.facts["scene_group"] = out["label"], group
+            out["horizon"] = horizon(it.dec.image) if group == LANDSCAPE else None
+            return out
         return each(items, one)
 
 

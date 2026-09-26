@@ -113,7 +113,8 @@ def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         s = a.get("score")
         score = float(s) if isinstance(s, (int, float)) and not isinstance(s, bool) and s == s else None
         species, common, level = named(ev)
-        rows.append({"path": ev["path"], "score": score, "scene": sc.get("label"),
+        scene = f"{sc['label']} ({sc['group']})" if sc.get("group") not in (None, sc.get("label")) else sc.get("label")
+        rows.append({"path": ev["path"], "score": score, "scene": scene,
                      "species": species, "common": common, "level": level, "reject_reasons": list(q.get("reject_reasons") or []),
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})

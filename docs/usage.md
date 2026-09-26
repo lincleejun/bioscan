@@ -126,7 +126,7 @@ A **profile** is a named request template: the stages a run wants and their opti
 |---|---|---|---|---|
 | `full` | identify (embed, jpg when `want` asks) | defaults | SigLIP2, OWLv2, BioCLIP | nothing: it is what a request without a profile gets, and no file can change it |
 | `wildlife` | geotag, identify | species, location prior and every accuracy fix on (`top_k` 5, `geo` true); geotag does nothing until `geotag.gpx` (or `run --gpx`) names a track | SigLIP2, OWLv2, BioCLIP | nothing planned |
-| `album` | identify, embed, aesthetics, quality, scene; reducers burst, select (run by `bioscan cull`, never the service) | identify `species: false`; aesthetics `head: builtin`; scene labels; burst and select limits | SigLIP2, OWLv2 (BioCLIP never loads) | nothing planned |
+| `album` | identify, embed, aesthetics, quality, scene; reducers burst, select (run by `bioscan cull`, never the service) | identify `species: false`; aesthetics `head: builtin`; scene taxonomy (40 labels in 8 groups, 3 attributes); burst and select limits (select buckets by scene group) | SigLIP2, OWLv2 (BioCLIP never loads) | nothing planned |
 
 ```sh
 bioscan run DIR --profile album                  # the profile's stages and options; flags still win

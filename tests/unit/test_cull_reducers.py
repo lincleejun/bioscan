@@ -9,7 +9,7 @@ from cull_fixtures import result as ev
 from bioscan import cull, profile
 
 BURST = {"max_gap_s": 1.5, "min_cosine": 0.92}
-SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2,
+SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2, "by": "group",
           "waive": {"night": ["underexposed"]}}
 
 
@@ -80,6 +80,31 @@ def test_without_aesthetics_sharpness_ranks_and_without_scene_one_category():
     r = run(events)
     assert [r[p]["rank"] for p in "xyz"] == [3, 1, 2] and {x["category"] for x in r.values()} == {cull.UNCATEGORISED}
     assert [r[p]["status"] for p in "yzx"] == ["pick", "pick", "spare"] and r["x"]["aesthetic"] is None
+
+
+def scened(path, t, label, group, light="day", **kw):
+    e = ev(path, t, v=(0.0,) * (t // 10) + (1.0,), **kw)
+    e["products"]["scene"] = {"label": label, "group": group, "attributes": {"light": {"label": light, "scores": {}}}}
+    return e
+
+
+def test_select_buckets_by_group_or_label_and_waives_by_group_label_or_attribute():
+    events = [scened("m", 0, "mountain", "landscape"), scened("c", 10, "coast", "landscape"),
+              scened("astro", 20, "astro", "night", reasons=["underexposed"]),               # waived by group
+              scened("bird", 30, "bird_portrait", "wildlife", light="night", reasons=["underexposed"]),   # attribute
+              scened("mug", 40, "still_life", "other", reasons=["underexposed", "subject_cut"])]  # label
+    waive = {"night": ["underexposed"], "light=night": ["underexposed"], "still_life": ["subject_cut"]}
+    r = run(events, waive=waive)
+    assert {p: x["category"] for p, x in r.items()} == {"m": "landscape", "c": "landscape", "astro": "night",
+                                                         "bird": "wildlife", "mug": "other"}
+    assert r["astro"]["waived"] == ["underexposed"] and r["bird"]["waived"] == ["underexposed"]
+    assert r["mug"]["reasons"] == ["underexposed"] and r["mug"]["waived"] == ["subject_cut"]
+    assert r["mug"]["status"] == "reject" and r["bird"]["status"] == "pick"
+    by_label = run(events, waive=waive, by="label")
+    assert by_label["m"]["category"] == "mountain" and by_label["c"]["category"] == "coast"
+    assert run([ev("old", 0, label="night")], by="group")["old"]["category"] == "night"   # no group: the label
+    with pytest.raises(ValueError, match="select.by"):
+        cull.apply(events, {"select": {"by": "kind"}})
 
 
 def test_select_reads_the_aesthetics_stage_output_and_it_only_reorders():
@@ -155,6 +180,11 @@ def test_row_scene_and_row_scene_group():
     assert cull.row_scene(truth, _scene_pred("coast", "landscape")) == {"all": True, "coast": True}
     assert cull.row_scene_group(truth, _scene_pred("mountain", "landscape")) == {"all": True, "landscape": True}
     assert cull.row_scene_group(truth, _scene_pred("building", "architecture")) == {"all": False, "landscape": False}
+    # the truth `scene` may be a group name: the prediction's group hits it
+    assert cull.row_scene({"path": "p", "scene": "wildlife"}, _scene_pred("bird_portrait", "wildlife")) == {
+        "all": True, "wildlife": True}
+    assert cull.row_scene({"path": "p", "scene": "night"}, _scene_pred("bird_portrait", "wildlife")) == {
+        "all": False, "night": False}
     # a column the CSV lacks measures nothing; so does a photo without a scene product
     assert cull.row_scene({"path": "p", "scene_group": "landscape"}, _scene_pred("coast")) == {}
     assert cull.row_scene_group({"path": "p", "scene": "coast"}, _scene_pred("coast")) == {}

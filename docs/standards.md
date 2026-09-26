@@ -398,7 +398,7 @@ losing a keeper costs more than reviewing a reject.
 | Crops cutting 40% of the subject rejected as cut | none published | **≥ 60%** | ≥ 90% | 95.8% [79.8, 99.3] (CI 2026-09-25) | needs the detector to box a partial animal |
 | Subjects at 0.3% of the frame rejected as too small | none published | **≥ 50%** | ≥ 80% | 62.5% [42.7, 78.8] (CI 2026-09-25) | a subject the detector misses is not rejected |
 | Burst grouping, pairwise F1 | none published; cosine near-duplicate detection is the usual method (thresholds 0.93–0.95, unverified) | **≥ 80%** | ≥ 95% | 95.7% (CI 2026-09-25) | one pick per burst |
-| Scene label correct (the smoke photos are all wildlife) | none; SigLIP2 zero-shot is reported below its paper (unverified) | **≥ 80%** | ≥ 95% | 91.5% [87.1, 94.5] (CI 2026-09-25) | one label only until an album with scene labels exists |
+| Scene correct: the label or its group is the truth (the smoke photos are all `wildlife`, a group) | none; SigLIP2 zero-shot is reported below its paper (unverified) | **≥ 80%** | ≥ 95% | 91.5% [87.1, 94.5] (CI 2026-09-25, 8 labels; the taxonomy's is unverified) | one group only until an album with scene labels exists |
 
 How measured: CI `models.yml` (tests/models, `models-report-album.json`), or on any photos with boxes:
 ```sh
@@ -414,22 +414,23 @@ The `scene` tier measures the `scene` stage on photos that are not the owner's a
 labels put them in exactly one scene label of `data/scene/oid-labels.toml` (class sets with `any` /
 `all` / `not`; a photo that fits two labels is dropped). The CSV has the album tier's `scene` (fine
 label, blank for `bird` and `mammal`, whose framing Open Images does not tell) and `scene_group` (one
-of the 8 built-in labels), plus `light`, `setting`, `framing` attributes where the labels say so (no
-metric reads them yet). The judged metric is `group_acc` ([harness.md](harness.md), "Album tier"),
-so the current 8-label stage and the finer taxonomy proposed in
-`docs/research/2026-09-24-scene-taxonomy.md` are measured on the same truth; `scene_acc` on the
-fine labels starts to mean something once the stage reports them.
+of the 8 groups), plus `light`, `setting`, `framing` attributes where the labels say so (no
+metric reads them yet). The album profile's default is the taxonomy of
+`docs/research/2026-09-24-scene-taxonomy.md` (40 fine labels in 8 groups, 3 attributes; #34). The judged
+metric is `group_acc` ([harness.md](harness.md), "Album tier"): the stage's `group` equals the truth's
+`scene_group`, so the 8-label stage (its label is its group) and the taxonomy are measured on the same truth.
+`scene_acc` is the fine label: the stage's `label`, or its `group`, equals the truth's `scene`.
 
 | Bar | Industry | Community | Stretch | Our status | Why |
 |---|---|---|---|---|---|
-| Scene group correct, all photos | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | 70.6% [68.4, 72.6] (Mac 2026-09-25, `baselines/scene-v1-8labels.json`; 61.1% before `wildlife_box`) | what `select` buckets on |
+| Scene group correct, all photos (8 labels; the taxonomy's is unverified until re-run) | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | 70.6% [68.4, 72.6] (Mac 2026-09-25, `baselines/scene-v1-8labels.json`; 61.1% before `wildlife_box`) | what `select` buckets on |
 | Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | pass: people 87.2%, food 88.0%, macro 86.0%, wildlife 76.7%; fail: night 64.6%, landscape 62.5%, other 59.2%, architecture 58.8% (same run) | one weak group hides in the mean |
 
 The failing groups are where the 8 default labels and their prompts are too coarse (the default `other`
 prompts describe an indoor room, so interiors land there; city lights at night read as architecture;
 reptiles and fish read as macro because gate `other_animal` is not in `wildlife_gate`): the finer
-taxonomy of `docs/research/2026-09-24-scene-taxonomy.md` is the planned fix, measured against this
-baseline (#34).
+taxonomy of `docs/research/2026-09-24-scene-taxonomy.md`, now the album default, is the fix to measure
+against this baseline (#34).
 
 Caveats: Open Images labels are object tags, not genre judgements (a "Portrait" label is not always a
 portrait photograph), so a first run's failures need a look at the photos before the bar is trusted;

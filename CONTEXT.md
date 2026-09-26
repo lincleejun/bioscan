@@ -337,9 +337,22 @@ chained in time order by the `burst` reducer; a frame in no burst has id null.
 _Avoid_: sequence, series, stack
 
 **Scene category**:
-A photo's top `scene` label (landscape, people, wildlife, macro, architecture, food, night, other by default; set
-per profile). Selection ranks within it.
+The bucket `select` ranks within: the photo's scene group (`by = "group"`, the default; the label when the stage
+reports no group) or its scene label (`by = "label"`).
 _Avoid_: class (the gate has classes), tag
+
+**Scene label**:
+`products.scene.label`: one per photo, the top group's main label; a fine label such as `bird_portrait` or `coast`
+in the album profile, or one of the 8 built-in labels of a stage without `groups`.
+
+**Scene group**:
+`products.scene.group`: the coarse group a scene label belongs to (`groups` option; the album profile's 8: wildlife,
+landscape, night, people, macro, architecture, food, other), scored as the sum of its labels. The gate group
+(`gate_group`, wildlife) takes the gate's share; what `select` buckets on, `waive` keys and the horizon is measured for.
+
+**Scene attribute**:
+`products.scene.attributes.<name>`: a property scored apart from the label by its own softmax (`light`, `setting`,
+`framing` in the album profile); a `waive` key names one as `name=value` (`light=night`).
 
 **Selection**:
 What the `select` reducer decides per photo: `pick` (the best of its burst and in the top `per_category` of its
