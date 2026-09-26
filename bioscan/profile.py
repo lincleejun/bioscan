@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from bioscan import plugin
+from bioscan import cull, plugin
 
 PROFILES_TOML = Path(__file__).with_name("profiles.toml")
 BUILTIN_LABEL = "profiles.toml"
@@ -264,5 +264,7 @@ def resolve(config: Config, profile: str, want: list[str] | None = None, options
     if check is not None:
         for m in registry:
             check(m, merged[m.name])
+    if r_sources["select"]["waive"] != DEFAULT:          # the default may name a label a request's own labels lack
+        cull.check_waive_keys(r_merged["select"]["waive"], merged.get("scene"))
     return Resolved(profile, list(want), want_source, merged, sources, chosen,
                     plugin.plan(want, merged, registry), r_merged, r_sources)
