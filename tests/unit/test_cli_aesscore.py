@@ -101,6 +101,17 @@ def test_rows_rank_missing_scores_last_and_stars_are_quintiles():
     assert sc.cuts(rows) == [0.8, 0.6, 0.4, 0.2]
 
 
+def test_legend_cuts_are_the_lowest_score_of_each_star():
+    # #51: 7 scores, n not a multiple of 5; the legend must match the cards
+    evs = [result(f"/p/{i}.jpg", 0.0) for i in range(7)]
+    for i, ev in enumerate(evs):
+        ev["products"]["aesthetics"] = {"score": (4 + i) / 10}
+    rows = sc.rows_of(evs)
+    assert [r["stars"] for r in rows] == [5, 5, 4, 3, 3, 2, 1]
+    lowest = [min(r["score"] for r in rows if r["stars"] == k) for k in (5, 4, 3, 2)]
+    assert sc.cuts(rows) == lowest == [0.9, 0.8, 0.6, 0.5]
+
+
 def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
     d = photos(tmp_path, ("a.jpg", "b.jpg"))

@@ -44,8 +44,8 @@ def stars_of(scores):
     return {p["path"]: p["stars"] for p in photos}
 
 
-def test_stars_one_photo_gets_one_star():
-    assert stars_of([("/a", 0.9)]) == {"/a": 1}
+def test_stars_one_photo_gets_five_stars():
+    assert stars_of([("/a", 0.9)]) == {"/a": 5}      # #51: the page's rule, the top fifth is 5
 
 
 def test_stars_five_photos_one_to_five():
@@ -54,15 +54,21 @@ def test_stars_five_photos_one_to_five():
 
 
 def test_stars_seven_with_ties_sorted_by_score_then_path():
-    # sorted: /a .1, /b .2, /c .2, /d .3, /e .3, /f .3, /g .9 -> 1 + 5*i//7 = 1 1 2 3 3 4 5
+    # #51: best first by (-score, path) like the page: /g .9, /d .3, /e .3, /f .3, /b .2, /c .2, /a .1 -> 5 5 4 3 3 2 1
     got = stars_of([("/f", 0.3), ("/c", 0.2), ("/g", 0.9), ("/e", 0.3), ("/a", 0.1), ("/d", 0.3), ("/b", 0.2)])
-    assert got == {"/a": 1, "/b": 1, "/c": 2, "/d": 3, "/e": 3, "/f": 4, "/g": 5}
+    assert got == {"/g": 5, "/d": 5, "/e": 4, "/f": 3, "/b": 3, "/c": 2, "/a": 1}
+
+
+def test_stars_equal_the_page_stars():
+    scores = [(f"/p/{i}", (4 + i) / 10) for i in range(7)]
+    got = stars_of(scores)
+    assert [got[p] for p, _ in sorted(scores, key=lambda x: -x[1])] == [5, 5, 4, 3, 3, 2, 1]
 
 
 def test_photos_without_boxes_get_zero_stars_and_are_not_ranked():
     photos = [{"path": "/none", "score": 0.0, "level": "none"}, {"path": "/a", "score": 0.1, "level": "species"}]
     lr.stars(photos)
-    assert [p["stars"] for p in photos] == [0, 1]
+    assert [p["stars"] for p in photos] == [0, 5]
 
 
 def test_keywords_per_level():
@@ -133,11 +139,11 @@ def test_open_writes_latest_atomically_and_prints_counts(tmp_path, capsys):
     doc = json.loads(target.read_text())
     run = datetime.fromisoformat(doc["run"])
     assert doc["schema"] == 1 and doc["source"] == str(preds) and run.tzinfo and "." in doc["run"]
-    assert doc["photos"][0] == {"path": "/p/1.ARW", "stars": 3, "score": 0.6,
+    assert doc["photos"][0] == {"path": "/p/1.ARW", "stars": 5, "score": 0.6,      # #51: best of 2 -> 5, next -> 3
                                 "keywords": [["bioscan", "bird", "Western Screech-Owl"]],
                                 "group": "Western Screech-Owl", "species": "Megascops kennicottii", "level": "species"}
     assert [(p["path"], p["stars"], p["group"]) for p in doc["photos"][1:]] == [
-        ("/p/2.ARW", 1, lr.REVIEW), ("/p/3.ARW", 0, lr.NONE)]
+        ("/p/2.ARW", 3, lr.REVIEW), ("/p/3.ARW", 0, lr.NONE)]
     out = capsys.readouterr().out
     assert "3 photos" in out and "2 starred" in out and str(target) in out
 

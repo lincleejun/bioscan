@@ -226,3 +226,12 @@ def test_ndcg_and_hits():
     picked = [True, False, True, False]
     assert aes.hits_at_k([0.9, 0.8, 0.1, 0.7], picked, 2) == 1
     assert aes.hits_at_k([0.5, 0.5, 0.5, 0.5], picked, 2, ["a", "b", "c", "d"]) == 1     # ties by path
+
+
+def test_quintile_stars_and_cuts_agree_when_n_is_not_a_multiple_of_five():
+    # #51: the cut per star is the lowest score that star actually got
+    scores = [0.4, 1.0, 0.7, 0.9, 0.5, 0.8, 0.6]
+    stars, cuts = aes.quintile_stars(scores)
+    assert dict(zip(scores, stars)) == {1.0: 5, 0.9: 5, 0.8: 4, 0.7: 3, 0.6: 3, 0.5: 2, 0.4: 1}
+    assert cuts == [0.9, 0.8, 0.6, 0.5]
+    assert aes.quintile_stars([0.3, 0.1]) == ([5, 3], []) and aes.quintile_stars([]) == ([], [])
