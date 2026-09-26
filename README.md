@@ -6,9 +6,9 @@
 
 ## Promo video
 
-[![bioscan promo video (88 s)](assets/bioscan-promo-cover.jpg)](assets/bioscan-promo.mp4)
+https://github.com/user-attachments/assets/96ab885c-be4d-466e-98b0-ea69dd560f05
 
-[Watch the 88-second promo](assets/bioscan-promo.mp4) — what bioscan does, the geo prior, the measured numbers, and the other tools.
+88 seconds: what bioscan does, the geo prior, the measured numbers, and the other tools. Full-quality file: [assets/bioscan-promo.mp4](assets/bioscan-promo.mp4).
 
 ## Results
 
