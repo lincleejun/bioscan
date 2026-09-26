@@ -153,7 +153,7 @@ JS = r"""
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],grid=$('#grid');
 const KEY='bioscan:'+ROOT,saved=(()=>{try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}})();
 const DEC=saved.dec||{},MERGE=saved.merge||{};
-const F={sort:'sd',dir:'',stars:new Set(),rej:'',scenes:new Set(),sp:'',dec:'',q:'',group:''};
+const F={sort:'st',dir:'',stars:new Set(),rej:'',scenes:new Set(),sp:'',dec:'',q:'',group:''};
 let merging=null,shown=[],cur=-1,sel=new Set(),anchor=-1;
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({dec:DEC,merge:MERGE}))}catch(e){}};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -163,8 +163,9 @@ const keyOf=r=>(r.sp?r.tx:['(unnamed)']).join('/');
 const label=b=>b.cn||(b.sp+(b.lv&&b.lv!=='species'?' ('+b.lv+')':''));
 const nameOf=r=>r.sp?label(r):'';
 const stars=n=>n?'★'.repeat(n)+'☆'.repeat(5-n):'';
-const SORTS={sd:['score, best first',(a,b)=>(b.s??-1)-(a.s??-1)],sa:['score, worst first',(a,b)=>(a.s??9)-(b.s??9)],f:['file name',(a,b)=>a.f.localeCompare(b.f)],
-  td:['newest first',(a,b)=>(b.ts||'').localeCompare(a.ts||'')],ta:['oldest first',(a,b)=>(a.ts||'').localeCompare(b.ts||'')],sp:['species',(a,b)=>nameOf(a).localeCompare(nameOf(b))||(b.s??-1)-(a.s??-1)]};
+const byTime=(a,b)=>(a.ts||'').localeCompare(b.ts||'')||a.f.localeCompare(b.f);
+const SORTS={st:['stars, then time taken',(a,b)=>(b.st||0)-(a.st||0)||byTime(a,b)],sd:['score, best first',(a,b)=>(b.s??-1)-(a.s??-1)],sa:['score, worst first',(a,b)=>(a.s??9)-(b.s??9)],f:['file name',(a,b)=>a.f.localeCompare(b.f)],
+  td:['newest first',(a,b)=>(b.ts||'').localeCompare(a.ts||'')],ta:['oldest first',(a,b)=>(a.ts||'').localeCompare(b.ts||'')],sp:['species',(a,b)=>nameOf(a).localeCompare(nameOf(b))||(b.st||0)-(a.st||0)||byTime(a,b)]};
 /* ---- filtering ---- */
 function pass(r){const q=F.q;
   return (F.dir===''||r.d===F.dir)&&(!F.stars.size||F.stars.has(r.st))&&(!F.scenes.size||F.scenes.has(r.sc))
