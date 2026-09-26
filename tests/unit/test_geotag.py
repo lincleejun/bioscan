@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
@@ -427,6 +428,23 @@ def test_run_gpx_gives_per_file_coordinates_and_exif_stays_first(folder, monkeyp
     inputs = {i["path"].rsplit("/", 1)[1]: i for i in cli.build_payload(a)["inputs"]}
     assert inputs["a.jpg"]["lat"] != 1 and (inputs["c.jpg"]["lat"], inputs["c.jpg"]["lon"]) == (1, 2)
     assert "lat" not in inputs["b.jpg"]                  # its own GPS, not the batch default
+
+
+def test_run_lat_lon_without_exiftool_keeps_exif_gps(folder, monkeypatch):
+    # --lat/--lon without --gpx: EXIF GPS is read with Pillow, so a missing exiftool must not hand the
+    # batch coordinate to a photo that has its own (the service ranks request coordinates first).
+    monkeypatch.setattr(cli.gt.shutil, "which", lambda name: None)
+    a = cli.parser().parse_args(["run", str(folder / "photos"), "--lat", "1", "--lon", "2"])
+    inputs = {i["path"].rsplit("/", 1)[1]: i for i in cli.build_payload(a)["inputs"]}
+    assert "lat" not in inputs["b.jpg"]
+    assert (inputs["a.jpg"]["lat"], inputs["a.jpg"]["lon"]) == (1, 2) == (inputs["c.jpg"]["lat"], inputs["c.jpg"]["lon"])
+
+
+def test_run_lat_lon_without_pillow_stops(folder, monkeypatch):
+    monkeypatch.setitem(sys.modules, "bioscan.service.decode", None)    # import -> ImportError
+    a = cli.parser().parse_args(["run", str(folder / "photos"), "--lat", "1", "--lon", "2"])
+    with pytest.raises(SystemExit, match="--lat/--lon needs Pillow"):
+        cli.build_payload(a)
 
 
 def test_run_without_gpx_is_unchanged(folder):
