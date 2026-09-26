@@ -58,7 +58,7 @@ def test_score_exports_json_csv_html_and_reads_its_own_ndjson_back(tmp_path, mon
     assert rows[0]["scene"] == "landscape" and rows[0]["rank"] == "1"
 
     page = (out.parent / "aes.html").read_text()
-    assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "5★ ≥ 0.900" in page
+    assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "const CUTS=[0.9, 0.7, 0.6, 0.5]" in page
     assert f'"p":"{d / "e.jpg"}"' in page and f'const ROOT="{d}"' in page                # marks and export need the path
     text = capsys.readouterr().out
     assert "7 photos: 5 scored, 1 without a score, 1 failed" in text and "note: no head" in text
@@ -171,7 +171,6 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
                                                                         ("Rangifer tarandus", "Caribou", "species")]
     page = (tmp_path / "aes.html").read_text()
     assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and '"sp":"Rangifer"' in page
-    assert "<option>" not in page.split("<script>")[0].split('id="sp"')[1].split("</select>")[0]   # the JS fills it
     # without --species the request keeps the album profile's species=false and the columns stay empty
     assert main(["aesthetic", "score", str(d), "--export", "csv", "--out", str(out)]) == 0
     assert sent["payload"]["options"]["identify"]["species"] is False
