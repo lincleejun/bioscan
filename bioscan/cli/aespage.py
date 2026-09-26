@@ -295,13 +295,19 @@ function confirmBox(title,text,yes){return new Promise(res=>{$('#mt').textConten
 const relOf=r=>r.p.startsWith(ROOT+'/')?r.p.slice(ROOT.length+1):r.p.split('/').pop();
 const sidecars=name=>[name.replace(/\.[^.]+$/,'')+'.xmp',name+'.xmp'];
 async function walk(dir,rel){const parts=rel.split('/');let d=dir;for(const p of parts.slice(0,-1))d=await d.getDirectoryHandle(p);return[d,parts[parts.length-1]]}
-async function granted(mode){return !!srcDir&&(await srcDir.queryPermission({mode}))==='granted'}
-async function source(mode){                                   // called right after a click: each picker needs its own user gesture
-  if(srcDir&&(await granted(mode)||(await srcDir.requestPermission({mode}))==='granted'))return srcDir;
-  const picked=await showDirectoryPicker({mode,id:'bioscan-photos'}),dir=await locate(picked);
-  const probe=LIVE()[0];if(probe){try{const[d,n]=await walk(dir,relOf(probe));await d.getFileHandle(n)}
-    catch(e){throw new Error(`“${dir.name}” has no ${relOf(probe)} (it holds ${await describe(dir)}). Choose ${ROOT}`)}}
-  return srcDir=dir}
+const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('bioscan-handles',1);r.onupgradeneeded=()=>r.result.createObjectStore('h');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+async function idbGet(k){try{const db=await idb();return await new Promise((res,rej)=>{const t=db.transaction('h').objectStore('h').get(k);t.onsuccess=()=>res(t.result);t.onerror=()=>rej(t.error)})}catch(e){return null}}
+async function idbSet(k,v){try{const db=await idb();await new Promise((res,rej)=>{const t=db.transaction('h','readwrite').objectStore('h').put(v,k);t.onsuccess=res;t.onerror=()=>rej(t.error)})}catch(e){}}
+async function remembered(){if(!srcDir)srcDir=await idbGet('src:'+ROOT)||null;return srcDir}
+async function granted(mode){const d=await remembered();return !!d&&(await d.queryPermission({mode}))==='granted'}
+async function source(mode,notThis){                          // called right after a click: a permission prompt or picker needs a user gesture
+  const d=await remembered();if(d&&(await granted(mode)||(await d.requestPermission({mode}))==='granted'))return d;
+  const picked=await showDirectoryPicker({mode,id:'bioscan-photos'});
+  if(notThis&&await picked.isSameEntry(notThis))throw new Error(`“${picked.name}” is the export folder. Choose the folder that holds the photos: ${ROOT}`);
+  const dir=await locate(picked);
+  const probe=LIVE()[0];if(probe){try{const[dd,n]=await walk(dir,relOf(probe));await dd.getFileHandle(n)}
+    catch(e){throw new Error(`“${dir.name}” has no ${relOf(probe)} (it holds ${await describe(dir)}). Choose the folder that holds the photos: ${ROOT}`)}}
+  srcDir=dir;await idbSet('src:'+ROOT,dir);return dir}
 async function locate(dir){                                   // a parent of ROOT was picked (DCIM, the volume): walk down to ROOT
   const segs=ROOT.split('/').filter(Boolean),i=segs.lastIndexOf(dir.name);let d=dir;
   if(i>=0)for(const sg of segs.slice(i+1)){try{d=await d.getDirectoryHandle(sg)}catch(e){throw new Error(`“${dir.name}” has no folder ${sg} (it holds ${await describe(d)}). Choose ${ROOT}`)}}
@@ -309,9 +315,10 @@ async function locate(dir){                                   // a parent of ROO
 async function describe(dir){const names=[];let n=0;try{for await(const[name]of dir.entries()){n++;if(names.length<5)names.push(name)}}catch(e){return 'nothing readable: '+e.message}
   return n?`${n} entries: ${names.join(', ')}${n>5?', …':''}`:'no entries'}
 async function exportKeeps(){const keeps=LIVE().filter(r=>DEC[r.p]==='k');if(!keeps.length)return;
-  try{if(!await granted('read')){if(!await confirmBox('Export keeps · step 1 of 2',`Choose the folder that holds the photos: ${ROOT}`,'Choose photo folder…'))return;await source('read')}
-    if(!await confirmBox('Export keeps · step 2 of 2',`Choose the folder to copy ${keeps.length} kept photo${keeps.length===1?'':'s'} (and their XMP sidecars) into.`,'Choose destination…'))return;
-    const src=srcDir,dst=await showDirectoryPicker({mode:'readwrite',id:'bioscan-export'});
+  try{if(!await confirmBox(`Export ${keeps.length} kept photo${keeps.length===1?'':'s'}`,'Choose the folder to copy them into (XMP sidecars come along; files already there are left as is).','Choose destination…'))return;
+    const dst=await showDirectoryPicker({mode:'readwrite',id:'bioscan-export'});
+    if(!await granted('read')){if(!await confirmBox('One more step','Chrome needs you to point at the folder that holds the photos, once; it remembers it afterwards: '+ROOT,'Choose photo folder…'))return;await source('read',dst)}
+    const src=srcDir;
     let n=0,skip=0,side=0;
     for(const r of keeps){const[d,name]=await walk(src,relOf(r));
       for(const nm of[name,...sidecars(name)]){let fh;try{fh=await d.getFileHandle(nm)}catch(e){continue}
@@ -321,7 +328,7 @@ async function exportKeeps(){const keeps=LIVE().filter(r=>DEC[r.p]==='k');if(!ke
     toast(`copied ${n} photo${n===1?'':'s'}${side?` and ${side} XMP sidecar${side===1?'':'s'}`:''} to “${dst.name}”${skip?`; ${skip} already there, left as is`:''}`,8000)}
   catch(e){toast(e.name==='AbortError'?'':e.message,8000)}}
 async function deleteDrops(){const drops=LIVE().filter(r=>DEC[r.p]==='x');if(!drops.length)return;
-  if(!await confirmBox(`Delete ${drops.length} dropped photo${drops.length===1?'':'s'} from disk?`,`The original files and their XMP sidecars are removed under ${ROOT}. This cannot be undone from here.${srcDir?'':' The folder picker opens next: choose '+ROOT+'.'}`,'Delete'))return;
+  if(!await confirmBox(`Delete ${drops.length} dropped photo${drops.length===1?'':'s'} from disk?`,`The original files and their XMP sidecars are removed under ${ROOT}. This cannot be undone from here.${await granted('readwrite')?'':' Chrome then asks for access to that folder.'}`,'Delete'))return;
   try{const src=await source('readwrite');let n=0,miss=0;         // the confirm click is the gesture for the picker
     for(const r of drops){const[d,name]=await walk(src,relOf(r));try{await d.removeEntry(name);n++}catch(e){miss++}
       for(const nm of sidecars(name)){try{await d.removeEntry(nm)}catch(e){}}GONE.add(r.p);delete DEC[r.p];toast(`deleting… ${n+miss} / ${drops.length}`)}
