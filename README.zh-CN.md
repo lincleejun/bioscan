@@ -4,6 +4,12 @@
 
 **照片里是什么动物、在哪里、是哪个物种。** 面向野生动物摄影的本地识别服务：给它一个 RAW 或 JPG 文件夹，每张照片返回动物框、物种（鸟类和哺乳类对照权威名单，其他动物对照 TreeOfLife 全类群名单）、置信度和定级。它还能用 GPX 轨迹给照片补 GPS，把一个相册挑成精选、连拍和带理由的废片。常驻的 HTTP 服务加一个轻量 CLI；在 Mac 上跑 MPS；照片不出本机。
 
+## 宣传视频
+
+[![bioscan 宣传视频（88 秒）](assets/bioscan-promo-cover.jpg)](assets/bioscan-promo.mp4)
+
+[观看 88 秒宣传片](assets/bioscan-promo.mp4)（英文）——bioscan 做什么、地理先验、实测数字和其他工具。
+
 ## 结果
 
 2026-09-24 在 owner 的 M 系列 Mac（MPS）上实测，v1.5（`875dc7a`）。完整表格、与 v1.4 的对照、失败分类和记分卡见 [docs/results.md](docs/results.md)；这些数字对照的标准见 [docs/standards.md](docs/standards.md)。
