@@ -113,7 +113,7 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
            {"type": "done", "schema": 1, "ok": 2, "failed": 0, "elapsed_ms": 1.0}]
     evs[0]["products"]["aesthetics"] = {"score": 0.6}
     evs[1]["products"]["aesthetics"] = {"score": 0.8}
-    # two boxes: the surer one names the photo; a genus-level box shows its genus, no common name
+    # two boxes: the surer one names the photo; a genus-level box shows its genus and an English word for it
     evs[0]["products"]["identify"] = {"gate": {"class": "mammal"}, "boxes": [
         {"id": 0, "kind": "mammal", "species": {"list": "mdd", "level": "species",
                                                 "top": [cand("Rangifer tarandus", "Caribou", 0.9)]}},
@@ -132,10 +132,10 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
     assert sent["payload"]["options"]["identify"]["species"] is True
     with open(f"{out}.csv") as f:
         rows = list(csv.DictReader(f))
-    assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "", "genus"),
+    assert [(r["species"], r["common"], r["level"]) for r in rows] == [("Rangifer", "a caribou", "genus"),
                                                                         ("Rangifer tarandus", "Caribou", "species")]
     page = (tmp_path / "aes.html").read_text()
-    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and "<option>Rangifer</option>" in page
+    assert '"sp":"Rangifer tarandus","cn":"Caribou","lv":"species"' in page and '<option value="Rangifer">a caribou — Rangifer</option>' in page
     # without --species the request keeps the album profile's species=false and the columns stay empty
     assert main(["aesthetic", "score", str(d), "--export", "csv", "--out", str(out)]) == 0
     assert sent["payload"]["options"]["identify"]["species"] is False
