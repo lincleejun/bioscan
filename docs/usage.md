@@ -184,13 +184,13 @@ bioscan report run                                # -> run/report.html (reads su
 | `counts` | images (results + failed), ok, failed, boxes, elapsed_ms (from `done`) |
 | `categories` | the gate classes in fixed order (bird, mammal, other_animal, person, none), zeros included. An image counts under its gate class; for the animal classes, boxes, taxa and review items count by box kind (the kind check may have moved a box) |
 | `taxa` | one row per named taxon, most boxes first: the name at the box's level (species, else the genus or family of the first candidate), common name (at species level the first candidate's; at genus or family "a"/"an" and the last word most of the taxon's candidates' common names share, e.g. "a vireo", "a hawk or eagle"; null when none has one), level, kind, taxonomy down to that level, list, images, boxes, the first candidate's posterior (max, median), `best` (highest posterior × sharpness), every member box with its first 3 candidates, capture span |
-| `review` | the review queue, sorted by suggested name then capture time: sha256, path, jpg copy, box id (null for a whole frame), kind, level, reasons, suggested name, first 3 candidates |
+| `review` | the review queue, sorted by suggested name then capture time: sha256, path, jpg copy, box id (null for a whole frame), kind, level, reasons, suggested name, its common name (as in `taxa`; null when unconfirmed, no list or a whole frame), first 3 candidates |
 | `rules` | the thresholds used: `single_sighting_max_posterior` 0.8, `range_eps` 0.01 |
 | `errors` | every error event: path, product (null = decode), message |
 
 Review reasons are rules, never a model: `unconfirmed` (level unconfirmed), `coarse_level` (genus or family), `out_of_range` (the first candidate's p_geo below `range_eps`, the service's `RANGE_EPS`), `no_list` (species null: a kind with no name list), `gate_no_box` (the gate says an animal but no box survived), `single_sighting` (the only box of its taxon in the run, posterior below `single_sighting_max_posterior`). Boxes from a run with species off are counted, not named or reviewed. `jpg` (the service's upright copy, when the run asked for one) and `taken_at` on members and review items are additions to the design's schema, so the page shows photos and sorts by time without reading the preds file.
 
-`report.html` is a view of `summary.json` alone, with `bioscan cull`'s stylesheet and photo tiles (the `jpg` copy, else the photo when a browser can show it, else its format): the one line and a proportional category strip, the taxa per kind with their best frame, the review queue grouped by suggested name with reasons in words and the candidates, counts of people and empty frames, errors, run facts. Not built yet (design §3): verdict buttons, `names.json`, `review.json` and `bioscan gt review`; thumbnails of RAW files without a `jpg` copy.
+`report.html` is a view of `summary.json` alone, with `bioscan cull`'s stylesheet and photo tiles (the `jpg` copy, else the photo when a browser can show it, else its format): the one line and a proportional category strip, the taxa per kind with their best frame, the review queue grouped by suggested name (English beside Latin, with the level at genus or family) with reasons in words and the candidates, counts of people and empty frames, errors, run facts. Not built yet (design §3): verdict buttons, `names.json`, `review.json` and `bioscan gt review`; thumbnails of RAW files without a `jpg` copy.
 
 ### Lightroom Classic (experimental)
 
@@ -209,7 +209,7 @@ bioscan run DIR --profile wildlife --want identify,embed,aesthetics --json --out
 `lr open` writes `~/Library/Application Support/bioscan/lightroom/latest.json` (atomically; `--to FILE` elsewhere) and brings Lightroom to the front (`--no-launch` skips that); the plugin picks the file up and applies it:
 
 - **Stars** 1-5 by quantile among the photos with an animal (about 20% per star) of `products.aesthetics.score` when the run has it, else of the best box's sharpness; photos with no animal get none. A photo that already has stars you gave it is never overwritten.
-- **Keywords**, hierarchical: `bioscan|kind|name`, where name is the common name at species level, the genus or family at those levels, and left out when unconfirmed.
+- **Keywords**, hierarchical: `bioscan|kind|name`, where name is the common name at species level, `English (Latin)` at genus or family (`a vireo (Vireo)`, `a hawk or eagle (Accipitridae)`; the bare Latin when no candidate has a common name), and left out when unconfirmed.
 - **Collections** in the collection set `bioscan`: one per species, `待确认` (animal, no species) and `无动物` (no animal).
 
 Rerunning the same file adds no duplicates. The plugin and its manual acceptance steps are in `extensions/lightroom/README.md`.
