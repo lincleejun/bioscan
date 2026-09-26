@@ -102,9 +102,13 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   past the top N), `duplicate` or `reject`. `waive` lifts reject reasons per scene group, label or attribute value:
   `waive = { night = ["underexposed"] }` by default; an attribute key reads `"light=night" = ["underexposed"]`.
   **Flags** mark a photo without changing its status, rank, keep or stars: `horizon_tilt` when a landscape's
-  horizon tilts more than `horizon_flag_deg` (default 3°) either way. `aesthetic score` reads the same option from the
-  album profile (`[profile.album.options.select] horizon_flag_deg = 5`) for its CSV column and card badge; XMP gets
-  nothing. A preds file from before flags reads as no flags.
+  horizon tilts more than `horizon_flag_deg` (default 3°) either way; `tight_headroom` when the subject (identify's
+  best box by score) starts less than `headroom_min` (default 0.02, a share of the frame height; 0 turns it off)
+  below the frame top and is not a fill-the-frame portrait (box under half the frame). It reads the existing boxes, no
+  extra model call; a box within 1% of the top is also quality's `subject_cut` reject. Both thresholds are guesses,
+  unverified until #28's labelled trips exist. `aesthetic score` reads the same options from the album profile
+  (`[profile.album.options.select] horizon_flag_deg = 5`) for its CSV column and card badge; XMP gets nothing. A
+  preds file from before flags reads as no flags.
 - **Outputs**: `--csv` (one row per photo: status, keep, category, rank, reasons, waived, flags, burst, burst rank, duplicate of,
   sharpness, aesthetic, capture time; failed photos too), `--link-dir` (a symlink per pick in `<dir>/<category>/`,
   never replacing a file), `--html` (a page with picks per category, spares, bursts, rejects by reason and failures;

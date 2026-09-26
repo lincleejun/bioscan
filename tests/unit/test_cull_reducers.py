@@ -10,7 +10,7 @@ from bioscan import cull, profile
 
 BURST = {"max_gap_s": 1.5, "min_cosine": 0.92}
 SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2, "by": "group",
-          "waive": {"night": ["underexposed"]}, "horizon_flag_deg": 3.0}
+          "waive": {"night": ["underexposed"]}, "horizon_flag_deg": 3.0, "headroom_min": 0.02}
 
 
 def test_burst_chains_one_camera_close_in_time_and_alike():
@@ -236,6 +236,38 @@ def test_select_flags_a_tilted_horizon_and_the_flag_never_changes_the_selection(
     assert r["tilted"]["status"] == "pick" and r["tilted"]["reasons"] == [] and r["soft"]["reasons"] == ["soft_subject"]
     assert run(events, horizon_flag_deg=5.0)["tilted"]["flags"] == []
     assert run([ev("old", 0.0)])["old"]["flags"] == []                                  # preds before flags: none
+
+
+def boxed(path, t, *boxes):
+    """A wildlife photo with identify boxes (xyxy, normalised 0-1) and their detector scores."""
+    e = ev(path, t)
+    e["products"]["identify"] = {"boxes": [{"id": i, "xyxy": list(xyxy), "score": s, "kind": "bird"}
+                                           for i, (xyxy, s) in enumerate(boxes)]}
+    return e
+
+
+def test_select_flags_tight_headroom_and_the_flag_never_changes_the_selection():
+    events = [boxed("tight", 0, ((0.3, 0.01, 0.6, 0.5), 0.9)), boxed("room", 10, ((0.3, 0.03, 0.6, 0.5), 0.9)),
+              boxed("portrait", 20, ((0.0, 0.0, 1.0, 0.9), 0.9)),               # fills the frame: no headroom to keep
+              ev("nobox", 30),
+              boxed("subject", 40, ((0.3, 0.01, 0.4, 0.2), 0.5), ((0.3, 0.3, 0.6, 0.6), 0.8))]  # best box by score
+    r = run(events, per_category=0)
+    assert {p: x["flags"] for p, x in r.items()} == {"tight": ["tight_headroom"], "room": [], "portrait": [],
+                                                      "nobox": [], "subject": []}
+    plain = [ev(e["path"], i * 10) for i, e in enumerate(events)]
+    drop = lambda out: {p: {k: v for k, v in x.items() if k != "flags"} for p, x in out.items()}  # noqa: E731
+    assert drop(r) == drop(run(plain, per_category=0))                                 # a flag is not a reason
+    assert run(events, headroom_min=0.05)["room"]["flags"] == ["tight_headroom"]
+    assert run(events, headroom_min=0.0)["tight"]["flags"] == []                       # 0 turns it off
+    both = tilted("both", 0, 5.0)
+    both["products"]["identify"] = boxed("both", 0, ((0.3, 0.0, 0.5, 0.4), 0.9))["products"]["identify"]
+    assert cull.flags(both) == ["horizon_tilt", "tight_headroom"] and set(cull.FLAGS) >= set(cull.flags(both))
+
+
+@pytest.mark.parametrize("bad", [-1, "0.02", True, float("nan"), 1.5])
+def test_select_checks_headroom_min(bad):
+    with pytest.raises(ValueError, match="select.headroom_min"):
+        cull.check_select(SELECT | {"headroom_min": bad})
 
 
 @pytest.mark.parametrize("bad", [-1, "3", True, float("nan")])
