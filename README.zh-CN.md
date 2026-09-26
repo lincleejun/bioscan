@@ -6,9 +6,9 @@
 
 ## 宣传视频
 
-[![bioscan 宣传视频（88 秒）](assets/bioscan-promo-cover.jpg)](assets/bioscan-promo.mp4)
+https://github.com/user-attachments/assets/96ab885c-be4d-466e-98b0-ea69dd560f05
 
-[观看 88 秒宣传片](assets/bioscan-promo.mp4)（英文）——bioscan 做什么、地理先验、实测数字和其他工具。
+88 秒（英文）：bioscan 做什么、地理先验、实测数字和其他工具。原画质文件：[assets/bioscan-promo.mp4](assets/bioscan-promo.mp4)。
 
 ## 结果
 
