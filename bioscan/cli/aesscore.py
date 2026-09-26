@@ -25,13 +25,13 @@ from __future__ import annotations
 
 import csv
 import json
-import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-from bioscan import aesthetic, contract, cull, formats, xmp
+from bioscan import aesthetic, contract, cull, formats
+from bioscan import apply as applying
 from bioscan.cli import cull as cc
 from bioscan.cli import report as rp
 from bioscan.cli.aespage import page_rows, thumb_of, write_html  # noqa: F401  (page_rows: tests)
@@ -207,7 +207,8 @@ def cmd_score(a) -> int:
         write_csv(rows, fails, f"{out}.csv")
         written.append(f"{out}.csv")
     if "html" in exports:
-        write_html(rows, fails, f"{out}.html", f"bioscan aesthetic score: {len(rows) + len(fails)} photos")
+        write_html(rows, fails, f"{out}.html", f"bioscan aesthetic score: {len(rows) + len(fails)} photos",
+                   service=a.url, token=applying.token())
         written.append(f"{out}.html")
     print(summary(rows, fails))
     for w in written:
@@ -225,29 +226,19 @@ def cmd_apply(a) -> int:
     if not (a.keep_to or a.drop_to):
         raise SystemExit("give --keep-to DIR (copies the keeps) and/or --drop-to DIR (moves the drops)")
     dec = json.loads(Path(a.decisions).read_text(encoding="utf-8"))
-    trouble = 0
-    for label, dest, op, verb in (("keep", a.keep_to, shutil.copy2, "copied to"), ("drop", a.drop_to, shutil.move, "moved to")):
-        paths = dec.get(label) or []
-        if not dest or not isinstance(paths, list):
-            continue
-        done = 0
-        for p in paths:
-            src = Path(p)
-            if not src.is_file():
-                print(f"missing: {p}", file=sys.stderr)
-                trouble += 1
-                continue
-            if (Path(dest) / src.name).exists():
-                print(f"already at {dest}, skipped: {p}", file=sys.stderr)
-                trouble += 1
-                continue
-            for f in (src, *(s for s in xmp.sidecar_paths(p) if s.is_file())):
-                if not a.dry_run:
-                    Path(dest).mkdir(parents=True, exist_ok=True)
-                    op(str(f), str(Path(dest) / f.name))
-            done += 1
-        print(f"{label}: {done} of {len(paths)} {verb} {dest}{' (dry run)' if a.dry_run else ''}")
-    return 1 if trouble else 0
+    keep, drop = dec.get("keep") or [], dec.get("drop") or []
+    r = applying.apply(keep if a.keep_to else [], drop if a.drop_to else [], keep_to=a.keep_to, drop_to=a.drop_to,
+                       dry_run=a.dry_run)
+    for q in r["missing"]:
+        print(f"missing: {q}", file=sys.stderr)
+    for q in r["skipped"]:
+        print(f"already at the target, skipped: {q}", file=sys.stderr)
+    tail = " (dry run)" if a.dry_run else ""
+    if a.keep_to:
+        print(f"keep: {r['copied']} of {len(keep)} copied to {a.keep_to}{tail}")
+    if a.drop_to:
+        print(f"drop: {r['moved']} of {len(drop)} moved to {a.drop_to}{tail}")
+    return 1 if r["missing"] or r["skipped"] else 0
 
 
 def add_parser(g) -> None:

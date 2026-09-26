@@ -63,7 +63,8 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
 ## Default workflow (2026-09-24)
 When the owner gives a folder of photos and says nothing else, this is the job, start to finish:
 1. Service: `uv run bioscan --url http://127.0.0.1:8767 health`; if it fails, start one from this checkout:
-   `uv run bioscan serve --port 8767 --allow-root DIR` (background, log in the scratchpad). Stop it when done if you started it.
+   `uv run bioscan serve --port 8767 --allow-root DIR --allow-root ~/Documents --allow-root ~/Pictures` (background, log in the
+   scratchpad). Leave it running: the review page's Export / Delete go through it (POST /apply); stop it only when told.
 2. Run, one request, names and aesthetics together, all three exports:
    `uv run bioscan --url http://127.0.0.1:8767 aesthetic score DIR --species --export json,csv,html --out DIR/bioscan`
    (top level only unless told `-r`; add `--lat/--lon` when the photos have no GPS and the place is known).
