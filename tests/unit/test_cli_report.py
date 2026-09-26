@@ -145,3 +145,14 @@ def test_common_of_without_names_or_level_is_none():
     assert rp.common_of(_sp("genus", [_c("Vireo gilvus", "", "Vireonidae")])) is None
     assert rp.common_of(_sp("unconfirmed", [_c("Vireo gilvus", "Warbling Vireo", "Vireonidae")])) is None
     assert rp.common_of(None) is None
+
+
+def test_review_row_and_heading_carry_the_english_name(tmp_path):
+    vireos = [_c("Vireo gilvus", "Warbling Vireo", "Vireonidae"), _c("Vireo olivaceus", "Red-eyed Vireo", "Vireonidae")]
+    e = ev("v", "bird", [bx(0, level="genus", top=vireos)])
+    s = rp.summarize([e])
+    assert [(r["suggested"], r["common"]) for r in s["review"]] == [("Vireo", "a vireo")]
+    rp.render(s, str(tmp_path / "report.html"))
+    page = (tmp_path / "report.html").read_text()
+    assert ('<h3><span class="common">a vireo</span> <i>Vireo</i> <span class="muted">(genus)</span>'
+            ' <span class="muted">1</span></h3>') in page
