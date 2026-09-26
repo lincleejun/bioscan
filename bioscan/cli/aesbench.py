@@ -169,6 +169,9 @@ def cmd_train(a) -> int:
         name, lo, hi, target = a.name or "eva-head-v1", 0.0, 10.0, "EVA mean general score, 0-10"
         prior = None
         out = a.out or str(aes.BUILTIN_HEAD)
+        if Path(out).exists() and not a.force:                        # before embedding, the slow part
+            print(f"{out} exists; pass --force to overwrite it", file=sys.stderr)
+            raise SystemExit(2)
         prov = {**aes.EVA_PROVENANCE, "date": today, "vectors": f"bioscan service /run embed ({a.url})",
                 "held_out": aes.eva_holdout_provenance()}
     else:
@@ -390,6 +393,8 @@ def add_parser(sub) -> None:
     s.add_argument("--ratings", help="folder of rated images or ratings CSV: fits a personal head")
     s.add_argument("--eva", help="EVA checkout (data/votes_filtered.csv + images/EVA_together/): the general head")
     s.add_argument("--out", help=f"head file (default: personal {aes.PERSONAL_HEAD}, EVA {aes.BUILTIN_HEAD})")
+    s.add_argument("--force", action="store_true", help="--eva: overwrite an existing head file (the personal "
+                                                          "head is refitted in place without it)")
     s.add_argument("--name", help="head name (default personal-<date> or eva-head-v1)")
     s.add_argument("--prior", default="builtin", help="personal head: pull toward builtin | PATH | none "
                                                       "(default builtin, when installed)")
