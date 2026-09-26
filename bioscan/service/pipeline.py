@@ -149,8 +149,8 @@ def _named(names: Any, prior: Any, row: np.ndarray, p_geo: np.ndarray | None, op
     if veto:
         top, vetoed = range_veto(top, None if direct is None else [bool(direct[r]) for r in at])
         top = top[:opts["top_k"]]
-    level = "unconfirmed" if kind_unsure else species_level(top, species_ok=not vetoed)
-    return contract.species(names.list_id, level, top)
+    level, taxon = ("unconfirmed", None) if kind_unsure else species_level(top, species_ok=not vetoed)
+    return contract.species(names.list_id, level, taxon, top)
 
 
 def _congener(names: Any, direct: np.ndarray | None, p_geo: np.ndarray | None, post: np.ndarray,

@@ -38,11 +38,30 @@ REASONS = {   # code -> what the page says
 # ---- summarize --------------------------------------------------------------------------------
 
 def taxon(sp: dict[str, Any] | None) -> str | None:
-    """The taxon a box counts under: the first candidate's name at the box's level; None when unconfirmed."""
+    """The taxon a box counts under: the service's `taxon` (the species, or the genus or family that rolled
+    up); None when unconfirmed. A preds file written before the service carried it: the first candidate's
+    name at the box's level."""
+    if sp and "taxon" in sp:
+        return sp["taxon"]
     top, level = contract.top_of(sp), contract.level_of(sp)
     if not top or level not in LEVEL_RANK:
         return None
-    return top[0]["taxonomy"][LEVEL_RANK[level]] if level != "species" else top[0]["scientific"]
+    if level == "species":
+        return top[0]["scientific"]
+    tax = top[0].get("taxonomy") or []
+    return tax[LEVEL_RANK[level]] if len(tax) > LEVEL_RANK[level] else None
+
+
+def lead(sp: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The best candidate inside the box's taxon (its lineage is the taxon's); None when unconfirmed."""
+    name, level = taxon(sp), contract.level_of(sp)
+    if not name:
+        return None
+    top = contract.top_of(sp)
+    if level == "species":
+        return top[0]
+    return next((c for c in top if len(c.get("taxonomy") or []) > LEVEL_RANK[level]
+                 and c["taxonomy"][LEVEL_RANK[level]] == name), None)
 
 
 def common_of(sp: dict[str, Any] | None) -> str | None:
@@ -113,7 +132,7 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
                 p = top[0]["posterior"]
                 t = taxa.setdefault(name, {
                     "name": name, "common": common_of(sp), "level": level,
-                    "kind": b["kind"], "taxonomy": top[0]["taxonomy"][:LEVEL_RANK[level] + 1], "list": sp.get("list"),
+                    "kind": b["kind"], "taxonomy": lead(sp)["taxonomy"][:LEVEL_RANK[level] + 1], "list": sp.get("list"),
                     "members": [], "_sharp": []})
                 t["members"].append({**where, "box": b["id"], "posterior": p, "top": top[:TOP]})
                 t["_sharp"].append((b.get("quality") or {}).get("sharpness") or 0.0)

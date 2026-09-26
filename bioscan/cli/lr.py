@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from bioscan import aesthetic, contract
-from bioscan.cli.report import LEVEL_RANK, common_of
+from bioscan.cli.report import common_of, taxon
 
 REVIEW = "待确认"      # group of photos with an animal but no species-level box
 NONE = "无动物"        # group of photos with no box
@@ -44,11 +44,10 @@ def results(preds: str | Path) -> list[dict]:
 def _keyword(b: dict) -> list[str]:
     sp = contract.species_of(b)
     level, top, kind = contract.level_of(sp), contract.top_of(sp), b["kind"]
-    tax = (top[0].get("taxonomy") or []) if top else []
     if level == "species" and top:
         return [ROOT, kind, top[0].get("common") or top[0]["scientific"]]
-    if level in ("genus", "family") and len(tax) > LEVEL_RANK[level]:
-        common, name = common_of(sp), tax[LEVEL_RANK[level]]
+    if level in ("genus", "family") and (name := taxon(sp)):
+        common = common_of(sp)
         return [ROOT, kind, f"{common} ({name})" if common else name]
     return [ROOT, kind]
 

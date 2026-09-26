@@ -7,6 +7,7 @@ import pytest
 
 from bioscan import contract
 from bioscan.cli import lr
+from bioscan.cli import report as rp
 from bioscan.cli.main import PROJECT_ROOT, main
 
 OWL = ["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", "Megascops kennicottii"]
@@ -21,7 +22,8 @@ def cand(sci, common=None, taxonomy=OWL):
 def box(score=0.9, sharp=0.5, kind="bird", level=None, top=(), species=True):
     b = contract.box(0, [0, 0, 1, 1], score, kind, contract.quality(sharp, 0.0))
     if species:
-        b["species"] = contract.species("avilist-2025", level, list(top)) if level else None
+        name = rp.taxon({"level": level, "top": list(top)})          # the fixtures' first candidate is in the taxon
+        b["species"] = contract.species("avilist-2025", level, name, list(top)) if level else None
     return b
 
 

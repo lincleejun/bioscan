@@ -109,7 +109,7 @@ def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[
         if name:
             top = contract.top_of(sp)[0]
             if best is None or top["posterior"] > best[0]:
-                lineage = [*(top.get("taxonomy") or [])[2:rp.LEVEL_RANK[level]], name]
+                lineage = [*(rp.lead(sp).get("taxonomy") or [])[2:rp.LEVEL_RANK[level]], name]
                 best = (top["posterior"], name, rp.common_of(sp), level, lineage)
     return best[1:] if best else (None, None, None, [])
 
