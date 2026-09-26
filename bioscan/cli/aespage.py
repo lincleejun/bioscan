@@ -298,9 +298,16 @@ async function walk(dir,rel){const parts=rel.split('/');let d=dir;for(const p of
 async function granted(mode){return !!srcDir&&(await srcDir.queryPermission({mode}))==='granted'}
 async function source(mode){                                   // called right after a click: each picker needs its own user gesture
   if(srcDir&&(await granted(mode)||(await srcDir.requestPermission({mode}))==='granted'))return srcDir;
-  const dir=await showDirectoryPicker({mode,id:'bioscan-photos'});
-  const probe=LIVE()[0];if(probe){try{const[d,n]=await walk(dir,relOf(probe));await d.getFileHandle(n)}catch(e){throw new Error(`That folder has no ${relOf(probe)}; choose ${ROOT}`)}}
+  const picked=await showDirectoryPicker({mode,id:'bioscan-photos'}),dir=await locate(picked);
+  const probe=LIVE()[0];if(probe){try{const[d,n]=await walk(dir,relOf(probe));await d.getFileHandle(n)}
+    catch(e){throw new Error(`“${dir.name}” has no ${relOf(probe)} (it holds ${await describe(dir)}). Choose ${ROOT}`)}}
   return srcDir=dir}
+async function locate(dir){                                   // a parent of ROOT was picked (DCIM, the volume): walk down to ROOT
+  const segs=ROOT.split('/').filter(Boolean),i=segs.lastIndexOf(dir.name);let d=dir;
+  if(i>=0)for(const sg of segs.slice(i+1)){try{d=await d.getDirectoryHandle(sg)}catch(e){throw new Error(`“${dir.name}” has no folder ${sg} (it holds ${await describe(d)}). Choose ${ROOT}`)}}
+  return d}
+async function describe(dir){const names=[];let n=0;try{for await(const[name]of dir.entries()){n++;if(names.length<5)names.push(name)}}catch(e){return 'nothing readable: '+e.message}
+  return n?`${n} entries: ${names.join(', ')}${n>5?', …':''}`:'no entries'}
 async function exportKeeps(){const keeps=LIVE().filter(r=>DEC[r.p]==='k');if(!keeps.length)return;
   try{if(!await granted('read')){if(!await confirmBox('Export keeps · step 1 of 2',`Choose the folder that holds the photos: ${ROOT}`,'Choose photo folder…'))return;await source('read')}
     if(!await confirmBox('Export keeps · step 2 of 2',`Choose the folder to copy ${keeps.length} kept photo${keeps.length===1?'':'s'} (and their XMP sidecars) into.`,'Choose destination…'))return;
