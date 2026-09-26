@@ -115,6 +115,7 @@ class Candidate(TypedDict):
 class Species(TypedDict):
     list: str                    # name list id: avilist-2025 | mdd-2025 | tol200m-animalia
     level: Level
+    taxon: str | None            # the name at `level`: the species, or the genus / family that rolled up; None unconfirmed
     top: list[Candidate]         # by posterior, highest first; a range-vetoed first may cede to a congener
 
 
@@ -149,8 +150,8 @@ def candidate(scientific: str, common: str | None, taxonomy: list[str], p_visual
             "posterior": posterior}
 
 
-def species(list_id: str, level: Level, top: list[Candidate]) -> Species:
-    return {"list": list_id, "level": level, "top": top}
+def species(list_id: str, level: Level, taxon: str | None, top: list[Candidate]) -> Species:
+    return {"list": list_id, "level": level, "taxon": taxon, "top": top}
 
 
 def box(box_id: int, xyxy: list[float], score: float, kind: str, quality: Quality) -> Box:
@@ -232,5 +233,5 @@ IDENTIFY_OUTPUT: dict[str, Any] = {
     "boxes": [{"id": "int", "xyxy": "[x0,y0,x1,y1] normalised 0-1, upright image",
                "score": "float", "kind": "bird|mammal|other_animal",
                "quality": {"sharpness": "float", "exposure": "float, mean luma - 0.5"},
-               "species": "null | {list, level: species|genus|family|unconfirmed, "
+               "species": "null | {list, level: species|genus|family|unconfirmed, taxon: the name at level or null, "
                           "top: [{scientific, common, taxonomy[7], p_visual, p_geo, posterior}]}"}]}

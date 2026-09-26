@@ -22,13 +22,14 @@ PROBS = [[0.94, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],     # red photo: the goldfi
 
 
 class ByColour:
-    """Species: the answer for a crop is the PROBS row of its strongest colour channel."""
+    """Species: the answer for a crop is the `rows` row of its strongest colour channel."""
+    rows = PROBS
 
     def encode_images(self, images):
         return np.array([np.asarray(im.convert("RGB"), np.float32).mean(axis=(0, 1)) for im in images])
 
     def probs(self, features, matrix):
-        return np.array([PROBS[int(np.argmax(f))] for f in features])
+        return np.array([self.rows[int(np.argmax(f))] for f in features])
 
     def logits(self, features, matrix):
         return np.log(self.probs(features, matrix))
@@ -40,17 +41,22 @@ def bird_list():
                     matrix=np.zeros((len(BIRDS), 4), np.float32), tol_how=["exact"] * len(BIRDS), sha="test")
 
 
-def test_species_genus_and_family_rows_carry_english_names(tmp_path):
+def run(tmp_path, species, photos):
+    """The /run events for `photos` ((name, rgb) pairs) on fake adapters with `species` as BioCLIP."""
     fakes = Fakes()
     engine = Engine("cpu", Loaders(siglip2=lambda device: FakeSigLIP2(fakes), owlv2=lambda device: FakeOWLv2(fakes),
-                                   species=lambda device: (ByColour(), {"bird": bird_list()}), geo=lambda: None))
+                                   species=lambda device: (species, {"bird": bird_list()}), geo=lambda: None))
     paths = []
-    for name, rgb in (("goldfinch", (200, 20, 20)), ("vireo", (20, 200, 20)), ("hawk", (20, 20, 200))):
+    for name, rgb in photos:
         Image.new("RGB", (64, 48), rgb).save(tmp_path / f"{name}.jpg")
         paths.append(str(tmp_path / f"{name}.jpg"))
     with client_for(engine) as c:
-        evs = events(c.post("/run", json={"inputs": [{"path": p} for p in paths], "want": ["identify"],
-                                          "options": {"identify": {"species": True, "geo": False}}}))
+        return events(c.post("/run", json={"inputs": [{"path": p} for p in paths], "want": ["identify"],
+                                           "options": {"identify": {"species": True, "geo": False}}}))
+
+
+def test_species_genus_and_family_rows_carry_english_names(tmp_path):
+    evs = run(tmp_path, ByColour(), (("goldfinch", (200, 20, 20)), ("vireo", (20, 200, 20)), ("hawk", (20, 20, 200))))
     rows = sc.rows_of(evs)
     sc.write_csv(rows, [], str(tmp_path / "aes.csv"))
     sc.write_html(rows, [], str(tmp_path / "aes.html"), "t")
@@ -63,3 +69,26 @@ def test_species_genus_and_family_rows_carry_english_names(tmp_path):
     # the page's taxon tree and cards read the English name from DATA (no species <select> since the redesign)
     data = json.loads(page.split("const DATA=", 1)[1].split(";const ROOT", 1)[0])
     assert {(d["sp"], d["cn"], d["lv"]) for d in data} == set(got.values())
+
+
+class Split(ByColour):
+    """Every crop: the first candidate (0.30) is a finch, but hawks and eagles hold 0.66 of the top-5 mass."""
+    rows = [[0.30, 0.02, 0.02, 0.25, 0.20, 0.15, 0.06]] * 3
+
+
+def test_a_family_box_is_named_by_the_family_that_rolled_up(tmp_path):
+    """#57: the box is Accipitridae (the family that reached the rollup), not the first candidate's Fringillidae,
+    in the species payload and in every CLI reader: the aesthetic export, the summary, the terminal line, the keyword."""
+    from bioscan import contract
+    from bioscan.cli import lr, render
+    from bioscan.cli import report as rp
+    ev = run(tmp_path, Split(), (("hawk", (20, 20, 200)),))
+    [row] = sc.rows_of(ev)
+    assert (row["species"], row["common"], row["level"]) == ("Accipitridae", "a hawk or eagle", "family")
+    assert row["lineage"] == ["Aves", "X", "Accipitridae"]
+    [box] = contract.boxes_of(contract.identify_of(next(e for e in ev if e.get("type") == contract.RESULT)))
+    assert box["species"]["taxon"] == "Accipitridae"
+    [t] = rp.summarize(ev)["taxa"]
+    assert t["name"] == "Accipitridae" and t["taxonomy"][-1] == "Accipitridae"
+    assert render.box_label(1, box).startswith("[1] Accipitridae 0.66")
+    assert lr._keyword(box)[-1] == "a hawk or eagle (Accipitridae)"
