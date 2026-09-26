@@ -4,7 +4,7 @@ puts that plugin in Lightroom's Modules folder.
 
 All the rules live here (the plugin makes no decisions); the latest.json layout is schema 1 of
 docs/superpowers/specs/2026-09-24-lightroom-plugin-design.md section 4. Standard library and
-bioscan.contract only: the CLI stays import-light.
+bioscan.contract (and report's common_of, itself stdlib only): the CLI stays import-light.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from bioscan import contract
+from bioscan.cli.report import LEVEL_RANK, common_of
 
 REVIEW = "待确认"      # group of photos with an animal but no species-level box
 NONE = "无动物"        # group of photos with no box
@@ -46,10 +47,9 @@ def _keyword(b: dict) -> list[str]:
     tax = (top[0].get("taxonomy") or []) if top else []
     if level == "species" and top:
         return [ROOT, kind, top[0].get("common") or top[0]["scientific"]]
-    if level == "genus" and len(tax) > 5:
-        return [ROOT, kind, tax[5]]
-    if level == "family" and len(tax) > 4:
-        return [ROOT, kind, tax[4]]
+    if level in ("genus", "family") and len(tax) > LEVEL_RANK[level]:
+        common, name = common_of(sp), tax[LEVEL_RANK[level]]
+        return [ROOT, kind, f"{common} ({name})" if common else name]
     return [ROOT, kind]
 
 

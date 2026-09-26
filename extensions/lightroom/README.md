@@ -61,7 +61,7 @@ What it does to each photo:
 2. Within a few seconds: the Library shows the `bioscan` set; every photo is in the catalog; photos
    with animals have 1-5 stars; the hand-rated one kept its stars; the no-animal photo has no new stars
    and is in the `无动物` collection.
-3. Keywords panel: `bioscan > <kind> > <species>` (or `bioscan > <kind>` for unconfirmed). Species
+3. Keywords panel: `bioscan > <kind> > <species>` (`<English> (<Latin>)` at genus or family, `bioscan > <kind>` for unconfirmed). Species
    collections contain the right photos. The Metadata panel shows the five `bioscan` fields.
 4. Run `bioscan lr open preds.ndjson` again: no duplicate photos, keywords or collections; star counts
    unchanged.
