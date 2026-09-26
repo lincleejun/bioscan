@@ -1,5 +1,5 @@
-"""HTTP surface: /health, /products, /run (NDJSON stream): request validation, allow-roots, model
-load (503) and streaming. The run itself (decode, per-chunk model turns, products, events) is
+"""HTTP surface: /health, /products, /run (NDJSON stream), /apply (the review page's copy / delete,
+token-gated): request validation, allow-roots, model load (503) and streaming. The run itself (decode, per-chunk model turns, products, events) is
 bioscan.service.run.RunQueue."""
 from __future__ import annotations
 
@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from bioscan import apply as applying
 from bioscan import plugin, profile, serve_config
 from bioscan.plugins import BUILTIN
 from bioscan.service import stages
@@ -75,9 +77,11 @@ def outside_roots(inputs: list[dict[str, Any]], plan: plugin.Plan, roots: list[P
 def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None, chunk: int = serve_config.CHUNK,
                decode_workers: int = serve_config.DECODE_WORKERS, detail_edge: int | None = serve_config.DETAIL_EDGE,
                allow_roots: list[str] | None = None, plugins: Sequence[plugin.Manifest] = BUILTIN,
-               profiles: profile.Config | None = None) -> FastAPI:
+               profiles: profile.Config | None = None, token: str | None = None) -> FastAPI:
     """`plugins`: the stages this service offers (default the built-in ones; tests add toy stages).
-    `profiles`: what a request's "profile" expands with (default: bioscan/profiles.toml only)."""
+    `profiles`: what a request's "profile" expands with (default: bioscan/profiles.toml only).
+    `token`: what POST /apply requires in X-Bioscan-Token (default: the machine's serve-token file,
+    made when missing); the review page opens as file://, so any origin may call, the token gates."""
     runs = RunQueue(engine, decode_pool=decode_pool, decode_workers=decode_workers, chunk=chunk,
                     detail_edge=detail_edge)
 
@@ -87,7 +91,10 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
         runs.close()
 
     app = FastAPI(title="bioscan", lifespan=lifespan)
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"],
+                       allow_headers=["content-type", "x-bioscan-token"])
     app.state.bioscan = runs
+    token = token or applying.token(create=True)
     roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
     catalogue = stages.products(plugins)
     profiles = profiles or profile.builtin(plugins)
@@ -128,7 +135,51 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 
+    @app.post("/apply")
+    async def apply_marks(request: Request) -> Any:
+        """{keep: [paths], drop: [paths], keep_to: DIR | null, delete: bool}: copies the keeps to keep_to,
+        deletes the drops when `delete`; each with its XMP sidecars. Every path must be inside the
+        allowed roots. Returns apply.apply's counts."""
+        if request.headers.get("x-bioscan-token") != token:
+            return JSONResponse({"error": "missing or wrong X-Bioscan-Token"}, status_code=403)
+        try:
+            body = json.loads(await request.body())
+            keep, drop, keep_to, delete = parse_apply(body)
+        except (ValueError, json.JSONDecodeError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        paths = keep + drop + ([keep_to] if keep_to else [])
+        denied = [q for q in paths if roots and not any(Path(q).resolve().is_relative_to(r) for r in roots)]
+        if denied:
+            return JSONResponse({"error": f"paths outside the allowed roots: {denied[:5]}"}, status_code=400)
+        result = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: applying.apply(keep, drop, keep_to=keep_to, delete=delete))
+        log.info("apply: %s", {k: v if isinstance(v, int) else len(v) for k, v in result.items()})
+        return result
+
     return app
+
+
+def parse_apply(body: Any) -> tuple[list[str], list[str], str | None, bool]:
+    """Validates an /apply body; ValueError -> 400."""
+    if not isinstance(body, dict):
+        raise ValueError("body must be a JSON object")
+    lists = {}
+    for key in ("keep", "drop"):
+        v = body.get(key) or []
+        if not isinstance(v, list) or not all(isinstance(x, str) and Path(x).is_absolute() for x in v):
+            raise ValueError(f"{key} must be a list of absolute paths")
+        lists[key] = v
+    keep_to = body.get("keep_to")
+    if keep_to is not None and (not isinstance(keep_to, str) or not Path(keep_to).is_absolute()):
+        raise ValueError("keep_to must be an absolute path")
+    delete = body.get("delete", False)
+    if not isinstance(delete, bool):
+        raise ValueError("delete must be true or false")
+    if lists["keep"] and not keep_to:
+        raise ValueError("keep needs keep_to")
+    if lists["drop"] and not delete:
+        raise ValueError("drop needs delete: true (the service never moves drops; bioscan aesthetic apply --drop-to does)")
+    return lists["keep"], lists["drop"], keep_to, delete
 
 
 def serve(config: serve_config.ServeConfig) -> None:

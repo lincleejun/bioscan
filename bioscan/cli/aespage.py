@@ -84,7 +84,7 @@ aside{width:280px;flex:none;overflow:auto;background:var(--panel);border-right:1
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50}#modal.on{display:flex}
 #modal .box{background:var(--card);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px;max-width:440px;width:92vw}
 #modal h3{margin:0 0 8px;font-size:15px}#modal p{margin:0 0 16px;color:var(--ink2);font-size:13px;line-height:1.5;word-break:break-all}
-#modal .mb{display:flex;justify-content:flex-end;gap:8px}#modal .danger{background:var(--acc);color:#fff;border-color:var(--acc)}#modal.del .danger{background:var(--drop);border-color:var(--drop)}
+#modal .mb{display:flex;justify-content:flex-end;gap:8px}#modal input{width:100%;margin:-6px 0 14px;height:34px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);padding:0 10px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px}#modal .danger{background:var(--acc);color:#fff;border-color:var(--acc)}#modal.del .danger{background:var(--drop);border-color:var(--drop)}
 #toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:45;background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow);display:none;max-width:80vw}#toast.on{display:block}.leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:0}
 .hist{margin-top:10px;display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:center;font-size:11px}
 .hist button{text-align:left;color:var(--star);letter-spacing:.5px;padding:2px 4px;border-radius:4px}.hist button.on{background:var(--acc-bg)}
@@ -195,7 +195,7 @@ function ghead(){const k=shown.filter(r=>DEC[r.p]==='k').length,x=shown.filter(r
   $('#gmeta').innerHTML=`<b>${shown.length}</b> photos · <b class="kc">${k}</b> keep · <b class="xc">${x}</b> drop · ${shown.length-k-x} unmarked`}
 function overview(){const live=LIVE(),k=live.filter(r=>DEC[r.p]==='k').length,x=live.filter(r=>DEC[r.p]==='x').length,n=live.length;
   $('#ovn').textContent=n+' photos';$('#exp').textContent=`Export ${k} keep${k===1?'':'s'}…`;$('#del').textContent=`Delete ${x} drop${x===1?'':'s'}…`;
-  $('#exp').disabled=!FSA||!k;$('#del').disabled=!FSA||!x;
+  $('#exp').disabled=!(FSA||SERVICE)||!k;$('#del').disabled=!(FSA||SERVICE)||!x;
   $('#ovbar').innerHTML=`<i class="k" style="width:${100*k/n}%"></i><i class="x" style="width:${100*x/n}%"></i>`;
   $('#ovleg').innerHTML=`<span><i style="background:var(--keep)"></i>${k} keep</span><span><i style="background:var(--drop)"></i>${x} drop</span><span><i style="background:var(--line2)"></i>${n-k-x} unmarked</span>`;
   const h={};for(const r of live)if(r.st)h[r.st]=(h[r.st]||0)+1;
@@ -290,8 +290,10 @@ function refresh(){render();tree();filtermenu()}
 /* ---- export keeps / delete drops on disk (File System Access API: Chrome, Edge) ---- */
 const FSA=typeof window.showDirectoryPicker==='function';let srcDir=null,toastT=0;
 function toast(msg,ms){const t=$('#toast');clearTimeout(toastT);t.textContent=msg;t.classList.toggle('on',!!msg);if(msg&&ms)toastT=setTimeout(()=>t.classList.remove('on'),ms)}
-function confirmBox(title,text,yes){return new Promise(res=>{$('#mt').textContent=title;$('#mp').textContent=text;$('#myes').textContent=yes;$('#modal').classList.add('on');$('#modal').classList.toggle('del',yes==='Delete');
-  const done=v=>{$('#modal').classList.remove('on');$('#myes').onclick=$('#mno').onclick=null;res(v)};$('#myes').onclick=()=>done(true);$('#mno').onclick=()=>done(false)})}
+function confirmBox(title,text,yes,input){return new Promise(res=>{$('#mt').textContent=title;$('#mp').textContent=text;$('#myes').textContent=yes;$('#modal').classList.add('on');$('#modal').classList.toggle('del',yes==='Delete');
+  const inp=$('#mi');inp.style.display=input==null?'none':'';inp.value=input||'';if(input!=null)setTimeout(()=>inp.focus(),0);
+  const done=v=>{$('#modal').classList.remove('on');$('#myes').onclick=$('#mno').onclick=inp.onkeydown=null;res(v)};
+  $('#myes').onclick=()=>done(input==null?true:inp.value.trim());$('#mno').onclick=()=>done(false);inp.onkeydown=e=>{if(e.key==='Enter')$('#myes').click()}})}
 const relOf=r=>r.p.startsWith(ROOT+'/')?r.p.slice(ROOT.length+1):r.p.split('/').pop();
 const sidecars=name=>[name.replace(/\.[^.]+$/,'')+'.xmp',name+'.xmp'];
 async function walk(dir,rel){const parts=rel.split('/');let d=dir;for(const p of parts.slice(0,-1))d=await d.getDirectoryHandle(p);return[d,parts[parts.length-1]]}
@@ -334,14 +336,40 @@ async function deleteDrops(){const drops=LIVE().filter(r=>DEC[r.p]==='x');if(!dr
       for(const nm of sidecars(name)){try{await d.removeEntry(nm)}catch(e){}}GONE.add(r.p);delete DEC[r.p];toast(`deleting… ${n+miss} / ${drops.length}`)}
     save();refresh();toast(`deleted ${n} photo${n===1?'':'s'}${miss?`; ${miss} already gone`:''}`,8000)}
   catch(e){save();refresh();toast(e.name==='AbortError'?'':e.message,8000)}}
-$('#exp').onclick=exportKeeps;$('#del').onclick=deleteDrops;
+/* ---- through the bioscan service (POST /apply), when one runs: no folder picking, the paths are known ---- */
+let svc=false;
+async function probeService(){if(!SERVICE||!TOKEN)return false;try{const c=new AbortController();setTimeout(()=>c.abort(),1500);const r=await fetch(SERVICE+'/health',{signal:c.signal});svc=r.ok}catch(e){svc=false}
+  $('#svc').textContent=svc?'service: '+SERVICE.replace(/^https?:\/\//,''):(SERVICE?'service off (start bioscan serve to copy and delete by path)':'');return svc}
+async function post(body){const r=await fetch(SERVICE+'/apply',{method:'POST',headers:{'content-type':'application/json','x-bioscan-token':TOKEN},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('service error '+r.status));return j}
+const parent=ROOT.replace(/\/[^/]+$/,'');
+async function exportViaService(keeps){const last=saved.keep_to||localStorage.getItem('bioscan:keep_to')||(parent+'/'+ROOT.split('/').pop()+'-keep');
+  const dest=await confirmBox(`Export ${keeps.length} kept photo${keeps.length===1?'':'s'}`,'Folder to copy them into (made if missing; XMP sidecars come along; files already there are left as is):','Copy',last);
+  if(!dest)return;if(!dest.startsWith('/')){toast('Give an absolute path, like '+parent+'/keep',8000);return}
+  try{localStorage.setItem('bioscan:keep_to',dest)}catch(e){}toast(`copying ${keeps.length}…`);
+  try{const r=await post({keep:keeps.map(k=>k.p),keep_to:dest});
+    toast(`copied ${r.copied} photo${r.copied===1?'':'s'}${r.sidecars?` and ${r.sidecars} XMP sidecar${r.sidecars===1?'':'s'}`:''} to ${dest}${r.skipped.length?`; ${r.skipped.length} already there, left as is`:''}${r.missing.length?`; ${r.missing.length} missing`:''}`,10000)}
+  catch(e){toast(e.message,10000)}}
+async function deleteViaService(drops){
+  if(!await confirmBox(`Delete ${drops.length} dropped photo${drops.length===1?'':'s'} from disk?`,`The original files and their XMP sidecars are removed under ${ROOT}. This cannot be undone.`,'Delete'))return;
+  toast(`deleting ${drops.length}…`);
+  try{const r=await post({drop:drops.map(d=>d.p),delete:true});for(const d of drops){GONE.add(d.p);delete DEC[d.p]}save();refresh();
+    toast(`deleted ${r.deleted} photo${r.deleted===1?'':'s'}${r.missing.length?`; ${r.missing.length} already gone`:''}`,10000)}
+  catch(e){toast(e.message,10000)}}
+$('#exp').onclick=async()=>{const keeps=LIVE().filter(r=>DEC[r.p]==='k');if(!keeps.length)return;return (svc||await probeService())?exportViaService(keeps):exportKeeps()};
+$('#del').onclick=async()=>{const drops=LIVE().filter(r=>DEC[r.p]==='x');if(!drops.length)return;return (svc||await probeService())?deleteViaService(drops):deleteDrops()};
+probeService();
 if(!FSA)$('#exp').title=$('#del').title='needs Chrome or Edge; save the decisions file (⋯) and run bioscan aesthetic apply instead';
 if(!DATA.some(r=>r.sp)){$('#body').classList.add('notree');$('#btn-tree').classList.remove('on')}
 sortmenu();refresh();
 """
 
 
-def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: str, title: str) -> None:
+def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: str, title: str,
+               service: str | None = None, token: str | None = None) -> None:
+    """`service` (the CLI's --url) and `token` (bioscan.apply.token) let the page copy and delete through
+    a running service (POST /apply); without them, or when no service answers, the page uses the
+    browser's directory picker."""
     base = Path(path).resolve().parent
     roots = os.path.commonpath([r["path"] for r in rows]) if len(rows) > 1 else str(Path(rows[0]["path"]).parent) \
         if rows else ""
@@ -376,7 +404,7 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             '<div class="body" id="body"><aside><div class="ov"><div class="big" id="ovn">' + str(len(rows)) + ' photos</div>'
             f'<div class="sub">{html.escape(sub)}</div><div class="bar" id="ovbar"></div><div class="leg" id="ovleg"></div>'
             '<div class="hist" id="hist"></div><div class="ovacts"><button class="btn k" id="exp">Export keeps…</button>'
-            '<button class="btn x" id="del">Delete drops…</button></div></div>'
+            '<button class="btn x" id="del">Delete drops…</button></div><div class="sub" id="svc" style="margin-top:8px"></div></div>'
             '<div class="tree" id="treebox"><h4>taxa <a class="cl" id="treeclear">show all</a></h4><div id="tree"></div>'
             '<div class="hint" id="hint"></div></div></aside>'
             '<main><div class="ghead"><h2 id="gtitle"></h2><span class="m" id="gmeta"></span>'
@@ -385,13 +413,14 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             '<div class="grid" id="grid" tabindex="0"></div></main></div>'
             '<div class="selbar" id="selbar"><b id="seln"></b><button class="k" id="sel-k">keep</button><button class="x" id="sel-x">drop</button>'
             '<button id="sel-u">unmark</button><button class="c" id="sel-c">✕</button></div>'
-            '<div id="toast"></div><div id="modal"><div class="box"><h3 id="mt"></h3><p id="mp"></p><div class="mb"><button class="btn" id="mno">Cancel</button>'
+            '<div id="toast"></div><div id="modal"><div class="box"><h3 id="mt"></h3><p id="mp"></p><input id="mi" type="text" spellcheck="false"><div class="mb"><button class="btn" id="mno">Cancel</button>'
             '<button class="btn danger" id="myes"></button></div></div></div>'
             '<div id="lb"><div class="stage" id="lbstage"><img id="lbi" alt=""><div class="nav prev" id="lbprev">‹</div><div class="nav next" id="lbnext">›</div>'
             '<button class="close" id="lbc">×</button></div><div class="bar"><span id="lbn"></span><span class="f" id="lbf"></span>'
             '<span class="sp" id="lbsp"></span><button class="k" id="lbk">keep</button><button class="x" id="lbx">drop</button></div></div>'
             f"<script>const DATA={json.dumps(data, ensure_ascii=False, separators=(',', ':'))};"
             f"const ROOT={json.dumps(roots, ensure_ascii=False)};const DIRS={json.dumps(dirs, ensure_ascii=False)};"
+            f"const SERVICE={json.dumps((service or '').rstrip('/'))};const TOKEN={json.dumps(token)};"
             f"const SCENES={json.dumps(scenes)};const CUTS={json.dumps([round(c, 4) for c in cuts])};const REASONS={json.dumps(reasons)};const ICON_ZOOM={json.dumps(i['zoom'])};"
             f"{JS}</script></body></html>\n")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
