@@ -47,7 +47,12 @@ name of its surest box (species, or genus / family when only that held up, as `b
 |---|---|
 | `<out>.ndjson` | the run's events with a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
 | `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, sharpness, taken_at (the three name columns are empty without `--species`); failed decodes last |
-| `<out>.html` | a gallery sorted by score: thumbnails, score, stars, scene, name, reject reasons; sort, filter by folder / stars / reject reason / scene / species, search by file or name, click to enlarge. Thumbnails are the service's jpg copies in `<out>-files/`, shrunk to `--thumb-edge` (default 1024 px); `--no-thumbs` shows browser-readable originals instead |
+| `<out>.html` | a review page sorted by score: thumbnails, score, stars, scene, name, reject reasons; sort, filter by folder / stars / reject reason / scene / species / marks, search by file or name. A **taxon tree** (class → order → family → genus → species, with counts) filters to a branch and its ⇢ merges one name into another (a split the model made that you want as one). **Keep / drop marks** on each card and in the lightbox (K / X), for all shown photos at once, kept in the browser and exported as `bioscan-decisions.json` (import puts them back). The **lightbox** shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
+
+`bioscan aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
+**copied** to `--keep-to` (originals and their XMP sidecars), the drops **moved** to `--drop-to`; `--dry-run` only
+reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo already at the target is
+skipped and a missing one reported (exit 1).
 
 Stars are quintiles of the run's own scores (5 = top fifth), a relative rank and not a rating. A photo without a
 score (no head installed) sorts last with the head's note; nothing is rated, moved or deleted.
