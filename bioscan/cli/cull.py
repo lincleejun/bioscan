@@ -88,15 +88,11 @@ def fetch(payload: dict[str, Any], url: str) -> tuple[list[dict[str, Any]], bool
 def read_ndjson(path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """(meta line or {}, result/error/done events) of a saved run."""
     meta, events = {}, []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            ev = json.loads(line)
-            if ev.get("type") == "meta":
-                meta = ev
-            elif ev.get("type") in (contract.RESULT, contract.ERROR, contract.DONE):
-                events.append(ev)
+    for ev in client.iter_ndjson(path):
+        if ev.get("type") == "meta":
+            meta = ev
+        elif ev.get("type") in (contract.RESULT, contract.ERROR, contract.DONE):
+            events.append(ev)
     return meta, events
 
 

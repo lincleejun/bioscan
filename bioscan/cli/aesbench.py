@@ -45,15 +45,9 @@ def _stamp(path: str) -> list[float] | None:
 
 def read_cache(path: str | Path | None) -> dict[str, dict[str, Any]]:
     """An embeddings cache: one JSON line per image {path, stamp: [size, mtime], vec: f16 base64}."""
-    out: dict[str, dict[str, Any]] = {}
     if not path or not Path(path).is_file():
-        return out
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                rec = json.loads(line)
-                out[rec["path"]] = rec
-    return out
+        return {}
+    return {rec["path"]: rec for rec in client.iter_ndjson(path)}
 
 
 def embed_paths(paths: list[str], url: str, cache: str | Path | None = None,

@@ -12,7 +12,6 @@ only adds the fields eval's markdown never needed (genus, level, p values, famil
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import math
 import os
@@ -27,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan import contract, naming
+from bioscan.cli import client
 from bioscan.cli import eval as ev
 from bioscan.cli.config import PROFILE_HELP, eval_request
 
@@ -331,10 +331,6 @@ def _git() -> tuple[str | None, bool | None]:
     return sha or os.environ.get("GITHUB_SHA") or None, dirty
 
 
-def sha256_of(path) -> str | None:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if path and Path(path).is_file() else None
-
-
 def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str | None = None,
                  synonyms_sha256: str | None = None, preds_meta: dict | None = None, done: dict | None = None,
                  lists: dict[str, dict[str, str]] | None = None, preds_path: str | None = None,
@@ -389,11 +385,11 @@ def build_report(rows: list[dict], preds: dict[str, dict], *, groundtruth: str |
     meta = {
         "tier": tier, "git_sha": sha, "git_dirty": dirty, "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "engine": engine, "settings_fingerprint": fingerprints[0] if len(fingerprints) == 1 else fingerprints or None,
-        "groundtruth": groundtruth, "groundtruth_sha256": sha256_of(groundtruth),
+        "groundtruth": groundtruth, "groundtruth_sha256": ev.sha256_of(groundtruth),
         "preds_groundtruth_sha256": preds_meta.get("groundtruth_sha256"),
         "synonyms_sha256": synonyms_sha256,
         "options": options if options is not None else preds_meta.get("options"),
-        "n": len(images), "preds": preds_path, "preds_sha256": sha256_of(preds_path),
+        "n": len(images), "preds": preds_path, "preds_sha256": ev.sha256_of(preds_path),
         "preds_schema": preds_meta.get("schema"), "complete": complete,
         "done": {k: done.get(k) for k in ("ok", "failed", "elapsed_ms")} if done else None,
         "name_lists": sorted(lists),
@@ -423,14 +419,7 @@ def _table(images: list[dict], key, with_kind: bool = False) -> dict:
 
 def done_of(path) -> dict | None:
     """The service's last `done` event in a preds file, or None."""
-    found = None
-    with open(path, "rb") as f:
-        for line in f:
-            if line.strip():
-                e = json.loads(line)
-                if e.get("type") == contract.DONE:
-                    found = e
-    return found
+    return next((e for e in reversed(list(client.iter_ndjson(path))) if e.get("type") == contract.DONE), None)
 
 
 def report_from_preds(preds_path: str, gt_csv: str, synonyms: bool = True,
@@ -449,10 +438,11 @@ def report_from_preds(preds_path: str, gt_csv: str, synonyms: bool = True,
         options = {"identify": {"geo": not no_geo}, "from_command_line": True}
     if options is not None:
         options["synonyms"] = synonyms
+    done = done_of(preds_path)
     return build_report(rows, preds, groundtruth=gt_csv,
-                        synonyms_sha256=sha256_of(ev.SYNONYMS_CSV) if synonyms else None, preds_meta=meta,
-                        done=done_of(preds_path), lists=load_name_lists(default_name_lists()) if lists is None else lists,
-                        preds_path=str(preds_path), complete=ev.preds_complete(preds_path),
+                        synonyms_sha256=ev.sha256_of(ev.SYNONYMS_CSV) if synonyms else None, preds_meta=meta,
+                        done=done, lists=load_name_lists(default_name_lists()) if lists is None else lists,
+                        preds_path=str(preds_path), complete=done is not None,
                         options=options, tier=tier)
 
 
@@ -487,7 +477,7 @@ def fmt(metric: str, v) -> str:
     return f"{v:.3g}" if isinstance(v, float) and abs(v) < 100 else f"{v:.0f}"
 
 
-def fmt_ci(metric: str, ci) -> str:
+def fmt_ci(ci) -> str:
     return "" if not ci else f" [{ci[0] * 100:.1f}, {ci[1] * 100:.1f}]"
 
 
@@ -527,7 +517,7 @@ def plugin_md(pm: dict, registry: dict[str, tuple] | None = None) -> str:
             for name in names:
                 m = _metric(registry, plugin, name)
                 ci = row.get(name + "_ci")
-                cells.append(_pfmt(m, row.get(name)) + (fmt_ci(name, ci) if ci else "")
+                cells.append(_pfmt(m, row.get(name)) + (fmt_ci(ci) if ci else "")
                              + (f" (n {row[name + '_n']})" if name in row else ""))
             out.append(f"| {scope} | {row['n']} | " + " | ".join(cells) + " |")
         out.append("")
@@ -805,8 +795,8 @@ def compare_md(c: dict, limit: int = 30, registry: dict[str, tuple] | None = Non
             if row["delta"] and k != "n":
                 worse = row["delta"] > 0 if k in LOWER_IS_BETTER else row["delta"] < 0
                 flag = " ▼" if worse else " ▲"
-            lines.append(f"| {k} | {fmt(k, row['base'])}{fmt_ci(k, row['base_ci'])} | "
-                         f"{fmt(k, row['new'])}{fmt_ci(k, row['new_ci'])} | {fmt_delta(k, row['delta'])}{flag} |")
+            lines.append(f"| {k} | {fmt(k, row['base'])}{fmt_ci(row['base_ci'])} | "
+                         f"{fmt(k, row['new'])}{fmt_ci(row['new_ci'])} | {fmt_delta(k, row['delta'])}{flag} |")
         lines.append("")
     registry = metric_registry() if registry is None else registry
     for plugin, scopes in (c.get("plugin_metrics") or {}).items():
@@ -821,7 +811,7 @@ def compare_md(c: dict, limit: int = 30, registry: dict[str, tuple] | None = Non
                 if m is None:                                   # n, or a metric this bioscan does not know
                     cells = [str(row["base"]), str(row["new"]), "–" if row["delta"] is None else f"{row['delta']:+g}"]
                 else:
-                    cells = [_pfmt(m, row["base"]) + fmt_ci(k, row["base_ci"]), _pfmt(m, row["new"]) + fmt_ci(k, row["new_ci"]),
+                    cells = [_pfmt(m, row["base"]) + fmt_ci(row["base_ci"]), _pfmt(m, row["new"]) + fmt_ci(row["new_ci"]),
                              "–" if row["delta"] is None else
                              (f"{row['delta'] * 100:+.1f} pts" if m.fraction else f"{row['delta']:+.3g}") + flag]
                 lines.append(f"| {k} | " + " | ".join(cells) + " |")

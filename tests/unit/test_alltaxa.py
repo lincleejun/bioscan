@@ -41,7 +41,7 @@ def tol_files(tmp_path, rows=TOL, dim_major=True):
 
 def test_rows_are_species_level_animals_outside_the_curated_classes():
     assert names_mod.ALL_TAXA.exclude == ("Aves", "Mammalia") and names_mod.ALL_TAXA.kingdoms == ("Animalia",)
-    assert names_mod.all_taxa_rows(TOL) == KEPT
+    assert list(names_mod.all_taxa_select(TOL)) == KEPT
 
 
 # Rows shaped the way a backbone without Reptilia (or with gaps) may give them: the smoke set's six
