@@ -323,6 +323,12 @@ Why a rule rejects a photo, one of `soft_subject`, `motion_or_defocus`, `overexp
 Rules only: a photo is never rejected for taste.
 _Avoid_: flaw, defect, score
 
+**Flag**:
+A note `select` puts on a photo that never changes its status, rank, keep or stars (a flag is not a reject reason):
+`horizon_tilt` when the scene stage's horizon (landscapes only) tilts more than `horizon_flag_deg`, default 3°. It
+shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
+_Avoid_: warning, soft reject
+
 **Subject**:
 The photo's main animal: identify's best box by score. A photo without a box is judged on its whole frame.
 
@@ -357,7 +363,7 @@ landscape, night, people, macro, architecture, food, other), scored as the sum o
 **Selection**:
 What the `select` reducer decides per photo: `pick` (the best of its burst and in the top `per_category` of its
 scene category), `spare` (a keeper past that), `duplicate` (not the best of its burst, or near-identical to a
-pick) or `reject`; with the category, rank and reasons it forms the photo's cull record (`cull.records`).
+pick) or `reject`; with the category, rank, reasons and flags it forms the photo's cull record (`cull.records`).
 `cull --xmp` writes it into new XMP sidecars as stars (pick 3, spare 2) and a Red label (reject).
 _Avoid_: rating, stars (those are the owner's, in XMP; the `--xmp` stars only encode the selection)
 

@@ -118,7 +118,8 @@ def write_csv(records: list[dict[str, Any]], fails: list[dict[str, Any]], path: 
         w = csv.DictWriter(f, fieldnames=cull.RECORD_FIELDS)
         w.writeheader()
         for r in records:
-            w.writerow({**r, "keep": int(r["keep"]), "reasons": ";".join(r["reasons"]), "waived": ";".join(r["waived"])})
+            w.writerow({**r, "keep": int(r["keep"]), "reasons": ";".join(r["reasons"]), "waived": ";".join(r["waived"]),
+                        "flags": ";".join(r["flags"])})
         for r in fails:
             w.writerow({"path": r["path"], "status": "failed", "keep": 0, "reasons": " | ".join(r["messages"])})
 

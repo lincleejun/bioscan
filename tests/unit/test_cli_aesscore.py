@@ -28,6 +28,7 @@ def stream(d, out):
            {"type": "error", "path": str(d / "g.jpg"), "product": None, "message": "decode: broken"},
            {"type": "done", "schema": 1, "ok": 6, "failed": 1, "elapsed_ms": 1.0}]
     evs[5]["products"]["scene"]["group"] = "landscape"                  # a taxonomy scene: label with its group
+    evs[5]["products"]["scene"]["horizon"] = {"tilt_deg": -4.2, "strength": 0.3}   # tilted: a flag, same stars
     for ev, s in zip(evs, (0.7, 0.4, 0.5, 0.9, None, 0.6)):
         ev["products"]["aesthetics"] = {"score": s, "general": s, "personal": None, "head_id": "h"} if s is not None \
             else {"score": None, "general": None, "personal": None, "head_id": None, "note": "no head"}
@@ -58,8 +59,10 @@ def test_score_exports_json_csv_html_and_reads_its_own_ndjson_back(tmp_path, mon
     assert [r["stars"] for r in rows[:5]] == ["5", "4", "3", "2", "1"] and rows[5]["stars"] == "" == rows[5]["score"]
     assert rows[3]["reject_reasons"] == "soft_subject" and rows[6]["reject_reasons"].startswith("failed:")
     assert rows[0]["scene"] == "landscape" and rows[0]["rank"] == "1" and rows[2]["scene"] == "coast (landscape)"
+    assert [r["flags"] for r in rows] == ["", "", "horizon_tilt", "", "", "", ""] and rows[2]["stars"] == "3"
 
     page = (out.parent / "aes.html").read_text()
+    assert '"fl":["horizon_tilt"]' in page and page.count('"fl":') == 1
     assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "const CUTS=[0.9, 0.7, 0.6, 0.5]" in page
     assert f'"p":"{d / "e.jpg"}"' in page and f'const ROOT="{d}"' in page                # marks and export need the path
     text = capsys.readouterr().out

@@ -23,7 +23,7 @@ def thumb_of(jpg: str) -> str:
 def page_rows(rows: list[dict[str, Any]], base: Path, roots: str) -> list[dict[str, Any]]:
     """The page's records: f (file), d (folder under the root), p (absolute path), s, st, sc, rr, ts
     (taken_at), t (grid thumbnail), l (lightbox copy), o (the original when a browser can show it),
-    sp/cn/lv, tx (lineage). None values are left out."""
+    sp/cn/lv, tx (lineage), fl (flags, only when any). None values are left out."""
     data = []
     for r in rows:
         orig = r["path"] if Path(r["path"]).suffix.lower() in cc.BROWSER_IMAGES else None
@@ -35,7 +35,8 @@ def page_rows(rows: list[dict[str, Any]], base: Path, roots: str) -> list[dict[s
              "p": r["path"], "s": None if r["score"] is None else round(r["score"], 4), "st": r["stars"],
              "sc": r["scene"], "rr": r["reject_reasons"], "ts": r.get("taken_at"), "t": rel(shown),
              "l": rel(large) if large != shown else None, "o": rel(orig) if orig and orig != shown else None,
-             "sp": r["species"], "cn": r["common"], "lv": r["level"], "tx": r["lineage"]}
+             "sp": r["species"], "cn": r["common"], "lv": r["level"], "tx": r["lineage"],
+             "fl": r.get("flags") or None}
         d["d"] = "" if d["d"] == "." else d["d"]
         data.append({k: v for k, v in d.items() if v is not None})
     return data
@@ -126,6 +127,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .cap .f{display:flex;gap:6px;align-items:center;color:var(--mute);font-size:11px;font-family:ui-monospace,Menlo,monospace;white-space:nowrap;min-width:0}
 .cap .f span:first-child{overflow:hidden;text-overflow:ellipsis}
 .cap .rr{flex:none;color:var(--drop);font-family:-apple-system,sans-serif;background:var(--drop-bg);padding:0 5px;border-radius:4px}
+.cap .fl{flex:none;color:var(--star);font-family:-apple-system,sans-serif;border:1px solid currentColor;padding:0 5px;border-radius:4px;margin-left:3px}
 .empty{grid-column:1/-1;color:var(--mute);padding:60px;text-align:center}
 /* selection bar */
 .selbar{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);opacity:0;pointer-events:none;transition:.15s;z-index:20;display:flex;align-items:center;gap:6px;padding:8px 10px 8px 14px;background:var(--ink);color:var(--bg);border-radius:14px;box-shadow:0 10px 30px -10px rgba(0,0,0,.5)}
@@ -185,7 +187,7 @@ function render(){
   grid.innerHTML=shown.length?shown.map((r,i)=>`<figure class="card ${DEC[r.p]||''}" data-i="${i}" data-p="${esc(r.p)}"><div class="im">${r.t?`<img loading="lazy" src="${esc(r.t)}" alt="">`:'<span class="no">no thumbnail</span>'}
 <div class="ov1"><span class="badge">${r.s==null?'–':r.s.toFixed(3)}</span>${r.st?`<span class="badge st">${'★'.repeat(r.st)}</span>`:''}</div><span class="mk">${DEC[r.p]==='k'?'✓':'✕'}</span>
 <span class="zoom" title="open">${ICON_ZOOM}</span><div class="hov"><button class="k">keep</button><button class="x">drop</button></div></div>
-<figcaption class="cap"><div class="t" title="${esc(r.sp||'')}">${r.sp?esc(label(r)):'<i>unnamed</i>'}</div><div class="f"><span>${esc(r.f)}</span>${r.rr.length?`<span class="rr" title="${esc(r.rr.join(', '))}">${esc(r.rr[0].replace(/_/g,' '))}${r.rr.length>1?' +'+(r.rr.length-1):''}</span>`:''}</div></figcaption></figure>`).join('')
+<figcaption class="cap"><div class="t" title="${esc(r.sp||'')}">${r.sp?esc(label(r)):'<i>unnamed</i>'}</div><div class="f"><span>${esc(r.f)}</span>${r.rr.length?`<span class="rr" title="${esc(r.rr.join(', '))}">${esc(r.rr[0].replace(/_/g,' '))}${r.rr.length>1?' +'+(r.rr.length-1):''}</span>`:''}${(r.fl||[]).map(x=>`<span class="fl" title="flag (not a reject)">${esc(x.replace(/_/g,' '))}</span>`).join('')}</div></figcaption></figure>`).join('')
     :'<div class="empty">Nothing matches. Clear a filter above.</div>';
   ghead();selbar();chips();overview()}
 function ghead(){const k=shown.filter(r=>DEC[r.p]==='k').length,x=shown.filter(r=>DEC[r.p]==='x').length;
@@ -238,7 +240,7 @@ $('#g-all').onclick=()=>{sel.clear();select(shown.map(r=>r.p))};
 /* ---- lightbox ---- */
 const lb=$('#lb'),lbi=$('#lbi');
 function caption(){const r=shown[cur];if(!r)return;$('#lbn').textContent=`${cur+1} / ${shown.length}`;$('#lbf').textContent=r.p;
-  $('#lbsp').innerHTML=`${r.s==null?'–':r.s.toFixed(3)} <span style="color:#fbbf24">${stars(r.st)}</span>${r.sp?' · '+esc(label(r))+(r.cn?' <i style="color:#aaa">'+esc(r.sp)+'</i>':''):''}${r.rr.length?' · <span style="color:#fca5a5">'+esc(r.rr.join(', ').replace(/_/g,' '))+'</span>':''}${r.o?' · original':r.l?' · '+esc(r.l.split('/').pop()):''}`;
+  $('#lbsp').innerHTML=`${r.s==null?'–':r.s.toFixed(3)} <span style="color:#fbbf24">${stars(r.st)}</span>${r.sp?' · '+esc(label(r))+(r.cn?' <i style="color:#aaa">'+esc(r.sp)+'</i>':''):''}${r.rr.length?' · <span style="color:#fca5a5">'+esc(r.rr.join(', ').replace(/_/g,' '))+'</span>':''}${r.fl?' · <span style="color:#fbbf24">'+esc(r.fl.join(', ').replace(/_/g,' '))+'</span>':''}${r.o?' · original':r.l?' · '+esc(r.l.split('/').pop()):''}`;
   $('#lbk').classList.toggle('on',DEC[r.p]==='k');$('#lbx').classList.toggle('on',DEC[r.p]==='x')}
 function open(i){if(i<0||i>=shown.length)return;cur=i;const r=shown[i],src=r.o||r.l||r.t;if(!src)return;lbi.src=src;caption();lb.classList.add('on');
   const nx=shown[i+1];if(nx){const im=new Image();im.src=nx.o||nx.l||nx.t||''}}
