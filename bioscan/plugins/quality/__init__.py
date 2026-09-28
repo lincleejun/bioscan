@@ -12,7 +12,8 @@ from bioscan.plugin import Manifest, Metric
 
 # every reason quality can give, in the order it reports them (CONTEXT.md "reject reason")
 REASONS = cull.REJECT_REASONS
-# `bioscan bench` (album tier): scopes all, soft (soft_subject or motion_or_defocus) and each reason
+# `bioscan bench` (album tier): scopes all, soft (soft_subject, motion or defocus), each reason and motion_or_defocus
+# (the name before the split, still accepted in waivers and ground truth: motion or defocus)
 METRICS = (
     Metric("reject_precision", "rate", "bioscan.cull:row_reject_precision",
            description="images rejected for the scope's reason(s) whose truth has it"),

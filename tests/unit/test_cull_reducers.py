@@ -142,6 +142,14 @@ def test_apply_copies_checks_and_passes_errors_through():
         "taken_at": None}
 
 
+def test_the_old_motion_or_defocus_name_still_validates_and_waives_both():
+    cull.check_select(SELECT | {"waive": {"night": ["motion_or_defocus"]}})
+    events = [scened("a", 0, "astro", "night", reasons=["motion"]), scened("b", 10, "astro", "night", reasons=["defocus"])]
+    r = run(events, waive={"night": ["motion_or_defocus"]})
+    assert r["a"]["waived"] == ["motion"] and r["b"]["waived"] == ["defocus"] and r["a"]["reasons"] == []
+    profile.resolve(profile.builtin(), "album", reducer_options={"select": {"waive": {"night": ["motion_or_defocus"]}}})
+
+
 def test_select_rejects_unknown_waive_reasons():
     cull.check_select(SELECT)
     with pytest.raises(ValueError, match=r"'underexpose'.*underexposed"):
