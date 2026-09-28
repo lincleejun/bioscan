@@ -27,17 +27,7 @@ bioscan bench scorecard runs/<new>/report.json                                  
 bioscan bench geotag runs/geotag-synth                                                  # GPX geotagging on synthetic tracks
 bioscan bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva        # any aesthetic scorer vs the golden set
 ```
-- **report.json** (`bioscan-report` v1) holds:
-  - the run's git sha, engine, settings fingerprint and ground-truth sha;
-  - every metric per scope (`all`, `bird`, `mammal`, `other`, and per tier) with Wilson 95% intervals;
-  - per-species and per-family tables;
-  - one row per image;
-  - `meta.profile`, and `plugin_metrics`: each plugin's own metrics (the album tier's reject precision and recall per
-    reason, keepers lost, burst pairwise F1, scene accuracy), with Wilson intervals, which budgets and standards may
-    name.
-- **compare** pairs images by sha256 and counts fixed and broken images, with an exact McNemar p-value. Metrics, species changes and the budget use the paired images only, so a test set that gains photos never counts as a regression; new images are listed separately. It lists species regressions and broken images with their evidence, and checks `baselines/budget.toml`. It exits 0 within budget, 1 over budget and 2 when the reports can't be compared.
-- **analyze** puts every wrong answer into a failure class: gate miss, detector miss, wrong kind, not in list, out of range, suppressed by the location prior, within genus, within family or far miss. It also flags overconfident answers. Each class comes with examples and a pointer to the code to fix.
-- **CI.** `models.yml` compares every real-model smoke with `baselines/ci-smoke.json`. A `v*` tag publishes the smoke report.
+What report.json holds, and what compare and analyze report, is in [docs/harness.md](harness.md).
 
 ## Tests
 
@@ -47,6 +37,18 @@ uv run pytest                                     # no models, seconds; tests/mo
 uv run python tests/models/download.py && BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models   # real-model smoke, 95 iNat photos
 uv run python tests/smoke/run_smoke.py --url ...  # needs a running service and your own tests/smoke/*.ARW
 ```
+
+Test and CI switches (environment variables read only by tests and `models.yml`):
+
+| Variable | Effect |
+|---|---|
+| `BIOSCAN_REGOLDEN=1` | re-record the golden files of `tests/contract/test_golden_stream.py` and `tests/unit/test_cli_report.py` (only for a reviewed output change) |
+| `BIOSCAN_PHOTO_CACHE` | folder of the real-model test photos (default `~/.cache/bioscan/model-test-photos`) |
+| `BIOSCAN_REPORT` | path of the real-model report (markdown); `models-report.json` and `models-report-album.json` are written next to it |
+| `BIOSCAN_INFER_CACHE` | file that stores model outputs between real-model runs and replays them; empty turns it off (`models.yml` leaves it empty on a `v*` tag or a `cold` dispatch) |
+| `BIOSCAN_REQUIRE_GEO=1` | the real-model tests fail when the BirdNET geo prior does not load |
+| `BIOSCAN_REQUIRE_ALLTAXA=1` | the real-model tests fail when the all-taxa list is missing, instead of skipping the other-animal floors |
+| `BIOSCAN_ALBUM_SOURCES` | how many bird and mammal photos the album-profile test degrades into rejects and bursts (default 24) |
 
 CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job. Model outputs are cached between runs (the inference cache, keyed on the adapters and `uv.lock`; a branch run restores main's newest cache before its own), so a run computes only what reaches a model differently; a `v*` tag or a `cold` dispatch runs every model. It then runs the album profile on a synthetic reject set made from 24 of the photos and compares `models-report-album.json` with `baselines/ci-album.json` under `baselines/budget-album.toml` (until that baseline is committed, the job prints the candidate). `aesthetic.yml` runs only on demand (Actions tab, or a pushed `aesthetic-head-*` tag): it trains the EVA general head on CPU and prints the head file base64 in the log (data/aesthetic/README.md).
 

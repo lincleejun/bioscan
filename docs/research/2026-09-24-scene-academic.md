@@ -1,5 +1,7 @@
 # Scene / photo-content taxonomies and zero-shot prompt design — primary-source notes
 
+> Historical (2026-09-24): file paths below may no longer exist; current behaviour is in docs/usage.md.
+
 Date: 2026-09-24. Factual only. Except where marked "via fetch-tool summary", every number below was read from the file or PDF named; items marked
 **unverified** could not be confirmed from a primary source. Local copies of all fetched files are in
 this scratchpad folder (`categories_places365.txt`, `IO_places365.txt`, `places_hier.csv`, `sun.txt`,

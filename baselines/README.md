@@ -18,8 +18,8 @@ Names: lower case, `[a-z0-9._-]`, the set first, then the tag or date. One file 
 a baseline is replaced only on purpose (`bioscan bench baseline ... --force`) and in its own commit that says why.
 
 ```sh
-bioscan bench baseline runs/2026-09-24/report.json --name golden-inat-v1.5.0
-bioscan bench compare baselines/golden-inat-v1.5.0.json runs/2026-10-01/report.json
+bioscan bench baseline runs/2026-09-24/report.json --name golden-inat-v1.5
+bioscan bench compare baselines/golden-inat-v1.5.json runs/2026-10-01/report.json
 ```
 
 Baselines are committed data: do not delete or rewrite one without the owner's approval (CLAUDE.md).

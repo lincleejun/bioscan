@@ -1,5 +1,7 @@
 # bioscan 设计（v1）
 
+> Historical (2026-09-22): file paths below may no longer exist; current behaviour is in docs/usage.md.
+
 日期：2026-09-22。状态：待审。
 
 ## 1. 目标

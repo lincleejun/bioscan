@@ -129,11 +129,8 @@ Failed images count as misses on every accuracy metric.
 
 ## Commands
 
-The commands assume the W1 harness: `bioscan bench run GT.csv --out DIR [--no-geo] [--lat --lon]`
-writes `report.json`, and `bioscan bench scorecard` compares it with `data/standards.toml`. Until
-W1 lands, `bioscan eval GT.csv --out DIR` gives the same counts for `n`, `gate_acc`, `detect_rate`,
-`top1`, `top5`, `coverage`, `precision` and the timings. `genus_acc`, `confident_error_rate`,
-`no_box_rate` (as a rate), `ece` and `images_per_s` need W1.
+`bioscan bench run GT.csv --out DIR [--no-geo]` writes `report.json`, and `bioscan bench scorecard`
+compares it with `data/standards.toml`.
 
 ```sh
 bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden                  # golden, real GPS
@@ -266,7 +263,7 @@ by vectors) is a quality signal, not a bar. The missing rows are encoded with th
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
 | Failed images (report `failed_rate`) | none | **≤ 0.1%** | 0 | unmeasured as a rate (the golden report has a `failed` column; its value is not recorded in the README) | one failure per 1,000 photos is the most a 30k archive should see |
-| RAW formats with GPS and capture time read (manual) | Lightroom and exiftool read every mainstream body | **11 of 11** (ARW CR2 CR3 NEF NRW DNG RAF ORF RW2 PEF SRW) | 12 (+ HEIF) | 7 of 11 by reading the code (`decode.read_exif` reads TIFF-based RAW only; CR3, RAF, ORF and RW2 get no GPS or time); not tested on real files; W5 fixes it | missing GPS silently turns off the location prior, which costs birds 6+ points |
+| RAW formats with GPS and capture time read (manual) | Lightroom and exiftool read every mainstream body | **11 of 11** (ARW CR2 CR3 NEF NRW DNG RAF ORF RW2 PEF SRW) | 12 (+ HEIF) | 11 of 11 read (`bioscan/formats.py`; readers tested on synthetic files in `tests/unit/test_raw_exif.py`); CR3, RAF, ORF and RW2 not yet run on real camera files | missing GPS silently turns off the location prior, which costs birds 6+ points |
 | Per-image error isolation (manual) | a baseline expectation | **yes** | yes | yes: contract tests cover per-image errors and the decode-pool rebuild (v1.2 D) | one bad file must not cost a night's run |
 
 ## 9. Onboarding (manual)
@@ -292,7 +289,7 @@ Opt-in features that fetch data (for example `bioscan gt inat`) are outside a de
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
 | Models, lists and prior pinned; revisions and settings fingerprint in each result | none of the competitors publishes this | **yes** | yes | yes: SigLIP2, OWLv2, BioCLIP and TreeOfLife revisions are pinned, and `result.engine` carries the models, name-list versions, settings fingerprint and detail edge (v1.2 A) | a number is only worth something if someone else can get it again |
-| A published bench report for every release tag | none of the competitors publishes one [^strategy] | **yes** | yes | no (the W1 harness publishes on tag runs) | the community call rests on numbers anyone can check |
+| A published bench report for every release tag | none of the competitors publishes one [^strategy] | **yes** | yes | yes: a `v*` tag push runs `models.yml`, which publishes the `bench-report-<tag>` artifact | the community call rests on numbers anyone can check |
 
 ## 12. Geotag from a GPX track (synthetic tier)
 
