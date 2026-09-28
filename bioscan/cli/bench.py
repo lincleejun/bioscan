@@ -1067,7 +1067,8 @@ def report_tier(rep: dict) -> str | None:
 
 
 def report_nogeo(rep: dict) -> bool:
-    return ((rep["meta"].get("options") or {}).get("identify") or {}).get("geo") is False
+    ident = (rep["meta"].get("options") or {}).get("identify")   # a string ("service defaults") in smoke reports
+    return isinstance(ident, dict) and ident.get("geo") is False
 
 
 def scorecard(rep: dict, standards: list[dict], tier: str) -> dict:

@@ -535,6 +535,15 @@ def test_scorecard_nogeo_report_uses_nogeo_standards_only(report):
     assert [r["id"] for r in sc["rows"]] == ["location.golden.bird.top1.nogeo"] and sc["nogeo"]
 
 
+def test_scorecard_renders_a_report_whose_identify_options_are_a_string(tmp_path, report, capsys):
+    report["meta"]["options"]["identify"] = "service defaults"      # what models.yml's smoke run writes
+    report["meta"]["tier"] = "smoke"
+    assert not bench.scorecard(report, bench.read_standards(STANDARDS), "smoke")["nogeo"]
+    path = bench.write_json(report, tmp_path / "r.json")
+    assert cli.main(["bench", "scorecard", str(path), "--standards", str(STANDARDS)]) == 0
+    assert "| directory.all-top1 |" in capsys.readouterr().out
+
+
 def test_scorecard_cli_tier_and_exit_codes(tmp_path, report, capsys):
     path = bench.write_json(report, tmp_path / "r.json")
     assert cli.main(["bench", "scorecard", str(path), "--standards", str(STANDARDS)]) == 2     # two gt tiers

@@ -9,17 +9,34 @@ git clone https://github.com/lincleejun/bioscan && cd bioscan
 uv sync                                   # Python 3.12
 ```
 
+The examples below write `bioscan` for `uv run bioscan` (or run `source .venv/bin/activate` once per shell).
+
 Model weights are read from `~/.cache/huggingface`, and the service itself runs offline (`HF_HUB_OFFLINE=1`). All three models and the TreeOfLife vectors are pinned to fixed HF commits (`siglip2.REVISION`, `bioclip.REVISION`, `owlv2.REVISION`, `names.TOL_REVISION`), and `result.engine.models` carries those versions. On a new machine, or when the cache lacks the pinned snapshot, fetch once with network access:
 ```sh
 uv run python tests/models/download.py      # pinned versions of the three models + BirdNET geo model; prints each version
 ```
 The name-vector cache records the BioCLIP / TreeOfLife versions it was built with and is rebuilt when they change; older caches without that record are still used.
 
-The name-list CSVs are large and not in git: download them as described in `data/README.md` into `data/avilist/` and `data/mdd/`. The first start encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file; about half a minute). The same first start also builds the all-taxa list from that file (no encoding; a float16 cache of about 1 GB). Delete the TreeOfLife file only after both are cached: if it is gone and the all-taxa cache is missing, the service still starts, logs a warning and gives other animals `species: null`, as before; `uv run python tests/models/download.py` or `uv run bioscan names stats` builds it again. Later starts take a few seconds (the all-taxa list is most of that). Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
+The name-list CSVs are large and not in git: download them as described [below](#name-lists) into `data/avilist/` and `data/mdd/`. Then run `uv run bioscan names stats` once, with network access, before the first `serve`: it encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which it fetches into `~/.cache/huggingface`; about half a minute once downloaded). The service cannot do this step itself, because it runs offline. The same run also builds the all-taxa list from that file if `download.py` has not already (no encoding; a float16 cache of about 1 GB). Delete the TreeOfLife file only after both are cached: if it is gone and the all-taxa cache is missing, the service still starts, logs a warning and gives other animals `species: null`, as before; `uv run python tests/models/download.py` or `uv run bioscan names stats` builds it again. Later starts take a few seconds (the all-taxa list is most of that). Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
 
 ```sh
-uv run bioscan names stats                # name-list coverage
+uv run bioscan names stats                # required once, online, before the first serve; later: name-list coverage
 ```
+
+### Name lists
+
+Each folder must hold exactly one CSV. Sources, versions and checksums in detail (Chinese): [data/README.md](../data/README.md).
+
+- **Birds**, `data/avilist/AviList-v2025-11Jun-extended.csv`: AviList v2025 (CC BY 4.0), https://www.avilist.org/checklist/v2025/. Only the XLSX is published: https://www.avilist.org/wp-content/uploads/2025/06/AviList-v2025-11Jun-extended.xlsx (sha256 `5aa71c2eedd0a9e9a50b4908bfea7a412776d80460e666c0a2949ff567991f8e`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `a6024ec5680665489303f50bcefd6f222f5f9deca611868a849548a009aa83d3`):
+
+  ```sh
+  uv run --no-project --with openpyxl python -c "
+  import csv, openpyxl
+  ws = openpyxl.load_workbook('AviList-v2025-11Jun-extended.xlsx', read_only=True).worksheets[0]
+  with open('AviList-v2025-11Jun-extended.csv', 'w', newline='', encoding='utf-8') as f:
+      csv.writer(f).writerows([('' if v is None else v) for v in r] for r in ws.iter_rows(values_only=True))"
+  ```
+- **Mammals**, `data/mdd/MDD_v2.5_6904species.csv`: MDD v2.5, from `assets/data/MDD.zip` in https://github.com/mammaldiversity/mammaldiversity.github.io (commit `22ab0ad7`); unzip and take `MDD/MDD_v2.5_6904species.csv` (sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`).
 
 ## Running
 
@@ -169,7 +186,7 @@ candidates = ["Strigidae", "Accipitridae"]
 ### Run summary and report
 
 ```sh
-bioscan run DIR -r --json run/preds.ndjson        # or: bioscan cull ... --json
+bioscan run DIR -r --json --out run/preds.ndjson  # or: bioscan cull ... --json
 bioscan summarize run/preds.ndjson --out run      # -> run/summary.json, prints one line
 bioscan report run                                # -> run/report.html (reads summary.json only; --out HTML)
 ```

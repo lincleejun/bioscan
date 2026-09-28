@@ -11,7 +11,7 @@ name: models
 # Model outputs are cached between runs (the inference cache, tests/models/test_real_models.py), keyed on
 # the adapters (model revisions) and uv.lock: a run computes only what reaches a model differently. A `v*`
 # tag and a dispatch with `cold` run every model; commit baselines from such a run (its speed is real).
-# The cache key carries `main` or `branch`, and a restore tries main's newest cache before any other.
+# The cache key carries `main` or `branch`; a restore takes this branch's own newest cache, else main's newest.
 on:
   push:
     branches: ["**"]
@@ -109,9 +109,8 @@ jobs:
         with:
           path: .infer-cache
           key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
-          # main's newest cache first: GitHub otherwise prefers this branch's own (possibly stale) one
+          # GitHub searches this branch's caches first, then main's: its own newest, else main's newest
           restore-keys: |
-            infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-main-
             infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-
       - name: Real-model smoke
         # tee: the album candidate report printed later can push pytest's output past what a log
@@ -136,6 +135,8 @@ jobs:
         run: |
           if [ ! -f models-report.json ]; then echo "no models-report.json (the smoke did not get far enough)"; exit 0; fi
           uv run bioscan bench analyze models-report.json --md bench-analyze.md > /dev/null
+          uv run bioscan bench scorecard models-report.json --md bench-scorecard.md > /dev/null || true
+          if [ -f bench-scorecard.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-scorecard.md; fi
           if [ -f baselines/ci-smoke.json ]; then
             set +e
             uv run bioscan bench compare baselines/ci-smoke.json models-report.json \
@@ -196,6 +197,7 @@ jobs:
             bench-compare.md
             bench-compare.json
             bench-compare-album.md
+            bench-scorecard.md
             bench-analyze.md
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
@@ -212,6 +214,7 @@ jobs:
             bench-compare-album.md
             bench-compare-album.json
             bench-scorecard-album.md
+            bench-scorecard.md
             bench-analyze.md
           if-no-files-found: ignore
       - name: Real-model test failures (repeated last, so a log tail shows them)
