@@ -118,7 +118,9 @@ The gate model re-judging a box's crop, which can veto the box or promote its ki
 _Avoid_: judge, second gate
 
 **Species**:
-A box's naming result: the name list used, a level and the top candidates. Absent when species is off, null for a kind with no name list.
+A box's naming result: the name list used, a level, the taxon (the name at that level: the species, or the
+genus or family whose top-5 posterior mass reached the rollup, which need not be the first candidate's; null
+when unconfirmed) and the top candidates. Absent when species is off, null for a kind with no name list.
 
 **Level**:
 How far the evidence supports a name: species, genus, family or unconfirmed.

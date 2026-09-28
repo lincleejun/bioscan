@@ -28,7 +28,7 @@ def test_range_veto_promotes_an_in_range_congener():
              cand("Corvus corax", 0.8, 0.08)]
     out, vetoed = rules.range_veto(cands)
     assert vetoed and [c["scientific"] for c in out] == ["Corvus corax", "Corvus sierramadrensis", "Larus occidentalis"]
-    assert rules.species_level(out, species_ok=False) == "genus"          # 0.78 of the mass is Corvus
+    assert rules.species_level(out, species_ok=False) == ("genus", "Corvus")          # 0.78 of the mass is Corvus
 
 
 @pytest.mark.parametrize("cands, vetoed, first", [
@@ -55,7 +55,7 @@ def test_range_veto_ignores_genus_back_off():
 
 def test_species_level_without_species():
     cands = [cand("Corvus a", 0.9, 0.9), cand("Corvus b", 0.9, 0.05)]
-    assert rules.species_level(cands) == "species" and rules.species_level(cands, species_ok=False) == "genus"
+    assert rules.species_level(cands) == ("species", "Corvus a") and rules.species_level(cands, species_ok=False) == ("genus", "Corvus")
 
 
 def test_kind_of():

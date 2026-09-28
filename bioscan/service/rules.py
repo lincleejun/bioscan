@@ -92,28 +92,27 @@ def judge(kind: str, crop_gate: dict[str, float]) -> str | None:
     return kind
 
 
-def species_level(cands: list[dict[str, Any]], species_ok: bool = True) -> str:
-    """species when top-1 is clear (and `species_ok`), else the genus or family the top-5 agree on
-    (a rank the list leaves empty never counts), else unconfirmed."""
+def species_level(cands: list[dict[str, Any]], species_ok: bool = True) -> tuple[str, str | None]:
+    """(level, name): species when top-1 is clear (and `species_ok`), named by its scientific name;
+    else the genus or family the top-5 agree on, named by that genus or family (the one that reached
+    ROLLUP, which need not be the first candidate's; a rank the list leaves empty never counts);
+    else ("unconfirmed", None)."""
     if not cands:
-        return "unconfirmed"
+        return "unconfirmed", None
     ordered = sorted(cands, key=lambda c: -c["posterior"])
     p1 = ordered[0]["posterior"]
     p2 = ordered[1]["posterior"] if len(ordered) > 1 else 0.0
     if species_ok and p1 >= SPECIES_P and p1 - p2 >= SPECIES_MARGIN:
-        return "species"
-    genus: dict[str, float] = defaultdict(float)
-    family: dict[str, float] = defaultdict(float)
-    for c in ordered[:5]:
-        genus[c["taxonomy"][5]] += c["posterior"]
-        family[c["taxonomy"][4]] += c["posterior"]
-    genus.pop("", None)
-    family.pop("", None)
-    if max(genus.values(), default=0.0) >= ROLLUP:
-        return "genus"
-    if max(family.values(), default=0.0) >= ROLLUP:
-        return "family"
-    return "unconfirmed"
+        return "species", ordered[0]["scientific"]
+    for level, k in (("genus", 5), ("family", 4)):
+        mass: dict[str, float] = defaultdict(float)
+        for c in ordered[:5]:
+            mass[c["taxonomy"][k]] += c["posterior"]
+        mass.pop("", None)
+        name = max(mass, key=mass.__getitem__, default=None)
+        if name is not None and mass[name] >= ROLLUP:
+            return level, name
+    return "unconfirmed", None
 
 
 def range_veto(cands: list[dict[str, Any]], direct: list[bool] | None = None) -> tuple[list[dict[str, Any]], bool]:

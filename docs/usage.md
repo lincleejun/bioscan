@@ -53,7 +53,7 @@ With `--json` the service's NDJSON is written as is, one line per image, for dow
  "products":{"identify":{"gate":{"class":"bird","probs":{…}},
    "boxes":[{"id":0,"xyxy":[0.31,0.22,0.58,0.71],"score":0.84,"kind":"bird",
              "quality":{"sharpness":0.71,"exposure":0.05},
-             "species":{"list":"avilist-2025","level":"species",
+             "species":{"list":"avilist-2025","level":"species","taxon":"Megascops kennicottii",
                "top":[{"scientific":"Megascops kennicottii","common":"Western Screech-Owl",
                        "taxonomy":["Animalia","Chordata","Aves","Strigiformes","Strigidae","Megascops","Megascops kennicottii"],
                        "p_visual":0.81,"p_geo":0.62,"posterior":0.91}]}}]}},
@@ -183,7 +183,7 @@ bioscan report run                                # -> run/report.html (reads su
 | `source` | the preds path and its sha256, the engine (version, settings, models) of the first result, first and last capture time |
 | `counts` | images (results + failed), ok, failed, boxes, elapsed_ms (from `done`) |
 | `categories` | the gate classes in fixed order (bird, mammal, other_animal, person, none), zeros included. An image counts under its gate class; for the animal classes, boxes, taxa and review items count by box kind (the kind check may have moved a box) |
-| `taxa` | one row per named taxon, most boxes first: the name at the box's level (species, else the genus or family of the first candidate), common name (at species level the first candidate's; at genus or family "a"/"an" and the last word most of the taxon's candidates' common names share, e.g. "a vireo", "a hawk or eagle"; null when none has one), level, kind, taxonomy down to that level, list, images, boxes, the first candidate's posterior (max, median), `best` (highest posterior × sharpness), every member box with its first 3 candidates, capture span |
+| `taxa` | one row per named taxon, most boxes first: the name at the box's level (the species payload's `taxon`: the species, or the genus or family whose top-5 posterior mass rolled up, not necessarily the first candidate's; a preds file from before `taxon` falls back to the first candidate's genus or family), common name (at species level the first candidate's; at genus or family "a"/"an" and the last word most of the taxon's candidates' common names share, e.g. "a vireo", "a hawk or eagle"; null when none has one), level, kind, taxonomy down to that level (of the best candidate in the taxon), list, images, boxes, the first candidate's posterior (max, median), `best` (highest posterior × sharpness), every member box with its first 3 candidates, capture span |
 | `review` | the review queue, sorted by suggested name then capture time: sha256, path, jpg copy, box id (null for a whole frame), kind, level, reasons, suggested name, its common name (as in `taxa`; null when unconfirmed, no list or a whole frame), first 3 candidates |
 | `rules` | the thresholds used: `single_sighting_max_posterior` 0.8, `range_eps` 0.01 |
 | `errors` | every error event: path, product (null = decode), message |
