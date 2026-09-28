@@ -197,6 +197,7 @@ jobs:
             bench-compare.md
             bench-compare.json
             bench-compare-album.md
+            bench-scorecard.md
             bench-analyze.md
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
@@ -213,6 +214,7 @@ jobs:
             bench-compare-album.md
             bench-compare-album.json
             bench-scorecard-album.md
+            bench-scorecard.md
             bench-analyze.md
           if-no-files-found: ignore
       - name: Real-model test failures (repeated last, so a log tail shows them)
