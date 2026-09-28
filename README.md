@@ -36,7 +36,8 @@ Coverage = share of images graded to species; precision = Top-1 among those; con
 git clone https://github.com/lincleejun/bioscan && cd bioscan
 uv sync                                       # Python 3.12
 uv run python tests/models/download.py        # pinned weights (~7 GB) + BirdNET geo model, once
-# name lists: download AviList and MDD CSVs as described in data/README.md (the 3.26 GB TreeOfLife vector file builds the caches on first start)
+# name lists: download AviList and MDD CSVs as described in docs/usage.md#name-lists
+uv run bioscan names stats                    # once, online: fetches the 3.26 GB TreeOfLife vectors into ~/.cache/huggingface and builds the name caches
 uv run bioscan serve                          # 127.0.0.1:8765; models stay resident
 uv run bioscan run ~/Pictures/trip -r         # one line per image, then a summary
 ```

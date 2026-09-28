@@ -36,7 +36,8 @@ https://github.com/user-attachments/assets/96ab885c-be4d-466e-98b0-ea69dd560f05
 git clone https://github.com/lincleejun/bioscan && cd bioscan
 uv sync                                       # Python 3.12
 uv run python tests/models/download.py        # 固定版本的权重（约 7 GB）+ BirdNET 地理模型，一次
-# 名单：按 data/README.md 下载 AviList 和 MDD 的 CSV（首次启动用 3.26 GB 的 TreeOfLife 向量文件建缓存）
+# 名单：按 data/README.md 下载 AviList 和 MDD 的 CSV
+uv run bioscan names stats                    # 一次，需联网：把 3.26 GB 的 TreeOfLife 向量下载到 ~/.cache/huggingface 并建名单缓存
 uv run bioscan serve                          # 127.0.0.1:8765；模型常驻
 uv run bioscan run ~/Pictures/trip -r         # 每张一行，最后一个汇总
 ```
