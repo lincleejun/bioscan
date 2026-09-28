@@ -63,8 +63,7 @@ def read_preds_meta(path) -> dict:
 
 def preds_complete(path) -> bool:
     """True when the service's `done` event made it into the file; a stream cut short scores but is incomplete."""
-    with open(path, "rb") as f:
-        return any(json.loads(line).get("type") == contract.DONE for line in f if line.strip())
+    return any(e.get("type") == contract.DONE for e in client.iter_ndjson(path))
 
 
 def _sci(s) -> str:

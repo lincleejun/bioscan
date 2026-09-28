@@ -23,6 +23,14 @@ def _open(req, url, timeout):
         raise ServiceError(f"cannot reach bioscan service at {url} ({reason}); start it with `bioscan serve`") from None
 
 
+def iter_ndjson(path) -> Iterator[dict]:
+    """The events of a saved NDJSON file (preds, cache), blank lines skipped."""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
+
+
 def health(url: str = DEFAULT_URL) -> dict:
     with _open(url.rstrip("/") + "/health", url, timeout=5) as r:
         body = r.read()

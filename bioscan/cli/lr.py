@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from bioscan import aesthetic, contract
+from bioscan.cli import client
 from bioscan.cli.report import common_of, taxon
 
 REVIEW = "待确认"      # group of photos with an animal but no species-level box
@@ -37,8 +38,7 @@ def default_modules() -> Path:
 
 def results(preds: str | Path) -> list[dict]:
     """The result events of a preds.ndjson; meta, progress, error and done lines are skipped."""
-    with open(preds, encoding="utf-8") as f:
-        return [ev for ev in map(json.loads, filter(str.strip, f)) if ev.get("type") == contract.RESULT]
+    return [ev for ev in client.iter_ndjson(preds) if ev.get("type") == contract.RESULT]
 
 
 def _keyword(b: dict) -> list[str]:

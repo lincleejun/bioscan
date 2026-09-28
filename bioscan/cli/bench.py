@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan import contract, naming
+from bioscan.cli import client
 from bioscan.cli import eval as ev
 from bioscan.cli.config import PROFILE_HELP, eval_request
 
@@ -418,14 +419,7 @@ def _table(images: list[dict], key, with_kind: bool = False) -> dict:
 
 def done_of(path) -> dict | None:
     """The service's last `done` event in a preds file, or None."""
-    found = None
-    with open(path, "rb") as f:
-        for line in f:
-            if line.strip():
-                e = json.loads(line)
-                if e.get("type") == contract.DONE:
-                    found = e
-    return found
+    return next((e for e in reversed(list(client.iter_ndjson(path))) if e.get("type") == contract.DONE), None)
 
 
 def report_from_preds(preds_path: str, gt_csv: str, synonyms: bool = True,
