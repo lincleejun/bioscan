@@ -46,9 +46,8 @@ def load_preds(lines) -> dict[str, dict]:
     return preds
 
 
-def _sha256(path) -> str | None:
-    p = Path(path)
-    return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+def sha256_of(path) -> str | None:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if path and Path(path).is_file() else None
 
 
 def read_preds_meta(path) -> dict:
@@ -218,7 +217,7 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
         head = {"type": "meta", "schema": PREDS_SCHEMA, **({"profile": request["profile"]} if request else {}),
                 **({"reducers": request["reducers"]} if request and request.get("reducers") else {}),
                 "options": payload["options"], "groundtruth": gt_csv,
-                "groundtruth_sha256": _sha256(gt_csv), "synonyms_sha256": _sha256(SYNONYMS_CSV) if synonyms else None,
+                "groundtruth_sha256": sha256_of(gt_csv), "synonyms_sha256": sha256_of(SYNONYMS_CSV) if synonyms else None,
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
         with open(preds_path, "wb") as f:
             f.write(json.dumps(head).encode() + b"\n")
