@@ -44,8 +44,8 @@ IMAGE_FIELDS = ("path", "split", "trip", "group", "best", "category", "stars", "
                 "slices", "variant_of", "variant")
 INVARIANT = ("rename", "jpeg95", "resize2048")          # planted copies that must score like their original
 DEGRADED = ("blur", "ev-2", "ev+2", "jpeg10")          # planted copies that must score below their original
-DROP_REASONS = ("soft_subject", "motion_or_defocus", "overexposed", "underexposed", "subject_cut", "subject_too_small",
-                "no_subject", "composition", "cluttered_background", "bad_light", "eyes_closed", "pose", "duplicate",
+DROP_REASONS = ("soft_subject", "motion", "defocus", "motion_or_defocus", "overexposed", "underexposed", "subject_cut",
+                "subject_too_small", "no_subject", "composition", "cluttered_background", "bad_light", "eyes_closed", "pose", "duplicate",
                 "other")
 CULL_SHARES = (0.1, 0.2, 0.3)       # reject this share of each trip, lowest scores first
 INVARIANCE_TOL = 0.05               # a planted copy may move at most this far in the album's score percentiles

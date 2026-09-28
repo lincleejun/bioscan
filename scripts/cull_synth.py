@@ -13,7 +13,8 @@ have one meaning) and covers 2-50 % of the frame. Per source, deterministically 
 | original | the photo, re-saved | none | 1 |
 | blur | Gaussian blur on the subject box, sigma = long edge / 150 (at least 3 px) | soft_subject | 0 |
 | smear | motion blur (line kernel, long edge / 25 px, at least 12, horizontal or vertical) on the subject box | soft_subject | 0 |
-| shake | the same motion blur over the whole frame | motion_or_defocus | 0 |
+| shake | the same motion blur over the whole frame | motion | 0 |
+| defocus | the same Gaussian blur over the whole frame | defocus | 0 |
 | cut | cropped so that 40 % of the box is outside the new frame | subject_cut | 0 |
 | over / under | +2 / -2 EV in linear light, clipped back to 8 bit | overexposed / underexposed | 0 |
 | small | the photo shrunk onto a canvas twice its size, subject at 0.3 % of the frame | subject_too_small | 0 |
@@ -158,11 +159,13 @@ def build(sources: list[dict], out: str | Path, seed: int = 7, burst_every: int 
         box = tuple(src["box"])
         long_edge = max(im.size)
         emit(im, src, i, "original", keep=1)
-        emit(blur_box(im, box, max(3.0, long_edge / 150)), src, i, "blur", "soft_subject")
+        sigma = max(3.0, long_edge / 150)
+        emit(blur_box(im, box, sigma), src, i, "blur", "soft_subject")
         vertical = rng.random() < 0.5
         length = max(12, long_edge // 25)
         emit(smear_box(im, box, length, vertical), src, i, "smear", "soft_subject")
-        emit(_line_blur(im, length, vertical), src, i, "shake", "motion_or_defocus")
+        emit(_line_blur(im, length, vertical), src, i, "shake", "motion")
+        emit(im.filter(ImageFilter.GaussianBlur(sigma)), src, i, "defocus", "defocus")
         cropped, nb = cut(im, box)
         if (nb[2] - nb[0]) * (nb[3] - nb[1]) < 0.45:
             emit(cropped, src, i, "cut", "subject_cut")
