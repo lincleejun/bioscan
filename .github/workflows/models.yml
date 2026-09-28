@@ -11,11 +11,12 @@ name: models
 # Model outputs are cached between runs (the inference cache, tests/models/test_real_models.py), keyed on
 # the adapters (model revisions) and uv.lock: a run computes only what reaches a model differently. A `v*`
 # tag and a dispatch with `cold` run every model; commit baselines from such a run (its speed is real).
+# The cache key carries `main` or `branch`, and a restore tries main's newest cache before any other.
 on:
   push:
     branches: ["**"]
     tags: ["v*"]
-    paths:
+    paths: &model-paths
       - "bioscan/service/**"
       - "bioscan/plugins/**"
       - "bioscan/plugin.py"
@@ -42,32 +43,7 @@ on:
       - "pyproject.toml"
       - ".github/workflows/models.yml"
   pull_request:
-    paths:
-      - "bioscan/service/**"
-      - "bioscan/plugins/**"
-      - "bioscan/plugin.py"
-      - "bioscan/profile.py"
-      - "bioscan/profiles.toml"
-      - "bioscan/geotag.py"
-      - "bioscan/contract.py"
-      - "bioscan/naming.py"
-      - "bioscan/formats.py"
-      - "bioscan/cli/main.py"
-      - "tests/*.py"
-      - "bioscan/serve_config.py"
-      - "bioscan/aesthetic*.py"
-      - "scripts/train_aesthetic_head.py"
-      - "bioscan/cull.py"
-      - "scripts/cull_synth.py"
-      - "data/standards.toml"
-      - "tests/models/**"
-      - "data/names/**"
-      - "bioscan/cli/eval.py"
-      - "bioscan/cli/bench.py"
-      - "baselines/**"
-      - "uv.lock"
-      - "pyproject.toml"
-      - ".github/workflows/models.yml"
+    paths: *model-paths
   workflow_dispatch:
     inputs:
       cold:
@@ -132,8 +108,11 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .infer-cache
-          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-
+          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # main's newest cache first: GitHub otherwise prefers this branch's own (possibly stale) one
+          restore-keys: |
+            infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-main-
+            infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-
       - name: Real-model smoke
         # tee: the album candidate report printed later can push pytest's output past what a log
         # tail shows; the last step prints the failures again
@@ -145,7 +124,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .infer-cache
-          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Job summary
         if: always()
         # also printed to the log so the numbers are readable wherever the summary is not
