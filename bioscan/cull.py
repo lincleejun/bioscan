@@ -22,7 +22,9 @@ not its best, or a near-duplicate of a pick), reject (a quality reject reason; `
 per scene group, label or attribute value `name=value`: underexposed is normal at night).
 
 Flags: notes that never change a status, rank or keep (a flag is not a reason): `horizon_tilt` when the
-scene stage's horizon (measured for landscapes only) tilts more than `horizon_flag_deg` either way.
+scene stage's horizon (measured for landscapes only) tilts more than `horizon_flag_deg` either way;
+`tight_headroom` when the subject's box starts less than `headroom_min` of the frame height below the
+frame top and is not a fill-the-frame portrait (box area under PORTRAIT_AREA of the frame).
 
 Standard library only: the CLI imports it."""
 from __future__ import annotations
@@ -38,8 +40,10 @@ from typing import Any
 ONE_CAMERA = "(one camera)"
 UNCATEGORISED = "uncategorised"
 STATUSES = ("pick", "spare", "duplicate", "reject")
-FLAGS = ("horizon_tilt",)
+FLAGS = ("horizon_tilt", "tight_headroom")
 HORIZON_FLAG_DEG = 3.0
+HEADROOM_MIN = 0.02     # a guess, unverified until #28's labelled trips
+PORTRAIT_AREA = 0.5     # a subject box at least this share of the frame fills it (quality's CUT_MAX_AREA): no headroom
 
 
 # ---- reading result events ------------------------------------------------------------------
@@ -144,10 +148,12 @@ def check_select(o: dict[str, Any]) -> None:
     n = o["per_category"]
     if isinstance(n, bool) or not isinstance(n, int) or n < 0:
         raise ValueError("select.per_category must be an integer >= 0 (0 = no limit)")
-    for k in ("dup_cosine", "sharp_tie", "exposure_ok", "horizon_flag_deg"):
+    for k in ("dup_cosine", "sharp_tie", "exposure_ok", "horizon_flag_deg", "headroom_min"):
         v = o[k]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
             raise ValueError(f"select.{k} must be a number >= 0")
+    if o["headroom_min"] > 1:
+        raise ValueError("select.headroom_min must be at most 1 (a share of the frame height)")
     if o["by"] not in ("group", "label"):
         raise ValueError("select.by must be group or label")
     w = o["waive"]
@@ -183,10 +189,22 @@ def _exposure(q: dict[str, Any]) -> float | None:
     return region.get("exposure")
 
 
-def flags(ev: dict[str, Any], horizon_flag_deg: float = HORIZON_FLAG_DEG) -> list[str]:
-    """The photo's flags (FLAGS): horizon_tilt when products.scene.horizon tilts more than horizon_flag_deg."""
-    h = (products(ev).get("scene") or {}).get("horizon") or {}
-    return ["horizon_tilt"] if abs(h.get("tilt_deg") or 0.0) > horizon_flag_deg else []
+def flags(ev: dict[str, Any], o: dict[str, Any] | None = None) -> list[str]:
+    """The photo's flags, in FLAGS order, with select's options `o` (horizon_flag_deg, headroom_min;
+    a missing one takes its default): horizon_tilt when products.scene.horizon tilts more than
+    horizon_flag_deg; tight_headroom when the subject (identify's best box by score, as the quality
+    stage picks it) has its top edge less than headroom_min of the frame height from the frame top and
+    covers under PORTRAIT_AREA of the frame. Existing boxes only: no model call."""
+    o, p, out = o or {}, products(ev), []
+    h = (p.get("scene") or {}).get("horizon") or {}
+    if abs(h.get("tilt_deg") or 0.0) > o.get("horizon_flag_deg", HORIZON_FLAG_DEG):
+        out.append("horizon_tilt")
+    boxes = [b for b in (p.get("identify") or {}).get("boxes") or [] if b.get("xyxy")]   # partial payloads: none
+    if boxes:
+        x0, y0, x1, y1 = max(boxes, key=lambda b: b.get("score") or 0.0)["xyxy"]   # normalised 0-1, upright
+        if y0 < o.get("headroom_min", HEADROOM_MIN) and (x1 - x0) * (y1 - y0) < PORTRAIT_AREA:
+            out.append("tight_headroom")
+    return out
 
 
 def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
@@ -201,7 +219,7 @@ def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
     aesthetic = (p.get("aesthetics") or {}).get("score")   # null when no head scored it (a note says why)
     taken, _ = capture(ev)
     return {"path": ev["path"], "category": category, "reasons": [r for r in raw if r not in lifted],
-            "waived": [r for r in raw if r in lifted], "flags": flags(ev, o["horizon_flag_deg"]), "sharpness": _sharpness(q),
+            "waived": [r for r in raw if r in lifted], "flags": flags(ev, o), "sharpness": _sharpness(q),
             "cut": bool((q.get("subject") or {}).get("cut")), "exposure": _exposure(q),
             "aesthetic": aesthetic if isinstance(aesthetic, (int, float)) and not isinstance(aesthetic, bool) else None,
             "t": seconds(taken), "vec": vector(ev), "burst": (p.get("burst") or {}).get("id")}

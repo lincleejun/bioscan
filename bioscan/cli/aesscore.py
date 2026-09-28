@@ -15,8 +15,9 @@ browser-readable originals and marks the rest.
 
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
 and reject reasons come from the album profile's scene and quality stages; flags (horizon_tilt: a
-landscape's horizon tilts more than the profile's `select.horizon_flag_deg`) only mark a photo, they
-never change its stars. `--species` turns the
+landscape's horizon tilts more than the profile's `select.horizon_flag_deg`; tight_headroom: the
+subject's box starts within `select.headroom_min` of the frame top) only mark a photo, they never
+change its stars. `--species` turns the
 profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
 genus or family, as `bioscan summarize` counts it) with an English name beside it (`rp.common_of`: the common name, or
 "a vireo" / "a hawk or eagle" above species), and the page groups and filters by it. The page
@@ -116,9 +117,9 @@ def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[
     return best[1:] if best else (None, None, None, [])
 
 
-def rows_of(events: list[dict[str, Any]], horizon_flag_deg: float = cull.HORIZON_FLAG_DEG) -> list[dict[str, Any]]:
+def rows_of(events: list[dict[str, Any]], select: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """One row per result, best first (a photo without a finite score comes last); stars = quintile;
-    flags as select sets them (cull.flags)."""
+    flags as select sets them with its options `select` (cull.flags; None = the defaults)."""
     rows = []
     for ev in events:
         if ev.get("type") != contract.RESULT:
@@ -131,7 +132,7 @@ def rows_of(events: list[dict[str, Any]], horizon_flag_deg: float = cull.HORIZON
         scene = f"{sc['label']} ({sc['group']})" if sc.get("group") not in (None, sc.get("label")) else sc.get("label")
         rows.append({"path": ev["path"], "score": score, "scene": scene,
                      "species": species, "common": common, "level": level, "lineage": lineage,
-                     "reject_reasons": list(q.get("reject_reasons") or []), "flags": cull.flags(ev, horizon_flag_deg),
+                     "reject_reasons": list(q.get("reject_reasons") or []), "flags": cull.flags(ev, select),
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})
     rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["path"]))
@@ -201,8 +202,8 @@ def cmd_score(a) -> int:
     if "html" in exports:
         shrink(events, a.thumb_edge)
     complete = any(e.get("type") == contract.DONE for e in events)
-    flag_deg = expand(load_config(), cc.DEFAULT_PROFILE, None, {}).reducer_options["select"]["horizon_flag_deg"]
-    rows, fails = rows_of(events, flag_deg), cc.failed(events)
+    select = expand(load_config(), cc.DEFAULT_PROFILE, None, {}).reducer_options["select"]
+    rows, fails = rows_of(events, select), cc.failed(events)
     written = []
     if "json" in exports:
         cc.write_json(head, events, f"{out}.ndjson")
