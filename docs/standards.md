@@ -138,7 +138,7 @@ bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden-nogeo -
 bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own --lat 37.4 --lon -122.1    # own RAW
 bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own-nogeo --no-geo
 BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models                                          # smoke (CI models.yml)
-bioscan bench scorecard runs/<tag>-golden                                                 # bars vs report
+bioscan bench scorecard runs/<tag>-golden/report.json                                     # bars vs report
 ```
 
 ## 1. Accuracy per kind (golden tier, with GPS)

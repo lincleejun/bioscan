@@ -69,9 +69,10 @@ run on the Mac at the tag (below) and commit the reports as `golden-inat-<tag>` 
 **CI on every push that touches the service.** `models.yml` runs:
 1. the smoke (`tests/models`), which writes `models-report.json` next to `models-report.md`;
 2. `bench compare baselines/ci-smoke.json models-report.json --budget baselines/budget.toml`;
-3. `bench analyze`.
+3. `bench analyze`;
+4. `bench scorecard` (tier `smoke`; it does not gate, the budget does).
 
-Both markdowns go to the job log and the job summary. When `baselines/ci-smoke.json` does not exist
+The markdowns go to the job log and the job summary. When `baselines/ci-smoke.json` does not exist
 yet, the step prints the new report between `===== BEGIN bioscan-report ci-smoke candidate =====` and
 `===== END … =====` and passes. Commit that JSON as `baselines/ci-smoke.json`.
 

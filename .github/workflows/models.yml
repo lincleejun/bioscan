@@ -136,6 +136,8 @@ jobs:
         run: |
           if [ ! -f models-report.json ]; then echo "no models-report.json (the smoke did not get far enough)"; exit 0; fi
           uv run bioscan bench analyze models-report.json --md bench-analyze.md > /dev/null
+          uv run bioscan bench scorecard models-report.json --md bench-scorecard.md > /dev/null || true
+          if [ -f bench-scorecard.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-scorecard.md; fi
           if [ -f baselines/ci-smoke.json ]; then
             set +e
             uv run bioscan bench compare baselines/ci-smoke.json models-report.json \
