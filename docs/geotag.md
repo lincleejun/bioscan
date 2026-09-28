@@ -36,4 +36,4 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates f
   | False fix | 0% |
   | Clock-offset error | 1 s (median) |
 
-  The per-scenario table is in docs/2026-09-24-geotag-synthetic.md.
+  The per-scenario table is in [docs/results/2026-09-24-geotag-synthetic.md](results/2026-09-24-geotag-synthetic.md).

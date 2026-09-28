@@ -82,7 +82,7 @@ Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), Bi
 | [docs/geotag.md](docs/geotag.md) | GPX geotagging: sources, time zones, clock offset, fix rule, XMP, accuracy |
 | [docs/album.md](docs/album.md) | aesthetics (general and personal head, evaluation, the golden set) and `bioscan cull` |
 | [docs/results.md](docs/results.md) | the measured numbers, v1.4 vs v1.5, own photos, RAW metadata |
-| [docs/standards.md](docs/standards.md) | the bars in 11 dimensions, with sources, and the release stages |
+| [docs/standards.md](docs/standards.md) | the bars in 15 dimensions, with sources, and the release stages |
 | [docs/development.md](docs/development.md) | evaluation commands, the harness in short, tests, CI, source layout |
 | [docs/harness.md](docs/harness.md) | `bioscan bench` in full: report.json schema, compare, budgets, analyze, scorecard, album and aesthetic tiers |
 | [data/README.md](data/README.md) | name lists, the all-taxa list, the golden ground truth, the aesthetic head |

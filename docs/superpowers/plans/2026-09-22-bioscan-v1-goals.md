@@ -1,5 +1,7 @@
 # bioscan v1 实施计划（目标制）
 
+> Historical (2026-09-22): file paths below may no longer exist; current behaviour is in docs/usage.md.
+
 spec：`docs/superpowers/specs/2026-09-22-bioscan-design.md`，以 spec 为准。每个目标交给一个独立子代理，在各自 worktree 完成，主线验收后合并。
 
 ## 共同约束

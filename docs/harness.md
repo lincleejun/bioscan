@@ -29,15 +29,15 @@ when present. A kind with no list leaves `in_list` null. The CSV may be avilist_
 
 ```sh
 bioscan bench run data/inat/groundtruth-inat.csv --out runs/2026-09-24-golden --tier golden
-bioscan bench baseline runs/2026-09-24-golden/report.json --name golden-inat-v1.5.0
-git add baselines/golden-inat-v1.5.0.json && git commit -m "baseline: golden set at v1.5.0"
+bioscan bench baseline runs/2026-09-24-golden/report.json --name golden-inat-v1.5
+git add baselines/golden-inat-v1.5.json && git commit -m "baseline: golden set at v1.5.0"
 ```
 
 **Compare tomorrow.** After a model swap or a code change, run again and compare:
 
 ```sh
 bioscan bench run data/inat/groundtruth-inat.csv --out runs/2026-09-25-golden --tier golden
-bioscan bench compare baselines/golden-inat-v1.5.0.json runs/2026-09-25-golden/report.json \
+bioscan bench compare baselines/golden-inat-v1.5.json runs/2026-09-25-golden/report.json \
   --md runs/2026-09-25-golden/compare.md
 bioscan bench analyze runs/2026-09-25-golden/report.json --md runs/2026-09-25-golden/analyze.md
 ```
@@ -201,7 +201,7 @@ others in name order. Each scope has `n` (images with any value of that plugin t
 | `pair_f1` | harmonic mean of the two | – | images |
 
 Rates are fractions 0–1 rounded to 6 places, like `metrics`. The built-in metrics (album tier) are defined in
-[Album tier](#album-tier-culling-bench---profile-album).
+[Album tier](#album-tier-culling-bench----profile-album).
 
 ## compare
 
@@ -301,7 +301,7 @@ The largest primary class (overconfident excluded; ties go to the class checked 
 
 ## scorecard: data/standards.toml
 
-W2 owns the content; this is the schema the reader enforces.
+This is the schema the reader enforces.
 
 ```toml
 [[standard]]
@@ -471,7 +471,7 @@ Rates carry Wilson intervals (`<rate>_ci`), and the scorecard judges them on the
 
 Geotagging does not change a photo's capture time, so BirdNET's week (read from `taken_at`) is unchanged by
 construction. Only the place can move, and `cell_change_rate` says how often it leaves the truth's 0.01° cell:
-1.0% in `perfect` (docs/2026-09-24-geotag-synthetic.md). `--gt-out` writes the golden CSV once per scenario with
+1.0% in `perfect` ([docs/results/2026-09-24-geotag-synthetic.md](results/2026-09-24-geotag-synthetic.md)). `--gt-out` writes the golden CSV once per scenario with
 lat/lon replaced by the geotag fix (blank where there is none), so `bench run` can measure identification on
 GPX-derived positions:
 

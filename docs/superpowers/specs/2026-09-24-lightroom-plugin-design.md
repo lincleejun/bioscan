@@ -1,5 +1,7 @@
 # bioscan → Lightroom Classic（实验）设计
 
+> Historical (2026-09-24): file paths below may no longer exist; current behaviour is in docs/usage.md.
+
 日期：2026-09-24。状态：owner 已批准（对话中），实验性。
 
 ## 1. 目标
