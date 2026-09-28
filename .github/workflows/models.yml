@@ -11,7 +11,7 @@ name: models
 # Model outputs are cached between runs (the inference cache, tests/models/test_real_models.py), keyed on
 # the adapters (model revisions) and uv.lock: a run computes only what reaches a model differently. A `v*`
 # tag and a dispatch with `cold` run every model; commit baselines from such a run (its speed is real).
-# The cache key carries `main` or `branch`, and a restore tries main's newest cache before any other.
+# The cache key carries `main` or `branch`; a restore takes this branch's own newest cache, else main's newest.
 on:
   push:
     branches: ["**"]
@@ -109,9 +109,8 @@ jobs:
         with:
           path: .infer-cache
           key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
-          # main's newest cache first: GitHub otherwise prefers this branch's own (possibly stale) one
+          # GitHub searches this branch's caches first, then main's: its own newest, else main's newest
           restore-keys: |
-            infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-main-
             infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-
       - name: Real-model smoke
         # tee: the album candidate report printed later can push pytest's output past what a log
