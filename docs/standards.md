@@ -423,8 +423,8 @@ metric is `group_acc` ([harness.md](harness.md), "Album tier"): the stage's `gro
 
 | Bar | Industry | Community | Stretch | Our status | Why |
 |---|---|---|---|---|---|
-| Scene group correct, all photos | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | 74.9% [72.8, 76.8] (Mac 2026-09-26, 40-label taxonomy, PR #43; 70.6% with the 8 labels, `baselines/scene-v1-8labels.json`; 61.1% before `wildlife_box`) | what `select` buckets on |
-| Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | pass: wildlife 92.7%, people 89.6%, night 76.4%, architecture 74.8%, other 71.2%, food 70.0%; fail: landscape 68.5%, macro 47.0% (same run; with the 8 labels: people 87.2%, food 88.0%, macro 86.0%, wildlife 76.7%, night 64.6%, landscape 62.5%, other 59.2%, architecture 58.8%) | one weak group hides in the mean |
+| Scene group correct, all photos | none published for photo genres; CLIP zero-shot on SUN397 (397 scene classes) 65–68% top-1 is the nearest reference (CLIP paper Table 11); no SigLIP2 SUN397/Places number exists | **≥ 80%** | ≥ 90% | 75.0% [72.9, 76.9] (Mac 2026-09-26, 40-label taxonomy with the #45 food prompts; 74.9% at PR #43; 70.6% with the 8 labels, `baselines/scene-v1-8labels.json`; 61.1% before `wildlife_box`) | what `select` buckets on |
+| Scene group correct per group (recall), 8 groups | none published | **≥ 70%** | — | pass: wildlife 92.7%, people 89.2%, food 80.0%, night 75.8%, architecture 74.0%, other 72.0%; fail: landscape 68.2%, macro 47.0% (same run; at PR #43 food was 70.0%, other 71.2%; with the 8 labels: people 87.2%, food 88.0%, macro 86.0%, wildlife 76.7%, night 64.6%, landscape 62.5%, other 59.2%, architecture 58.8%) | one weak group hides in the mean |
 
 The failing groups are where the 8 default labels and their prompts are too coarse (the default `other`
 prompts describe an indoor room, so interiors land there; city lights at night read as architecture;
@@ -434,7 +434,13 @@ in `wildlife_gate`, lifts the mean to 74.9% and wildlife to 92.7% but drops macr
 fungi (20/50) and plants (15/50) other_animal, so their share goes to wildlife (#46). With bird + mammal only
 the mean is 77.8% and every group 70% or more (macro 90.5%, wildlife 76.3%), but the CI album smoke's
 `scene_acc` (all wildlife) falls 5.4 pts, past its 5-pt budget, so the album keeps the proposal's gate;
-the gate, not the scene stage, is where reptiles and fungi part ways.
+the gate, not the scene stage, is where reptiles and fungi part ways. Food fell from 88.0% (8 labels) to
+70.0% under the taxonomy because plated dishes read as `still_life` ("objects on a table") and candy, cut fruit
+and poured drinks as `abstract`, `plant` or `event`; short generic prompts (`a photo of food`, `a photo of a
+meal, a snack or a dessert`, `a photo of a drink`) and a `still_life` without table or item words bring food to
+80.0% and `still_life` to 68.0% (#45). A label is the mean of its prompt vectors, so more or longer prompts
+dilute it: eight detailed food prompts scored 6.0%. The 10 food misses left: 3 fruit on the bush (`plant`),
+3 packaged or dyed goods (`still_life`), 2 the gate calls animals, 1 drawing, 1 apples on a tree (`flower`).
 
 Caveats: Open Images labels are object tags, not genre judgements (a "Portrait" label is not always a
 portrait photograph), so a first run's failures need a look at the photos before the bar is trusted;
