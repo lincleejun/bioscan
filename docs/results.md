@@ -2,7 +2,7 @@
 
 Every number here was measured; the README shows the v1.5 row of each table. `docs/standards.md` says what the numbers are held to.
 
-Measured on the owner's M-series Mac (MPS) on 2026-09-24: v1.4 (`91b6bd6`) against v1.5 (`875dc7a`) on the same photos, paired by sha256 with `bioscan bench compare`. ▲ better, ▼ worse. Reports: `baselines/golden-inat-v1.4.json`, `baselines/golden-inat-v1.5.json`, `baselines/own-raw-2026-09-24-v1.{4,5}.json`; comparison, failure analysis and scorecard in `docs/2026-09-24-*.md`.
+Measured on the owner's M-series Mac (MPS) on 2026-09-24: v1.4 (`91b6bd6`) against v1.5 (`875dc7a`) on the same photos, paired by sha256 with `bioscan bench compare`. ▲ better, ▼ worse. Reports: `baselines/golden-inat-v1.4.json`, `baselines/golden-inat-v1.5.json`, `baselines/own-raw-2026-09-24-v1.{4,5}.json`; comparison, failure analysis and scorecard in the raw reports listed at the end.
 
 ### iNaturalist golden set (California, 65 species × 25 = 1,625 research-grade observations, real GPS and dates)
 
@@ -66,3 +66,12 @@ Three `bench run` passes over the 1,625 golden images, paired by sha256 with `be
 - GPX vs true GPS: 0 fixed, 0 broken, 0 changed; every metric identical. A track's fix lands in the same 0.01° prior cell as the truth for 99% of photos, and the remaining 1% changed no answer.
 - GPX vs no coordinates: 85 fixed, 1 broken, McNemar exact p ≈ 0; top-1 +5.2 pts, confident errors 8.4% → 3.1%. This settles the disputed "gain from coordinates" in docs/standards.md §4: +5.2 pts for birds on the same build, above the +3 community bar.
 - The `gaps` scenario (dropouts) was not run: the perfect scenario already shows GPX = truth, and gaps only lose fixes (0.5% of photos), which fall back to no coordinates.
+
+## Raw reports
+
+- [2026-09-24-compare-v1.4-v1.5-golden.md](results/2026-09-24-compare-v1.4-v1.5-golden.md): v1.4 vs v1.5, golden tier
+- [2026-09-24-compare-v1.4-v1.5-own.md](results/2026-09-24-compare-v1.4-v1.5-own.md): v1.4 vs v1.5, own RAW tier
+- [2026-09-24-v1.5-golden-analyze.md](results/2026-09-24-v1.5-golden-analyze.md): v1.5 failure analysis, golden tier
+- [2026-09-24-v1.5-golden-scorecard.md](results/2026-09-24-v1.5-golden-scorecard.md): v1.5 scorecard, golden tier
+- [2026-09-24-geotag-synthetic.md](results/2026-09-24-geotag-synthetic.md): GPX geotagging, synthetic tracks
+- [2026-09-23-baseline-results.md](results/2026-09-23-baseline-results.md): v1 baseline (superseded)

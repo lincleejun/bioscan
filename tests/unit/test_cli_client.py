@@ -42,7 +42,7 @@ class Handler(BaseHTTPRequestHandler):
 @pytest.fixture
 def url():
     srv = HTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
     srv.shutdown()
 
@@ -74,7 +74,7 @@ def test_health_non_json_is_service_error():
             self.end_headers()
 
     srv = HTTPServer(("127.0.0.1", 0), Plain)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
     try:
         with pytest.raises(client.ServiceError, match="did not return JSON"):
             client.health(f"http://127.0.0.1:{srv.server_port}")

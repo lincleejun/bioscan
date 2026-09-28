@@ -305,7 +305,7 @@ def write_bench_report(path: Path, gt: list[dict], preds: dict, events: list[dic
              for kind, nl in engine.names.items()}
     done = next((e for e in reversed(events) if e["type"] == contract.DONE), None)
     rep = bench.build_report(gt, preds, groundtruth=str(HERE / "sample.csv"),
-                             synonyms_sha256=bench.sha256_of(ev.SYNONYMS_CSV), done=done, lists=lists,
+                             synonyms_sha256=ev.sha256_of(ev.SYNONYMS_CSV), done=done, lists=lists,
                              complete=done is not None,
                              tier="smoke", options={"want": ["identify", "embed"], "identify": "service defaults",
                                       "synonyms": True, "device": engine.device})

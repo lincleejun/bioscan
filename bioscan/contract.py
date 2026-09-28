@@ -15,7 +15,6 @@ SCHEMA = 1
 # (module __getattr__ below: the plugin manifests import this module).
 
 PROGRESS, RESULT, ERROR, DONE = "progress", "result", "error", "done"
-EventType = Literal["progress", "result", "error", "done"]
 
 
 class ProgressEvent(TypedDict):

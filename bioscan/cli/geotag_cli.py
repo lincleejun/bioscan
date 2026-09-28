@@ -195,7 +195,7 @@ def stage_options(paths: list[str], a) -> tuple[dict, set[str] | None, set[str] 
     return opts, placed, exif_gps
 
 
-def add_track_options(s, xmp: bool = False) -> None:
+def add_track_options(s) -> None:
     """The options `geotag` and `run --gpx` share."""
     s.add_argument("--offset", help="camera clock minus true time, e.g. +00:01:23 (camera 83 s fast) or --offset=-3600, "
                                     "for every camera; default: estimated from photos with GPS or --clock, per "

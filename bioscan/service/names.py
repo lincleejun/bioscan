@@ -373,11 +373,6 @@ def all_taxa_select(tol_names, src: AllTaxaSource = ALL_TAXA, reasons: dict[str,
     return dict(sorted(keep.values()))
 
 
-def all_taxa_rows(tol_names, src: AllTaxaSource = ALL_TAXA) -> list[int]:
-    """Indexes into TreeOfLife's names of the rows the all-taxa list keeps (all_taxa_select)."""
-    return list(all_taxa_select(tol_names, src))
-
-
 def all_taxa_census(tol_names, src: AllTaxaSource = ALL_TAXA, species: list[str] = ()) -> dict:
     """What the all-taxa build sees, for CI logs: rows per (kingdom, class or "(empty)"), rows left
     out per reason, the list size, and for each of `species` every TreeOfLife row whose genus and

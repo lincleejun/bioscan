@@ -36,6 +36,7 @@ from typing import Any
 
 from bioscan import aesthetic as aes
 from bioscan.cli import aesbench, bench
+from bioscan.cli.eval import sha256_of
 
 SCHEMA, VERSION = bench.AESTHETIC_GOLDEN_SCHEMA, 1
 TIER, PROFILE = "aesthetic-golden", "album"     # data/standards.toml tier `bench scorecard` holds a report to
@@ -482,7 +483,7 @@ def evaluate(g: dict[str, Any], sc: dict[str, Any], *, split: str | None = "test
     sha, dirty = bench._git()
     meta = {"tier": TIER, "profile": PROFILE, "golden": g["root"], "golden_sha256": g["sha256"], "split": split, "k": k,
             "model": model or sc["model"], "scores": os.path.abspath(scores_path) if scores_path else None,
-            "scores_sha256": bench.sha256_of(scores_path) if scores_path else None, "git_sha": sha,
+            "scores_sha256": sha256_of(scores_path) if scores_path else None, "git_sha": sha,
             "git_dirty": dirty, "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "invariance_tol": INVARIANCE_TOL, "cull_shares": list(CULL_SHARES)}
 
