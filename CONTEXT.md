@@ -118,7 +118,9 @@ The gate model re-judging a box's crop, which can veto the box or promote its ki
 _Avoid_: judge, second gate
 
 **Species**:
-A box's naming result: the name list used, a level and the top candidates. Absent when species is off, null for a kind with no name list.
+A box's naming result: the name list used, a level, the taxon (the name at that level: the species, or the
+genus or family whose top-5 posterior mass reached the rollup, which need not be the first candidate's; null
+when unconfirmed) and the top candidates. Absent when species is off, null for a kind with no name list.
 
 **Level**:
 How far the evidence supports a name: species, genus, family or unconfirmed.
@@ -318,8 +320,10 @@ they were fitted on (50, 100, 200, 500, 1,000), next to the general head and the
 ## Culling
 
 **Reject reason**:
-Why a rule rejects a photo, one of `soft_subject`, `motion_or_defocus`, `overexposed`, `underexposed`,
+Why a rule rejects a photo, one of `soft_subject`, `motion`, `defocus`, `overexposed`, `underexposed`,
 `subject_cut`, `subject_too_small`, `no_subject` (the `quality` stage; `select` may waive one per scene category).
+`motion_or_defocus`, the name before `motion` and `defocus` were split, is still accepted in waivers and ground
+truth, where it means either.
 Rules only: a photo is never rejected for taste.
 _Avoid_: flaw, defect, score
 

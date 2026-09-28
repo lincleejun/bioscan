@@ -355,7 +355,8 @@ unlabelled); a column it lacks measures nothing.
 
 **Synthetic reject set.** No labelled album exists yet, so `scripts/cull_synth.py` makes one from photos whose
 subject box is known (a preds file's best identify box, or a CSV): per source the original (keep 1), Gaussian blur
-and motion smear on the subject box (`soft_subject`), the same smear over the whole frame (`motion_or_defocus`), a
+and motion smear on the subject box (`soft_subject`), the same smear over the whole frame (`motion`), the same Gaussian
+blur over the whole frame (`defocus`), a
 crop cutting 40% of the box off (`subject_cut`), +2 and −2 EV in linear light (`overexposed`, `underexposed`), the
 photo shrunk onto a canvas so the subject covers 0.3% of it (`subject_too_small`), and for every third source a
 burst of 4 frames shifted by up to 2%, 0.2 s apart (keep 1, one `burst_id`). Every other photo is 10 minutes from the
@@ -374,16 +375,18 @@ it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =
 
 | Plugin | Metric (kind) | Scopes | Definition |
 |---|---|---|---|
-| quality | `reject_precision` (rate) | `all`, `soft`, each reason | Of the images rejected for the scope (any reason; soft_subject or motion_or_defocus; that reason), the share whose truth has it |
-| quality | `reject_recall` (rate) | `all`, `soft`, each reason | Of the images whose truth has the scope's reason(s), the share rejected for it; a failed image counts as not rejected |
+| quality | `reject_precision` (rate) | `all`, `soft`, each reason, `motion_or_defocus` | Of the images rejected for the scope (any reason; soft_subject, motion or defocus; that reason; motion or defocus), the share whose truth has it (truth `motion_or_defocus` is right for either) |
+| quality | `reject_recall` (rate) | `all`, `soft`, each reason, `motion_or_defocus` | Of the images whose truth has the scope's reason(s), the share rejected for it; a failed image counts as not rejected |
 | quality | `keepers_lost` (rate, lower is better) | `all` | Of the keep-labelled images, the share a rule rejected: the budget metric, since losing a keeper costs more than reviewing a reject |
 | burst | `burst_pair_precision`, `burst_pair_recall`, `burst_pair_f1` (pairs) | `all` | Over every pair of images: grouped by the reducer and by the truth; a frame in no burst is its own group |
 | scene | `scene_acc` (rate) | `all`, each truth label | The top label, or its group, is the truth's `scene` (a fine label or a group name) |
 | scene | `group_acc` (rate) | `all`, each truth group | The scene group (`products.scene.group` when the stage reports one, else the label) is the truth's `scene_group`: the album profile's 8 groups (docs/research/2026-09-24-scene-taxonomy.md), which are the 8 built-in labels of a stage without `groups`; the `scene` tier's metric |
 
 "Rejected" means select's reasons (after its waivers, e.g. underexposed at night) when the run had select, else
-quality's. `soft` pools `soft_subject` and `motion_or_defocus`, which differ only in whether anything else in the
-frame is sharp: a soft subject against smooth bokeh reads as `motion_or_defocus`. Synthetic degradations are cleaner
+quality's. `soft` pools `soft_subject`, `motion` and `defocus`, which differ only in whether anything else in the
+frame is sharp: a soft subject against smooth bokeh reads as `defocus` (or `motion` when it is smeared).
+`motion_or_defocus` is the scope of either (the reason's name before the split): ground truth labelled with it still
+scores, and it stays comparable with a baseline made before the split. Synthetic degradations are cleaner
 than real ones, so these numbers are floors for the rules, not a claim about real albums; that needs the owner's
 labelled trips (issue #29).
 

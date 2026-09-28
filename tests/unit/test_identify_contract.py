@@ -40,7 +40,7 @@ def _payload():
                              ["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops",
                               "Megascops kennicottii"], 0.81, 0.62, 0.91)
     b = contract.box(0, [0.1, 0.1, 0.5, 0.5], 0.84, "bird", contract.quality(0.7, 0.05))
-    b["species"] = contract.species("avilist-2025", "species", [owl])
+    b["species"] = contract.species("avilist-2025", "species", "Megascops kennicottii", [owl])
     other = contract.box(1, [0.0, 0.0, 1.0, 1.0], 0.5, "other_animal", contract.quality(0.1, 0.0))
     other["species"] = None
     return contract.identify(contract.gate("bird", {"bird": 0.9, "none": 0.1}), [b, other])

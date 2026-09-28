@@ -153,9 +153,9 @@ cityscape = ["a city skyline", "an urban scene with many buildings", "a view ove
 monument  = ["a historic monument or a landmark", "ancient ruins", "a castle or a temple"]
 rural     = ["a farm with a barn", "a village in the countryside", "a rural road with fences"]
 # food
-food_drink = ["a photo of food on a plate", "a meal at a restaurant", "a cup of coffee or a glass of wine"]
+food_drink = ["a photo of food", "a photo of a meal, a snack or a dessert", "a photo of a drink"]   # #45: short prompts, was "food on a plate / a meal at a restaurant / coffee or wine"
 vehicle    = ["a photo of a car", "a train, a boat or an aircraft", "a motorbike or a bicycle"]
-still_life = ["a still life of objects on a table", "a product photo of an object", "an arrangement of everyday items"]
+still_life = ["a still life photo of objects", "a product photo of an object", "an arrangement of ornaments"]   # #45: no "table" / "items", they drew plated food
 art        = ["a painting or a mural", "a sculpture or a statue", "graffiti on a wall"]
 # other
 utility  = ["a screenshot or a document", "a receipt, a whiteboard or a sign with text", "a scan of a page"]

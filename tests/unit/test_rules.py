@@ -16,7 +16,7 @@ TAX = lambda g, f, s: ["Animalia", "Chordata", "Aves", "O", f, g, f"{g} {s}"]  #
 
 
 def cand(p, g="G", f="F", s="x"):
-    return {"posterior": p, "taxonomy": TAX(g, f, s)}
+    return {"scientific": f"{g} {s}", "posterior": p, "taxonomy": TAX(g, f, s)}
 
 
 @pytest.mark.parametrize("cands,level", [
@@ -27,7 +27,7 @@ def cand(p, g="G", f="F", s="x"):
     ([], "unconfirmed"),
 ])
 def test_species_level(cands, level):
-    assert rules.species_level(cands) == level
+    assert rules.species_level(cands)[0] == level
 
 
 @pytest.mark.parametrize("family,level", [
@@ -36,11 +36,19 @@ def test_species_level(cands, level):
 ])
 def test_species_level_family_rollup_needs_a_name(family, level):
     cands = [cand(0.2, g, family) for g in "ABCDE"]  # five genera, 1.0 total
-    assert rules.species_level(cands) == level
+    assert rules.species_level(cands)[0] == level
 
 
 def test_species_level_empty_family_keeps_genus_rollup():
-    assert rules.species_level([cand(0.35, "A", "", "x"), cand(0.3, "A", "", "y")]) == "genus"
+    assert rules.species_level([cand(0.35, "A", "", "x"), cand(0.3, "A", "", "y")]) == ("genus", "A")
+
+
+def test_species_level_names_the_rank_that_rolled_up():
+    """#57: the first candidate is in family FA, but FB holds 0.60 of the top-5 mass: the name is FB."""
+    cands = [cand(0.30, "A", "FA"), cand(0.25, "B", "FB"), cand(0.20, "C", "FB"), cand(0.15, "D", "FB")]
+    assert rules.species_level(cands) == ("family", "FB")
+    assert rules.species_level([cand(0.8), cand(0.1, s="y")]) == ("species", "G x")
+    assert rules.species_level([]) == ("unconfirmed", None)
 
 
 def test_judge():
@@ -254,5 +262,5 @@ def test_mammal_species_uses_mdd_without_geo():
     assert sp["top"][0]["scientific"] == "Rangifer tarandus" and sp["top"][0]["common"] == "Reindeer"
     assert sp["top"][0]["p_geo"] is None and sp["top"][0]["posterior"] == sp["top"][0]["p_visual"]
     # MDD 7-level taxonomy: [5] is the genus, [4] the family -> two cervid genera roll up to family
-    assert rules.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}]) \
+    assert rules.species_level([{"posterior": 0.45, "taxonomy": tax}, {"posterior": 0.35, "taxonomy": tax2}])[0] \
         == "family"
