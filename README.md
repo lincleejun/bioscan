@@ -8,7 +8,7 @@
 
 https://github.com/user-attachments/assets/96ab885c-be4d-466e-98b0-ea69dd560f05
 
-88 seconds: what bioscan does, the geo prior, the measured numbers, and the other tools. Full-quality file: [assets/bioscan-promo.mp4](assets/bioscan-promo.mp4).
+98 seconds: the result page, what bioscan does, the geo prior, the measured numbers, and the other tools. Full-quality file: [assets/bioscan-promo.mp4](assets/bioscan-promo.mp4).
 
 ## Results
 

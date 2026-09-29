@@ -8,7 +8,7 @@
 
 https://github.com/user-attachments/assets/96ab885c-be4d-466e-98b0-ea69dd560f05
 
-88 秒（英文）：bioscan 做什么、地理先验、实测数字和其他工具。原画质文件：[assets/bioscan-promo.mp4](assets/bioscan-promo.mp4)。
+98 秒（英文）：结果页、bioscan 做什么、地理先验、实测数字和其他工具。原画质文件：[assets/bioscan-promo.mp4](assets/bioscan-promo.mp4)。
 
 ## 结果
 
