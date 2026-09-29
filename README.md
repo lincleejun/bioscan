@@ -6,7 +6,7 @@
 
 ## Promo video
 
-https://github.com/user-attachments/assets/96ab885c-be4d-466e-98b0-ea69dd560f05
+https://github.com/user-attachments/assets/19373e87-ed64-44d2-a2e5-7aa889ba4db7
 
 85 seconds: the result page, sorting by scene, grading, naming the animals, and the measured numbers. Full-quality file: [assets/bioscan-promo.mp4](assets/bioscan-promo.mp4).
 

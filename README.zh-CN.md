@@ -6,7 +6,7 @@
 
 ## 宣传视频
 
-https://github.com/user-attachments/assets/96ab885c-be4d-466e-98b0-ea69dd560f05
+https://github.com/user-attachments/assets/19373e87-ed64-44d2-a2e5-7aa889ba4db7
 
 85 秒（英文）：结果页、按场景分类、质量与审美评分、动物命名、实测数字。原画质文件：[assets/bioscan-promo.mp4](assets/bioscan-promo.mp4)。
 
