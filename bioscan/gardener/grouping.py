@@ -1,12 +1,13 @@
 """Automatic group suggestions (docs/gardener/contract.md §4, §9.4): events split where the capture
-times are more than two hours apart, places on a ~1 km GPS grid (no reverse geocoding), scene groups
+instants are more than two hours apart (times with a UTC offset compared as instants, times without
+one as camera-local wall clock), places on a ~1 km GPS grid (no reverse geocoding), scene groups
 and species-level taxa. An asset without the field a kind needs is in no group of that kind.
 Standard library only."""
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bioscan.gardener.analyze import zh
 
@@ -23,27 +24,37 @@ class Group:
     summary: dict = field(default_factory=dict)
 
 
-def _wall(taken_at: str | None) -> datetime | None:
-    """The camera's local wall-clock time (any UTC offset dropped: names and gaps read it as shot)."""
+def _time(taken_at: str | None) -> tuple[float, datetime] | None:
+    """(instant in seconds, wall clock as shot). With a UTC offset the instant is exact, so a photo at
+    -08:00 and a UTC video of the same moment line up; a time without one stays camera-local and is
+    read on the same scale as if it were UTC (there is nothing better to compare it with)."""
     try:
-        return datetime.fromisoformat(taken_at).replace(tzinfo=None) if taken_at else None
+        t = datetime.fromisoformat(taken_at) if taken_at else None
     except (TypeError, ValueError):
         return None
+    if t is None:
+        return None
+    instant = t.timestamp() if t.tzinfo else t.replace(tzinfo=timezone.utc).timestamp()
+    return instant, t.replace(tzinfo=None)
 
 
 def _events(assets: list[dict]) -> list[Group]:
-    timed = sorted(((t, a["id"]) for a in assets if (t := _wall(a.get("taken_at"))) is not None))
-    runs: list[list[tuple[datetime, str]]] = []
-    for t, aid in timed:
-        if runs and (t - runs[-1][-1][0]).total_seconds() <= EVENT_GAP_S:
-            runs[-1].append((t, aid))
+    timed = sorted((t[0], t[1], a["id"]) for a in assets if (t := _time(a.get("taken_at"))) is not None)
+    runs: list[list[tuple[float, datetime, str]]] = []
+    for row in timed:
+        if runs and row[0] - runs[-1][-1][0] <= EVENT_GAP_S:
+            runs[-1].append(row)
         else:
-            runs.append([(t, aid)])
-    out = []
+            runs.append([row])
+    out, keys = [], set()
     for run in runs:
-        start, end = run[0][0], run[-1][0]
-        out.append(Group(f"event:{start:%Y%m%d-%H%M}", "event",
-                         f"{start.month}月{start.day}日 {start:%H:%M} 起 · {len(run)} 张", [aid for _, aid in run],
+        start, end = run[0][1], run[-1][1]          # names in the first frame's own local time
+        key = f"event:{start:%Y%m%d-%H%M}"
+        while key in keys:                          # same wall clock in another time zone
+            key += "+"
+        keys.add(key)
+        out.append(Group(key, "event",
+                         f"{start.month}月{start.day}日 {start:%H:%M} 起 · {len(run)} 张", [r[2] for r in run],
                          {"count": len(run), "start": start.isoformat(), "end": end.isoformat()}))
     return out
 

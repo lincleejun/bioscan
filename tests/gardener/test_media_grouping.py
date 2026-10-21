@@ -10,13 +10,25 @@ def asset(i, taken_at=None, lat=None, lon=None, content=None, species=None):
 
 
 def test_events_split_on_gaps_over_two_hours():
-    assets = [asset("a", "2025-03-01T08:12:05-08:00"), asset("b", "2025-03-01T10:12:05"),   # 2 h exactly: same
-              asset("c", "2025-03-01T12:12:06-08:00"), asset("d"), asset("e", "not a time")]
+    assets = [asset("a", "2025-03-01T08:12:05"), asset("b", "2025-03-01T10:12:05"),     # 2 h exactly: same
+              asset("c", "2025-03-01T12:12:06"), asset("d"), asset("e", "not a time")]
     events = [g for g in suggest(assets) if g.kind == "event"]
     assert [(g.key, g.name, g.asset_ids) for g in events] == [
         ("event:20250301-0812", "3月1日 08:12 起 · 2 张", ["a", "b"]),
         ("event:20250301-1212", "3月1日 12:12 起 · 1 张", ["c"])]
     assert events[0].summary["count"] == 2
+
+
+def test_times_with_an_offset_compare_as_instants():
+    # a camera at -08:00 and a video stamped in UTC, the same moment: one event, named in the photo's local time
+    assets = [asset("photo", "2025-03-01T08:12:00-08:00"), asset("video", "2025-03-01T16:13:00Z"),
+              asset("later", "2025-03-01T10:00:00-08:00")]
+    events = [g for g in suggest(assets) if g.kind == "event"]
+    assert [g.asset_ids for g in events] == [["photo", "video", "later"]]
+    assert events[0].name == "3月1日 08:12 起 · 3 张"
+    far = [g for g in suggest([asset("x", "2025-03-01T08:12:00-08:00"), asset("y", "2025-03-01T08:12:00Z")])
+           if g.kind == "event"]
+    assert [g.asset_ids for g in far] == [["y"], ["x"]] and len({g.key for g in far}) == 2
 
 
 def test_places_on_a_km_grid_without_gps_left_out():

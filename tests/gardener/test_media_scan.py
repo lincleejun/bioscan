@@ -66,3 +66,14 @@ def test_quick_hash_and_online(tmp_path):
     assert quick_hash(a) == quick_hash(b) != quick_hash(c)
     assert quick_hash(touch(tmp_path / "small", b"abc")) != quick_hash(touch(tmp_path / "small2", b"abd"))
     assert is_online(a) and not is_online(str(tmp_path / "nope")) and not is_online(str(tmp_path))
+
+
+def test_symlinked_folders_are_reported_not_followed(tmp_path):
+    outside = tmp_path / "outside"
+    touch(outside / "far.jpg")
+    root = tmp_path / "root"
+    touch(root / "here.jpg")
+    os.symlink(outside, root / "linkdir")
+    found, skipped = discover(str(root))
+    assert [os.path.basename(f.primary) for f in found] == ["here.jpg"]
+    assert skipped == [Skipped(str(root / "linkdir"), "symlink")]

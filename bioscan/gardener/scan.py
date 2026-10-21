@@ -44,7 +44,7 @@ class Discovered:
 @dataclass
 class Skipped:
     path: str
-    reason: str        # unsupported | sidecar | hidden | unreadable
+    reason: str        # unsupported | sidecar | hidden | unreadable | symlink (a linked folder, not followed)
 
 
 def _role(ext: str) -> str | None:
@@ -59,7 +59,7 @@ def _role(ext: str) -> str | None:
 
 def discover(root: str) -> tuple[list[Discovered], list[Skipped]]:
     """Every media file under `root`, recursively, sorted by path. Hidden files and folders, sidecars
-    and unknown types are Skipped (a hidden folder once, not its contents). In one folder, a RAW and
+    and unknown types are Skipped (a hidden or symlinked folder once, not its contents). In one folder, a RAW and
     a JPEG whose stems match (case-insensitively) are one photo whose primary is the JPEG (with more
     than one of a kind, the first by extension pairs); every other file is its own asset. pair_keys
     never repeat (contract §10 X1)."""
@@ -73,9 +73,12 @@ def discover(root: str) -> tuple[list[Discovered], list[Skipped]]:
         skipped.append(Skipped(err.filename or root, "unreadable"))
 
     for dirpath, dirnames, names in os.walk(root, onerror=unreadable):
-        for d in [d for d in dirnames if d.startswith(".")]:
-            skipped.append(Skipped(os.path.join(dirpath, d), "hidden"))
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        for d in dirnames:
+            if d.startswith("."):
+                skipped.append(Skipped(os.path.join(dirpath, d), "hidden"))
+            elif os.path.islink(os.path.join(dirpath, d)):      # not followed: it may lead out of the source
+                skipped.append(Skipped(os.path.join(dirpath, d), "symlink"))
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and not os.path.islink(os.path.join(dirpath, d)))
         stems: dict[str, list[FileInfo]] = {}
         keys: set[str] = set()
         for name in sorted(names):
