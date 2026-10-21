@@ -113,3 +113,63 @@ def test_deleting_the_default_preset_falls_back_to_the_builtin(env, tmp_path):
             store.put_setting(cx, "default_preset", "p_gone")
         t = c.post(f"{API}/tasks", json={"title": "y", "sources": [str(src)]})
         assert t.status_code == 201 and t.json()["preset"] == "photo"
+
+
+def test_missing_found_before_a_pause_is_still_reported_after_resume(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    gone = photos(src, 3)[0]
+    with env.client() as c:
+        t = wait_task(c, create_task(c, [str(src)], caps=CAPS)["id"])
+        import os
+
+        os.remove(gone)
+        photos(src / "more", 2, start=1_700_500_000)
+        fakes.gate.clear()
+        run = c.post(f"{API}/tasks/{t['id']}/sources", json={"paths": [str(src)]}).json()
+        wait_until(lambda: c.get(f"{API}/runs/{run['id']}").json()["phase"] == "analyze", what="analyze")
+        c.post(f"{API}/tasks/{t['id']}/pause")
+        fakes.gate.set()
+        wait_until(lambda: c.get(f"{API}/runs/{run['id']}").json()["status"] == "paused", what="paused")
+        c.post(f"{API}/tasks/{t['id']}/resume")
+        r = wait_until(lambda: (x := c.get(f"{API}/runs/{run['id']}").json())["status"] in
+                       ("completed", "partial", "failed") and x, what="end")
+        assert (r["status"], r["summary"]["missing"]) == ("partial", 1)
+
+
+def test_append_source_row_is_committed_with_the_run(env, tmp_path, monkeypatch):
+    a, b = tmp_path / "a", tmp_path / "b"
+    photos(a, 1)
+    photos(b, 2, start=1_700_100_000)
+    with env.client() as c:
+        t = wait_task(c, create_task(c, [str(a)], caps=CAPS)["id"])
+        w = c.app.state.worker
+        real = w.wake
+
+        def wake_then_stall():                 # the worker runs before the API thread continues
+            real()
+            wait_until(lambda: c.app.state.store.active["run_id"] is None and
+                       c.app.state.store.one("SELECT 1 FROM runs WHERE status = 'queued'") is None, 5, "worker")
+        monkeypatch.setattr(w, "wake", wake_then_stall)
+        run = c.post(f"{API}/tasks/{t['id']}/sources", json={"paths": [str(b)]}).json()
+        r = wait_until(lambda: (x := c.get(f"{API}/runs/{run['id']}").json())["status"] in
+                       ("completed", "partial", "failed") and x, what="end")
+        assert r["status"] == "completed" and r["summary"]["discovered"] == 2, r["error"]
+        assert {s["path"] for s in c.get(f"{API}/tasks/{t['id']}").json()["sources"]} == {str(a.resolve()),
+                                                                                         str(b.resolve())}
+
+
+def test_retry_after_stop_picks_up_never_analysed_items(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 3)
+    fakes.gate.clear()
+    with env.client() as c:
+        t = create_task(c, [str(src)], caps=CAPS)
+        wait_until(lambda: c.get(f"{API}/tasks/{t['id']}").json()["scan"]["phase"] == "analyze", what="analyze")
+        c.post(f"{API}/tasks/{t['id']}/stop")
+        wait_task(c, t["id"], ("stopped",))
+        fakes.gate.set()
+        r = c.post(f"{API}/tasks/{t['id']}/retry", json={}).json()
+        assert len(r["scope"]["asset_ids"]) == 3
+        t = wait_task(c, t["id"])
+        items = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
+        assert t["scan"]["status"] == "completed" and all(i["analysis"] == "done" for i in items)

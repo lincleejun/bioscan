@@ -268,11 +268,12 @@ class RunExec:
             c.executemany("INSERT OR IGNORE INTO run_assets VALUES (?, ?)", [(self.id, i) for i in ids])
 
     def discover(self) -> None:
-        offline, unsupported, reused, missing = [], 0, 0, 0
+        # missing files are found once (they read offline afterwards): keep what an earlier execution counted
+        offline, unsupported, reused, missing = [], 0, 0, self.counts.get("missing", 0)
         for root in self.run["scope"]["sources"]:
             if self.stopping():
                 return
-            src = self.store.one("SELECT * FROM sources WHERE task_id = ? AND path = ?", (self.task_id, root))
+            src = self.ensure_source(root)
             if not source_online(root):
                 mark_offline(self.store, src["id"], root)
                 offline.append(root)
@@ -289,8 +290,19 @@ class RunExec:
                 reused += self.upsert(d, src["id"])
                 self.save_counts()
             missing += mark_missing(self.store, root, seen)
+            self.counts["missing"] = missing
         self.counts.update(offline_sources=offline, unsupported=unsupported, reused=reused, missing=missing)
         self.save_counts(force=True)
+
+    def ensure_source(self, root: str) -> dict[str, Any]:
+        """The task's source row for `root` (created if a caller queued the run without one)."""
+        src = self.store.one("SELECT * FROM sources WHERE task_id = ? AND path = ?", (self.task_id, root))
+        if src is None:
+            with self.store.tx() as c:
+                c.execute("INSERT OR IGNORE INTO sources (id, task_id, path, added_at, added_run_id) "
+                          "VALUES (?, ?, ?, ?, ?)", (st.new_id("s"), self.task_id, root, now(), self.id))
+            src = self.store.one("SELECT * FROM sources WHERE task_id = ? AND path = ?", (self.task_id, root))
+        return src
 
     def upsert(self, d: Any, source_id: str) -> int:
         """One discovered asset into the records; 1 when it is unchanged and already previewed (reused)."""
@@ -436,7 +448,7 @@ class RunExec:
                 state = r["state"] if r else "pending"
                 if r and r["run_id"] == self.id and state != "pending":
                     continue                       # finished in this run (resume / recovery)
-                if (kind == "rescan" or (kind == "retry" and state in ("failed", "unavailable"))
+                if (kind == "rescan" or (kind == "retry" and state in ("failed", "unavailable", "pending"))
                         or (kind in ("scan", "append") and state not in ("done", "unrecognized"))):
                     out.setdefault(aid, []).append(cap)
         return out

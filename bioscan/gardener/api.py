@@ -511,13 +511,16 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         return task_or_404(tid, with_runs=True)
 
     def new_run(tid: str, kind: str, *, caps: list[str] | None = None, sources: list[str] | None = None,
-                asset_ids: list[str] | None = None) -> dict[str, Any]:
+                asset_ids: list[str] | None = None, add_sources: bool = False) -> dict[str, Any]:
         t = store.one("SELECT * FROM tasks WHERE id = ?", (tid,))
         if t is None:
             raise NotFound(f"no task {tid}")
-        with store.tx() as c:
+        with store.tx() as c:          # the run and its source rows commit together, before the worker wakes
             rid = tasks.queue_run(c, tid, kind, capabilities=caps or loads(t["capabilities"]), run_mode=t["run_mode"],
                                   preset=t["preset"], sources=sources, asset_ids=asset_ids)
+            for p in sources if add_sources else []:
+                c.execute("INSERT OR IGNORE INTO sources (id, task_id, path, added_at, added_run_id) VALUES (?, ?, ?, ?, ?)",
+                          (st.new_id("s"), tid, p, now(), rid))
         worker.wake()
         return store.run(rid)
 
@@ -525,12 +528,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def add_sources(tid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
         task_or_404(tid)
         paths = source_paths(body.get("paths"))
-        run = new_run(tid, "append", sources=paths)
-        with store.tx() as c:
-            for p in paths:
-                c.execute("INSERT OR IGNORE INTO sources (id, task_id, path, added_at, added_run_id) VALUES (?, ?, ?, ?, ?)",
-                          (st.new_id("s"), tid, p, now(), run["id"]))
-        return run
+        return new_run(tid, "append", sources=paths, add_sources=True)
 
     @r.post("/tasks/{tid}/pause")
     def pause_task(tid: str) -> dict[str, Any]:
@@ -592,8 +590,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if ids is None:
             ids = [x["id"] for x in store.all(
                 "SELECT a.id FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ? AND "
-                "(a.preview_status = 'failed' OR EXISTS (SELECT 1 FROM asset_caps c WHERE c.asset_id = a.id "
-                "AND c.state IN ('failed', 'unavailable')))", (tid,))]
+                "(a.preview_status IN ('failed', 'pending') OR EXISTS (SELECT 1 FROM asset_caps c WHERE "
+                "c.asset_id = a.id AND c.state IN ('failed', 'unavailable', 'pending')))", (tid,))]
         return new_run(tid, "retry", asset_ids=ids)
 
     @r.get("/runs/{rid}")
