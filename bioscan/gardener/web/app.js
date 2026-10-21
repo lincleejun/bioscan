@@ -53,7 +53,7 @@
   };
   const scanOf = t => SCAN[(t.scan || {}).status] || ['未开始', 'queued'];
   const CAPSTATE = {
-    not_enabled: ['未启用', 'off'], pending: ['待运行', 'wait'], running: ['运行中', 'run'], done: ['完成', 'ok'],
+    not_enabled: ['未启用', 'off'], not_applicable: ['不适用', 'off'], pending: ['待运行', 'wait'], running: ['运行中', 'run'], done: ['完成', 'ok'],
     failed: ['失败', 'fail'], unrecognized: ['未识别', 'muted'], unavailable: ['不可用', 'fail'],
   };
   const VERDICT = { pick: '建议保留', reject: '建议舍弃', none: '无明确建议' };

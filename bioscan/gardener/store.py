@@ -437,6 +437,7 @@ def progress(status: str, k: dict[str, Any]) -> float:
 
 
 def analysis_state(states: list[str], in_run: bool) -> str:
+    states = [x for x in states if x != "not_applicable"]     # a video's image capabilities
     if not states or "pending" in states:
         return "running" if states and in_run else "pending"
     if all(s in ("done", "unrecognized") for s in states):

@@ -31,6 +31,7 @@ log = logging.getLogger("bioscan.gardener")
 
 ACTIVE = ("queued", "running", "paused")
 MODEL_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages)
+VIDEO_NA = "视频首版只做元数据、封面、播放与人工标记；图像分析不适用"
 GROUP_NEEDS = {"event": "place_event", "place": "place_event", "scene": "content", "species": "species"}
 META_BATCH = 64
 FAILED_MAX = 200
@@ -474,6 +475,14 @@ class RunExec:
     def mark_pending(self, units: dict[str, list[str]]) -> None:
         t = now()
         with self.store.tx() as c:
+            # v0.1 manages a video as a whole clip (metadata, cover, playback, marks); its image capabilities read 不适用
+            for cap in (x for x in self.caps if x in MODEL_CAPS):
+                c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, error, updated_at) "
+                          "SELECT ra.asset_id, ?, 'not_applicable', ?, ?, ? FROM run_assets ra JOIN assets a "
+                          "ON a.id = ra.asset_id WHERE ra.run_id = ? AND a.media = 'video' "
+                          "ON CONFLICT(asset_id, capability) DO UPDATE SET state = 'not_applicable', "
+                          "run_id = excluded.run_id, error = excluded.error, updated_at = excluded.updated_at",
+                          (cap, self.id, VIDEO_NA, t, self.id))
             for aid, caps in units.items():
                 for cap in caps:
                     c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, updated_at) "
