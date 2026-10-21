@@ -80,13 +80,20 @@ CREATE TABLE IF NOT EXISTS results (
   capability TEXT NOT NULL, status TEXT NOT NULL,    -- done | failed | unrecognized | unavailable
   version TEXT, data TEXT, error TEXT, created_at TEXT NOT NULL
 );
+-- The assets a task run covers (its scope once discovered): resume, summaries and progress read it.
+CREATE TABLE IF NOT EXISTS run_assets (
+  run_id TEXT NOT NULL REFERENCES runs(id), asset_id TEXT NOT NULL REFERENCES assets(id),
+  PRIMARY KEY (run_id, asset_id)
+);
+
 CREATE INDEX IF NOT EXISTS results_asset ON results (asset_id, capability, id);
 
 -- AI suggestion layer, separate from the human layer (marks). One row per asset per run.
 CREATE TABLE IF NOT EXISTS ai_suggestions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL REFERENCES assets(id), run_id TEXT NOT NULL,
   verdict TEXT NOT NULL,         -- pick | reject | none
-  score REAL, rank INTEGER, reasons TEXT NOT NULL DEFAULT '[]', burst_id TEXT, version TEXT, created_at TEXT NOT NULL
+  score REAL, rank INTEGER, reasons TEXT NOT NULL DEFAULT '[]', burst_id TEXT, burst_rank INTEGER, burst_size INTEGER,
+  version TEXT, created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_asset ON ai_suggestions (asset_id, id);
 
