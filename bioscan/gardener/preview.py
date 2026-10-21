@@ -236,9 +236,14 @@ def _orient(image: Image.Image, orientation: int) -> Image.Image:
     return image
 
 
-def _raw_embedded(path: str) -> Image.Image | None:
+def _upright_size(size: tuple[int, int], orientation: int) -> tuple[int, int]:
+    return (size[1], size[0]) if orientation in (5, 6, 7, 8) else size
+
+
+def _raw_embedded(path: str) -> tuple[Image.Image, tuple[int, int]] | None:
     """The RAW's embedded preview, upright: its own EXIF orientation when it has one, else the RAW's
-    (LibRaw sizes.flip). None when there is none or it is smaller than a thumbnail."""
+    (LibRaw sizes.flip), and its full upright size. None when there is none or it is smaller than a
+    thumbnail."""
     import rawpy
 
     with rawpy.imread(path) as raw:
@@ -246,13 +251,14 @@ def _raw_embedded(path: str) -> Image.Image | None:
         thumb = raw.extract_thumb()
     if thumb.format == rawpy.ThumbFormat.JPEG:
         im = Image.open(io.BytesIO(thumb.data))
-        im.draft("RGB", (LARGE_EDGE, LARGE_EDGE))
         own = int(im.getexif().get(0x0112, 1) or 1)
+        size = _upright_size(im.size, own if own != 1 else flip)     # before draft scales it down
+        im.draft("RGB", (LARGE_EDGE, LARGE_EDGE))
         image = ImageOps.exif_transpose(im) if own != 1 else _orient(im, flip)
     else:
         image = _orient(Image.fromarray(thumb.data), flip)
-    image = image.convert("RGB")
-    return image if max(image.size) >= THUMB_EDGE else None
+        size = image.size
+    return (image.convert("RGB"), size) if max(size) >= THUMB_EDGE else None
 
 
 def _raw_decoded(path: str) -> Image.Image:
@@ -264,18 +270,22 @@ def _raw_decoded(path: str) -> Image.Image:
     return Image.fromarray(pixels).convert("RGB")
 
 
-def _raster(path: str) -> Image.Image:
+def _raster(path: str) -> tuple[Image.Image, tuple[int, int]]:
+    """Upright image (decoded at a reduced scale when the format allows) and its full upright size."""
     with Image.open(path) as im:
+        size = _upright_size(im.size, int(im.getexif().get(0x0112, 1) or 1))
         im.draft("RGB", (LARGE_EDGE, LARGE_EDGE))      # JPEG: decode at a reduced scale, much faster
-        return ImageOps.exif_transpose(im).convert("RGB")
+        return ImageOps.exif_transpose(im).convert("RGB"), size
 
 
-def _video_frame(path: str, work: Path) -> Image.Image:
-    """A frame at ~1 s (or 10 % of a shorter clip), else the first frame; ffmpeg turns it upright."""
+def _video_frame(path: str, work: Path) -> tuple[Image.Image, tuple[int, int]]:
+    """A frame at ~1 s (or 10 % of a shorter clip), else the first frame, and the video's upright
+    size (ffprobe; else the frame's); ffmpeg turns it upright."""
     ffmpeg = _tool("ffmpeg")
     if ffmpeg is None:
         raise RuntimeError("ffmpeg 不可用：无法生成视频封面")
-    duration = _ffprobe(path)["duration_s"]
+    probe = _ffprobe(path)
+    duration = probe["duration_s"]
     at = min(1.0, duration * 0.1) if duration else 1.0
     errors = []
     for t in dict.fromkeys((round(at, 3), 0.0)):
@@ -287,7 +297,8 @@ def _video_frame(path: str, work: Path) -> Image.Image:
                                 tmp], capture_output=True, timeout=120)
             if p.returncode == 0 and os.path.getsize(tmp) > 0:
                 with Image.open(tmp) as im:
-                    return im.convert("RGB")
+                    frame = im.convert("RGB")
+                return frame, ((probe["width"], probe["height"]) if probe["width"] else frame.size)
             errors.append(p.stderr.decode(errors="replace").strip()[-300:] or f"ffmpeg exit {p.returncode}")
         finally:
             os.unlink(tmp)
@@ -319,20 +330,22 @@ def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path) -
     try:
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         large_path.parent.mkdir(parents=True, exist_ok=True)
-        image, method, notes = None, None, {}
+        got, method, notes = None, None, {}
         if media == "video":
-            image, method = _video_frame(primary, large_path.parent), "video-frame"
+            got, method = _video_frame(primary, large_path.parent), "video-frame"
         elif is_raw(primary):
             try:
-                image, method = _raw_embedded(primary), "raw-embedded"
+                got, method = _raw_embedded(primary), "raw-embedded"
             except Exception as exc:  # noqa: BLE001 - fall back to decoding, say why
                 notes["embedded_error"] = f"{type(exc).__name__}: {exc}"
-            if image is None:
-                image, method = _raw_decoded(primary), "raw-decoded"
+            if got is None:
+                image = _raw_decoded(primary)
+                got, method = (image, image.size), "raw-decoded"
         else:
-            image, method = _raster(primary), "image"
+            got, method = _raster(primary), "image"
+        image, (w, h) = got
         _save(image, LARGE_EDGE, large_path)
         _save(image, THUMB_EDGE, thumb_path)
-        return Preview(True, method, None, {"source_width": image.width, "source_height": image.height, **notes})
+        return Preview(True, method, None, {"source_width": w, "source_height": h, **notes})
     except Exception as exc:  # noqa: BLE001 - contract: never raise
         return Preview(False, None, f"{type(exc).__name__}: {exc}", {})

@@ -159,3 +159,20 @@ def test_video_without_ffmpeg_fails_truthfully(tmp_path, monkeypatch):
     thumb, large = out_paths(tmp_path)
     p = make_preview(str(tmp_path / "v.mov"), "video", thumb, large)
     assert not p.ok and "ffmpeg" in p.error
+
+
+def test_source_size_is_the_full_size_not_the_draft(tmp_path):
+    jpg = make_jpg(tmp_path / "src.jpg", size=(4000, 3000), orientation=6)
+    thumb, large = out_paths(tmp_path)
+    p = make_preview(jpg, "photo", thumb, large)
+    assert (p.meta["source_width"], p.meta["source_height"]) == (3000, 4000)     # upright, not draft-halved
+    assert sizes(large) == [(1200, 1600)]
+
+
+def test_raw_embedded_source_size_before_draft(tmp_path, monkeypatch):
+    raw = FakeRaw(None, flip=6)
+    mod = fake_rawpy(monkeypatch, raw)
+    raw.thumb = types.SimpleNamespace(format=mod.ThumbFormat.JPEG, data=jpeg_bytes((6000, 4000)))
+    thumb, large = out_paths(tmp_path)
+    p = make_preview(str(tmp_path / "x.ARW"), "photo", thumb, large)
+    assert p.method == "raw-embedded" and (p.meta["source_width"], p.meta["source_height"]) == (4000, 6000)
