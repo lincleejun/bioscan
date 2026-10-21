@@ -1,6 +1,11 @@
 """Discovery (docs/gardener/contract.md §4): the media files under a source folder, RAW+JPEG pairs as
 one asset, what was skipped and why, and a quick file identity. Reads directory entries and file
-stats only; never writes. Standard library only."""
+stats only; never writes. Standard library only.
+
+discover() is stateless: each Discovered lists all its files with their roles, so the caller can
+match an existing asset by any registered file path. A RAW found alone and later next to its JPEG
+just gets a new pair_key (<dir>/<stem>|rawjpeg) and primary (the JPEG); its files still include
+the RAW."""
 from __future__ import annotations
 
 import hashlib
