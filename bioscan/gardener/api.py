@@ -5,7 +5,6 @@ store's single lock. The background worker (tasks.Worker) lives in the app's lif
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import mimetypes
 import os
@@ -29,6 +28,7 @@ from bioscan.gardener import store as st
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
 
 log = logging.getLogger("bioscan.gardener")
+BUILTIN_DEFAULT = "photo"      # the default preset when the configured one is gone
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 WEB_DIR = Path(__file__).with_name("web")
 BODY = Body(...)
@@ -77,8 +77,10 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             worker.shutdown = True
             worker.wake()
             if job is not None:
-                with contextlib.suppress(asyncio.TimeoutError, asyncio.CancelledError):
+                try:
                     await asyncio.wait_for(job, 60)
+                except (Exception, asyncio.CancelledError):  # noqa: BLE001 - shutting down never raises
+                    log.exception("worker did not stop cleanly")
             store.close()
 
     app = FastAPI(title="gardener", lifespan=lifespan)
@@ -271,7 +273,9 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             raise Error("内建预设不可删除")
         with store.tx() as c:
             c.execute("DELETE FROM presets WHERE id = ?", (pid,))
-        return {"ok": True}
+            if store.setting("default_preset") == pid:          # never leave the default dangling
+                st.Store.put_setting(c, "default_preset", BUILTIN_DEFAULT)
+        return {"ok": True, "default_preset": store.setting("default_preset")}
 
     def settings_json() -> dict[str, Any]:
         return {k: store.setting(k) for k in ("run_mode", "default_preset", "capability_versions")}
@@ -455,7 +459,10 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def post_task(body: dict[str, Any] = BODY) -> dict[str, Any]:
         title = text(body, "title", required=True)
         sources = source_paths(body.get("sources"))
-        preset = body.get("preset") or (None if body.get("capabilities") is not None else store.setting("default_preset"))
+        default = store.setting("default_preset")
+        if store.one("SELECT 1 FROM presets WHERE id = ?", (default,)) is None:
+            default = BUILTIN_DEFAULT
+        preset = body.get("preset") or (None if body.get("capabilities") is not None else default)
         caps = caps_of(body, preset)
         mode = run_mode(body.get("run_mode") or store.setting("run_mode"))
         tz = timezone(body.get("timezone"))

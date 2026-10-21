@@ -433,7 +433,7 @@ def progress(status: str, k: dict[str, Any]) -> float:
         return 1.0
     total = k.get("to_preview", 0) + k.get("total_analysis", 0)
     done = k.get("previewed", 0) + k.get("preview_failed", 0) + k.get("analyzed", 0)
-    return round(min(1.0, done / total), 3) if total else 0.0
+    return round(min(0.99, done / total), 3) if total else 0.0     # 1.0 only once the run has ended
 
 
 def analysis_state(states: list[str], in_run: bool) -> str:

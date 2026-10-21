@@ -306,7 +306,7 @@ def test_original_range_reveal_presets_settings(env, fakes, tmp_path):
         mine = c.post(f"{API}/presets", json={"name": "我的", "capabilities": ["species"]}).json()
         assert mine["capabilities"] == ["meta", "subject", "species"]
         assert c.put(f"{API}/presets/{mine['id']}", json={"name": "改名"}).json()["name"] == "改名"
-        assert c.delete(f"{API}/presets/{mine['id']}").json() == {"ok": True}
+        assert c.delete(f"{API}/presets/{mine['id']}").json()["ok"] is True
         s = c.put(f"{API}/settings", json={"run_mode": "quiet", "default_preset": "photo"}).json()
         assert s == {"run_mode": "quiet", "default_preset": "photo", "capability_versions": {}}
         assert c.put(f"{API}/settings", json={"run_mode": "turbo"}).status_code == 400

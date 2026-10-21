@@ -222,3 +222,4 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **预设**：内建预设可改（PUT），不可删。
 - **未实现**：`assets.sha256` 不在扫描时计算（导出复制时自行计算 sha256）。
 - **时区（R2）**：任务可选字段 `timezone`（IANA 名称或 `±HH:MM`，否则 400），见于 `Task`、`POST/PATCH /tasks` 与运行 `config.timezone` 快照；分组时若 `grouping.suggest` 接受 `tz` 参数则传入。自动集合保存建议组的 `summary`，`Collection` 增加 `time_basis` 与 `uncertain`（`uncertain_ids` 数量）。拍摄时间不做任何时区换算，日期筛选按相机本地时间比较。schema 增加 `tasks.timezone`、`collections.summary`；旧数据库启动时按缺失列 `ALTER TABLE ADD COLUMN`。
+- **队列韧性**：运行中的任何异常（含 Analyzer.close 等清理）都不会停止工作队列：结果完整而只有清理失败 → `partial`，`summary.cleanup_error` 记原因；其他异常 → `failed` 并记 `error`；工作循环本身捕获异常、退避后继续。未结束运行的 `progress` 最多 0.99，`total_analysis` 自预览阶段起即为估计值。删除当前默认预设时 `default_preset` 回到内建 `photo`（DELETE 响应带 `default_preset`）；设置指向不存在的预设时建任务也回退到 `photo`。

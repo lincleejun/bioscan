@@ -154,15 +154,23 @@ class Worker:
         if n:
             log.info("re-queued %d interrupted run(s)", n)
         while not self.shutdown:
-            run = await asyncio.to_thread(self.claim)
-            if run is None:
-                self._wake.clear()
-                try:
-                    await asyncio.wait_for(self._wake.wait(), 0.5)
-                except TimeoutError:
-                    pass
-                continue
-            await RunExec(self, run).execute()
+            run = None
+            try:
+                run = await asyncio.to_thread(self.claim)
+                if run is None:
+                    self._wake.clear()
+                    try:
+                        await asyncio.wait_for(self._wake.wait(), 0.5)
+                    except TimeoutError:
+                        pass
+                    continue
+                await RunExec(self, run).execute()
+            except Exception as exc:  # noqa: BLE001 - nothing may stop the queue; log, back off, go on
+                log.exception("worker loop error")
+                if run is not None:
+                    await asyncio.to_thread(fail_plainly, self.store, run["id"], f"{type(exc).__name__}: {exc}")
+                self.store.active.update(run_id=None, task_id=None, phase=None)
+                await asyncio.sleep(0.5)
 
 
 class RunExec:
@@ -203,12 +211,24 @@ class RunExec:
         except Exception as exc:  # noqa: BLE001 - a run failure is reported, never kills the worker
             log.exception("run %s failed", self.id)
             error = f"{type(exc).__name__}: {exc}"
-        finally:
+        cleanup = None
+        try:
             if self.analyzer is not None:
                 await asyncio.to_thread(self.analyzer.close)
-            await asyncio.to_thread(self.finish, error)
+        except Exception as exc:  # noqa: BLE001 - a cleanup failure is reported on the run, not raised
+            log.exception("run %s: closing the analyzer failed", self.id)
+            cleanup = f"{type(exc).__name__}: {exc}"
+        try:
+            await asyncio.to_thread(self.finish, error, cleanup)
+        except Exception as exc:  # noqa: BLE001 - the summary failed: still end the run honestly
+            log.exception("run %s: finishing failed", self.id)
+            self.fail_plainly(f"{type(exc).__name__}: {exc}")
+        finally:
             self.store.active.update(run_id=None, task_id=None, phase=None)
             self.w.flags.pop(self.id, None)
+
+    def fail_plainly(self, error: str) -> None:
+        fail_plainly(self.store, self.id, error)
 
     async def phase(self, name: str, fn: Callable[[], None]) -> None:
         self.set_phase(name)
@@ -356,6 +376,7 @@ class RunExec:
         retry = self.run["kind"] == "retry"
         todo = [r for r in rows if r["preview_status"] == "pending" or (retry and r["preview_status"] == "failed")]
         self.counts["to_preview"] = len(rows)
+        self.estimate_analysis(self.units())
         with ThreadPoolExecutor(int(self.mode["preview_workers"])) as pool:
             futs = {pool.submit(self.make_preview, r): r for r in todo}
             for fut in as_completed(futs):
@@ -438,9 +459,7 @@ class RunExec:
     async def analyze(self) -> None:
         units = await asyncio.to_thread(self.units)
         await asyncio.to_thread(self.mark_pending, units)
-        done = self.store.one("SELECT count(*) n FROM results WHERE run_id = ? AND capability NOT LIKE 'raw:%' "
-                              "AND capability NOT IN ('preview', 'meta')", (self.id,))["n"]
-        self.counts["total_analysis"] = done + sum(len(v) for v in units.values())
+        self.estimate_analysis(units)
         if not units:
             return
         analyzer = await asyncio.to_thread(self.ensure_analyzer)
@@ -470,6 +489,13 @@ class RunExec:
             if self.stopping():
                 break
         await asyncio.to_thread(self.regroup)
+        self.save_counts(force=True)
+
+    def estimate_analysis(self, units: dict[str, list[str]]) -> None:
+        """total_analysis = what this run already analysed + what it still has to (known from preview on)."""
+        done = self.store.one("SELECT count(*) n FROM results WHERE run_id = ? AND capability NOT LIKE 'raw:%' "
+                              "AND capability NOT IN ('preview', 'meta')", (self.id,))["n"]
+        self.counts["total_analysis"] = done + sum(len(v) for v in units.values())
         self.save_counts(force=True)
 
     def mark_pending(self, units: dict[str, list[str]]) -> None:
@@ -550,9 +576,11 @@ class RunExec:
                                                         tz=self.run["config"].get("timezone"))
 
     # ---- end ----
-    def finish(self, error: str | None) -> None:
+    def finish(self, error: str | None, cleanup: str | None = None) -> None:
         flag = self.w.flags.get(self.id)
         summary = self.summary()
+        if cleanup:
+            summary["cleanup_error"] = cleanup
         if error:
             status = "failed"
         elif flag == "stop":
@@ -562,7 +590,7 @@ class RunExec:
         elif self.w.shutdown:
             status = "interrupted"
         elif (summary["failed"] or summary["unavailable"] or summary["offline_sources"] or summary["missing"]
-              or summary["not_run"]):
+              or summary["not_run"] or cleanup):
             status = "partial"
         else:
             status = "completed"
@@ -616,6 +644,16 @@ class RunExec:
                 "unsupported": self.counts.get("unsupported", 0), "reused": self.counts.get("reused", 0),
                 "groups_skipped_deleted": self.counts.get("groups_skipped_deleted", 0),
                 "elapsed_s": round(elapsed, 3)}
+
+
+def fail_plainly(store: st.Store, run_id: str, error: str) -> None:
+    """A run that is still `running` after an unexpected error ends `failed` with that error."""
+    try:
+        with store.tx() as c:
+            c.execute("UPDATE runs SET status = 'failed', phase = NULL, error = ?, finished_at = ? "
+                      "WHERE id = ? AND status = 'running'", (error, now(), run_id))
+    except Exception:  # noqa: BLE001
+        log.exception("run %s: could not record the failure", run_id)
 
 
 # ---- shared writers (each takes an open transaction unless it opens its own) ----
