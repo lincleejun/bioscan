@@ -10,7 +10,6 @@ import json
 import os
 import re
 import secrets
-import shutil
 import stat
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -127,17 +126,57 @@ def _make_dirs(dest: Path, parts: list[str], protected: list[Path]) -> Path:
 
 
 _NO_LINKS: set[int] = set()        # st_dev of destinations where hard links failed (exFAT, FAT, some shares)
-_EXCL = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+_EXCL = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
 
 
-def _unlink_own(path: Path, ident: tuple[int, int]) -> None:
-    """Remove `path` only while it is still the file this call created (same device and inode)."""
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view):]
+
+
+def _fd_sha(fd: int) -> str:
+    """sha256 of what the open file holds, read back through its own descriptor."""
+    os.lseek(fd, 0, os.SEEK_SET)
+    h = hashlib.sha256()
+    while chunk := os.read(fd, 1 << 20):
+        h.update(chunk)
+    return h.hexdigest()
+
+
+def _is_ours(path: Path, fd: int) -> bool | None:
+    """Whether `path` is, right now, the file `fd` has open (same device, inode, size and mtime, both
+    read at this moment: exFAT gives an empty file a temporary inode number, so a number kept from
+    creation proves nothing). None when the path is gone."""
     try:
-        st = os.lstat(path)
-        if (st.st_dev, st.st_ino) == ident:
+        b = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    a = os.fstat(fd)
+    return os.path.samestat(a, b) and (a.st_size, a.st_mtime_ns) == (b.st_size, b.st_mtime_ns)
+
+
+def _discard(path: Path, fd: int) -> str | None:
+    """Remove `path` while it is still the file `fd` has open, then close `fd`. A path that is now
+    another file (someone replaced it) is left alone: the message says so."""
+    try:
+        ours = _is_ours(path, fd)
+        if ours:
             os.unlink(path)
-    except OSError:
-        pass
+        elif ours is False:
+            return f"未删除：{path} 已被替换，不是本次导出写入的文件"
+        return None
+    except OSError as e:
+        return f"清理失败：{path}: {e}"
+    finally:
+        os.close(fd)
+
+
+def _fail(exc: BaseException, msg: str | None) -> None:
+    """Re-raise `exc`, with the cleanup problem `msg` added when there is one."""
+    if msg:
+        raise OSError(f"{exc}；{msg}") from exc
+    raise exc
 
 
 def _same_folder(dst: Path, real: str) -> None:
@@ -146,66 +185,69 @@ def _same_folder(dst: Path, real: str) -> None:
         raise OSError(f"导出目录在复制期间被替换：{dst.parent}")
 
 
-def _publish_by_copy(part: Path, dst: Path, digest: str, real: str) -> None:
+def _publish_by_copy(part_fd: int, dst: Path, digest: str, real: str, times: tuple[int, int]) -> None:
     """Where hard links are not supported: create `dst` with O_EXCL|O_NOFOLLOW (FileExistsError when
-    the name is taken: never overwritten), re-check the folder, copy the verified temporary file in,
-    fsync and sha256-check it. On any failure only the file this call created is removed."""
+    the name is taken: never overwritten), re-check the folder, copy the verified temporary file in
+    through its descriptor, fsync and sha256-check it. On any failure `dst` is removed only while it
+    is still the file this call has open."""
     _same_folder(dst, real)
     fd = os.open(dst, _EXCL, 0o644)
-    st = os.fstat(fd)
-    ident = (st.st_dev, st.st_ino)
     try:
-        with os.fdopen(fd, "wb") as fo:
-            _same_folder(dst, real)
-            with open(part, "rb") as fi:
-                while chunk := fi.read(1 << 20):
-                    fo.write(chunk)
-            fo.flush()
-            os.fsync(fo.fileno())
-        shutil.copystat(part, dst, follow_symlinks=False)
-        if _sha(str(dst)) != digest:
+        _same_folder(dst, real)
+        os.lseek(part_fd, 0, os.SEEK_SET)
+        while chunk := os.read(part_fd, 1 << 20):
+            _write_all(fd, chunk)
+        os.fsync(fd)
+        os.utime(fd, ns=times)
+        if _fd_sha(fd) != digest:
             raise OSError("复制后校验不一致")
-    except BaseException:
-        _unlink_own(dst, ident)
-        raise
+        if not _is_ours(dst, fd):
+            raise OSError(f"导出目标在复制期间被替换：{dst}")
+    except BaseException as exc:
+        _fail(exc, _discard(dst, fd))
+    os.close(fd)
 
 
 def _copy(src: str, dst: Path) -> str:
     """Copy `src` to the new name `dst`, never overwriting: a temporary file of our own (O_EXCL,
     O_NOFOLLOW) is sha256-checked against the source as read, then hard-linked to `dst`; where the
     file system has no hard links (exFAT), copied into a `dst` created with O_EXCL. Before publishing
-    the folder must still resolve where it did when the copy began (MB1). FileExistsError
-    when `dst` appeared meanwhile; OSError on a mismatch. Returns the hash."""
+    the folder must still resolve where it did when the copy began (MB1). The temporary file stays
+    open until it is removed, and is removed only while it is still that file. FileExistsError when
+    `dst` appeared meanwhile; OSError on a mismatch. Returns the hash."""
     part = dst.with_name(f".{dst.name}.{os.getpid()}.{secrets.token_hex(4)}.gardener-part")
-    h = hashlib.sha256()
-    ident = None
     real = os.path.realpath(dst.parent)
+    st = os.stat(src)
+    fd = os.open(part, _EXCL, 0o644)
     try:
-        fd = os.open(part, _EXCL, 0o644)
-        st = os.fstat(fd)
-        ident = (st.st_dev, st.st_ino)
-        with open(src, "rb") as fi, os.fdopen(fd, "wb") as fo:
+        h = hashlib.sha256()
+        with open(src, "rb") as fi:
             while chunk := fi.read(1 << 20):
                 h.update(chunk)
-                fo.write(chunk)
-        shutil.copystat(src, part, follow_symlinks=False)
+                _write_all(fd, chunk)
+        os.utime(fd, ns=(st.st_atime_ns, st.st_mtime_ns))
         digest = h.hexdigest()
-        if _sha(str(part)) != digest:
+        if _fd_sha(fd) != digest:
             raise OSError("复制后校验不一致")
         _same_folder(dst, real)
-        if ident[0] not in _NO_LINKS:
+        dev = os.fstat(fd).st_dev
+        linked = False
+        if dev not in _NO_LINKS:
             try:
                 os.link(part, dst, follow_symlinks=False)     # fails, never overwrites, when dst exists
-                return digest
+                linked = True
             except FileExistsError:
                 raise
             except OSError:                                   # EPERM, ENOTSUP, EXDEV, ...: no hard links here
-                _NO_LINKS.add(ident[0])
-        _publish_by_copy(part, dst, digest, real)
-        return digest
-    finally:
-        if ident is not None:
-            _unlink_own(part, ident)                          # only the temporary file this call created
+                _NO_LINKS.add(dev)
+        if not linked:
+            _publish_by_copy(fd, dst, digest, real, (st.st_atime_ns, st.st_mtime_ns))
+    except BaseException as exc:
+        _fail(exc, _discard(part, fd))
+    msg = _discard(part, fd)                                  # the copy is published: the temporary file goes
+    if msg:
+        raise OSError(msg)
+    return digest
 
 
 def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], assets: list[dict],

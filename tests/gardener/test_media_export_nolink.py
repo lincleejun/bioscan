@@ -69,10 +69,10 @@ def test_existing_target_is_never_overwritten(tmp_path, src, no_links, conflict)
 def test_target_appearing_before_publish_is_not_overwritten(tmp_path, src, no_links, monkeypatch, conflict):
     real = ex._publish_by_copy
 
-    def racing(part, dst, digest, where):
+    def racing(part, dst, digest, where, times):
         if dst.name == "same.jpg" and not dst.exists():
             dst.write_bytes(b"appeared")
-        return real(part, dst, digest, where)
+        return real(part, dst, digest, where, times)
 
     monkeypatch.setattr(ex, "_publish_by_copy", racing)
     rep = run(tmp_path / "out", src, conflict=conflict)
@@ -130,10 +130,10 @@ def test_folder_swapped_for_a_symlink_before_publish_is_refused(tmp_path, src, n
     outside = tmp_path / "outside"
     outside.mkdir()
 
-    def swap(part, dst, digest, where):
+    def swap(part, dst, digest, where, times):
         os.rename(dst.parent, dst.parent.with_name("t-moved"))
         os.symlink(outside, dst.parent)
-        return real(part, dst, digest, where)
+        return real(part, dst, digest, where, times)
 
     monkeypatch.setattr(ex, "_publish_by_copy", swap)
     rep = run(tmp_path / "out", src)
@@ -164,3 +164,5 @@ def test_real_exfat_image(tmp_path, src):
     finally:
         subprocess.run(["hdiutil", "detach", str(mnt)], check=False, capture_output=True)
         image.unlink(missing_ok=True)
+        if mnt.exists() and not any(mnt.iterdir()):
+            mnt.rmdir()
