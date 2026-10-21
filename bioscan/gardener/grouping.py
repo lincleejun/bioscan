@@ -1,0 +1,95 @@
+"""Automatic group suggestions (docs/gardener/contract.md §4, §9.4): events split where the capture
+times are more than two hours apart, places on a ~1 km GPS grid (no reverse geocoding), scene groups
+and species-level taxa. An asset without the field a kind needs is in no group of that kind.
+Standard library only."""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from bioscan.gardener.analyze import zh
+
+EVENT_GAP_S = 2 * 3600
+GRID_DEG = 0.009            # ~1 km of latitude
+
+
+@dataclass
+class Group:
+    key: str                # stable: event:20250301-0812, place:<lat cell>:<lon cell>, scene:<group>, species:<taxon>
+    kind: str               # event | place | scene | species
+    name: str               # Chinese
+    asset_ids: list[str]
+    summary: dict = field(default_factory=dict)
+
+
+def _wall(taken_at: str | None) -> datetime | None:
+    """The camera's local wall-clock time (any UTC offset dropped: names and gaps read it as shot)."""
+    try:
+        return datetime.fromisoformat(taken_at).replace(tzinfo=None) if taken_at else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _events(assets: list[dict]) -> list[Group]:
+    timed = sorted(((t, a["id"]) for a in assets if (t := _wall(a.get("taken_at"))) is not None))
+    runs: list[list[tuple[datetime, str]]] = []
+    for t, aid in timed:
+        if runs and (t - runs[-1][-1][0]).total_seconds() <= EVENT_GAP_S:
+            runs[-1].append((t, aid))
+        else:
+            runs.append([(t, aid)])
+    out = []
+    for run in runs:
+        start, end = run[0][0], run[-1][0]
+        out.append(Group(f"event:{start:%Y%m%d-%H%M}", "event",
+                         f"{start.month}月{start.day}日 {start:%H:%M} 起 · {len(run)} 张", [aid for _, aid in run],
+                         {"count": len(run), "start": start.isoformat(), "end": end.isoformat()}))
+    return out
+
+
+def _cell(lat: float, lon: float) -> tuple[int, int]:
+    i = math.floor(lat / GRID_DEG)
+    step = GRID_DEG / max(math.cos(math.radians((i + 0.5) * GRID_DEG)), 0.01)
+    return i, math.floor(lon / step)
+
+
+def _places(assets: list[dict]) -> list[Group]:
+    cells: dict[tuple[int, int], list[dict]] = {}
+    for a in assets:
+        lat, lon = a.get("lat"), a.get("lon")
+        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and not (lat == 0 and lon == 0):
+            cells.setdefault(_cell(lat, lon), []).append(a)
+    out = []
+    for (i, j), members in cells.items():
+        lat = sum(a["lat"] for a in members) / len(members)
+        lon = sum(a["lon"] for a in members) / len(members)
+        out.append(Group(f"place:{i}:{j}", "place", f"地点 · 约 {len(members)} 张 ({lat:.2f}, {lon:.2f})",
+                         [a["id"] for a in members], {"count": len(members), "lat": round(lat, 5),
+                                                      "lon": round(lon, 5)}))
+    return sorted(out, key=lambda g: (-len(g.asset_ids), g.key))
+
+
+def _by(assets: list[dict], kind: str) -> list[Group]:
+    groups: dict[str, Group] = {}
+    for a in assets:
+        if kind == "scene":
+            c = a.get("content") or {}
+            value = c.get("group") or c.get("label")
+            name = zh(value)
+        else:
+            s = a.get("species") or {}
+            value = s.get("taxon") if s.get("level") == "species" else None
+            name = s.get("common") or value
+        if value:
+            g = groups.setdefault(value, Group(f"{kind}:{value}", kind, name, [], {}))
+            g.asset_ids.append(a["id"])
+    for g in groups.values():
+        g.summary = {"count": len(g.asset_ids)}
+    return sorted(groups.values(), key=lambda g: (-len(g.asset_ids), g.key))
+
+
+def suggest(assets: list[dict]) -> list[Group]:
+    """assets: {id, taken_at, lat, lon, media, content: {group, label} | None, species: {taxon, common,
+    level} | None}. Events in time order, then places, scenes and species, each largest first."""
+    return _events(assets) + _places(assets) + _by(assets, "scene") + _by(assets, "species")
