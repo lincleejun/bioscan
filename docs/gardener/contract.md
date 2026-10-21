@@ -29,7 +29,7 @@
 
 ## 2 存储
 
-- 数据目录 `--data-dir`（默认 `$GARDENER_HOME`，否则 `~/.gardener`）：`gardener.sqlite`（WAL）、`cache/previews/<id[:2]>/<id>.thumb.jpg|.large.jpg`、`exports/`（默认导出位置）、`logs/`。
+- 数据目录 `--data-dir`（默认 `$GARDENER_HOME`，否则 `~/.gardener`）：`gardener.sqlite`（WAL）、`cache/previews/<id[2:4]>/<id>.thumb.jpg|.large.jpg`、`exports/`（默认导出位置）、`logs/`。
 - 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。
 - DDL 见 `schema.sql`；`meta.schema_version` = `1`。数据库只存预览索引（`assets.preview_status/method`），不存图片。
 - 原片只读：Gardener 绝不在来源目录写入、改名、移动、删除；不得调用 BioScan 的 `jpg` stage、`/apply`、XMP 写入。导出目的地若位于任何任务来源目录之内则拒绝（400）。
@@ -187,3 +187,18 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 6. 删除集合为软删除，恢复期限首版不限。
 7. 预览：thumb 长边 360、large 长边 1600；低分辨率预览不代表 RAW 解码或对焦验证（UI 明示）。
 8. 服务默认只监听 127.0.0.1，不开放局域网认证。
+
+## 10 契约修订 1（独立验收评审 X1–X9 与澄清项，优先于上文冲突处）
+
+- **X1 pair_key**：只有同目录同 stem（不区分大小写）的 **RAW + JPEG** 合为一个素材；其余任何文件（视频、TIFF、PNG、RAW+RAW 如 ARW+DNG、JPG+MOV）各自成素材，`pair_key = 目录 + "/" + 完整文件名（小写）`。RAW+JPEG 的 `pair_key = 目录 + "/" + stem（小写）+ "|rawjpeg"`。同目录多 RAW 同 stem 时只与 JPEG 配对第一个（按扩展名排序），其余独立。`discover()` 永不返回重复 pair_key。
+- **X2 原始产品**：`Analyzer.analyze` 对每个结果事件额外 yield `ItemResult(capability="raw:<stage>", status="done", data=<该 stage 原始 product>)`；`embed` 向量由 **单元 2** 在 analyze 中编码为 `{"f16_b64": ...}`（或保持 BioScan 原有编码），`reduce` 自己解码。单元 1 原样存入 `results`，**不写** `asset_caps`，不在 UI/API `caps` 中暴露 `raw:*`。
+- **X3 连拍**：`reduce(rows, caps)` 每次输入**该任务全部照片**（单元 1 负责从最新 `raw:*` 结果组装），单元 1 保存时 `burst_id = "<task_id>:<bid>"`；`AssetItem.burst.id` 为带命名空间的 id。select 的 rank 同样只在任务内有意义。
+- **X4 文件变化与缺失**：**永远不删除** `assets`、`task_assets`、`marks`、`mark_history`、集合成员行。来源在线但文件不见 → `asset_files.online=0` 且 `assets.meta.missing=true`（summary 计 `missing`，与 `offline_sources` 区分）；之后重新出现即恢复。同一路径 size/mtime 变化且 `quick_hash` 不同 = **内容变化**：沿用同一 `asset_id`；在 `mark_history` 写入 `actor=system, reason=content_changed` 的记录并把当前 Flag/Star **清空**（旧判断保留在历史中，可 undo 该 batch 恢复）；`assets.meta.content_changed_at` 记录时间；能力状态回 `pending` 并在本运行重新预览与分析；旧 results/ai_suggestions 保留为历史。已完成集合把这类成员计入 `review.changed_since`。size/mtime 变但 hash 相同 = 未变化，只更新 mtime。
+- **X5 marks 省略与 null**：`POST /marks` 中键**省略 = 不改**，`flag: null` = 清除 Flag，`stars: 0` = 清除星级。CLI/MCP 只发送用户明确给出的键。
+- **X6 本组不留清 Pick**：`resolution=clear_picks` 经同一 marks 写入路径：把这些素材 Flag 设为 `null`（**不是** reject），写 `mark_history`（同一 batch_id、actor、reason=`zero:<collection_id>`），响应带 `batch_id`，`POST /marks/undo` 可恢复。
+- **X7 changed_after**：任何影响 AssetItem 的写入（marks、asset_caps、results、ai_suggestions、预览状态、集合成员、标签、在线状态）都同时更新 `assets.updated_at`。所有记录时间戳统一为 UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`（定长，可字符串比较）；`changed_after` 为严格大于。
+- **X8 自动集合身份**：重组时先按**成员重叠**把每个建议组匹配到该任务已有的同 `group_kind` 自动集合（重叠成员数最多者；无重叠才新建）；`auto_key` 只在首次创建时确定，以后不变。被软删除或被合并掉的自动集合**不恢复、不再加成员**；其已有成员也不会因此被塞进新建的同 key 集合（建议组与已删集合重叠时跳过这些成员）。scene/species 组的 key 本身稳定（标签 id），仍按同一规则处理已删集合。
+- **X9 导出输入形状**：`export(dest_dir, *, title, scope, collections, assets, copy, conflict, protected)`：`assets` = **AssetDetail 列表**（§6.3，含 files、flag、stars、ai、ai_history[0].version、caps 不需要、collections）；`collections` = `Collection` 列表（§6.5，另含 `member_ids`）；`scope = {kind: collection|asset_ids|rule, value, scope: picked|all|selected}`；复制目录 `dest_dir/files/<安全化 title>/`，`title` 由单元 1 给出（集合名或“筛选结果”），跨任务导出同样只用 title。XML 每个素材含：所有文件原路径（与复制路径、sha256）、flag、stars、AI verdict/score/reasons/version、所属集合及其审阅状态。导出不复制 XMP sidecar，ExportReport 加 `notes: ["未包含来源目录中的 XMP sidecar"]`。
+- **标签拆分（PRD §7 / D25 已确认，首版必须）**：`POST /tags/{id}/split {names: [新名], assign?: {新名: [asset_ids]}}` → 新建子标签（原标签保留或停用由 `deactivate_source` 决定，默认保留），记 `tag_history`，人工与 AI 的 `asset_tags` 来源分开保留。
+- **澄清**：`taken_at` 保留相机本地时间（有 OffsetTime 时带偏移），不换算 UTC；记录时间戳用 UTC。`GET /assets` 增加 `order=discovered`（`task_assets.ord`，任务内默认）并统一以 `id` 为次级排序。缓存分片用 `id[2:4]`。`PHOTO_EXT` 不含 HEIC。runs.kind 枚举为 scan|append|rescan|retry（恢复不新建运行，而是原运行重新排队）。`expect` 可选，发送时不符返回 409。只有开启 `place_event` 才生成事件/地点分组，`content` 才有场景分组，`species` 才有物种分组。`--allow-root` 默认不限制（与 BioScan 一致），但服务只监听 127.0.0.1，并且：Host 头必须是 127.0.0.1/localhost/[::1]（否则 403）；带非本机 `Origin` 的非 GET 请求返回 403。`Collection.review` 增加 `removed_since`（完成快照中、当前已不在集合的数量）与 `changed_since`。`asset_tags` 主键不含 run_id：重跑覆盖当前 AI 标签，旧值在 `results` 历史中。`settings.capability_versions` v0.1 只记录与展示（版本由已安装模型决定），比较新旧靠 `ai_history`/results 历史。
+- **真实数据边界**：DNG/ARW 内嵌预览（如 1024 px 级）只用于浏览，UI 与报告不得称其为精细对焦或完整 RAW 解码验证。
