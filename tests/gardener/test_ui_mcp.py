@@ -78,6 +78,13 @@ def test_tools_call_the_api(svc, tmp_path):
     assert err and conflict["status"] == 409 and {p["id"] for p in conflict["picks"]} == {"a_0005", "a_0006"}
     z, err = tool(url, "review_collection", id=birds["id"], action="zero", resolution="clear_picks")
     assert not err and z["review"]["state"] == "zeroed" and z["picks"] == 0
+    assert fake.assets["a_0005"]["flag"] is None                         # X6: cleared to null, not reject
+    assert fake.assets["a_0005"]["mark_history"][-1]["reason"] == f"zero:{birds['id']}"
+    m2, _ = tool(url, "set_marks", asset_ids=["a_0007"], stars=2)
+    assert fake.mark_bodies[-1] == {"asset_ids": ["a_0007"], "stars": 2}
+    [r] = converse(url, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_tasks"}})
+    assert not r["result"]["isError"]
+    assert z["batch_id"] and fake.undo(z["batch_id"]) == {"undone": 2}
     assert tool(url, "review_collection", id=birds["id"], action="reopen")[0]["review"]["state"] == "open"
     rep, _ = tool(url, "export", collection_id=birds["id"], scope="all", copy=False)
     assert rep["assets"] == 3 and rep["copied"] == 0

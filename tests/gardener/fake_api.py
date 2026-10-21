@@ -46,6 +46,7 @@ class Fake:
         self.cols: dict[str, dict] = {}
         self.history: list[dict] = []          # mark history rows with batch_id
         self.exports: list[dict] = []
+        self.mark_bodies: list[dict] = []      # every POST /marks body as received (X5: omitted key = unchanged)
         self.presets = [{"id": k, "name": v["name"], "capabilities": list(v["capabilities"]), "builtin": True}
                         for k, v in PRESETS.items()]
         self.settings = {"run_mode": "balanced", "default_preset": "photo",
@@ -58,7 +59,8 @@ class Fake:
 
     # ---- helpers ----
     def now(self) -> str:
-        return (T0 + timedelta(seconds=next(self._clock))).isoformat()
+        # §10 X7: fixed-width UTC, string-comparable
+        return (T0 + timedelta(seconds=next(self._clock))).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     def nid(self, p: str) -> str:
         return f"{p}_{next(self._ids):04d}"
@@ -97,7 +99,7 @@ class Fake:
             a["ai"] = {"verdict": ai[0], "score": ai[1], "reasons": ai[2]} if ai else None
             a["content_label_zh"] = content
             a["species"] = {"taxon": sp[0], "common": sp[1], "p": 0.71} if sp else None
-            a["burst"] = {"id": burst[0], "rank": burst[1], "size": burst[2]} if burst else None
+            a["burst"] = {"id": f"{t['id']}:{burst[0]}", "rank": burst[1], "size": burst[2]} if burst else None
             a["analysis"] = "done" if ai else ("failed" if media == "photo" else "partial")
             a["lat"], a["lon"] = (25.3, 98.8) if i < 3 else (None, None)
             a["caps"] = {c.id: {"state": "not_enabled", "version": None, "error": None, "data": None}
@@ -109,6 +111,13 @@ class Fake:
                     {"xyxy": [0.3, 0.2, 0.7, 0.8], "score": 0.9, "kind": "bird"}]}
             if i == 4:
                 a["caps"]["aesthetic"] = {"state": "failed", "version": "v1", "error": "解码超时", "data": None}
+            if i == 2:                          # content changed on disk: the service cleared the old judgment
+                self.mark({"asset_ids": [a["id"]], "flag": "pick", "stars": 3}, "ui")
+                self.mark({"asset_ids": [a["id"]], "flag": None, "stars": 0}, "system", reason="content_changed")
+                a["meta"]["content_changed_at"] = a["updated_at"]
+            if i == 3:
+                a["meta"]["missing"] = True
+                a["files"][0]["online"] = False
             if i == 5:
                 a["caps"]["species"] = {"state": "unrecognized", "version": "v1", "error": None, "data": None}
             if ai:
@@ -122,7 +131,8 @@ class Fake:
         c = self.new_col({"name": "雨中山谷", "kind": "manual", "asset_ids": ids[3:5], "task_id": t["id"]},
                          origin="auto", group_kind="scene")
         self.review(c, "completed")
-        c["snapshot"] = [ids[3]]                # one member arrived after completion
+        c["snapshot"] = [ids[3], ids[0]]        # ids[4] arrived after completion, ids[0] left
+        c["changed"] = [ids[3]]
         self.assets[ids[0]].update(flag="pick", stars=4, judged=True, mark_version=2)
         t2 = self.new_task({"title": "洱海湿地 · 越冬水鸟", "sources": ["/Volumes/SD3/DCIM"], "preset": "quick"},
                            status="running")
@@ -181,7 +191,7 @@ class Fake:
         c = {"id": cid, "kind": body.get("kind", "manual"), "origin": origin, "group_kind": group_kind,
              "task_id": body.get("task_id"), "name": body["name"], "description": body.get("description") or "",
              "rule": body.get("rule"), "version": 1, "deleted_at": None, "members": list(body.get("asset_ids") or []),
-             "state": "open", "at": None, "snapshot": [], "user_edited": origin == "user"}
+             "state": "open", "at": None, "snapshot": [], "changed": [], "user_edited": origin == "user"}
         self.cols[cid] = c
         return c
 
@@ -243,6 +253,7 @@ class Fake:
         ms = [self.assets[m] for m in self.members(c)]
         ai = [(a["ai"] or {}).get("verdict") for a in ms]
         judged = sum(a["judged"] for a in ms)
+        closed, cur = c["state"] != "open", set(self.members(c))
         return {**{k: c[k] for k in ("id", "kind", "origin", "group_kind", "task_id", "name", "description", "rule",
                                      "version", "deleted_at", "user_edited")},
                 "size": len(ms), "cover_ids": [a["id"] for a in ms[:4]], "judged": judged,
@@ -250,8 +261,9 @@ class Fake:
                 "ai_picks": ai.count("pick"), "ai_rejects": ai.count("reject"),
                 "low_score": bool(ms) and all(v == "reject" for v in ai if v) and ai.count("reject") > 0,
                 "review": {"state": c["state"], "at": c["at"], "unhandled": len(ms) - judged,
-                           "new_since": len([m for m in self.members(c) if m not in c["snapshot"]])
-                           if c["state"] != "open" else 0}}
+                           "new_since": len(cur - set(c["snapshot"])) if closed else 0,
+                           "removed_since": len(set(c["snapshot"]) - cur) if closed else 0,
+                           "changed_since": len(set(c["changed"]) & cur) if closed else 0}}
 
     def task_out(self, t: dict, runs: bool = False) -> dict:
         ms = [a for a in self.assets.values() if t["id"] in a["task_ids"]]
@@ -272,9 +284,9 @@ class Fake:
         return out
 
     def review(self, c: dict, state: str):
-        c["state"], c["at"], c["snapshot"] = state, self.now(), self.members(c)
+        c["state"], c["at"], c["snapshot"], c["changed"] = state, self.now(), self.members(c), []
 
-    def mark(self, body: dict, actor: str) -> dict:
+    def mark(self, body: dict, actor: str, reason: str | None = None) -> dict:
         ids = body["asset_ids"]
         for aid in ids:
             self.asset(aid)
@@ -289,10 +301,11 @@ class Fake:
             for field in ("flag", "stars"):
                 if field in body and body[field] != a[field]:
                     row = {"batch_id": batch, "asset_id": aid, "field": field, "old": a[field], "new": body[field],
-                           "actor": actor, "reason": body.get("reason"), "at": at, "undone": False,
+                           "actor": actor, "reason": reason or body.get("reason"), "at": at, "undone": False,
                            "version": a["mark_version"] + 1}
                     self.history.append(row)
-                    a["mark_history"].append({k: row[k] for k in ("field", "old", "new", "actor", "reason", "at")})
+                    a["mark_history"].append({k: row[k] for k in ("batch_id", "field", "old", "new", "actor",
+                                                                  "reason", "at")})
                     a[field] = body[field]
                     a["mark_version"] += 1
             a["judged"] = bool(a["flag"] or a["stars"])
@@ -422,6 +435,14 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             raise Err(404, "没有这个标签", "not_found")
         return t
 
+    @app.post(P + "/tags/{tid}/split")
+    def tag_split(tid: str, body: dict):
+        src = tag(tid)
+        new = [tag_new({"name": n, "parent_id": tid}) for n in body["names"]]
+        if body.get("deactivate_source"):
+            src["active"] = False
+        return new
+
     @app.patch(P + "/tags/{tid}")
     def tag_patch(tid: str, body: dict):
         t = tag(tid)
@@ -506,9 +527,9 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
     def assets(request: Request, order: str = "time", limit: int = 200, offset: int = 0):
         f = dict(request.query_params)
         items = [a for a in fk.assets.values() if fk.match(a, f)]
-        key = {"time": lambda a: a["taken_at"] or "", "path": lambda a: a["name"],
+        key = {"time": lambda a: a["taken_at"] or "", "path": lambda a: a["name"], "discovered": lambda a: 0,
                "score": lambda a: -((a["ai"] or {}).get("score") or 0)}[order]
-        items.sort(key=key)
+        items.sort(key=lambda a: (key(a), a["id"]))      # ids are allocated in discovery order
         return {"total": len(items), "items": [fk.item(a) for a in items[offset:offset + limit]], "offset": offset}
 
     @app.post(P + "/assets/{aid}/reveal")
@@ -535,7 +556,14 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
 
     @app.post(P + "/marks")
     def marks(body: dict, request: Request):
+        fk.mark_bodies.append(body)
         return fk.mark(body, request.headers.get("x-gardener-actor", "api"))
+
+    @app.get(P + "/marks/history")
+    def marks_history(asset_id: str = "", batch_id: str = "", actor: str = "", limit: int = 200):
+        rows = [r for r in reversed(fk.history) if (not asset_id or r["asset_id"] == asset_id)
+                and (not batch_id or r["batch_id"] == batch_id) and (not actor or r["actor"] == actor)]
+        return [{k: v for k, v in r.items() if k != "version"} for r in rows[:limit]]
 
     @app.post(P + "/marks/undo")
     def marks_undo(body: dict):
@@ -604,7 +632,7 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         return fk.col_out(c)
 
     @app.post(P + "/collections/{cid}/zero")
-    def col_zero(cid: str, body: dict | None = None):
+    def col_zero(cid: str, request: Request, body: dict | None = None):
         c, res = fk.col(cid), (body or {}).get("resolution")
         picks = [m for m in fk.members(c) if fk.assets[m]["flag"] == "pick"]
         if picks and not res:
@@ -612,10 +640,12 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                 {"id": m, "collections": [{"id": o["id"], "name": o["name"]} for o in fk.cols.values()
                                           if o["id"] != cid and not o["deleted_at"] and m in fk.members(o)]}
                 for m in picks])
-        if picks and res == "clear_picks":
-            fk.mark({"asset_ids": picks, "flag": None}, "api")
+        batch = None
+        if picks and res == "clear_picks":     # X6: flag -> null through the marks path, undoable
+            batch = fk.mark({"asset_ids": picks, "flag": None}, request.headers.get("x-gardener-actor", "api"),
+                            reason=f"zero:{cid}")["batch_id"]
         fk.review(c, "zeroed")
-        return fk.col_out(c)
+        return {**fk.col_out(c), "batch_id": batch}
 
     @app.post(P + "/collections/{cid}/reopen")
     def col_reopen(cid: str):
@@ -662,7 +692,7 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         rep = {"xml_path": f"{body.get('dest_dir') or '/tmp/gardener/exports'}/gardener-export-{len(fk.exports)}.xml",
                "assets": len(ids), "files": len(ids) if copy else 0, "copied": len(ids) if copy else 0,
                "identical": 0, "skipped": 0, "renamed": 0, "failed": [], "bytes": 25_000_000 * len(ids) if copy else 0,
-               "verified": copy}
+               "verified": copy, "notes": ["未包含来源目录中的 XMP sidecar"]}
         fk.exports.append({"id": fk.nid("e"), "created_at": fk.now(), "request": body, "report": rep})
         return rep
 

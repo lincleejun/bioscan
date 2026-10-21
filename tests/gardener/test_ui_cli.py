@@ -95,6 +95,16 @@ def test_mark_and_undo(svc, capsys):
     assert run_json(capsys, url, "mark", "a_0006", "--flag", "none", "--stars", "0")["assets"][0]["flag"] is None
 
 
+def test_mark_sends_only_given_keys(svc, capsys):
+    """§10 X5: an omitted key means unchanged, so `mark --stars 4` must not send a flag."""
+    url, fake = svc
+    run_json(capsys, url, "mark", "a_0005", "--stars", "4")
+    assert fake.mark_bodies[-1] == {"asset_ids": ["a_0005"], "stars": 4}
+    assert fake.assets["a_0005"]["flag"] == "pick"
+    run_json(capsys, url, "mark", "a_0005", "--flag", "none")
+    assert fake.mark_bodies[-1] == {"asset_ids": ["a_0005"], "flag": None}
+
+
 def test_collections_review(svc, capsys):
     url, fake = svc
     cols = run_json(capsys, url, "collections", "--task", "t_0001")
