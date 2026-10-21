@@ -33,10 +33,28 @@ def clean(filters: dict[str, Any]) -> dict[str, str]:
     return out
 
 
-def where(store: Any, filters: dict[str, Any], depth: int = 0) -> tuple[str, list[Any]]:
-    """(sql, params) selecting the assets that match every filter; `store.one` resolves a collection."""
-    if depth > MAX_DEPTH:
-        raise ValueError("smart collection rules nest too deep")
+def cycle(store: Any, rule: dict[str, Any], self_id: str | None) -> bool:
+    """Would saving `rule` on collection `self_id` make smart rules refer back to a collection on the
+    chain (or nest deeper than MAX_DEPTH)?"""
+    seen = {self_id} if self_id else set()
+    for _ in range(MAX_DEPTH + 1):
+        cid = rule.get("collection") if isinstance(rule, dict) else None
+        if cid is None:
+            return False
+        if cid in seen:
+            return True
+        seen.add(cid)
+        col = store.one("SELECT kind, rule FROM collections WHERE id = ?", (cid,))
+        if col is None or col["kind"] != "smart":
+            return False
+        rule = json.loads(col["rule"] or "{}")
+    return True
+
+
+def where(store: Any, filters: dict[str, Any], depth: int = 0,
+          seen: frozenset[str] = frozenset()) -> tuple[str, list[Any]]:
+    """(sql, params) selecting the assets that match every filter; `store.one` resolves a collection.
+    A stored smart rule that is cyclic, too deep or invalid selects nothing instead of failing reads."""
     f = clean(filters)
     conds: list[str] = []
     params: list[Any] = []
@@ -49,10 +67,13 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0) -> tuple[str, lis
         add("EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.task_id = ?)", f["task"])
     if "collection" in f:
         col = store.one("SELECT kind, rule FROM collections WHERE id = ?", (f["collection"],))
-        if col is None:
+        if col is None or f["collection"] in seen or depth >= MAX_DEPTH:
             add("0")
         elif col["kind"] == "smart":
-            sub, ps = where(store, json.loads(col["rule"] or "{}"), depth + 1)
+            try:
+                sub, ps = where(store, json.loads(col["rule"] or "{}"), depth + 1, seen | {f["collection"]})
+            except ValueError:
+                sub, ps = "0", []
             add(f"({sub})", *ps)
         else:
             add("EXISTS (SELECT 1 FROM collection_members cm WHERE cm.asset_id = a.id AND cm.collection_id = ? "

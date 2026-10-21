@@ -351,6 +351,15 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         tag_history(c, tid, "create", {"name": name, "parent_id": parent_id})
         return tid
 
+    def ancestors(tid: str | None) -> list[str]:
+        """`tid` and its parents up the chain (stops at a cycle already stored)."""
+        out: list[str] = []
+        while tid is not None and tid not in out:
+            out.append(tid)
+            row = store.one("SELECT parent_id FROM tags WHERE id = ?", (tid,))
+            tid = row["parent_id"] if row else None
+        return out
+
     def one_tag(tid: str) -> dict[str, Any]:
         return next(t for t in store.tags() if t["id"] == tid)
 
@@ -376,8 +385,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if "parent_id" in body:
             if body["parent_id"] is not None:
                 tag_or_404(body["parent_id"])
-                if body["parent_id"] == tid:
-                    raise Error("a tag cannot be its own parent")
+                if tid in ancestors(body["parent_id"]):
+                    raise Error("标签层级不能形成循环")
             changes["parent_id"] = body["parent_id"]
         if "aliases" in body:
             changes["aliases"] = dumps(strs(body["aliases"], "aliases"))
@@ -396,11 +405,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     @r.post("/tags/{tid}/merge")
     def merge_tag(tid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
-        tag_or_404(tid)
+        src = tag_or_404(tid)
         into = text(body, "into", required=True)
-        tag_or_404(into)
+        target = tag_or_404(into)
         if into == tid:
             raise Error("cannot merge a tag into itself")
+        if src["merged_into"] or target["merged_into"]:     # merges never chain, so they never cycle
+            raise Error("已合并的标签不能再合并或作为合并目标")
         t = now()
         with store.tx() as c:
             c.execute("UPDATE assets SET updated_at = ? WHERE id IN (SELECT asset_id FROM asset_tags WHERE tag_id = ?)",
@@ -408,7 +419,9 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             c.execute("INSERT OR IGNORE INTO asset_tags SELECT asset_id, ?, source, run_id, confidence, created_at "
                       "FROM asset_tags WHERE tag_id = ?", (into, tid))
             c.execute("DELETE FROM asset_tags WHERE tag_id = ?", (tid,))
-            c.execute("UPDATE tags SET parent_id = ? WHERE parent_id = ?", (into, tid))
+            c.execute("UPDATE tags SET parent_id = ? WHERE parent_id = ? AND id != ?", (into, tid, into))
+            if target["parent_id"] == tid:               # merging into a child: it takes the merged tag's place
+                c.execute("UPDATE tags SET parent_id = ? WHERE id = ?", (src["parent_id"], into))
             c.execute("UPDATE tags SET merged_into = ?, active = 0, updated_at = ? WHERE id = ?", (into, t, tid))
             tag_history(c, tid, "merge", {"into": into})
             tag_history(c, into, "merged_from", {"from": tid})
@@ -689,10 +702,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                  "undone": bool(x["undone"]), "at": x["at"]} for x in rows]
 
     # ---- 6.5 collections ----
-    def check_rule(rule: Any) -> dict[str, Any]:
+    def check_rule(rule: Any, self_id: str | None = None) -> dict[str, Any]:
         if not isinstance(rule, dict):
             raise Error("rule must be a JSON object of asset filters")
         query.where(store, rule)
+        if query.cycle(store, rule, self_id):
+            raise Error("规则引用的集合形成循环（或嵌套过深）")
         return rule
 
     @r.get("/collections")
@@ -740,7 +755,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if "rule" in body:
             if col["kind"] != "smart":
                 raise Error("only a smart collection has a rule")
-            changes["rule"] = dumps(check_rule(body["rule"]))
+            changes["rule"] = dumps(check_rule(body["rule"], cid))
         if changes:
             with store.tx() as c:
                 n = c.execute(f"UPDATE collections SET {', '.join(f'{k} = ?' for k in changes)}, updated_at = ?, "

@@ -353,3 +353,68 @@ def test_task_timezone_reaches_grouping_and_collections_show_the_time_basis(env,
         assert t2["timezone"] == "Asia/Shanghai"
         day = c.get(f"{API}/assets/{ids(c, task=t['id'])[0]}").json()["taken_at"][:10]
         assert len(ids(c, task=t["id"], date_from=day, date_to=day)) >= 1        # camera-local wall clock
+
+
+def test_tag_merge_and_parent_cycles_are_refused(env):
+    with env.client() as c:
+        a, b, k = (c.post(f"{API}/tags", json={"name": n}).json() for n in ("A", "B", "K"))
+        assert c.post(f"{API}/tags/{a['id']}/merge", json={"into": b["id"]}).status_code == 200
+        before = c.get(f"{API}/tags").json()
+        assert c.post(f"{API}/tags/{b['id']}/merge", json={"into": a["id"]}).status_code == 400   # back again
+        assert c.post(f"{API}/tags/{k['id']}/merge", json={"into": a["id"]}).status_code == 400   # into a merged tag
+        assert c.get(f"{API}/tags").json() == before
+        c.patch(f"{API}/tags/{k['id']}", json={"parent_id": b["id"]})
+        r = c.patch(f"{API}/tags/{b['id']}", json={"parent_id": k["id"]})
+        assert r.status_code == 400 and c.get(f"{API}/tags").json() != before   # k's own parent change stands
+        child = next(x for x in c.get(f"{API}/tags").json() if x["id"] == k["id"])
+        assert child["parent_id"] == b["id"]
+        merged = c.post(f"{API}/tags/{b['id']}/merge", json={"into": k["id"]}).json()       # into its own child
+        assert merged["parent_id"] is None
+
+
+def test_cyclic_smart_rules_are_refused_and_stored_ones_do_not_break_reads(env, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 1)
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])[0]
+        s1 = c.post(f"{API}/collections", json={"name": "s1", "kind": "smart", "rule": {"flag": "pick"}}).json()
+        assert c.patch(f"{API}/collections/{s1['id']}", json={"rule": {"collection": s1["id"]}}).status_code == 400
+        assert c.get(f"{API}/collections/{s1['id']}").json()["rule"] == {"flag": "pick"}
+        s2 = c.post(f"{API}/collections", json={"name": "s2", "kind": "smart",
+                                                "rule": {"collection": s1["id"]}}).json()
+        assert c.patch(f"{API}/collections/{s1['id']}", json={"rule": {"collection": s2["id"]}}).status_code == 400
+        store = c.app.state.store                       # a cycle already in an older database
+        with store.tx() as cx:
+            cx.execute("UPDATE collections SET rule = ? WHERE id = ?", (f'{{"collection": "{s2["id"]}"}}', s1["id"]))
+        assert c.get(f"{API}/collections").status_code == 200
+        assert c.get(f"{API}/collections/{s1['id']}").json()["size"] == 0
+        assert c.get(f"{API}/assets/{a}").status_code == 200
+        assert c.post(f"{API}/export", json={"asset_ids": [a], "scope": "all"}).status_code == 200
+
+
+def test_combined_filters_across_tasks(env, tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    photos(a, 3)
+    photos(b, 2, start=1_710_000_000)
+    (b / "clip.mov").write_bytes(b"\0" * 10)
+    with env.client() as c:
+        ta, tb = scanned(c, a, caps=["content"]), scanned(c, b, caps=["content"])
+        ia, ib = ids(c, task=ta["id"], order="discovered"), ids(c, task=tb["id"], media="photo", order="discovered")
+        vid = ids(c, task=tb["id"], media="video")[0]
+        c.post(f"{API}/marks", json={"asset_ids": [ia[0], ib[0], vid], "flag": "pick"})
+        c.post(f"{API}/marks", json={"asset_ids": [ia[0], vid], "stars": 4})
+
+        def q(**f):
+            return sorted(ids(c, **f))
+        assert q(flag="pick") == sorted([ia[0], ib[0], vid])
+        assert q(flag="pick", stars_min=4, media="photo") == [ia[0]]
+        assert q(flag="pick", task=tb["id"], media="video") == [vid]
+        assert q(judged="no", task=ta["id"]) == sorted(ia[1:])
+        assert q(flag="none") == sorted(ia[1:] + ib[1:])
+        assert q(q="img_0000") == sorted([ia[0], ib[0]])
+        assert q(content="bird", flag="pick") == sorted([ia[0], ib[0]])   # a video gets no image-model labels
+        assert q(date_to="2023-11-15", flag="pick") == [ia[0]]
+        sm = c.post(f"{API}/collections", json={"name": "跨任务", "kind": "smart",
+                                                "rule": {"flag": "pick", "stars_min": 4}}).json()
+        assert q(collection=sm["id"]) == sorted([ia[0], vid])
