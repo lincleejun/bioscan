@@ -43,6 +43,12 @@ def reveal(path: str) -> None:
         subprocess.run(["xdg-open", str(Path(path).parent)], check=False)
 
 
+def source_online(path: str) -> bool:
+    """A task source is a folder this process can list (scan.is_online is for files: an unmounted card
+    reads offline either way)."""
+    return os.path.isdir(path) and os.access(path, os.R_OK | os.X_OK)
+
+
 @dataclass
 class Toolkit:
     """Unit 2's module-level interfaces (contract §4), injectable for tests."""
@@ -230,7 +236,7 @@ class RunExec:
     def seed_scope(self) -> None:
         """rescan / retry: the scope is the given assets, else every asset of the task."""
         for src in self.store.all("SELECT * FROM sources WHERE task_id = ?", (self.task_id,)):
-            if not (self.tk.is_online(src["path"]) and os.path.isdir(src["path"])):
+            if not (source_online(src["path"])):
                 mark_offline(self.store, src["id"], src["path"])
         ids = self.run["scope"].get("asset_ids")
         if ids is None:
@@ -245,7 +251,7 @@ class RunExec:
             if self.stopping():
                 return
             src = self.store.one("SELECT * FROM sources WHERE task_id = ? AND path = ?", (self.task_id, root))
-            if not (self.tk.is_online(root) and os.path.isdir(root)):
+            if not (source_online(root)):
                 mark_offline(self.store, src["id"], root)
                 offline.append(root)
                 continue
@@ -817,7 +823,7 @@ def verify_sources(store: st.Store, worker: Worker, tk: Toolkit, task_id: str) -
     """Re-check every source; ones back online get an append run (returned), offline ones read offline."""
     back = []
     for s in store.all("SELECT * FROM sources WHERE task_id = ?", (task_id,)):
-        online = tk.is_online(s["path"]) and os.path.isdir(s["path"])
+        online = source_online(s["path"])
         if not online:
             mark_offline(store, s["id"], s["path"])
             continue
