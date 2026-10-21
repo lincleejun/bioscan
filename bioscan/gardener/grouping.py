@@ -1,13 +1,15 @@
-"""Automatic group suggestions (docs/gardener/contract.md §4, §9.4): events split where the capture
-instants are more than two hours apart (times with a UTC offset compared as instants, times without
-one as camera-local wall clock), places on a ~1 km GPS grid (no reverse geocoding), scene groups
+"""Automatic group suggestions (docs/gardener/contract.md §4, §9.4): events split where capture times
+are more than two hours apart (on one time basis, see _events), places on a ~1 km GPS grid (no reverse geocoding), scene groups
 and species-level taxa. An asset without the field a kind needs is in no group of that kind.
 Standard library only."""
 from __future__ import annotations
 
 import math
+import re
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from bioscan.gardener.analyze import zh
 
@@ -24,38 +26,76 @@ class Group:
     summary: dict = field(default_factory=dict)
 
 
-def _time(taken_at: str | None) -> tuple[float, datetime] | None:
-    """(instant in seconds, wall clock as shot). With a UTC offset the instant is exact, so a photo at
-    -08:00 and a UTC video of the same moment line up; a time without one stays camera-local and is
-    read on the same scale as if it were UTC (there is nothing better to compare it with)."""
+def _parse(taken_at: str | None) -> datetime | None:
     try:
-        t = datetime.fromisoformat(taken_at) if taken_at else None
+        return datetime.fromisoformat(taken_at) if taken_at else None
     except (TypeError, ValueError):
         return None
-    if t is None:
-        return None
-    instant = t.timestamp() if t.tzinfo else t.replace(tzinfo=timezone.utc).timestamp()
-    return instant, t.replace(tzinfo=None)
 
 
-def _events(assets: list[dict]) -> list[Group]:
-    timed = sorted((t[0], t[1], a["id"]) for a in assets if (t := _time(a.get("taken_at"))) is not None)
-    runs: list[list[tuple[float, datetime, str]]] = []
-    for row in timed:
+def zone(tz: str) -> tzinfo:
+    """An IANA zone name or a fixed offset (+08:00, -0800); ValueError otherwise."""
+    m = re.fullmatch(r"([+-])(\d{2}):?(\d{2})", tz.strip())
+    if m:
+        delta = timedelta(hours=int(m.group(2)), minutes=int(m.group(3)))
+        return timezone(-delta if m.group(1) == "-" else delta)
+    try:
+        return ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        raise ValueError(f"unknown time zone {tz!r}") from e
+
+
+def _scale(t: datetime) -> float:
+    """Seconds on one scale: an aware time's instant; a naive wall clock counted as is (only gaps matter)."""
+    return (t if t.tzinfo else t.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def _events(assets: list[dict], tz: str | None) -> list[Group]:
+    """Bases: with `tz`, naive (camera-local) times get that zone and everything compares as instants
+    ("instant"); all times with offsets also compare as instants; otherwise every time is read as its
+    own local wall clock ("local"), an offset just dropped. Then a time at UTC (Z / +00:00), likely a
+    video's UTC stamp, cannot be placed in local time: it is listed in `uncertain_ids` and its group's
+    basis is "mixed-unknown". A naive time is never taken for UTC. Names, start and end use one basis:
+    the local wall clock, with the offset when it is known. Assets' taken_at are not changed."""
+    parsed = [(a["id"], t) for a in assets if (t := _parse(a.get("taken_at"))) is not None]
+    where = zone(tz) if tz else None
+    aware = [t for _, t in parsed if t.tzinfo]
+    instant = where is not None or (parsed and len(aware) == len(parsed))
+    rows = []                                  # (scale, id, time on the comparison basis, uncertain)
+    for aid, t in parsed:
+        if instant:
+            t = t if t.tzinfo else t.replace(tzinfo=where)
+            rows.append((_scale(t), aid, t, False))
+        else:
+            utc = t.tzinfo is not None and t.utcoffset() == timedelta(0)
+            local = t.replace(tzinfo=None)
+            rows.append((_scale(local), aid, local, utc))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    runs: list[list[tuple]] = []
+    for row in rows:
         if runs and row[0] - runs[-1][-1][0] <= EVENT_GAP_S:
             runs[-1].append(row)
         else:
             runs.append([row])
     out, keys = [], set()
     for run in runs:
-        start, end = run[0][1], run[-1][1]          # names in the first frame's own local time
+        times = [r[2] for r in run]
+        if instant:
+            # show the group in one zone: tz when given, else the commonest non-UTC offset of its frames
+            offsets = Counter(t.utcoffset() for t in times if t.utcoffset())
+            show = where or (timezone(offsets.most_common(1)[0][0]) if offsets else times[0].tzinfo)
+            times = [t.astimezone(show) for t in times]
+        start, end = times[0], times[-1]
         key = f"event:{start:%Y%m%d-%H%M}"
         while key in keys:                          # same wall clock in another time zone
             key += "+"
         keys.add(key)
-        out.append(Group(key, "event",
-                         f"{start.month}月{start.day}日 {start:%H:%M} 起 · {len(run)} 张", [r[2] for r in run],
-                         {"count": len(run), "start": start.isoformat(), "end": end.isoformat()}))
+        uncertain = [r[1] for r in run if r[3]]
+        basis = "instant" if instant else "mixed-unknown" if uncertain else "local"
+        out.append(Group(key, "event", f"{start.month}月{start.day}日 {start:%H:%M} 起 · {len(run)} 张",
+                         [r[1] for r in run],
+                         {"count": len(run), "start": start.isoformat(), "end": end.isoformat(),
+                          "time_basis": basis, "uncertain_ids": uncertain}))
     return out
 
 
@@ -100,7 +140,9 @@ def _by(assets: list[dict], kind: str) -> list[Group]:
     return sorted(groups.values(), key=lambda g: (-len(g.asset_ids), g.key))
 
 
-def suggest(assets: list[dict]) -> list[Group]:
+def suggest(assets: list[dict], *, tz: str | None = None) -> list[Group]:
     """assets: {id, taken_at, lat, lon, media, content: {group, label} | None, species: {taxon, common,
-    level} | None}. Events in time order, then places, scenes and species, each largest first."""
-    return _events(assets) + _places(assets) + _by(assets, "scene") + _by(assets, "species")
+    level} | None}; tz: the zone camera-local (naive) times were taken in, when known (IANA name or
+    +HH:MM; see _events). Events in time order, then places, scenes and species, each largest first.
+    ValueError on an unknown tz."""
+    return _events(assets, tz) + _places(assets) + _by(assets, "scene") + _by(assets, "species")

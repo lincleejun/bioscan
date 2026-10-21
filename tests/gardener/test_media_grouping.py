@@ -1,6 +1,8 @@
 """grouping: event, place, scene and species suggestions."""
 from __future__ import annotations
 
+import pytest
+
 from bioscan.gardener.grouping import suggest
 
 
@@ -29,6 +31,51 @@ def test_times_with_an_offset_compare_as_instants():
     far = [g for g in suggest([asset("x", "2025-03-01T08:12:00-08:00"), asset("y", "2025-03-01T08:12:00Z")])
            if g.kind == "event"]
     assert [g.asset_ids for g in far] == [["y"], ["x"]] and len({g.key for g in far}) == 2
+
+
+def events(assets, **kw):
+    return [g for g in suggest(assets, **kw) if g.kind == "event"]
+
+
+def test_naive_and_aware_at_the_same_local_time_stay_together():
+    got = events([asset("naive", "2025-03-01T10:00:00"), asset("aware", "2025-03-01T10:00:00-08:00")])
+    assert [g.asset_ids for g in got] == [["aware", "naive"]]          # same moment: ties by id
+    assert got[0].summary["time_basis"] == "local" and got[0].summary["uncertain_ids"] == []
+    assert got[0].name == "3月1日 10:00 起 · 2 张"
+
+
+def test_given_zone_places_camera_time_against_a_utc_video():
+    assets = [asset("photo", "2025-03-01T10:05:00"), asset("video", "2025-03-01T18:02:00Z")]
+    got = events(assets, tz="-08:00")
+    assert len(got) == 1 and set(got[0].asset_ids) == {"photo", "video"}
+    s = got[0].summary
+    assert s["time_basis"] == "instant" and (s["start"], s["end"]) == ("2025-03-01T10:02:00-08:00",
+                                                                        "2025-03-01T10:05:00-08:00")
+    assert got[0].name == "3月1日 10:02 起 · 2 张"
+    assert events(assets, tz="America/Los_Angeles")[0].asset_ids == got[0].asset_ids
+    assert assets[0]["taken_at"] == "2025-03-01T10:05:00"            # inputs untouched
+    with pytest.raises(ValueError):
+        suggest(assets, tz="Mars/Olympus")
+
+
+def test_without_zone_a_utc_stamp_among_local_times_is_flagged_not_trusted():
+    assets = [asset("photo", "2025-03-01T10:05:00"), asset("video", "2025-03-01T18:02:00Z"),
+              asset("other", "2025-03-01T10:30:00-08:00")]
+    got = events(assets)
+    flagged = [g for g in got if "video" in g.asset_ids][0]
+    assert flagged.summary["time_basis"] == "mixed-unknown" and flagged.summary["uncertain_ids"] == ["video"]
+    local = [g for g in got if "photo" in g.asset_ids][0]
+    assert set(local.asset_ids) == {"photo", "other"} and local.summary["time_basis"] == "local"
+    for g in got:                                                    # nothing shown as UTC or with an offset
+        assert not any(x.endswith(("Z", "+00:00")) for x in (g.summary["start"], g.summary["end"]))
+
+
+def test_start_and_end_share_one_basis():
+    # the reviewer's case: a UTC video three minutes before a -08:00 photo
+    got = events([asset("photo", "2025-03-01T10:05:00-08:00"), asset("video", "2025-03-01T18:02:00Z")])
+    s = got[0].summary
+    assert (s["start"], s["end"]) == ("2025-03-01T10:02:00-08:00", "2025-03-01T10:05:00-08:00")
+    assert got[0].name == "3月1日 10:02 起 · 2 张"
 
 
 def test_places_on_a_km_grid_without_gps_left_out():
