@@ -35,13 +35,14 @@ def test_create_scan_completes_with_previews_results_groups_and_summary(env, tmp
         s = run["summary"]
         assert (s["discovered"], s["files"], s["by_media"], s["previewed"], s["unsupported"]) == \
             (5, 6, {"photo": 4, "video": 1}, 5, 1)
-        assert s["analyzed"]["species"] == 5 and s["failed"] == [] and s["not_run"] == [] and s["unavailable"] == {}
+        assert s["analyzed"]["species"] == 4 and s["failed"] == [] and s["not_run"] == [] and s["unavailable"] == {}
         assert run["config"]["versions"]["species"] == "species@fake1"
         items = assets(c, task=t["id"], order="discovered")["items"]
         assert len(items) == 5 and all(i["preview"] == "ready" and i["analysis"] == "done" for i in items)
-        assert items[0]["content_label_zh"] == "鸟" and items[0]["species"]["taxon"] == "Megascops asio"
+        ph = [i for i in items if i["media"] == "photo"]
+        assert ph[0]["content_label_zh"] == "鸟" and ph[0]["species"]["taxon"] == "Megascops asio"
         ai = [i["ai"]["verdict"] for i in items if i["media"] == "photo"]
-        assert ai.count("pick") == 1 and next(i for i in items if i["media"] == "video")["ai"] is None and items[1]["burst"]["id"].startswith(t["id"] + ":")
+        assert ai.count("pick") == 1 and next(i for i in items if i["media"] == "video")["ai"] is None and ph[0]["burst"]["id"].startswith(t["id"] + ":")
         pair = next(i for i in items if i["name"] == "DSC_0001.jpg")
         d = c.get(f"{API}/assets/{pair['id']}").json()
         assert sorted(f["role"] for f in d["files"]) == ["jpeg", "raw"]

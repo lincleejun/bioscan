@@ -9,6 +9,7 @@ tests). Gardener never writes inside a source directory: previews go to the data
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import subprocess
@@ -77,8 +78,6 @@ def preview_paths(store: st.Store, asset_id: str) -> tuple[Path, Path]:
     return d / f"{asset_id}.thumb.jpg", d / f"{asset_id}.large.jpg"
 
 
-def under(path: str, root: str) -> bool:
-    return path == root or path.startswith(root.rstrip("/") + "/")
 
 
 # ---- queueing (called by the API; every write under the store's lock) ----
@@ -87,7 +86,9 @@ def queue_run(c: Any, task_id: str, kind: str, *, capabilities: list[str], run_m
               sources: list[str] | None = None, asset_ids: list[str] | None = None) -> str:
     rid, t = st.new_id("r"), now()
     seq = c.execute("SELECT coalesce(max(seq), 0) + 1 FROM runs WHERE task_id = ?", (task_id,)).fetchone()[0]
-    config = {"capabilities": capabilities, "run_mode": run_mode, "preset": preset, "versions": {}, "options": {}}
+    tz = c.execute("SELECT timezone FROM tasks WHERE id = ?", (task_id,)).fetchone()[0]
+    config = {"capabilities": capabilities, "run_mode": run_mode, "preset": preset, "timezone": tz, "versions": {},
+              "options": {}}
     c.execute("INSERT INTO runs (id, task_id, seq, kind, status, config, scope, queued_at) VALUES (?, ?, ?, ?, 'queued', "
               "?, ?, ?)", (rid, task_id, seq, kind, dumps(config),
                            dumps({"sources": sources or [], "asset_ids": asset_ids}), t))
@@ -227,7 +228,7 @@ class RunExec:
             "coalesce(sum(a.preview_status = 'failed'), 0) preview_failed FROM run_assets ra "
             "JOIN assets a ON a.id = ra.asset_id WHERE ra.run_id = ?", (self.id,))
         r = self.store.one("SELECT count(*) analyzed, coalesce(sum(status = 'failed'), 0) failed FROM results "
-                           "WHERE run_id = ? AND capability NOT LIKE 'raw:%' AND capability != 'preview'", (self.id,))
+                           "WHERE run_id = ? AND capability NOT LIKE 'raw:%' AND capability NOT IN ('preview', 'meta')", (self.id,))
         self.counts.update(k, analyzed=r["analyzed"], failed=r["failed"] + k["preview_failed"])
         with self.store.tx() as c:
             c.execute("UPDATE runs SET counts = ? WHERE id = ?", (dumps(self.counts), self.id))
@@ -236,7 +237,7 @@ class RunExec:
     def seed_scope(self) -> None:
         """rescan / retry: the scope is the given assets, else every asset of the task."""
         for src in self.store.all("SELECT * FROM sources WHERE task_id = ?", (self.task_id,)):
-            if not (source_online(src["path"])):
+            if not source_online(src["path"]):
                 mark_offline(self.store, src["id"], src["path"])
         ids = self.run["scope"].get("asset_ids")
         if ids is None:
@@ -251,7 +252,7 @@ class RunExec:
             if self.stopping():
                 return
             src = self.store.one("SELECT * FROM sources WHERE task_id = ? AND path = ?", (self.task_id, root))
-            if not (source_online(root)):
+            if not source_online(root):
                 mark_offline(self.store, src["id"], root)
                 offline.append(root)
                 continue
@@ -353,7 +354,7 @@ class RunExec:
         self.regroup()
         retry = self.run["kind"] == "retry"
         todo = [r for r in rows if r["preview_status"] == "pending" or (retry and r["preview_status"] == "failed")]
-        self.counts["to_preview"] = self.counts.get("previewed_before", 0) + len(todo)
+        self.counts["to_preview"] = len(rows)
         with ThreadPoolExecutor(int(self.mode["preview_workers"])) as pool:
             futs = {pool.submit(self.make_preview, r): r for r in todo}
             for fut in as_completed(futs):
@@ -400,7 +401,7 @@ class RunExec:
         rows = self.store.all(
             f"SELECT ra.asset_id, c.capability, c.state, c.run_id FROM run_assets ra JOIN assets a ON a.id = ra.asset_id "
             f"LEFT JOIN asset_caps c ON c.asset_id = ra.asset_id AND c.capability IN ({st.marks_in(caps)}) "
-            "WHERE ra.run_id = ? AND a.online = 1", [*caps, self.id])
+            "WHERE ra.run_id = ? AND a.online = 1 AND a.media = 'photo'", [*caps, self.id])   # videos: records only
         have: dict[str, dict[str, dict[str, Any]]] = {}
         for r in rows:
             have.setdefault(r["asset_id"], {})
@@ -536,7 +537,8 @@ class RunExec:
                 c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, aid))
 
     def regroup(self) -> None:
-        self.counts["groups_skipped_deleted"] = regroup(self.store, self.tk, self.task_id, self.enabled, run_id=self.id)
+        self.counts["groups_skipped_deleted"] = regroup(self.store, self.tk, self.task_id, self.enabled, run_id=self.id,
+                                                        tz=self.run["config"].get("timezone"))
 
     # ---- end ----
     def finish(self, error: str | None) -> None:
@@ -725,7 +727,8 @@ def ensure_all_collection(c: Any, task_id: str) -> str | None:
     return None if row["deleted_at"] else row["id"]
 
 
-def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_id: str | None = None) -> int:
+def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_id: str | None = None,
+            tz: str | None = None) -> int:
     """grouping.suggest over the whole task -> auto collections (§6.5, §10 X8): a suggested group lands
     on the existing auto collection of its kind it overlaps most (else one with its key, else a new one);
     auto only adds members, never revives a tombstone, never renames a user-edited collection, and never
@@ -743,7 +746,9 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
                            if sp and sp.get("taxon") else None})
     if not assets:
         return 0
-    groups = [g for g in tk.suggest(assets) if GROUP_NEEDS.get(g.kind) in enabled]
+    takes_tz = "tz" in inspect.signature(tk.suggest).parameters      # grouping.suggest(assets, tz=...) (R2)
+    suggested = tk.suggest(assets, tz=tz) if takes_tz else tk.suggest(assets)
+    groups = [g for g in suggested if GROUP_NEEDS.get(g.kind) in enabled]
     t, skipped = now(), 0
     with store.tx() as c:
         cols = [dict(r) for r in c.execute("SELECT id, group_kind, auto_key, name, user_edited, deleted_at "
@@ -776,6 +781,8 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
                 for i in new:
                     c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, i))
             members[target["id"]].update(new)
+            c.execute("UPDATE collections SET summary = ? WHERE id = ?", (dumps(getattr(g, "summary", None) or {}),
+                                                                           target["id"]))
             if not target["user_edited"] and target["name"] != g.name:
                 c.execute("UPDATE collections SET name = ?, updated_at = ? WHERE id = ?", (g.name, t, target["id"]))
                 target["name"] = g.name

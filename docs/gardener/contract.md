@@ -202,3 +202,23 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **标签拆分（PRD §7 / D25 已确认，首版必须）**：`POST /tags/{id}/split {names: [新名], assign?: {新名: [asset_ids]}}` → 新建子标签（原标签保留或停用由 `deactivate_source` 决定，默认保留），记 `tag_history`，人工与 AI 的 `asset_tags` 来源分开保留。
 - **澄清**：`taken_at` 保留相机本地时间（有 OffsetTime 时带偏移），不换算 UTC；记录时间戳用 UTC。`GET /assets` 增加 `order=discovered`（`task_assets.ord`，任务内默认）并统一以 `id` 为次级排序。缓存分片用 `id[2:4]`。`PHOTO_EXT` 不含 HEIC。runs.kind 枚举为 scan|append|rescan|retry（恢复不新建运行，而是原运行重新排队）。`expect` 可选，发送时不符返回 409。只有开启 `place_event` 才生成事件/地点分组，`content` 才有场景分组，`species` 才有物种分组。`--allow-root` 默认不限制（与 BioScan 一致），但服务只监听 127.0.0.1，并且：Host 头必须是 127.0.0.1/localhost/[::1]（否则 403）；带非本机 `Origin` 的非 GET 请求返回 403。`Collection.review` 增加 `removed_since`（完成快照中、当前已不在集合的数量）与 `changed_since`。`asset_tags` 主键不含 run_id：重跑覆盖当前 AI 标签，旧值在 `results` 历史中。`settings.capability_versions` v0.1 只记录与展示（版本由已安装模型决定），比较新旧靠 `ai_history`/results 历史。
 - **真实数据边界**：DNG/ARW 内嵌预览（如 1024 px 级）只用于浏览，UI 与报告不得称其为精细对焦或完整 RAW 解码验证。
+
+## 单元 1 变更
+
+实现（`store.py`、`query.py`、`tasks.py`、`api.py`）相对上文的增补与取舍：
+
+- **schema**：`ai_suggestions` 增加 `burst_rank`、`burst_size`（`AssetItem.burst` 的 rank/size）；新增表 `run_assets(run_id, asset_id)` 记录每个运行覆盖的素材（续跑、汇总与进度据此计算）。`schema_version` 仍为 1。
+- **注入**：`create_gardener_app(data_dir, *, engine=None, toolkit=None, allow_roots=None, start_worker=True, allowed_hosts=("127.0.0.1", "localhost", "::1"))`；`tasks.Toolkit` 汇集单元 2 的函数（默认在创建 app 时导入真实模块），Analyzer 以 `toolkit.analyzer(engine, decode_workers=, chunk=)` 构造。Host/Origin 拒绝返回 403，`code: "forbidden"`。
+- **来源在线**：来源是目录，在线 = 存在且可列出（`scan.is_online` 只用于文件）。
+- **视频**：只做记录、元数据、预览与 place_event，不送模型分析（没有模型能力状态行）。
+- **重新配对**（RAW 补了 JPEG 或反之）：先按已登记的文件路径找素材，再按 pair_key；沿用原 asset_id，原地更新 pair_key/primary，Flag/Star 保留且不写 content_changed 批次，只重新预览与分析。若两个旧素材因此合并，另一个保留并标 `meta.merged_into`、`online=0`（不删除）。
+- **自动集合**：建议组与已删除/合并的自动集合匹配时整组跳过，`summary.groups_skipped_deleted` 计数；新组的 key 已被其他行占用时加后缀 `#2`、`#3`。
+- **状态机细节**：对排队中的运行“暂停”直接变 `paused`；“继续”把 `queued_at` 设为当前时间（排到队尾）。`counts.interruptions` 记录重启恢复次数。
+- **响应补充**：`pause|resume|stop|verify-sources` 返回 `Task`（含 `runs`），`verify-sources` 另带 `queued_run_id`；`members` 响应另带 `added`、`removed`；`zero` 响应另带 `batch_id`；`marks/undo` 另带撤销本身的 `batch_id`；`mark_history` 条目含 `batch_id`、`undone`；新增 `GET /marks/history?asset_id=&batch_id=&actor=&limit=`（新在前）。
+- **汇总补充**：`summary` 另含 `missing`、`reused`、`groups_skipped_deleted`。
+- **low_score**：只按“全部为 AI reject”判断（`cull.select` 没有数值美学拒绝线）。
+- **标签**：人工标签 id `user:<hex>`；场景标签 `scene:<label>` 的父标签为 `scene:<group>`；`content` 筛选按场景标签 id/名称，`species` 筛选按物种标签 id/名称子串。
+- **导出**：`scope=selected` 取 `selected`（或 `asset_ids`）与选择范围的交集；传给 `export.export` 的 `collections` = 被导出的集合加上含有导出素材的集合。目的地默认 `<data>/exports/`；落在任何来源目录内则先返回 400，不调用导出。
+- **预设**：内建预设可改（PUT），不可删。
+- **未实现**：`assets.sha256` 不在扫描时计算（导出复制时自行计算 sha256）。
+- **时区（R2）**：任务可选字段 `timezone`（IANA 名称或 `±HH:MM`，否则 400），见于 `Task`、`POST/PATCH /tasks` 与运行 `config.timezone` 快照；分组时若 `grouping.suggest` 接受 `tz` 参数则传入。自动集合保存建议组的 `summary`，`Collection` 增加 `time_basis` 与 `uncertain`（`uncertain_ids` 数量）。拍摄时间不做任何时区换算，日期筛选按相机本地时间比较。schema 增加 `tasks.timezone`、`collections.summary`；旧数据库启动时按缺失列 `ALTER TABLE ADD COLUMN`。

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
   preset TEXT, capabilities TEXT NOT NULL,      -- JSON list: the task's current default config
   run_mode TEXT NOT NULL DEFAULT 'balanced',
+  timezone TEXT,                                -- IANA name or ±HH:MM where the shoot was; NULL = unknown
   archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1
 );
 
@@ -117,6 +118,7 @@ CREATE TABLE IF NOT EXISTS collections (
   auto_key TEXT,                 -- grouping key of an auto collection, unique per task
   task_id TEXT REFERENCES tasks(id), name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
   rule TEXT,                     -- JSON asset query (smart only)
+  summary TEXT,                  -- JSON: the grouping suggestion's summary (time_basis, uncertain_ids, ...)
   user_edited INTEGER NOT NULL DEFAULT 0,             -- renamed/edited by a person: regrouping never renames it
   deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
   UNIQUE (task_id, auto_key)

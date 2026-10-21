@@ -164,16 +164,20 @@ class Fakes:
         self.exports: list[dict[str, Any]] = []
         self.revealed: list[str] = []
         self.version = "fake1"
+        self.tz_seen: str | None = None
 
     def analyzer(self, engine, *, decode_workers=2, chunk=16, detail_edge=None):
         return FakeAnalyzer(self, engine)
 
-    def suggest(self, assets):
+    def suggest(self, assets, *, tz=None):
+        self.tz_seen = tz
         groups = []
         timed = [a for a in assets if a["taken_at"]]
         if timed:
+            basis = "task_timezone" if tz else "camera_local"
             groups.append(Group(f"event:{min(a['taken_at'] for a in timed)[:10]}", "event", "事件",
-                                [a["id"] for a in timed]))
+                                [a["id"] for a in timed], {"time_basis": basis,
+                                                           "uncertain_ids": [] if tz else [timed[0]["id"]]}))
         by: dict[str, list[str]] = {}
         for a in assets:
             if a["content"]:

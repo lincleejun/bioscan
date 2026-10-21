@@ -22,6 +22,8 @@ SCHEMA = Path(__file__).with_name("schema.sql")
 DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
                                     "capability_versions": {}, "cap_status": {}}
 TERMINAL = ("completed", "partial", "failed", "stopped", "cancelled")
+ADDED_COLUMNS = (("ai_suggestions", "burst_rank", "INTEGER"), ("ai_suggestions", "burst_size", "INTEGER"),
+                 ("tasks", "timezone", "TEXT"), ("collections", "summary", "TEXT"))
 REVIEW_STATE = {"complete": "completed", "zero": "zeroed", "reopen": "open"}
 
 
@@ -146,6 +148,9 @@ class Store:
         c.execute("PRAGMA journal_mode = WAL")
         with self.lock:
             c.executescript(SCHEMA.read_text())
+            for table, col, decl in ADDED_COLUMNS:      # databases made before a column was added
+                if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
         with self.tx() as c:
             row = c.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
             if row is None:
@@ -201,6 +206,7 @@ class Store:
                     "total_analysis": k.get("total_analysis", 0), "progress": progress(last["status"], k)}
         out = {"id": t["id"], "title": t["title"], "subtitle": t["subtitle"], "description": t["description"],
                "preset": t["preset"], "capabilities": loads(t["capabilities"]), "run_mode": t["run_mode"],
+               "timezone": t["timezone"],
                "archived": t["archived_at"] is not None, "created_at": t["created_at"], "sources": sources,
                "scan": scan,
                "review": {"judged": judged, "total": n["assets"],
@@ -371,6 +377,7 @@ class Store:
             f"SELECT a.id FROM assets a WHERE {sql} ORDER BY a.preview_status != 'ready', a.taken_at, a.primary_path "
             "LIMIT 4", ps)]
         rev = self.one("SELECT * FROM collection_reviews WHERE collection_id = ? ORDER BY id DESC LIMIT 1", (row["id"],))
+        summ = loads(row.get("summary"), {}) or {}
         state = REVIEW_STATE[rev["action"]] if rev else "open"
         new_since = removed_since = changed_since = 0
         if rev and state != "open":
@@ -389,7 +396,8 @@ class Store:
                 "review": {"state": state, "at": rev["at"] if rev else None, "unhandled": s["size"] - s["judged"],
                            "new_since": new_since, "removed_since": removed_since,
                            "changed_since": changed_since},
-                "user_edited": bool(row["user_edited"])}
+                "user_edited": bool(row["user_edited"]),
+                "time_basis": summ.get("time_basis"), "uncertain": len(summ.get("uncertain_ids") or [])}
 
     def collections(self, *, task: str | None = None, kind: str | None = None, deleted: bool = False) -> list[dict]:
         conds, ps = ["deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"], []
