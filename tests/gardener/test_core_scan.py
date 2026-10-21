@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import shutil
 
-from conftest import BASE, create_task, make_jpg, photos, wait_task, wait_until
+from core_fixtures import *  # noqa: F403 - fixtures (env, fakes)
+from core_fixtures import BASE, create_task, make_jpg, photos, wait_task, wait_until
 
 from bioscan.gardener import store as st
 
@@ -251,7 +252,7 @@ def test_missing_file_is_offline_not_deleted(env, tmp_path):
 
 
 def test_unavailable_models_record_unavailable_and_no_scores(tmp_path, fakes):
-    from conftest import Env
+    from core_fixtures import Env
 
     from bioscan.service.engine import Engine, Loaders
 

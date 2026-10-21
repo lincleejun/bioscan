@@ -1,4 +1,8 @@
-"""Shared Gardener fixtures: a fake Toolkit (unit 2's scanner, preview, Analyzer, grouping and export
+"""Shared core fixtures. Not a conftest.py: tests/contract/conftest.py is imported by name
+(`from conftest import ...`) across the suite, and a second conftest module would shadow it. Test
+modules pull these in with `from core_fixtures import *`.
+
+Shared Gardener fixtures: a fake Toolkit (unit 2's scanner, preview, Analyzer, grouping and export
 replaced by small stand-ins with the contract §4 signatures), tiny synthetic JPEGs in tmp dirs, and a
 TestClient on the real app, worker and SQLite store."""
 from __future__ import annotations
