@@ -116,3 +116,27 @@ def test_copy_never_overwrites_an_existing_name(tmp_path):
     with pytest.raises(FileExistsError):
         ex._copy(str(a), b)
     assert b.read_bytes() == b"old" and sorted(p.name for p in tmp_path.iterdir()) == ["a", "b"]
+
+
+def test_identical_is_rechecked_when_copying(tmp_path, src, monkeypatch):
+    run(tmp_path / "out", src)                                   # same.jpg now there, identical to the source
+    real = ex._plan
+
+    def plan_then_change(*a):
+        out = real(*a)
+        (tmp_path / "out" / "files" / "t" / "same.jpg").write_bytes(b"changed after planning")
+        return out
+
+    monkeypatch.setattr(ex, "_plan", plan_then_change)
+    rep = run(tmp_path / "out", src)
+    assert rep["identical"] == 0 and rep["renamed"] == 1 and rep["verified"]
+    assert (tmp_path / "out" / "files" / "t" / "same.jpg").read_bytes() == b"changed after planning"
+
+
+def test_fail_conflict_leaves_no_new_destination(tmp_path, src):
+    (src / "sub" / "same.jpg").write_bytes(b"another photo, same name")
+    two = [{"id": "a", "files": [{"path": str(src / "same.jpg")}]}, {"id": "b", "files": [{"path": str(src / "sub" / "same.jpg")}]}]
+    with pytest.raises(ValueError):
+        ex.export(tmp_path / "fresh", title="t", scope=SCOPE, collections=[], assets=two, copy=True,
+                  conflict="fail", protected=[src])
+    assert not (tmp_path / "fresh").exists()
