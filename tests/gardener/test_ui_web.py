@@ -114,3 +114,32 @@ def test_served_by_the_app():
 @pytest.mark.parametrize("name", ["api.js", "app.js"])
 def test_js_parses(name):
     subprocess.run(["node", "--check", str(WEB / name)], check=True, capture_output=True)
+
+
+def test_restore_cleared_judgment_flow():
+    """Recheck B: a judgment the service cleared (content changed / zero clear_picks) is restorable from the
+    detail panel by undoing its batch; the fake mirrors the shapes the panel reads."""
+    from fastapi.testclient import TestClient
+    c = TestClient(create_app(static=False))
+    item = next(a for a in c.get("/api/v1/assets", params={"q": "IMG_0003"}).json()["items"])
+    hist = c.get(f"/api/v1/assets/{item['id']}").json()["mark_history"]
+    cleared = [h for h in hist if h["actor"] == "system" and h["reason"] == "content_changed"]
+    assert cleared and all(h["batch_id"] for h in cleared)
+    rows = c.get("/api/v1/marks/history", params={"asset_id": item["id"], "actor": "system"}).json()
+    assert {r["batch_id"] for r in rows} == {cleared[0]["batch_id"]}
+    assert c.post("/api/v1/marks/undo", json={"batch_id": cleared[0]["batch_id"]}).json() == {"undone": 1}
+    after = c.get(f"/api/v1/assets/{item['id']}").json()
+    assert (after["flag"], after["stars"]) == ("pick", 3)
+    app = text("app.js")
+    assert "h.actor === 'system' && h.reason === 'content_changed'" in app and "startsWith('zero:')" in app
+    assert "'restore-batch': el => undoBatch(el.dataset.id" in app
+    assert "api('POST', '/marks/undo', { batch_id: batch })" in app
+
+
+def test_poll_cursor_and_order():
+    """X7: the cursor is the max updated_at received; task and collection views page in discovery order."""
+    app = text("app.js")
+    assert "if (a.updated_at > ws.cursor) ws.cursor = a.updated_at;" in app
+    assert "changed_after: ws.cursor" in app
+    assert "makeWs('preview', { task: t.id }, 'discovered'" in app
+    assert "makeWs('review', { collection: c.id }, 'discovered'" in app
