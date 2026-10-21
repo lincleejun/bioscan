@@ -463,3 +463,27 @@ An image paired between two reports (by sha256, else path) whose top-1 went from
 Why an image has no correct top-1, one per image: failed, gate_miss, detector_miss, wrong_kind, not_in_list,
 out_of_range, prior_suppressed, within_genus, within_family, far_miss; `overconfident` (wrong at level species) overlaps them.
 
+
+## Gardener (docs/gardener/)
+
+**Task** (任务):
+One Import/Scan job: sources, background text, a capability config; persists and can be appended to. Not a Collection.
+
+**Task run** (运行):
+One execution of a task (scan, append, rescan, retry) with its config and scope snapshot; never rewrites an earlier one.
+_Avoid_: Run (that is a BioScan `/run` request; a task run may drive several)
+
+**Asset** (素材):
+What the user reviews: one photo (RAW + same-stem JPEG in one folder) or one whole video, with its files.
+
+**Collection**:
+A content group and review unit; manual (explicit members) or smart (a saved asset query). An asset may be in many.
+
+**Flag / Star**:
+The human pick/reject and 0–5 rating, global per asset, shared by every collection.
+
+**AI suggestion**:
+A machine pick/reject/none with score and reasons, per task run; stored apart from Flag/Star.
+
+**Capability** (能力):
+A user-facing analysis switch (content, species, quality, ...) mapped to BioScan stages and reducers; not a model.

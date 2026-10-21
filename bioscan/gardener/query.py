@@ -1,0 +1,107 @@
+"""Asset filters (contract §6.4) as one SQL condition over `assets a`; a Smart Collection's rule is
+the same filter dict. Every condition is a subquery on `a`, so callers can wrap it in any SELECT."""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+KEYS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "ai", "judged", "online",
+        "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "q", "changed_after")
+CHOICES = {"media": ("photo", "video"), "flag": ("pick", "reject", "none"), "ai": ("pick", "reject", "none"),
+           "judged": ("yes", "no"), "online": ("1", "0"), "has_gps": ("1", "0"),
+           "analysis": ("pending", "done", "failed", "unavailable")}
+MAX_DEPTH = 4    # smart rules may name other collections; this bounds the chain (and cycles)
+
+LATEST_AI = "(SELECT s.verdict FROM ai_suggestions s WHERE s.asset_id = a.id ORDER BY s.id DESC LIMIT 1)"
+JUDGED = "EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND (m.flag IS NOT NULL OR m.stars > 0))"
+BASENAME = "replace(a.primary_path, rtrim(a.primary_path, replace(a.primary_path, '/', '')), '')"
+
+
+def clean(filters: dict[str, Any]) -> dict[str, str]:
+    """Known keys with non-empty values, as strings; ValueError on an unknown key or a bad choice."""
+    unknown = sorted(set(filters) - set(KEYS))
+    if unknown:
+        raise ValueError(f"unknown filters: {unknown}")
+    out = {k: str(v) if not isinstance(v, bool) else ("1" if v else "0") for k, v in filters.items()
+           if v is not None and v != ""}
+    for k, allowed in CHOICES.items():
+        if k in out and out[k] not in allowed:
+            raise ValueError(f"{k} must be one of {'|'.join(allowed)}")
+    for k in ("stars_min", "stars"):
+        if k in out and not (out[k].isdigit() and 0 <= int(out[k]) <= 5):
+            raise ValueError(f"{k} must be 0..5")
+    return out
+
+
+def where(store: Any, filters: dict[str, Any], depth: int = 0) -> tuple[str, list[Any]]:
+    """(sql, params) selecting the assets that match every filter; `store.one` resolves a collection."""
+    if depth > MAX_DEPTH:
+        raise ValueError("smart collection rules nest too deep")
+    f = clean(filters)
+    conds: list[str] = []
+    params: list[Any] = []
+
+    def add(sql: str, *ps: Any) -> None:
+        conds.append(sql)
+        params.extend(ps)
+
+    if "task" in f:
+        add("EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.task_id = ?)", f["task"])
+    if "collection" in f:
+        col = store.one("SELECT kind, rule FROM collections WHERE id = ?", (f["collection"],))
+        if col is None:
+            add("0")
+        elif col["kind"] == "smart":
+            sub, ps = where(store, json.loads(col["rule"] or "{}"), depth + 1)
+            add(f"({sub})", *ps)
+        else:
+            add("EXISTS (SELECT 1 FROM collection_members cm WHERE cm.asset_id = a.id AND cm.collection_id = ? "
+                "AND cm.removed_at IS NULL)", f["collection"])
+    if "source" in f:
+        add("EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.source_id = ?)", f["source"])
+    if "media" in f:
+        add("a.media = ?", f["media"])
+    if "flag" in f:
+        if f["flag"] == "none":
+            add("NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.flag IS NOT NULL)")
+        else:
+            add("EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.flag = ?)", f["flag"])
+    if "stars_min" in f:
+        add("coalesce((SELECT m.stars FROM marks m WHERE m.asset_id = a.id), 0) >= ?", int(f["stars_min"]))
+    if "stars" in f:
+        add("coalesce((SELECT m.stars FROM marks m WHERE m.asset_id = a.id), 0) = ?", int(f["stars"]))
+    if "ai" in f:
+        add(f"coalesce({LATEST_AI}, 'none') = ?", f["ai"])
+    if "judged" in f:
+        add(JUDGED if f["judged"] == "yes" else f"NOT {JUDGED}")
+    if "online" in f:
+        add("a.online = ?", int(f["online"]))
+    if "analysis" in f:
+        caps = "SELECT 1 FROM asset_caps c WHERE c.asset_id = a.id AND c.state"
+        add({"pending": f"(EXISTS ({caps} = 'pending') OR NOT EXISTS ({caps} != 'not_enabled'))",
+             "done": f"EXISTS ({caps} != 'not_enabled') AND NOT EXISTS ({caps} IN ('pending', 'failed', 'unavailable'))",
+             "failed": f"EXISTS ({caps} = 'failed')",
+             "unavailable": f"EXISTS ({caps} = 'unavailable')"}[f["analysis"]])
+    if "date_from" in f:
+        add("a.taken_at >= ?", f["date_from"])
+    if "date_to" in f:       # a date-only bound includes that whole day
+        add("substr(a.taken_at, 1, length(?)) <= ?", f["date_to"], f["date_to"])
+    if "has_gps" in f:
+        add("a.lat IS NOT NULL AND a.lon IS NOT NULL" if f["has_gps"] == "1" else "(a.lat IS NULL OR a.lon IS NULL)")
+    if "tag" in f:
+        add("EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id "
+            "AND (t.id = ? OR t.name = ?))", f["tag"], f["tag"])
+    if "content" in f:
+        add("EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id "
+            "AND t.id LIKE 'scene:%' AND (t.id = 'scene:' || ? OR t.name = ?))", f["content"], f["content"])
+    if "species" in f:
+        add("EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id "
+            "AND t.id LIKE 'species:%' AND (instr(lower(t.id), lower(?)) > 0 OR instr(lower(t.name), lower(?)) > 0))",
+            f["species"], f["species"])
+    if "q" in f:
+        add(f"instr(lower({BASENAME}), lower(?)) > 0", f["q"])
+    if "changed_after" in f:
+        from bioscan.gardener.store import canon_time
+
+        add("a.updated_at > ?", canon_time(f["changed_after"]))
+    return (" AND ".join(conds) or "1"), params
