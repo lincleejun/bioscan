@@ -43,3 +43,15 @@ def test_parse_apply_checks_the_shape():
                 {"keep": ["/a"], "keep_to": "k"}, {"drop": ["/a"], "delete": "yes"}, {"drop": ["/a"]}):
         with pytest.raises(ValueError):
             parse_apply(bad)
+
+
+def test_apply_refuses_everything_without_a_token(tmp_path, monkeypatch):
+    from bioscan import apply as applying
+    src = album(tmp_path)
+    monkeypatch.setattr(applying, "token", lambda create=False: None)
+    app = create_app(Fakes().engine(), decode_pool=ThreadPoolExecutor(2), allow_roots=[str(tmp_path)])
+    with TestClient(app) as c:
+        for h in ({}, {"x-bioscan-token": ""}, {"x-bioscan-token": "None"}):
+            r = c.post("/apply", json={"drop": [str(src / "b.ARW")], "delete": True}, headers=h)
+            assert r.status_code == 403
+    assert (src / "b.ARW").exists()
