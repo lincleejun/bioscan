@@ -25,14 +25,20 @@ from typing import Any
 
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import store as st
+from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
 
 log = logging.getLogger("bioscan.gardener")
 
 ACTIVE = ("queued", "running", "paused")
-MODEL_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages)
+MODEL_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages or c.local)
+BIOSCAN_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages)
 VIDEO_NA = "视频首版只做元数据、封面、播放与人工标记；图像分析不适用"
-GROUP_NEEDS = {"event": "place_event", "place": "place_event", "scene": "content", "species": "species"}
+# what a group kind needs switched on, any of them ((): always; "other" = videos and photos with no subject information)
+GROUP_NEEDS = {"species": ("species",), "person": ("people", "content"), "animal": ("content", "species"),
+               "scene": ("content",), "other": (), "day": ("place_event",), "place": ("place_event",)}
+SUBJECT_CAPS = ("content", "species", "people")
+PEOPLE_EVERY = 64            # regroup after this many people results
 META_BATCH = 64
 FAILED_MAX = 200
 
@@ -63,15 +69,16 @@ class Toolkit:
     suggest: Callable[[list[dict[str, Any]]], list[Any]]
     export: Callable[..., dict[str, Any]]
     reveal: Callable[[str], None] = reveal
+    faces: Callable[[], Any] | None = None       # FaceModel(): .version, .ensure(), .faces(image_path)
 
     @classmethod
     def default(cls) -> Toolkit:
-        from bioscan.gardener import analyze, grouping, preview, scan
+        from bioscan.gardener import analyze, faces, grouping, preview, scan
         from bioscan.gardener import export as exporting
 
         return cls(discover=scan.discover, quick_hash=scan.quick_hash, is_online=scan.is_online,
                    read_meta=preview.read_meta, make_preview=preview.make_preview, analyzer=analyze.Analyzer,
-                   suggest=grouping.suggest, export=exporting.export)
+                   suggest=grouping.suggest, export=exporting.export, faces=faces.FaceModel)
 
 
 def preview_paths(store: st.Store, asset_id: str) -> tuple[Path, Path]:
@@ -79,6 +86,15 @@ def preview_paths(store: st.Store, asset_id: str) -> tuple[Path, Path]:
     return d / f"{asset_id}.thumb.jpg", d / f"{asset_id}.large.jpg"
 
 
+@dataclass
+class LocalResult:
+    """A result of a model the worker runs itself (people); the shape of analyze.ItemResult."""
+    asset_id: str
+    capability: str
+    status: str
+    data: dict | None
+    error: str | None
+    version: str | None
 
 
 # ---- queueing (called by the API; every write under the store's lock) ----
@@ -117,6 +133,19 @@ class Worker:
         self.shutdown = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wake: asyncio.Event | None = None
+        self._faces: Any = None
+        self._faces_lock = threading.Lock()
+
+    def faces(self) -> Any:
+        """The face model, loaded once per process; raises when there is none or it does not load."""
+        with self._faces_lock:
+            if self._faces is None:
+                if self.toolkit.faces is None:
+                    raise RuntimeError("人物模型未配置")
+                model = self.toolkit.faces()
+                model.ensure()
+                self._faces = model
+            return self._faces
 
     def wake(self) -> None:
         if self._loop is not None and self._wake is not None:
@@ -208,6 +237,8 @@ class RunExec:
                 await self.analyze()
             if not self.stopping():
                 await self.phase("group", self.group)
+            elif self.w.flags.get(self.id) == "stop":       # a stopped run keeps its results: group them fully
+                await asyncio.to_thread(self.regroup, True)
         except Exception as exc:  # noqa: BLE001 - a run failure is reported, never kills the worker
             log.exception("run %s failed", self.id)
             error = f"{type(exc).__name__}: {exc}"
@@ -372,7 +403,7 @@ class RunExec:
             ready = c.execute("SELECT preview_status FROM assets WHERE id = ?", (aid,)).fetchone()[0] == "ready"
         return int(row is not None and not changed and not added and ready)
 
-    # ---- preview (metadata first, so event/place groups exist before the thumbnails) ----
+    # ---- preview (metadata first, then the thumbnails; versions of one capture once previews exist) ----
     def preview(self) -> None:
         rows = self.store.all(
             "SELECT a.id, a.primary_path, a.media, a.preview_status, a.meta, (SELECT state FROM asset_caps c "
@@ -397,6 +428,14 @@ class RunExec:
                 if self.stopping():
                     pool.shutdown(cancel_futures=True)
                     break
+        self.save_counts(force=True)
+        if not self.stopping():
+            self.link_versions()
+
+    def link_versions(self) -> None:
+        """Versions of one capture (versions.py): analysed and grouped through their representative."""
+        self.counts["versions"] = vers.link(self.store, self.task_id, lambda aid: preview_paths(self.store, aid)[0],
+                                            [c for c in MODEL_CAPS if c in self.enabled])
         self.save_counts(force=True)
 
     def read_meta(self, rows: list[dict[str, Any]]) -> None:
@@ -435,7 +474,8 @@ class RunExec:
         rows = self.store.all(
             f"SELECT ra.asset_id, c.capability, c.state, c.run_id FROM run_assets ra JOIN assets a ON a.id = ra.asset_id "
             f"LEFT JOIN asset_caps c ON c.asset_id = ra.asset_id AND c.capability IN ({st.marks_in(caps)}) "
-            "WHERE ra.run_id = ? AND a.online = 1 AND a.media = 'photo'", [*caps, self.id])   # videos: records only
+            "WHERE ra.run_id = ? AND a.online = 1 AND a.media = 'photo' AND a.version_of IS NULL",
+            [*caps, self.id])   # videos: records only; versions: through their representative
         have: dict[str, dict[str, dict[str, Any]]] = {}
         for r in rows:
             have.setdefault(r["asset_id"], {})
@@ -458,15 +498,18 @@ class RunExec:
             try:
                 self.analyzer = self.tk.analyzer(self.w.get_engine(), decode_workers=int(self.mode["decode_workers"]),
                                                  chunk=int(self.mode["chunk"]))
-                self.versions = self.analyzer.versions([c for c in self.caps if c in MODEL_CAPS])
-                run = self.store.run(self.id)
-                with self.store.tx() as c:
-                    c.execute("UPDATE runs SET config = ? WHERE id = ?",
-                              (dumps(run["config"] | {"versions": self.versions}), self.id))
+                self.save_versions(self.analyzer.versions([c for c in self.caps if c in BIOSCAN_CAPS]))
             except Exception as exc:  # noqa: BLE001 - no engine/analyzer = every model capability unavailable
                 log.exception("analyzer unavailable")
                 self.analyzer_error = f"{type(exc).__name__}: {exc}"
         return self.analyzer
+
+    def save_versions(self, versions: dict[str, str]) -> None:
+        self.versions = self.versions | versions
+        run = self.store.run(self.id)
+        with self.store.tx() as c:
+            c.execute("UPDATE runs SET config = ? WHERE id = ?", (dumps(run["config"] | {"versions": self.versions}),
+                                                                  self.id))
 
     async def analyze(self) -> None:
         units = await asyncio.to_thread(self.units)
@@ -474,6 +517,17 @@ class RunExec:
         self.estimate_analysis(units)
         if not units:
             return
+        bio = {aid: [c for c in caps if c in BIOSCAN_CAPS] for aid, caps in units.items()}
+        bio = {aid: caps for aid, caps in bio.items() if caps}
+        people = [aid for aid, caps in units.items() if "people" in caps]
+        if bio:
+            await self.analyze_bioscan(bio)
+        if people and not self.stopping():
+            await self.analyze_people(people)
+        await asyncio.to_thread(self.regroup)
+        self.save_counts(force=True)
+
+    async def analyze_bioscan(self, units: dict[str, list[str]]) -> None:
         analyzer = await asyncio.to_thread(self.ensure_analyzer)
         if analyzer is None:
             await asyncio.to_thread(self.all_unavailable, units, self.analyzer_error or "analyzer unavailable")
@@ -500,8 +554,40 @@ class RunExec:
                             await asyncio.sleep(float(self.mode["pause_s"]))
             if self.stopping():
                 break
-        await asyncio.to_thread(self.regroup)
-        self.save_counts(force=True)
+
+    async def analyze_people(self, ids: list[str]) -> None:
+        """Faces on each photo's upright preview (faces.py); a model that does not load makes people
+        unavailable with the reason."""
+        try:
+            model = await asyncio.to_thread(self.w.faces)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("face model unavailable")
+            await asyncio.to_thread(self.all_unavailable, {aid: ["people"] for aid in ids},
+                                    f"人物模型加载失败：{type(exc).__name__}: {exc}")
+            return
+        await asyncio.to_thread(self.save_versions, {"people": model.version})
+        for n, aid in enumerate(ids, 1):
+            if self.stopping():
+                break
+            await asyncio.to_thread(self.record_result, await asyncio.to_thread(self.find_faces, model, aid))
+            if n % PEOPLE_EVERY == 0:
+                await asyncio.to_thread(self.regroup)
+                if self.mode["pause_s"]:
+                    await asyncio.sleep(float(self.mode["pause_s"]))
+
+    def find_faces(self, model: Any, aid: str) -> LocalResult:
+        large = preview_paths(self.store, aid)[1]
+        if not large.is_file():                 # e.g. after clearing the cache: rebuild from the original
+            a = self.store.one("SELECT primary_path, media FROM assets WHERE id = ?", (aid,))
+            build_preview(self.store, self.tk, aid, a["primary_path"], a["media"], run_id=self.id)
+        if not large.is_file():
+            return LocalResult(aid, "people", "failed", None, "没有可用预览，无法做人物识别", model.version)
+        try:
+            found = model.faces(large)
+        except Exception as exc:  # noqa: BLE001 - one unreadable image fails only itself
+            return LocalResult(aid, "people", "failed", None, f"{type(exc).__name__}: {exc}", model.version)
+        return LocalResult(aid, "people", "done" if found else "unrecognized",
+                           {"faces": found, "count": len(found), "input": "preview"}, None, model.version)
 
     def estimate_analysis(self, units: dict[str, list[str]]) -> None:
         """total_analysis = what this run already analysed + what it still has to (known from preview on)."""
@@ -555,7 +641,7 @@ class RunExec:
             rows = self.raw_rows()
             if caps and rows:
                 self.save_suggestions(self.analyzer.reduce(rows, caps))
-        self.regroup()
+        self.regroup(final=True)
 
     def raw_rows(self) -> list[dict[str, Any]]:
         """Every photo of the task with its latest raw:<stage> products (reduce sees the whole task, §10 X3)."""
@@ -564,7 +650,8 @@ class RunExec:
                 "SELECT a.id, a.primary_path, a.taken_at, a.camera, x.capability, x.data FROM task_assets ta "
                 "JOIN assets a ON a.id = ta.asset_id JOIN results x ON x.id IN (SELECT max(id) FROM results "
                 "WHERE asset_id = a.id AND capability LIKE 'raw:%' AND status = 'done' GROUP BY capability) "
-                "WHERE ta.task_id = ? AND a.media = 'photo' ORDER BY a.taken_at, a.primary_path", (self.task_id,)):
+                "WHERE ta.task_id = ? AND a.media = 'photo' AND a.version_of IS NULL ORDER BY a.taken_at, a.primary_path",
+                (self.task_id,)):
             row = rows.setdefault(r["id"], {"asset_id": r["id"], "path": r["primary_path"], "taken_at": r["taken_at"],
                                             "camera": r["camera"], "products": {}})
             row["products"][r["capability"].removeprefix("raw:")] = loads(r["data"])
@@ -583,9 +670,10 @@ class RunExec:
                            b and b.get("rank"), b and b.get("size"), version, t))
                 c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, aid))
 
-    def regroup(self) -> None:
+    def regroup(self, final: bool = False) -> None:
+        """Non-final while the run still analyses (grouping.suggest `final`); the group phase is final."""
         self.counts["groups_skipped_deleted"] = regroup(self.store, self.tk, self.task_id, self.enabled, run_id=self.id,
-                                                        tz=self.run["config"].get("timezone"))
+                                                        tz=self.run["config"].get("timezone"), final=final)
 
     # ---- end ----
     def finish(self, error: str | None, cleanup: str | None = None) -> None:
@@ -601,8 +689,8 @@ class RunExec:
             status = "paused"
         elif self.w.shutdown:
             status = "interrupted"
-        elif (summary["failed"] or summary["unavailable"] or summary["offline_sources"] or summary["missing"]
-              or summary["not_run"] or cleanup):
+        elif (summary["failed"] or summary["preview_failed"] or summary["unavailable"] or summary["offline_sources"]
+              or summary["missing"] or summary["not_run"] or cleanup):     # a reused asset's old failure counts too
             status = "partial"
         else:
             status = "completed"
@@ -655,6 +743,7 @@ class RunExec:
                 "unavailable": unavailable, "not_run": not_run, "offline_sources": offline, "missing": k["missing"] + self.counts.get("missing", 0),
                 "unsupported": self.counts.get("unsupported", 0), "reused": self.counts.get("reused", 0),
                 "groups_skipped_deleted": self.counts.get("groups_skipped_deleted", 0),
+                "versions": self.counts.get("versions") or {"same_capture": 0, "export": 0},
                 "elapsed_s": round(elapsed, 3)}
 
 
@@ -786,40 +875,98 @@ def ensure_all_collection(c: Any, task_id: str) -> str | None:
     return None if row["deleted_at"] else row["id"]
 
 
+def _people(store: st.Store, task_id: str, reps: set[str]) -> dict[str, list[str]]:
+    """asset id -> person keys, from the task's latest face results clustered by faces.cluster; a key is
+    person-seed = the person's first asset id (sorted), largest person first in the returned lists."""
+    rows = store.all(
+        "SELECT asset_id, data FROM results WHERE id IN (SELECT max(x.id) FROM results x JOIN task_assets ta "
+        "ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability = 'people' AND x.status = 'done' "
+        "GROUP BY x.asset_id)", (task_id,))
+    found = [(r["asset_id"], f["vec"], (f["box"][2] - f["box"][0]) * (f["box"][3] - f["box"][1]) * f["score"])
+             for r in sorted(rows, key=lambda r: r["asset_id"]) if r["asset_id"] in reps
+             for f in (loads(r["data"], {}) or {}).get("faces", []) if f.get("vec")]
+    if not found:
+        return {}
+    from bioscan.gardener import faces
+
+    out: dict[str, list[str]] = {}
+    for ids in faces.cluster(found):
+        key = min(ids)
+        for aid in ids:
+            out.setdefault(aid, []).append(key)
+    return out
+
+
+def _base_key(key: str | None) -> str:
+    return (key or "").split("#", 1)[0]
+
+
 def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_id: str | None = None,
-            tz: str | None = None) -> int:
-    """grouping.suggest over the whole task -> auto collections (§6.5, §10 X8): a suggested group lands
-    on the existing auto collection of its kind it overlaps most (else one with its key, else a new one);
-    auto only adds members, never revives a tombstone, never renames a user-edited collection, and never
-    touches (or refills from) a deleted one."""
+            tz: str | None = None, final: bool = True) -> int:
+    """grouping.suggest over the task's representatives (versions of a capture stay out) -> auto
+    collections (§6.5, §10 X8, 单元 3). A suggested group lands on the auto collection of its kind and
+    parent with its key; people and places, whose keys drift as they grow, on the one they overlap most;
+    else a new one. Auto only adds members, never revives a tombstone, never renames a user-edited
+    collection, never touches (or refills from) a deleted one, and makes no children under a deleted
+    parent. A representative without a time or GPS of its own takes its versions'."""
     latest: dict[tuple[str, str], Any] = {(r["asset_id"], r["capability"]): loads(r["data"]) for r in store.all(
         "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(x.id) FROM results x "
         "JOIN task_assets ta ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability IN "
         "('content', 'species') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)", (task_id,))}
+    rows = store.all("SELECT a.id, a.taken_at, a.lat, a.lon, a.media, a.version_of FROM task_assets ta JOIN assets a "
+                     "ON a.id = ta.asset_id WHERE ta.task_id = ? ORDER BY ta.ord", (task_id,))
+    subject_caps = [c for c in SUBJECT_CAPS if c in enabled]
+    settled_caps: dict[str, set[str]] = {}               # a photo is grouped once each subject capability ended
+    for r in store.all(f"SELECT c.asset_id, c.capability FROM asset_caps c JOIN task_assets ta ON ta.asset_id = "
+                       f"c.asset_id WHERE ta.task_id = ? AND c.state NOT IN ('pending', 'running') AND c.capability "
+                       f"IN ({st.marks_in(subject_caps)})", [task_id, *subject_caps]) if subject_caps else []:
+        settled_caps.setdefault(r["asset_id"], set()).add(r["capability"])
+    unsettled = {r["id"] for r in rows if r["media"] == "photo" and len(settled_caps.get(r["id"], ())) < len(subject_caps)}
+    by_rep: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        if r["version_of"]:
+            by_rep.setdefault(r["version_of"], []).append(r)
+    reps = [r for r in rows if not r["version_of"]]
+    people = _people(store, task_id, {r["id"] for r in reps}) if "people" in enabled else {}
     assets = []
-    for a in store.all("SELECT a.id, a.taken_at, a.lat, a.lon, a.media FROM task_assets ta JOIN assets a "
-                       "ON a.id = ta.asset_id WHERE ta.task_id = ? ORDER BY ta.ord", (task_id,)):
+    for a in reps:
+        own = dict(a)
+        for v in by_rep.get(a["id"], []):
+            own["taken_at"] = own["taken_at"] or v["taken_at"]
+            if own["lat"] is None or own["lon"] is None:
+                own["lat"], own["lon"] = v["lat"], v["lon"]
         ct, sp = latest.get((a["id"], "content")), latest.get((a["id"], "species"))
-        assets.append(a | {"content": {"group": ct.get("group"), "label": ct.get("label")} if ct else None,
-                           "species": {"taxon": sp.get("taxon"), "common": sp.get("common"), "level": sp.get("level")}
-                           if sp and sp.get("taxon") else None})
+        assets.append(own | {"content": {"group": ct.get("group"), "label": ct.get("label")} if ct else None,
+                             "species": {"taxon": sp.get("taxon"), "common": sp.get("common"), "level": sp.get("level")}
+                             if sp and sp.get("taxon") else None,
+                             "people": people.get(a["id"]), "settled": a["id"] not in unsettled})
     if not assets:
         return 0
-    takes_tz = "tz" in inspect.signature(tk.suggest).parameters      # grouping.suggest(assets, tz=...) (R2)
-    suggested = tk.suggest(assets, tz=tz) if takes_tz else tk.suggest(assets)
-    groups = [g for g in suggested if GROUP_NEEDS.get(g.kind) in enabled]
+    params = inspect.signature(tk.suggest).parameters      # grouping.suggest(assets, tz=..., final=...)
+    kw = ({"tz": tz} if "tz" in params else {}) | ({"final": final} if "final" in params else {})
+    groups = [g for g in tk.suggest(assets, **kw) if g.kind in GROUP_NEEDS
+              and (not GROUP_NEEDS[g.kind] or any(n in enabled for n in GROUP_NEEDS[g.kind]))]
     t, skipped = now(), 0
     with store.tx() as c:
-        cols = [dict(r) for r in c.execute("SELECT id, group_kind, auto_key, name, user_edited, deleted_at "
+        cols = [dict(r) for r in c.execute("SELECT id, group_kind, auto_key, parent_id, name, user_edited, deleted_at "
                                            "FROM collections WHERE task_id = ? AND origin = 'auto'", (task_id,))]
         members = {col["id"]: {r[0] for r in c.execute("SELECT asset_id FROM collection_members WHERE collection_id = ?",
                                                        (col["id"],))} for col in cols}
+        placed: dict[str, str] = {}                         # group key -> live collection id (parents for children)
+        taken: set[str] = set()                             # one collection per group in this pass
         for g in groups:
-            same = [col for col in cols if col["group_kind"] == g.kind]
+            parent = getattr(g, "parent", None)
+            parent_id = placed.get(parent) if parent else None
+            if parent and parent_id is None:                # parent deleted or not made: no children
+                continue
+            same = [col for col in cols if col["group_kind"] == g.kind and col.get("parent_id") == parent_id
+                    and col["id"] not in taken]
             ids = set(g.asset_ids)
-            best = max(same, key=lambda col: len(members[col["id"]] & ids), default=None)
-            target = best if best is not None and members[best["id"]] & ids else \
-                next((col for col in same if col["auto_key"] == g.key), None)
+            target = next((col for col in same if col["auto_key"] == g.key), None)
+            if target is None and g.kind in ("person", "place"):    # most of one side is in the other
+                fits = [col for col in same if 2 * len(members[col["id"]] & ids) >= min(len(ids), len(members[col["id"]]))
+                        and members[col["id"]] & ids]
+                target = max(fits, key=lambda col: len(members[col["id"]] & ids), default=None)
             if target is None:
                 key, n = g.key, 1
                 while any(col["auto_key"] == key for col in cols):   # a key taken by another row: never reuse it
@@ -827,14 +974,19 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
                     key = f"{g.key}#{n}"
                 cid = st.create_collection(c, name=g.name, origin="auto", group_kind=g.kind, auto_key=key,
                                            task_id=task_id, actor="system")
-                target = {"id": cid, "group_kind": g.kind, "auto_key": key, "name": g.name, "user_edited": 0,
-                          "deleted_at": None}
+                if parent_id:
+                    c.execute("UPDATE collections SET parent_id = ? WHERE id = ?", (parent_id, cid))
+                target = {"id": cid, "group_kind": g.kind, "auto_key": key, "parent_id": parent_id, "name": g.name,
+                          "user_edited": 0, "deleted_at": None}
                 cols.append(target)
                 members[cid] = set()
             if target["deleted_at"]:
                 skipped += 1
                 continue
-            gone = set().union(*[members[col["id"]] for col in same if col["deleted_at"]])
+            placed[g.key] = target["id"]
+            taken.add(target["id"])
+            gone = set().union(*[members[col["id"]] for col in same if col["deleted_at"]
+                                 and (g.kind in ("person", "place") or _base_key(col["auto_key"]) == g.key)])
             new = [i for i in g.asset_ids if i not in gone and i not in members[target["id"]]]
             if st.add_members(c, target["id"], new, "auto"):
                 for i in new:

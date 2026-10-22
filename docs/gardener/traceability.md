@@ -24,7 +24,7 @@
 | R17 | 标签稳定身份、别名、层级、改名/合并/停用留历史（§7） | `tags`、`tag_history`、`/tags` | `test_core_*` | 见 PR 证据 |
 | R18 | 预设：快速整理/摄影筛选/野生动物，可修改另存，任务保存配置快照（D31） | `capabilities.PRESETS`、`presets` 表、`runs.config` | `test_core_*` | 见 PR 证据 |
 | R19 | 运行模式 安静/均衡/全速 只控资源；可见预览优先；可暂停分析继续 Review（D31，§7） | `RUN_MODES`；按需同步生成预览；暂停不影响 Review API | `test_core_*` | 见 PR 证据 |
-| R20 | 结果页以内容 Collection blocks 为主；AI Pick/Reject、未审、人工 Pick 为快捷筛选，可存 Smart（D18，§8） | `grouping.suggest`、自动集合；UI Collections | `test_core_*`、`test_media_grouping*` | 见 PR 证据 |
+| R20 | 结果页以内容 Collection blocks 为主；AI Pick/Reject、未审、人工 Pick 为快捷筛选，可存 Smart（D18，§8） | `grouping.suggest` 主体分组 + 日期/地点细分（契约修订 2）；UI Collections 两层 | `test_core_*`、`test_media_grouping*` | 见 PR 证据 |
 | R21 | Review：网格、大图、主体放大、并排比较、连拍折叠、批量 Flag/Star、撤销；AI 与人工分区；理由可选（D19，§8） | `web/`；`POST /marks`、`/marks/undo` | `test_ui_*`、`test_core_*` | 见 PR 证据 |
 | R22 | 整组低分可见，可选任意张或明确零选（D07，§13 场景 2） | `Collection.low_score`；`/zero` | `test_core_*` | 见 PR 证据 |
 | R23 | Flag/Star 全局；集合完成独立；移出集合不改 Flag（D20，§13 场景 3） | `marks` 全局；`collection_reviews` | `test_core_*` | 见 PR 证据 |
@@ -45,6 +45,9 @@
 | R38 | 多客户端修改用版本检测冲突，不静默覆盖人工判断（§12） | `marks.version`、`collections.version`、409 | `test_core_*` | 见 PR 证据 |
 | R39 | 文件数、逻辑素材数、字节量分别计数；RAW/JPEG 配对（D02，§2） | `scan.discover`；`Task.counts` | `test_media_scan*`；真实数据清点 | 见 PR 证据 |
 | R40 | 本机访问默认（§12） | `server.py` 默认 127.0.0.1 | 代码审阅 | 见 PR 证据 |
+| R41 | 多维分组：主体（人物、物种、动物类型、场景）→ 地点或日期；单纯时间不单独成组（owner 2026-10-21，契约修订 2） | `grouping.py`、`tasks.regroup`、`collections.parent_id` | `test_media_grouping*`、`test_core_scan*`、`test_core_review*` | 见 PR 证据 |
+| R42 | 按人分组：本地人脸检测与聚类，可改名（owner 2026-10-21） | `faces.py`、能力 `people`、`tasks.analyze_people` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据；聚类质量未验证（无标注） |
+| R43 | 导出图与跨目录副本作为原片的版本合并，只出现一次；人可撤销（owner 2026-10-21） | `versions.py`、`assets.version_of`、`POST /assets/{id}/split-version` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据 |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

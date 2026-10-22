@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS assets (
   preview_status TEXT NOT NULL DEFAULT 'pending',    -- pending | ready | failed
   preview_method TEXT, preview_error TEXT,
   online INTEGER NOT NULL DEFAULT 1,
+  version_of TEXT,                                   -- another asset of the same capture stands for this one
+  version_reason TEXT,                               -- same_capture | export
+  version_lock INTEGER NOT NULL DEFAULT 0,           -- a person said: its own capture (never linked again)
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS assets_taken ON assets (taken_at);
@@ -114,8 +117,9 @@ CREATE INDEX IF NOT EXISTS mark_history_batch ON mark_history (batch_id);
 CREATE TABLE IF NOT EXISTS collections (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL,           -- manual | smart
   origin TEXT NOT NULL,          -- auto (a grouping suggestion) | user
-  group_kind TEXT,               -- event | place | scene | species | all | NULL (user)
+  group_kind TEXT,               -- species | person | animal | scene | other | day | place | all | NULL (user); event | place (older runs)
   auto_key TEXT,                 -- grouping key of an auto collection, unique per task
+  parent_id TEXT,                -- the subject collection a day/place collection splits
   task_id TEXT REFERENCES tasks(id), name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
   rule TEXT,                     -- JSON asset query (smart only)
   summary TEXT,                  -- JSON: the grouping suggestion's summary (time_basis, uncertain_ids, ...)

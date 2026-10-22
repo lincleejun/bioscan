@@ -479,6 +479,19 @@ What the user reviews: one photo (RAW + same-stem JPEG in one folder) or one who
 **Collection**:
 A content group and review unit; manual (explicit members) or smart (a saved asset query). An asset may be in many.
 
+**Subject group** (主体分组):
+An automatic collection for who or what the photos show: a person, a taxon, an animal type without a named taxon,
+or a scene label. A large one is split into child collections by place (GPS) or shooting day; time alone is never a group.
+_Avoid_: Event group (the earlier time-gap grouping, kept only in older databases)
+
+**Version** (同一拍摄的版本):
+Another asset of the same capture: a copy in another folder (same camera file number, time and camera) or an export
+without EXIF matched by file number and preview hash. Its representative stands for it in lists, groups and review.
+_Avoid_: Duplicate (versions are kept, never removed)
+
+**Person** (人物):
+A cluster of face features (people capability) within a task, named 人物 1, 2, … until a person renames the collection.
+
 **Flag / Star**:
 The human pick/reject and 0–5 rating, global per asset, shared by every collection.
 

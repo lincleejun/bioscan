@@ -1,104 +1,115 @@
-"""grouping: event, place, scene and species suggestions."""
+"""grouping: subject groups (people, taxa, animal types, scenes) split by place or shooting day."""
 from __future__ import annotations
 
 import pytest
 
 from bioscan.gardener.grouping import suggest
 
-
-def asset(i, taken_at=None, lat=None, lon=None, content=None, species=None):
-    return {"id": i, "taken_at": taken_at, "lat": lat, "lon": lon, "media": "photo", "content": content,
-            "species": species}
-
-
-def test_events_split_on_gaps_over_two_hours():
-    assets = [asset("a", "2025-03-01T08:12:05"), asset("b", "2025-03-01T10:12:05"),     # 2 h exactly: same
-              asset("c", "2025-03-01T12:12:06"), asset("d"), asset("e", "not a time")]
-    events = [g for g in suggest(assets) if g.kind == "event"]
-    assert [(g.key, g.name, g.asset_ids) for g in events] == [
-        ("event:20250301-0812", "3月1日 08:12 起 · 2 张", ["a", "b"]),
-        ("event:20250301-1212", "3月1日 12:12 起 · 1 张", ["c"])]
-    assert events[0].summary["count"] == 2
+OWL = {"taxon": "Megascops asio", "common": "Eastern Screech-Owl", "level": "species"}
+EAGLE = {"taxon": "Haliaeetus leucocephalus", "common": "Bald Eagle", "level": "species"}
+BIRD = {"group": "wildlife", "label": "bird_portrait"}
+MOUNTAIN = {"group": "landscape", "label": "mountain"}
 
 
-def test_times_with_an_offset_compare_as_instants():
-    # a camera at -08:00 and a video stamped in UTC, the same moment: one event, named in the photo's local time
-    assets = [asset("photo", "2025-03-01T08:12:00-08:00"), asset("video", "2025-03-01T16:13:00Z"),
-              asset("later", "2025-03-01T10:00:00-08:00")]
-    events = [g for g in suggest(assets) if g.kind == "event"]
-    assert [g.asset_ids for g in events] == [["photo", "video", "later"]]
-    assert events[0].name == "3月1日 08:12 起 · 3 张"
-    far = [g for g in suggest([asset("x", "2025-03-01T08:12:00-08:00"), asset("y", "2025-03-01T08:12:00Z")])
-           if g.kind == "event"]
-    assert [g.asset_ids for g in far] == [["y"], ["x"]] and len({g.key for g in far}) == 2
+def asset(i, taken_at=None, lat=None, lon=None, content=None, species=None, people=None, media="photo", settled=True):
+    return {"id": i, "taken_at": taken_at, "lat": lat, "lon": lon, "media": media, "content": content,
+            "species": species, "people": people, "settled": settled}
 
 
-def events(assets, **kw):
-    return [g for g in suggest(assets, **kw) if g.kind == "event"]
+def by_key(groups):
+    return {g.key: g for g in groups}
 
 
-def test_naive_and_aware_at_the_same_local_time_stay_together():
-    got = events([asset("naive", "2025-03-01T10:00:00"), asset("aware", "2025-03-01T10:00:00-08:00")])
-    assert [g.asset_ids for g in got] == [["aware", "naive"]]          # same moment: ties by id
-    assert got[0].summary["time_basis"] == "local" and got[0].summary["uncertain_ids"] == []
-    assert got[0].name == "3月1日 10:00 起 · 2 张"
+def test_subjects_taxa_animal_types_scenes_people_and_videos():
+    assets = ([asset(f"o{i}", content=BIRD, species=OWL) for i in range(3)]
+              + [asset(f"g{i}", content=BIRD, species={"taxon": "Megascops", "common": None, "level": "genus"})
+                 for i in range(3)]
+              + [asset(f"b{i}", content={"group": "wildlife", "label": "bird_flight"}) for i in range(3)]
+              + [asset(f"m{i}", content=MOUNTAIN) for i in range(3)]
+              + [asset(f"p{i}", content={"group": "people", "label": "portrait"}) for i in range(3)]
+              + [asset("v", media="video"), asset("none")])
+    g = by_key(suggest(assets))
+    assert g["species:Megascops asio"].name == "Eastern Screech-Owl" and g["species:Megascops asio"].kind == "species"
+    assert g["species:Megascops"].name == "Megascops（属）"
+    assert g["animal:bird"].asset_ids == ["b0", "b1", "b2"] and g["animal:bird"].name == "鸟类 · 未识别到种"
+    assert g["scene:mountain"].name == "山地" and g["scene:mountain"].kind == "scene"
+    assert g["person:other"].asset_ids == ["p0", "p1", "p2"]                 # people without a known face
+    assert g["other:video"].asset_ids == ["v"] and g["other:none"].name == "未分类"
+    assert "scene:bird_portrait" not in g                                    # an animal photo is not a scene
 
 
-def test_given_zone_places_camera_time_against_a_utc_video():
-    assets = [asset("photo", "2025-03-01T10:05:00"), asset("video", "2025-03-01T18:02:00Z")]
-    got = events(assets, tz="-08:00")
-    assert len(got) == 1 and set(got[0].asset_ids) == {"photo", "video"}
-    s = got[0].summary
-    assert s["time_basis"] == "instant" and (s["start"], s["end"]) == ("2025-03-01T10:02:00-08:00",
-                                                                        "2025-03-01T10:05:00-08:00")
-    assert got[0].name == "3月1日 10:02 起 · 2 张"
-    assert events(assets, tz="America/Los_Angeles")[0].asset_ids == got[0].asset_ids
-    assert assets[0]["taken_at"] == "2025-03-01T10:05:00"            # inputs untouched
+def test_rare_subjects_fold_into_a_broader_group():
+    assets = [asset("e1", content=BIRD, species=EAGLE), asset("e2", content=BIRD, species=EAGLE),
+              asset("x", content={"group": "wildlife", "label": "mammal_habitat"},
+                    species={"taxon": "Alces alces", "common": "Moose", "level": "species"}),
+              asset("c1", content={"group": "landscape", "label": "coast"}),
+              asset("f1", content={"group": "landscape", "label": "forest"})]
+    g = by_key(suggest(assets))
+    assert g["animal:bird"].asset_ids == ["e1", "e2"]                        # 2 eagles: into their animal type
+    assert g["animal:mammal"].asset_ids == ["x"]
+    assert g["scene:other"].asset_ids == ["c1", "f1"] and g["scene:other"].name == "其他场景"
+    assert not any(k.startswith("species:") for k in g)
+
+
+def test_people_are_named_by_size_and_share_photos_with_taxa():
+    big, small = "a_big", "a_small"
+    assets = ([asset(f"x{i}", content=BIRD, species=OWL, people=[big]) for i in range(3)]
+              + [asset(f"y{i}", content={"group": "people", "label": "portrait"}, people=[big]) for i in range(2)]
+              + [asset(f"z{i}", content={"group": "people", "label": "group"}, people=[small, big] if i == 0 else [small])
+                 for i in range(3)]
+              + [asset("lone", content={"group": "people", "label": "portrait"}, people=["a_lone"])])
+    g = by_key(suggest(assets))
+    assert g[f"person:{big}"].name == "人物 1" and len(g[f"person:{big}"].asset_ids) == 6
+    assert g[f"person:{small}"].name == "人物 2" and g[f"person:{small}"].asset_ids == ["z0", "z1", "z2"]
+    assert g["species:Megascops asio"].asset_ids == ["x0", "x1", "x2"]       # in the person's group too
+    assert g["person:other"].asset_ids == ["lone"]                           # one photo of someone: 人物 · 其他
+
+
+def test_unsettled_assets_wait_and_a_running_pass_makes_no_folds_or_children():
+    days = [f"2025-03-0{d}T09:00:00" for d in (1, 2)]
+    assets = ([asset(f"o{i}", days[i % 2], content=BIRD, species=OWL) for i in range(12)]
+              + [asset("e", days[0], content=BIRD, species=EAGLE), asset("w", days[0], settled=False)])
+    running = suggest(assets, final=False)
+    assert [g.key for g in running] == ["species:Megascops asio"]            # no eagle fold, no days, no "w"
+    done = by_key(suggest(assets))
+    assert "animal:bird" in done and not any("w" in g.asset_ids for g in done.values())
+    assert {k for k in done if "/" in k} == {"species:Megascops asio/day:2025-03-01",
+                                            "species:Megascops asio/day:2025-03-02"}
+
+
+def test_large_subjects_split_by_day_small_days_fold_one_day_no_split():
+    times = ["2025-08-29T09:00:00"] * 6 + ["2025-08-30T10:00:00"] * 5 + ["2025-09-02T08:00:00"] * 2 + [None]
+    assets = [asset(f"m{i:02d}", t, content=MOUNTAIN) for i, t in enumerate(times)]
+    kids = [g for g in suggest(assets) if g.parent == "scene:mountain"]
+    assert [(g.key.split("/")[1], g.name, len(g.asset_ids)) for g in kids] == [
+        ("day:2025-08-29", "山地 · 8月29日", 6), ("day:2025-08-30", "山地 · 8月30日", 5),
+        ("day:other", "山地 · 其他日期", 2), ("day:none", "山地 · 无日期", 1)]
+    assert all(g.kind == "day" for g in kids)
+    one_day = [asset(f"s{i:02d}", "2025-08-29T09:00:00", content=MOUNTAIN) for i in range(12)]
+    assert [g.key for g in suggest(one_day)] == ["scene:mountain"]
+    few = [asset(f"f{i}", f"2025-08-2{i}T09:00:00", content=MOUNTAIN) for i in range(9)]
+    assert [g.key for g in suggest(few)] == ["scene:mountain"]               # under SPLIT_MIN: never split
+    years = [asset(f"y{i:02d}", f"{2024 + i % 2}-10-13T09:00:00", content=MOUNTAIN) for i in range(10)]
+    assert {g.name for g in suggest(years) if g.parent} == {"山地 · 2024年10月13日", "山地 · 2025年10月13日"}
+
+
+def test_large_subjects_with_gps_split_by_place_and_touching_cells_join():
+    here = [asset(f"a{i}", "2025-08-29T09:00:00", 61.10 + 0.01 * i, -149.80, content=MOUNTAIN) for i in range(5)]
+    there = [asset(f"b{i}", "2025-08-31T09:00:00", 63.50, -150.10, content=MOUNTAIN) for i in range(4)]
+    assets = here + there + [asset("n", "2025-08-30T09:00:00", content=MOUNTAIN)]
+    kids = [g for g in suggest(assets) if g.parent]
+    assert [sorted(g.asset_ids) for g in kids] == [[a["id"] for a in here], [a["id"] for a in there], ["n"]]
+    assert kids[0].kind == "place" and kids[0].name == "山地 · 地点 (61.12, -149.80) · 8月29日"
+    assert kids[2].name == "山地 · 地点未知"
+
+
+def test_shooting_day_uses_the_task_zone_and_flags_utc_stamps_without_one():
+    assets = ([asset(f"p{i}", "2025-03-01T10:05:00", content=MOUNTAIN) for i in range(5)]
+              + [asset(f"v{i}", "2025-03-02T03:00:00Z", content=MOUNTAIN) for i in range(5)])
+    kids = [g for g in suggest(assets) if g.parent]
+    assert [g.name for g in kids] == ["山地 · 3月1日", "山地 · 3月2日"]
+    assert kids[1].summary["uncertain_ids"] == [f"v{i}" for i in range(5)]
+    assert [g.key for g in suggest(assets, tz="-08:00")] == ["scene:mountain"]   # 19:00 the same day: one day
     with pytest.raises(ValueError):
         suggest(assets, tz="Mars/Olympus")
-
-
-def test_without_zone_a_utc_stamp_among_local_times_is_flagged_not_trusted():
-    assets = [asset("photo", "2025-03-01T10:05:00"), asset("video", "2025-03-01T18:02:00Z"),
-              asset("other", "2025-03-01T10:30:00-08:00")]
-    got = events(assets)
-    flagged = [g for g in got if "video" in g.asset_ids][0]
-    assert flagged.summary["time_basis"] == "mixed-unknown" and flagged.summary["uncertain_ids"] == ["video"]
-    local = [g for g in got if "photo" in g.asset_ids][0]
-    assert set(local.asset_ids) == {"photo", "other"} and local.summary["time_basis"] == "local"
-    for g in got:                                                    # nothing shown as UTC or with an offset
-        assert not any(x.endswith(("Z", "+00:00")) for x in (g.summary["start"], g.summary["end"]))
-
-
-def test_start_and_end_share_one_basis():
-    # the reviewer's case: a UTC video three minutes before a -08:00 photo
-    got = events([asset("photo", "2025-03-01T10:05:00-08:00"), asset("video", "2025-03-01T18:02:00Z")])
-    s = got[0].summary
-    assert (s["start"], s["end"]) == ("2025-03-01T10:02:00-08:00", "2025-03-01T10:05:00-08:00")
-    assert got[0].name == "3月1日 10:02 起 · 2 张"
-
-
-def test_places_on_a_km_grid_without_gps_left_out():
-    assets = [asset("a", lat=37.5001, lon=-122.2501), asset("b", lat=37.5003, lon=-122.2502),
-              asset("c", lat=38.0, lon=-122.0), asset("d"), asset("e", lat=0.0, lon=0.0)]
-    places = [g for g in suggest(assets) if g.kind == "place"]
-    assert [g.asset_ids for g in places] == [["a", "b"], ["c"]]
-    assert places[0].name == "地点 · 约 2 张 (37.50, -122.25)"
-    assert places[0].key == [g for g in suggest(assets[:2]) if g.kind == "place"][0].key      # stable
-
-
-def test_scene_and_species_groups():
-    owl = {"taxon": "Megascops asio", "common": "Eastern Screech-Owl", "level": "species"}
-    assets = [asset("a", content={"group": "wildlife", "label": "bird_portrait"}, species=owl),
-              asset("b", content={"group": "wildlife", "label": "bird_flight"},
-                    species={"taxon": "Megascops", "common": None, "level": "genus"}),
-              asset("c", content={"group": "landscape", "label": "mountain"},
-                    species={"taxon": "Megascops kennicottii", "common": None, "level": "species"}),
-              asset("d")]
-    by = {g.key: g for g in suggest(assets)}
-    assert by["scene:wildlife"].name == "野生动物" and by["scene:wildlife"].asset_ids == ["a", "b"]
-    assert by["scene:landscape"].name == "风光"
-    assert by["species:Megascops asio"].name == "Eastern Screech-Owl"
-    assert by["species:Megascops kennicottii"].name == "Megascops kennicottii"
-    assert "species:Megascops" not in by                     # genus level: no species group
     assert suggest([]) == []

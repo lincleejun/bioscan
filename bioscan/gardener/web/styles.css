@@ -495,6 +495,12 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .stat b { font-variant-numeric: tabular-nums; }
 .stat.ai, .stat.muted { color: var(--muted); }
 .col-warn { display: flex; flex-wrap: wrap; gap: 6px; }
+.col-kids { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
+.col-kids .hint { width: 100%; }
+.kid-chip { display: inline-flex; gap: 6px; align-items: baseline; font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--accent-soft); color: var(--accent-hover); text-decoration: none; }
+.kid-chip b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); }
+.kid-chip.done { background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+.kid-chip:hover { text-decoration: underline; }
 .col-section { margin-bottom: 32px; }
 .cs-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .cs-head h2 { font-size: 15px; font-weight: 600; }
@@ -698,6 +704,10 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .files { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .files li { display: flex; flex-direction: column; gap: 2px; word-break: break-all; }
 .files li > span:last-child { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+.versions { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.versions li { display: grid; grid-template-columns: 48px 1fr auto; gap: 8px; align-items: center; }
+.versions img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: var(--panel); }
+.versions li > span { display: flex; flex-direction: column; gap: 2px; word-break: break-all; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th, .tbl td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .tbl th { font-weight: 600; color: var(--muted); font-size: 12px; }

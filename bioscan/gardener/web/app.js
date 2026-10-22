@@ -57,7 +57,9 @@
     failed: ['失败', 'fail'], unrecognized: ['未识别', 'muted'], unavailable: ['不可用', 'fail'],
   };
   const VERDICT = { pick: '建议保留', reject: '建议舍弃', none: '无明确建议' };
-  const GROUP = { all: '全部素材', event: '事件', place: '地点', scene: '场景', species: '物种' };
+  const GROUP = { all: '全部素材', person: '人物', species: '物种', animal: '动物', scene: '场景', other: '其他', day: '日期', place: '地点', event: '事件（旧）' };
+  const GROUP_ORDER = ['all', 'person', 'species', 'animal', 'scene', 'other'];
+  const VERSION_WHY = { same_capture: '同一拍摄的副本', export: '导出图（无拍摄信息，按文件编号与画面确认）' };
   const MODES = { quiet: ['安静', '占用最低，适合边用电脑边扫描'], balanced: ['均衡', '默认'], full: ['全速', '尽量占满资源'] };
   const REVIEW = { open: '审阅中', completed: '已完成', zeroed: '本组不留' };
   const PREVIEW_NOTE = '低分辨率预览（含 RAW 内嵌预览）只用于浏览，不代表完整 RAW 解码或对焦验证。';
@@ -250,7 +252,7 @@
           <div class="task-info">
             <h2 class="task-title"><a class="row-link" href="#/task/${esc(t.id)}/preview">${esc(t.title)}</a></h2>
             <p class="task-sub">${esc(t.subtitle || '—')}</p>
-            <p class="task-meta">${t.sources.length} 个来源${t.sources.some(s => !s.online) ? ' <span class="note warn">有来源离线</span>' : ''} · ${esc(presetName(t.preset))} · ${esc((MODES[t.run_mode] || [t.run_mode])[0])} · 创建于 ${esc(fmtTime(t.created_at))} · ${(t.counts || {}).assets || 0} 个素材（${(t.counts || {}).files || 0} 个文件，${fmtBytes((t.counts || {}).bytes)}）</p>
+            <p class="task-meta">${t.sources.length} 个来源${t.sources.some(s => !s.online) ? ' <span class="note warn">有来源离线</span>' : ''} · ${esc(presetName(t.preset))} · ${esc((MODES[t.run_mode] || [t.run_mode])[0])} · 创建于 ${esc(fmtTime(t.created_at))} · ${(t.counts || {}).assets || 0} 个素材（${(t.counts || {}).files || 0} 个文件，${fmtBytes((t.counts || {}).bytes)}${(t.counts || {}).versions ? `；其中 ${t.counts.versions} 个是同一拍摄的其他版本，不单独审阅` : ''}）</p>
           </div>
           <div class="task-cell" data-bind="task-scan" data-id="${esc(t.id)}">${taskScanHTML(t)}</div>
           <div class="task-cell" data-bind="task-review" data-id="${esc(t.id)}">${taskReviewHTML(t)}</div>
@@ -409,6 +411,7 @@
       const fails = s.failed || [];
       body = `<dl class="meta run-meta">
         <dt>发现</dt><dd>${s.discovered} 个素材 · ${s.files} 个文件 · ${fmtBytes(s.bytes)}${s.by_media ? ` · ${esc(Object.entries(s.by_media).map(([k, v]) => `${k === 'video' ? '视频' : '照片'} ${v}`).join('，'))}` : ''}</dd>
+        ${s.versions && (s.versions.same_capture || s.versions.export) ? `<dt>同一拍摄</dt><dd>${s.versions.same_capture} 个跨目录副本 · ${s.versions.export} 张导出图，归到原片下</dd>` : ''}
         <dt>预览</dt><dd>${s.previewed} 完成${s.preview_failed ? ` · <span class="txt-fail">${s.preview_failed} 失败</span>` : ''}</dd>
         <dt>分析</dt><dd>${esc(Object.entries(s.analyzed || {}).map(([k, v]) => `${capName(k)} ${v}`).join('，') || '—')}</dd>
         ${Object.keys(s.unavailable || {}).length ? `<dt>不可用</dt><dd>${esc(Object.entries(s.unavailable).map(([k, v]) => `${capName(k)}：${v}`).join('；'))}</dd>` : ''}
@@ -602,6 +605,7 @@
     if (id === 'quality') return (d.reasons_zh || []).join('、');
     if (id === 'aesthetic') return d.score != null ? `分数 ${fmtScore(d.score)}` : '';
     if (id === 'subject') return `${d.class || ''}${d.boxes ? ` · ${d.boxes.length} 个框` : ''}`;
+    if (id === 'people') return d.count ? `${d.count} 张人脸` : '';
     if (id === 'meta') return '';
     return '';
   }
@@ -666,7 +670,16 @@
         </dl>
         <ul class="files">${d ? d.files.map(f => `<li><span class="mono">${esc(f.path)}</span><span>${esc(f.role)} · ${fmtBytes(f.size)} ${fileState(f, d)}</span></li>`).join('') : ''}</ul>
         ${a.online ? `<button type="button" class="btn sm ghost" data-action="reveal" data-id="${esc(a.id)}">${ic('folder')}在 Finder 中显示</button>` : ''}
-        <p class="hint">${PREVIEW_NOTE}</p></section>`;
+        <p class="hint">${PREVIEW_NOTE}</p></section>
+      ${versionsHTML(d)}`;
+  }
+  // 同一拍摄的其他版本：只在代表版本出现；“不是同一张”由人确认后永不再自动合并
+  function versionsHTML(d) {
+    if (!d) return '';
+    const split = id => `<button type="button" class="btn sm ghost" data-action="split-version" data-id="${esc(id)}">不是同一张</button>`;
+    if (d.original) return `<section class="card"><h3>同一拍摄<span class="sub">此素材不单独出现在分组与列表中</span></h3><p class="hint">是「${esc(d.original.name)}」的${esc(VERSION_WHY[d.original.reason] || '版本')}，分析与分组以它为准。</p>${split(d.id)}</section>`;
+    if (!(d.versions || []).length) return '';
+    return `<section class="card"><h3>同一拍摄的其他版本<span class="sub">${d.versions.length} 个 · 不重复出现在分组中</span></h3><ul class="versions">${d.versions.map(v => `<li><img src="${esc(mediaUrl(v.id, 'thumb'))}" alt="" loading="lazy"><span><b>${esc(v.name)}</b><small class="hint">${esc(VERSION_WHY[v.reason] || v.reason)}</small><small class="mono">${esc(v.path)}</small></span>${split(v.id)}</li>`).join('')}</ul></section>`;
   }
   async function ensureDetail(id) {
     if (S.details.has(id)) return S.details.get(id);
@@ -820,7 +833,7 @@
       <div class="col-warn">${colNotes(c)}</div>`;
   }
   const COLF = [['all', '全部'], ['open', '未完成'], ['done', '已完成'], ['nopick', '尚无人工入选'], ['new', '新增待审']];
-  const KINDF = [['', '全部类型'], ['event', '事件'], ['place', '地点'], ['scene', '场景'], ['species', '物种'], ['all', '全部素材'], ['user', '自建']];
+  const KINDF = [['', '全部类型'], ['person', '人物'], ['species', '物种'], ['animal', '动物'], ['scene', '场景'], ['other', '其他'], ['all', '全部素材'], ['user', '自建']];
   function passColF(c) {
     const k = ui.colKind;
     if (k === 'user' ? c.group_kind : k && c.group_kind !== k) return false;
@@ -843,25 +856,36 @@
       <button type="button" class="btn sm ghost" data-action="coverage" data-id="${esc(taskId || '')}">覆盖检查</button>
       <a class="btn sm ghost" href="#/collections/deleted">${ic('trash')}已删除</a></div></div>`;
   }
+  // 两层：主体（人物/物种/动物/场景/其他）是 block，其下按日期或地点的细分是块内入口
+  function topLevel(cols) {
+    const live = new Set(scopeCols().map(c => c.id));
+    const rank = c => { const i = GROUP_ORDER.indexOf(c.group_kind || 'user'); return i < 0 ? GROUP_ORDER.length : i; };
+    return cols.filter(c => !c.parent_id || !live.has(c.parent_id)).sort((a, b) => rank(a) - rank(b) || b.size - a.size);
+  }
+  function childrenHTML(c) {
+    const kids = scopeCols().filter(k => k.parent_id === c.id);
+    if (!kids.length) return '';
+    return `<div class="col-kids"><span class="hint">按${kids[0].group_kind === 'place' ? '地点' : '日期'}细分</span>${kids.map(k => `<a class="kid-chip${k.review.state !== 'open' ? ' done' : ''}" href="#/review/${esc(k.id)}" title="${esc(k.name)}">${esc(k.label || k.name)}<b>${k.size}</b></a>`).join('')}</div>`;
+  }
   function blocksHTML(cols, showTask) {
-    return `<div class="col-grid">${cols.map(c => `<article class="col-block"><div class="montage-wrap">${montageHTML(c)}</div><div class="col-info">${colInfoHTML(c, showTask)}</div></article>`).join('')}</div>`;
+    return `<div class="col-grid">${topLevel(cols).map(c => `<article class="col-block"><div class="montage-wrap">${montageHTML(c)}</div><div class="col-info">${colInfoHTML(c, showTask)}${childrenHTML(c)}</div></article>`).join('')}</div>`;
   }
   function colAreaHTML() {
     const cols = scopeCols().filter(passColF);
     ui.colKey = JSON.stringify(scopeCols());
-    if (ui.view === 'task') return cols.length ? blocksHTML(cols, false) : '<div class="empty">还没有集合。预览阶段先出现事件/地点分组，分析后加入场景与物种分组。</div>';
+    if (ui.view === 'task') return cols.length ? blocksHTML(cols, false) : '<div class="empty">还没有集合。照片分析完成后按人物、物种、动物类型和场景分组，较大的组再按日期或地点细分。</div>';
     const groups = new Map();
     cols.forEach(c => { const k = c.task_id || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); });
     if (!groups.size) return '<div class="empty">没有符合条件的集合。</div>';
     return Array.from(groups.entries()).map(([tid, list]) => {
       const t = taskById(tid);
-      return `<section class="col-section"><header class="cs-head"><h2>${t ? `<a href="#/task/${esc(t.id)}/collections">${esc(t.title)}</a>` : '跨任务集合'}</h2>${t ? statusChip(t) : ''}<span class="hint">${list.length} 个集合</span></header>${blocksHTML(list, false)}</section>`;
+      return `<section class="col-section"><header class="cs-head"><h2>${t ? `<a href="#/task/${esc(t.id)}/collections">${esc(t.title)}</a>` : '跨任务集合'}</h2>${t ? statusChip(t) : ''}<span class="hint">${topLevel(list).length} 个集合</span></header>${blocksHTML(list, false)}</section>`;
     }).join('');
   }
   async function vCollections() {
     await refreshCols();
     return `<div class="page">
-      <header class="page-head"><div><h1 tabindex="-1">Collections</h1><p class="lede">按事件、地点、场景、物种等内容组织的 Review 单位。同一素材可出现在多个集合，人工标记全局一致；各集合完成进度独立。</p></div></header>
+      <header class="page-head"><div><h1 tabindex="-1">Collections</h1><p class="lede">按人物、物种、动物类型、场景等主体组织的 Review 单位，较大的组再按日期或地点细分。同一素材可出现在多个集合，人工标记全局一致；各集合完成进度独立。</p></div></header>
       ${colToolbarHTML('')}
       <div id="col-area">${colAreaHTML()}</div>
     </div>`;
@@ -1304,6 +1328,14 @@
     'task-unarchive': el => taskCall(el.dataset.id, 'unarchive', null, '已取消归档').then(() => route(true)),
     'task-retry': el => taskCall(el.dataset.id, 'retry', {}, '失败项已加入重试运行'),
     'retry-asset': el => { const a = A(el.dataset.id); const tid = a && a.task_ids && a.task_ids[0]; if (tid) taskCall(tid, 'retry', { asset_ids: [a.id] }, '已为此项排队重试'); },
+    'split-version': async el => {
+      try {
+        await api('POST', `/assets/${encodeURIComponent(el.dataset.id)}/split-version`);
+        S.details.clear();
+        toast('已分开：它从此单独出现，不再自动合并；在任务中「重试」可补做它的分析');
+        renderInspector();
+      } catch (e) { toast(errMsg(e)); }
+    },
     'task-append': el => dialog({
       title: '追加来源目录', focus: '#ap-paths',
       body: '<div class="field"><label for="ap-paths">目录（每行一个绝对路径）</label><textarea id="ap-paths" class="input mono" rows="3" placeholder="/Volumes/SD_CARD/DCIM"></textarea></div><p class="hint">追加会开始一次新运行，复用已有素材的结果，不改写过去的运行。</p>',

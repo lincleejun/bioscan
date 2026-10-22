@@ -6,10 +6,10 @@ import json
 from typing import Any
 
 KEYS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "ai", "judged", "online",
-        "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "q", "changed_after")
+        "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "q", "changed_after", "versions")
 CHOICES = {"media": ("photo", "video"), "flag": ("pick", "reject", "none"), "ai": ("pick", "reject", "none"),
            "judged": ("yes", "no"), "online": ("1", "0"), "has_gps": ("1", "0"),
-           "analysis": ("pending", "done", "failed", "unavailable")}
+           "analysis": ("pending", "done", "failed", "unavailable"), "versions": ("hide", "all", "only")}
 MAX_DEPTH = 4    # smart rules may name other collections; this bounds the chain (and cycles)
 
 LATEST_AI = "(SELECT s.verdict FROM ai_suggestions s WHERE s.asset_id = a.id ORDER BY s.id DESC LIMIT 1)"
@@ -54,7 +54,9 @@ def cycle(store: Any, rule: dict[str, Any], self_id: str | None) -> bool:
 def where(store: Any, filters: dict[str, Any], depth: int = 0,
           seen: frozenset[str] = frozenset()) -> tuple[str, list[Any]]:
     """(sql, params) selecting the assets that match every filter; `store.one` resolves a collection.
-    A stored smart rule that is cyclic, too deep or invalid selects nothing instead of failing reads."""
+    A stored smart rule that is cyclic, too deep or invalid selects nothing instead of failing reads.
+    Versions of a capture (assets.version_of) are hidden unless `versions` says otherwise; a manual
+    collection shows exactly its members."""
     f = clean(filters)
     conds: list[str] = []
     params: list[Any] = []
@@ -62,6 +64,10 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
     def add(sql: str, *ps: Any) -> None:
         conds.append(sql)
         params.extend(ps)
+
+    versions = f.get("versions") or ("all" if "collection" in f else "hide")
+    if versions != "all":
+        add("a.version_of IS NULL" if versions == "hide" else "a.version_of IS NOT NULL")
 
     if "task" in f:
         add("EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.task_id = ?)", f["task"])

@@ -30,7 +30,8 @@ def test_create_scan_completes_with_previews_results_groups_and_summary(env, tmp
         t = wait_task(c, t["id"])
         assert t["scan"]["status"] == "completed", c.get(f"{API}/runs/{t['scan']['run_id']}").json()
         assert t["scan"]["progress"] == 1.0
-        assert t["counts"] == {"assets": 5, "photos": 4, "videos": 1, "files": 6, "bytes": t["counts"]["bytes"]}
+        assert t["counts"] == {"assets": 5, "photos": 4, "videos": 1, "versions": 0, "files": 6,
+                               "bytes": t["counts"]["bytes"]}
         run = c.get(f"{API}/runs/{t['scan']['run_id']}").json()
         s = run["summary"]
         assert (s["discovered"], s["files"], s["by_media"], s["previewed"], s["unsupported"]) == \
@@ -50,8 +51,9 @@ def test_create_scan_completes_with_previews_results_groups_and_summary(env, tmp
         assert d["caps"]["place_event"]["state"] == "done" and d["meta"]["width"] == 64
         assert {x["id"] for x in d["tags"]} >= {"scene:wildlife", "scene:bird", "species:Megascops asio"}
         cols = c.get(f"{API}/collections", params={"task": t["id"]}).json()
-        kinds = sorted(x["group_kind"] for x in cols)
-        assert kinds == ["all", "event", "scene", "species"] and all(x["size"] for x in cols)
+        by_id = {x["id"]: x for x in cols}
+        assert sorted({x["group_kind"] for x in cols}) == ["all", "day", "other", "species"] and all(x["size"] for x in cols)
+        assert all(by_id[x["parent_id"]]["group_kind"] in ("species", "other") for x in cols if x["group_kind"] == "day")
         assert cols[0]["group_kind"] == "all" and cols[0]["size"] == 5
         r = c.get(f"{API}/assets/{pair['id']}/thumb")
         assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
@@ -72,7 +74,8 @@ def test_previews_are_visible_before_analysis_finishes(env, fakes, tmp_path):
         assert items and c.get(f"{API}/tasks/{t['id']}").json()["scan"]["status"] == "running"
         wait_until(lambda: c.get(f"{API}/tasks/{t['id']}").json()["scan"]["phase"] == "analyze", what="analyze phase")
         cols = c.get(f"{API}/collections", params={"task": t["id"]}).json()
-        assert {"all", "event"} <= {x["group_kind"] for x in cols}          # event groups before analysis ends
+        assert {x["group_kind"] for x in cols} == {"all"}          # photos still analysing: in no subject group yet
+        assert next(x for x in cols if x["group_kind"] == "all")["size"] == 4
         first = items[0]["updated_at"]
         assert assets(c, task=t["id"], changed_after=first)["total"] <= 4
         fakes.gate.set()
@@ -209,6 +212,18 @@ def test_failed_items_make_the_run_partial_and_retry_reruns_only_them(env, fakes
         assert r["kind"] == "retry" and len(r["scope"]["asset_ids"]) == 1
         wait_until(lambda: c.get(f"{API}/runs/{r['id']}").json()["status"] in ("completed", "partial"), what="retry")
         assert len(fakes.analyzed) == n + 1
+
+
+def test_a_second_task_over_an_unpreviewable_file_is_partial_too(env, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 2)
+    (src / "broken.jpg").write_bytes(b"not a jpeg" * 10)
+    with env.client() as c:
+        first = wait_task(c, create_task(c, [str(src)], caps=["place_event"])["id"])
+        second = wait_task(c, create_task(c, [str(src)], caps=["place_event"])["id"])   # reuses the failed asset
+        for t in (first, second):
+            run = c.get(f"{API}/runs/{t['scan']['run_id']}").json()
+            assert (t["scan"]["status"], run["summary"]["preview_failed"]) == ("partial", 1)
 
 
 def test_offline_source_keeps_records_partial_and_verify_sources_requeues(env, fakes, tmp_path):

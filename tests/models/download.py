@@ -18,6 +18,7 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
+from bioscan.gardener import faces
 from bioscan.naming import norm_binomial
 from bioscan.service import names
 from bioscan.service.adapters import bioclip, geo, owlv2, siglip2
@@ -48,6 +49,9 @@ def census(tol_names) -> None:
 fetch(siglip2.MODEL_ID, revision=siglip2.REVISION)
 fetch(owlv2.MODEL_ID, revision=owlv2.REVISION)
 fetch(bioclip.MODEL_ID.removeprefix("hf-hub:"), revision=bioclip.REVISION)
+for repo, name, rev in (faces.YUNET, faces.SFACE):          # Gardener's people capability (two small ONNX files)
+    hf_hub_download(repo, name, revision=rev)
+    print(f"{repo}/{name} @ {rev[:12]}")
 # TreeOfLife-200M text vectors are pinned (names.TOL_REVISION); report whether upstream has moved since.
 main = HfApi().list_repo_commits(names.TOL_REPO, repo_type="dataset")[0].commit_id
 print(f"{names.TOL_REPO} pinned {names.TOL_REVISION[:12]}, upstream main {main[:12]}")

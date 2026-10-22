@@ -25,6 +25,7 @@ import bioscan
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import query, tasks
 from bioscan.gardener import store as st
+from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
 
 log = logging.getLogger("bioscan.gardener")
@@ -662,6 +663,16 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         tk.reveal(path)
         return {"ok": True}
 
+    @r.post("/assets/{aid}/split-version")
+    def split_version(aid: str) -> dict[str, Any]:
+        """A person's "not the same capture": the asset stands on its own from now on and is never linked
+        again; its auto collection places come back and its image capabilities read pending (retry runs them)."""
+        asset_or_404(aid)
+        with store.tx() as c:
+            vers.set_version(c, aid, None, list(tasks.MODEL_CAPS), now())
+            c.execute("UPDATE assets SET version_lock = 1 WHERE id = ?", (aid,))
+        return store.asset_detail(aid)
+
     @r.post("/marks")
     def post_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         ids = strs(body.get("asset_ids"), "asset_ids")
@@ -894,7 +905,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def coverage(task: str | None = None) -> list[dict[str, Any]]:
         out = []
         for col in store.collections(task=task):
-            if col["group_kind"] not in ("event", "place", "scene", "species"):
+            if col["group_kind"] in (None, "all"):
                 continue
             state = "covered" if col["picks"] else "zeroed" if col["review"]["state"] == "zeroed" else "uncovered"
             out.append({"collection_id": col["id"], "name": col["name"], "group_kind": col["group_kind"],

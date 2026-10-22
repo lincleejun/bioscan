@@ -1,8 +1,9 @@
 """Gardener capabilities, presets and run modes (docs/gardener/contract.md §3).
 
 A capability is what the user switches on; it is not a model. Each one names the BioScan stages
-(bioscan/plugins) and reducers (bioscan/cull.py) it runs; the version a run used is recorded per
-result from the engine's model ids and the stage fingerprints, not from this table."""
+(bioscan/plugins) and reducers (bioscan/cull.py) it runs, or is `local`: a model the task worker runs
+itself (people, on faces.py). The version a run used is recorded per result from the engine's model
+ids and the stage fingerprints, not from this table."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,12 +17,13 @@ class Capability:
     stages: tuple[str, ...]      # BioScan /run products this capability needs (empty: model-free)
     reducers: tuple[str, ...] = ()
     requires: tuple[str, ...] = ()   # capabilities it depends on (switched on with it)
+    local: bool = False              # a model Gardener runs itself, outside the BioScan stages
 
 
 CAPABILITIES: tuple[Capability, ...] = (
     Capability("meta", "基础清点与元数据", "文件信息、拍摄时间、设备、位置、预览与读取状态", ()),
     Capability("content", "内容识别分类", "场景/内容标签（SigLIP2 场景分类 + 动物门控）", ("identify", "scene")),
-    Capability("place_event", "地点与事件", "按拍摄时间间隔与 GPS 给出事件/地点分组建议（不调用模型）", ()),
+    Capability("place_event", "地点与日期", "在主体分组内按地点（GPS）或拍摄日期细分（不调用模型）", ()),
     Capability("subject", "主体检测", "动物主体框（OWLv2），供质量与物种使用", ("identify",)),
     Capability("species", "物种识别", "物种候选及不确定性（BioCLIP + 名录 + 位置先验）", ("identify",),
                requires=("subject",)),
@@ -30,15 +32,18 @@ CAPABILITIES: tuple[Capability, ...] = (
     Capability("quality", "质量分析", "模糊、对焦、曝光等风险及依据", ("identify", "quality")),
     Capability("aesthetic", "美学与选择建议", "美学排序与 AI Pick/Reject 建议及依据（只排序，不替人决定）",
                ("aesthetics",), reducers=("select",), requires=("quality", "burst", "content")),
+    Capability("people", "人物识别", "本地人脸检测与特征（OpenCV YuNet + SFace），按人聚类分组；特征只存本机",
+               (), local=True),
 )
 
 BY_ID = {c.id: c for c in CAPABILITIES}
 
 PRESETS: dict[str, dict[str, object]] = {
     "quick": {"name": "快速整理", "capabilities": ["meta", "content", "place_event"]},
-    "photo": {"name": "摄影筛选", "capabilities": ["meta", "content", "place_event", "burst", "quality", "aesthetic"]},
+    "photo": {"name": "摄影筛选", "capabilities": ["meta", "content", "place_event", "burst", "quality", "aesthetic",
+                                                "people"]},
     "wildlife": {"name": "野生动物", "capabilities": ["meta", "content", "place_event", "burst", "quality",
-                                                  "aesthetic", "subject", "species"]},
+                                                  "aesthetic", "subject", "species", "people"]},
 }
 
 # Run modes control resources only, never which capabilities run or how well (PRD §7).

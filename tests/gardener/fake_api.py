@@ -537,6 +537,11 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         fk.asset(aid)
         return {"ok": True}
 
+    @app.post(P + "/assets/{aid}/split-version")
+    def split_version(aid: str):
+        a = fk.asset(aid)
+        return fk.detail(a) | {"original": None, "version_lock": True, "versions": []}
+
     @app.get(P + "/assets/{aid}/{kind}")
     def asset_media(aid: str, kind: str):
         a = fk.asset(aid)

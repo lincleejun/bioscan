@@ -23,7 +23,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_pr
                                     "capability_versions": {}, "cap_status": {}}
 TERMINAL = ("completed", "partial", "failed", "stopped", "cancelled")
 ADDED_COLUMNS = (("ai_suggestions", "burst_rank", "INTEGER"), ("ai_suggestions", "burst_size", "INTEGER"),
-                 ("tasks", "timezone", "TEXT"), ("collections", "summary", "TEXT"))
+                 ("tasks", "timezone", "TEXT"), ("collections", "summary", "TEXT"), ("collections", "parent_id", "TEXT"),
+                 ("assets", "version_of", "TEXT"), ("assets", "version_reason", "TEXT"),
+                 ("assets", "version_lock", "INTEGER NOT NULL DEFAULT 0"))
 REVIEW_STATE = {"complete": "completed", "zero": "zeroed", "reopen": "open"}
 
 
@@ -187,12 +189,13 @@ class Store:
                    self.all("SELECT id, path, online FROM sources WHERE task_id = ? ORDER BY added_at, path", (task_id,))]
         last = self.one("SELECT * FROM runs WHERE task_id = ? ORDER BY seq DESC LIMIT 1", (task_id,))
         n = self.one("SELECT count(*) assets, coalesce(sum(a.media = 'photo'), 0) photos, "
-                     "coalesce(sum(a.media = 'video'), 0) videos FROM task_assets ta JOIN assets a ON a.id = ta.asset_id "
-                     "WHERE ta.task_id = ?", (task_id,))
+                     "coalesce(sum(a.media = 'video'), 0) videos, coalesce(sum(a.version_of IS NOT NULL), 0) versions "
+                     "FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?", (task_id,))
         f = self.one("SELECT count(*) files, coalesce(sum(f.size), 0) bytes FROM task_assets ta "
                      "JOIN asset_files f ON f.asset_id = ta.asset_id WHERE ta.task_id = ?", (task_id,))
         judged = self.one("SELECT count(*) n FROM task_assets ta JOIN marks m ON m.asset_id = ta.asset_id "
-                          "WHERE ta.task_id = ? AND (m.flag IS NOT NULL OR m.stars > 0)", (task_id,))["n"]
+                          "JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ? AND a.version_of IS NULL "
+                          "AND (m.flag IS NOT NULL OR m.stars > 0)", (task_id,))["n"]
         acts = [r["act"] for r in self.all(
             "SELECT (SELECT r.action FROM collection_reviews r WHERE r.collection_id = c.id ORDER BY r.id DESC LIMIT 1) act "
             "FROM collections c WHERE c.task_id = ? AND c.deleted_at IS NULL", (task_id,))]
@@ -209,11 +212,11 @@ class Store:
                "timezone": t["timezone"],
                "archived": t["archived_at"] is not None, "created_at": t["created_at"], "sources": sources,
                "scan": scan,
-               "review": {"judged": judged, "total": n["assets"],
+               "review": {"judged": judged, "total": n["assets"] - n["versions"],
                           "collections_done": sum(a in ("complete", "zero") for a in acts),
                           "collections_total": len(acts)},
                "counts": {"assets": n["assets"], "photos": n["photos"], "videos": n["videos"],
-                          "files": f["files"], "bytes": f["bytes"]}}
+                          "versions": n["versions"], "files": f["files"], "bytes": f["bytes"]}}
         if with_runs:
             out["runs"] = [run_json(r) for r in self.all("SELECT * FROM runs WHERE task_id = ? ORDER BY seq", (task_id,))]
         return out
@@ -243,6 +246,8 @@ class Store:
             tasks: dict[str, list[str]] = {}
             for r in self.all(f"SELECT asset_id, task_id FROM task_assets WHERE asset_id IN ({q}) ORDER BY task_id", part):
                 tasks.setdefault(r["asset_id"], []).append(r["task_id"])
+            versions = {r["version_of"]: r["n"] for r in self.all(
+                f"SELECT version_of, count(*) n FROM assets WHERE version_of IN ({q}) GROUP BY version_of", part)}
             for a in rows:
                 s = ai.get(a["id"])
                 content = data.get((a["id"], "content")) or {}
@@ -261,6 +266,7 @@ class Store:
                     "burst": None if s is None or s["burst_id"] is None else
                     {"id": s["burst_id"], "rank": s["burst_rank"], "size": s["burst_size"]},
                     "analysis": analysis_state(states.get(a["id"], []), in_run),
+                    "version_of": a["version_of"], "versions": versions.get(a["id"], 0),
                     "task_ids": tasks.get(a["id"], []), "updated_at": a["updated_at"]}
         return [out[i] for i in ids if i in out]
 
@@ -277,6 +283,13 @@ class Store:
         caps = {r["capability"]: {"state": r["state"], "version": r["version"], "error": r["error"],
                                   "data": done.get(r["capability"])}
                 for r in self.all("SELECT * FROM asset_caps WHERE asset_id = ?", (asset_id,))}
+        if (caps.get("people") or {}).get("data"):           # identity features stay in the database
+            p = caps["people"]["data"]
+            caps["people"]["data"] = p | {"faces": [{k: v for k, v in f.items() if k != "vec"} for f in p.get("faces", [])]}
+        of = self.one("SELECT id, primary_path FROM assets WHERE id = ?", (a["version_of"],)) if a["version_of"] else None
+        versions = [{"id": v["id"], "name": Path(v["primary_path"]).name, "path": v["primary_path"],
+                     "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"])}
+                    for v in self.all("SELECT * FROM assets WHERE version_of = ? ORDER BY primary_path", (asset_id,))]
         ai_history = [{"run_id": r["run_id"], "verdict": r["verdict"], "score": r["score"],
                        "reasons": loads(r["reasons"], []), "version": r["version"], "at": r["created_at"]}
                       for r in self.all("SELECT * FROM ai_suggestions WHERE asset_id = ? ORDER BY id", (asset_id,))]
@@ -287,7 +300,10 @@ class Store:
                         "WHERE at.asset_id = ? ORDER BY t.id, at.source", (asset_id,))
         return items[0] | {"files": files, "meta": loads(a["meta"], {}), "lat": a["lat"], "lon": a["lon"], "caps": caps,
                            "ai_history": ai_history, "mark_history": mark_history,
-                           "collections": self.collections_of(asset_id), "tags": tags}
+                           "collections": self.collections_of(asset_id), "tags": tags,
+                           "original": None if of is None else {"id": of["id"], "name": Path(of["primary_path"]).name,
+                                                                "reason": a["version_reason"]},
+                           "version_lock": bool(a["version_lock"]), "versions": versions}
 
     def collections_of(self, asset_id: str) -> list[dict[str, Any]]:
         """Live collections (manual by membership, smart by rule) that hold the asset."""
@@ -388,6 +404,7 @@ class Store:
                 f"SELECT 1 FROM assets WHERE id IN ({marks_in(part)}) "
                 "AND json_extract(meta, '$.content_changed_at') > ?", [*part, rev["at"]]))
         return {"id": row["id"], "kind": row["kind"], "origin": row["origin"], "group_kind": row["group_kind"],
+                "parent_id": row.get("parent_id"),
                 "task_id": row["task_id"], "name": row["name"], "description": row["description"],
                 "rule": loads(row["rule"]), "version": row["version"], "deleted_at": row["deleted_at"],
                 "size": s["size"], "cover_ids": covers, "judged": s["judged"], "picks": s["picks"],
@@ -397,7 +414,8 @@ class Store:
                            "new_since": new_since, "removed_since": removed_since,
                            "changed_since": changed_since},
                 "user_edited": bool(row["user_edited"]),
-                "time_basis": summ.get("time_basis"), "uncertain": len(summ.get("uncertain_ids") or [])}
+                "time_basis": summ.get("time_basis"), "uncertain": len(summ.get("uncertain_ids") or []),
+                "label": summ.get("label")}
 
     def collections(self, *, task: str | None = None, kind: str | None = None, deleted: bool = False) -> list[dict]:
         conds, ps = ["deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"], []

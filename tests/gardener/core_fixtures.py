@@ -77,6 +77,7 @@ class Group:
     name: str
     asset_ids: list[str]
     summary: dict = field(default_factory=dict)
+    parent: str | None = None
 
 
 def info(path: str) -> FileInfo:
@@ -115,9 +116,11 @@ def quick_hash(path: str) -> str:
 
 
 def read_meta(paths: list[str]) -> dict[str, dict]:
+    """Capture time from the file's mtime, except for names with "-export" (an export that lost its EXIF)."""
     out = {}
     for p in paths:
-        m: dict[str, Any] = {"taken_at": datetime.fromtimestamp(os.stat(p).st_mtime).isoformat(timespec="seconds")}
+        m: dict[str, Any] = {"taken_at": None if "-export" in Path(p).stem else
+                             datetime.fromtimestamp(os.stat(p).st_mtime).isoformat(timespec="seconds")}
         if Path(p).suffix.lower() in VID:
             m |= {"duration_s": 1.5, "playable": True}
         else:
@@ -165,26 +168,45 @@ class Fakes:
         self.revealed: list[str] = []
         self.version = "fake1"
         self.tz_seen: str | None = None
+        self.finals: list[bool] = []
+        self.faces_seen: list[str] = []
 
     def analyzer(self, engine, *, decode_workers=2, chunk=16, detail_edge=None):
         return FakeAnalyzer(self, engine)
 
-    def suggest(self, assets, *, tz=None):
+    def faces(self):
+        return FakeFaces(self)
+
+    def suggest(self, assets, *, tz=None, final=True):
+        """Contract §4 shape of grouping.suggest: settled assets only; a group per person key, a subject
+        per asset (species, else the content group, else 未分类); with `final`, one day child per subject
+        and shooting day."""
         self.tz_seen = tz
-        groups = []
-        timed = [a for a in assets if a["taken_at"]]
-        if timed:
-            basis = "task_timezone" if tz else "camera_local"
-            groups.append(Group(f"event:{min(a['taken_at'] for a in timed)[:10]}", "event", "事件",
-                                [a["id"] for a in timed], {"time_basis": basis,
-                                                           "uncertain_ids": [] if tz else [timed[0]["id"]]}))
-        by: dict[str, list[str]] = {}
+        self.finals.append(final)
+        by: dict[str, list[dict]] = {}
         for a in assets:
-            if a["content"]:
-                by.setdefault(f"scene:{a['content']['group']}", []).append(a["id"])
+            if not a.get("settled", True):
+                continue
+            for p in a.get("people") or []:
+                by.setdefault(f"person:{p}", []).append(a)
             if a["species"] and a["species"]["level"] == "species":
-                by.setdefault(f"species:{a['species']['taxon']}", []).append(a["id"])
-        groups += [Group(k, k.split(":")[0], k.split(":", 1)[1], ids) for k, ids in by.items()]
+                key = f"species:{a['species']['taxon']}"
+            elif a["content"]:
+                key = f"scene:{a['content']['group']}"
+            else:
+                key = "other:none"
+            by.setdefault(key, []).append(a)
+        groups = [Group(k, k.split(":")[0], k.split(":", 1)[1], [a["id"] for a in ms]) for k, ms in by.items()]
+        if final:
+            basis = "task_timezone" if tz else "camera_local"
+            for k, ms in by.items():
+                days: dict[str, list[str]] = {}
+                for a in ms:
+                    if a["taken_at"]:
+                        days.setdefault(a["taken_at"][:10], []).append(a["id"])
+                groups += [Group(f"{k}/day:{d}", "day", f"{k} · {d}", ids,
+                                 {"time_basis": basis, "uncertain_ids": [] if tz else ids[:1]}, parent=k)
+                           for d, ids in days.items()]
         return groups
 
     def export(self, dest_dir, *, title, scope, collections, assets, copy, conflict="rename", protected):
@@ -199,7 +221,32 @@ class Fakes:
     def toolkit(self) -> Toolkit:
         return Toolkit(discover=discover, quick_hash=quick_hash, is_online=os.path.exists, read_meta=read_meta,
                        make_preview=make_preview, analyzer=self.analyzer, suggest=self.suggest, export=self.export,
-                       reveal=self.revealed.append)
+                       reveal=self.revealed.append, faces=self.faces)
+
+
+class FakeFaces:
+    """faces.FaceModel's shape. A preview whose green channel is above 180 shows one face: person A when
+    its red channel is below 128, else person B (make_jpg(color=FACE_A / FACE_B)); other images show none."""
+
+    def __init__(self, fakes: Fakes) -> None:
+        self.fakes, self.version = fakes, "people@fake1"
+
+    def ensure(self):
+        pass
+
+    def faces(self, image_path):
+        from bioscan.gardener.faces import encode
+
+        self.fakes.faces_seen.append(str(image_path))
+        with Image.open(image_path) as im:
+            r, g, _ = im.convert("RGB").resize((1, 1)).getpixel((0, 0))
+        if g <= 180:
+            return []
+        vec = [1.0, 0.0] + [0.0] * 126 if r < 128 else [0.0, 1.0] + [0.0] * 126
+        return [{"box": [0.2, 0.2, 0.6, 0.7], "score": 0.95, "vec": encode(vec)}]
+
+
+FACE_A, FACE_B = (20, 220, 20), (220, 220, 20)
 
 
 class FakeAnalyzer:

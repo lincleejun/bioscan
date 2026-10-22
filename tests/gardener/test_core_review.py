@@ -107,19 +107,20 @@ def test_manual_split_survives_regroup_and_rerun(env, fakes, tmp_path):
     photos(src, 4)
     with env.client() as c:
         t = scanned(c, src)
-        event = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "event")
-        members = ids(c, collection=event["id"])
+        group = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json()
+                     if x["group_kind"] == "species")
+        members = ids(c, collection=group["id"])
         assert len(members) == 4
-        new = c.post(f"{API}/collections/{event['id']}/split", json={"asset_ids": members[:2], "name": "清晨"}).json()
-        c.patch(f"{API}/collections/{event['id']}", json={"name": "我的事件", "version": event["version"]})
+        new = c.post(f"{API}/collections/{group['id']}/split", json={"asset_ids": members[:2], "name": "清晨"}).json()
+        c.patch(f"{API}/collections/{group['id']}", json={"name": "我的分组", "version": group["version"]})
         fakes.version = "fake2"
         finish(c, c.post(f"{API}/tasks/{t['id']}/rescan", json={}).json()["id"])
-        ev = c.get(f"{API}/collections/{event['id']}").json()
-        assert ev["size"] == 2 and ev["name"] == "我的事件" and ev["user_edited"]
+        got = c.get(f"{API}/collections/{group['id']}").json()
+        assert got["size"] == 2 and got["name"] == "我的分组" and got["user_edited"]
         assert c.get(f"{API}/collections/{new['id']}").json()["size"] == 2
-        events = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "event"]
-        assert len(events) == 1                         # the suggestion matched the edited one, no duplicate
-        r = c.patch(f"{API}/collections/{event['id']}", json={"name": "x", "version": 1})
+        same = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "species"]
+        assert len(same) == 1                           # the suggestion matched the edited one, no duplicate
+        r = c.patch(f"{API}/collections/{group['id']}", json={"name": "x", "version": 1})
         assert r.status_code == 409
 
 
@@ -187,7 +188,7 @@ def test_delete_restore_keeps_marks_and_deleted_auto_collections_stay_deleted(en
     with env.client() as c:
         t = scanned(c, a)
         cols = c.get(f"{API}/collections", params={"task": t["id"]}).json()
-        scene = next(x for x in cols if x["group_kind"] == "scene")
+        scene = next(x for x in cols if x["group_kind"] == "species")
         first = ids(c, collection=scene["id"])
         c.post(f"{API}/marks", json={"asset_ids": first, "flag": "pick"})
         assert c.delete(f"{API}/collections/{scene['id']}").json()["deleted_at"]
@@ -196,8 +197,10 @@ def test_delete_restore_keeps_marks_and_deleted_auto_collections_stay_deleted(en
         assert ids(c, task=t["id"], flag="pick") == ids(c, task=t["id"])          # marks unchanged
         run = finish(c, c.post(f"{API}/tasks/{t['id']}/sources", json={"paths": [str(b)]}).json()["id"])
         assert run["status"] == "completed" and run["summary"]["groups_skipped_deleted"] >= 1
-        live = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "scene"]
+        live = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "species"]
         assert live == []                                                          # not revived, no duplicate
+        kids = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["parent_id"] == scene["id"]]
+        assert all(x["size"] == 2 for x in kids)                                   # no new children under a deleted parent
         restored = c.post(f"{API}/collections/{scene['id']}/restore").json()
         assert restored["deleted_at"] is None and restored["size"] == 2 and restored["picks"] == 2
 
@@ -341,7 +344,7 @@ def test_task_timezone_reaches_grouping_and_collections_show_the_time_basis(env,
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": [str(src)], "timezone": "Mars/Base"}).status_code == 400
         t = wait_task(c, create_task(c, [str(src)], caps=["place_event"])["id"])
         assert t["timezone"] is None and fakes.tz_seen is None
-        ev = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "event")
+        ev = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "day")
         assert (ev["time_basis"], ev["uncertain"]) == ("camera_local", 1)
         assert c.patch(f"{API}/tasks/{t['id']}", json={"timezone": "+08:00"}).json()["timezone"] == "+08:00"
         assert c.patch(f"{API}/tasks/{t['id']}", json={"timezone": "+25:00"}).status_code == 400

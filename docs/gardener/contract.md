@@ -17,7 +17,9 @@
 | `bioscan/gardener/scan.py` | 单元 2 | 目录发现、RAW/JPEG 配对、文件身份、离线检测 |
 | `bioscan/gardener/preview.py` | 单元 2 | 缩略图/大图预览、元数据读取、视频探测与封面 |
 | `bioscan/gardener/analyze.py` | 单元 2 | `Analyzer`：复用 BioScan `RunQueue`/`Engine`，归一化结果、reducers |
-| `bioscan/gardener/grouping.py` | 单元 2 | 自动分组建议（事件/地点/场景/物种） |
+| `bioscan/gardener/grouping.py` | 单元 2 | 自动分组建议：主体（人物/物种/动物类型/场景）→ 地点或日期（修订 2） |
+| `bioscan/gardener/faces.py` | 修订 2 | 本地人脸检测与特征（YuNet + SFace）、按人聚类 |
+| `bioscan/gardener/versions.py` | 修订 2 | 同一拍摄的多个文件（跨目录副本、导出图）归到一个代表素材 |
 | `bioscan/gardener/export.py` | 单元 2 | Gardener XML 导出、可选复制 + 校验 + 冲突 |
 | `bioscan/gardener/web/` | 单元 3 | 中文 Web UI（静态 HTML/CSS/JS，无构建） |
 | `bioscan/gardener/cli.py` | 单元 3 | `gardener` CLI（只走 HTTP，import-light） |
@@ -79,10 +81,10 @@ class Analyzer:
     def close(self) -> None
 
 # grouping.py
-@dataclass class Group: key: str; kind: str; name: str; asset_ids: list[str]; summary: dict
-    # kind: event | place | scene | species；key 稳定（如 event:20250301-0812、scene:wildlife、species:Megascops asio、place:<grid>）
-def suggest(assets: list[dict]) -> list[Group]
-    # assets: {id, taken_at, lat, lon, media, content: {group,label}|None, species: {taxon,common,level}|None}
+@dataclass class Group: key: str; kind: str; name: str; asset_ids: list[str]; summary: dict; parent: str | None
+    # 修订 2：kind: species | person | animal | scene | other（主体）| day | place（主体内细分，parent = 主体 key）
+def suggest(assets: list[dict], *, tz: str | None = None, final: bool = True) -> list[Group]
+    # assets: {id, taken_at, lat, lon, media, content, species, people: [person key]|None, settled: bool}
 
 # export.py
 def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], assets: list[dict],
@@ -107,7 +109,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 ## 5 任务与运行生命周期（单元 1）
 
 - 创建任务即创建 `runs(kind=scan, status=queued)` 并返回任务 id；一个工作协程按 `queued_at` 顺序**一次执行一个运行**。Review 不占执行名额。
-- 运行阶段：`discover` → `preview`（逐项提交，UI 立即可见）→ `analyze`（分块，逐项提交）→ `group`（reduce + 自动集合）。预览阶段完成前就建立事件/地点分组，分析每块后更新场景/物种分组。
+- 运行阶段：`discover` → `preview`（逐项提交，UI 立即可见；结束时归并同一拍摄的版本，修订 2）→ `analyze`（分块，逐项提交；BioScan 能力之后跑人物）→ `group`（reduce + 最终分组）。照片的主体能力结束后才进入主体分组；分析中途的分组不做合并与细分（`final=False`）。
 - 状态机：`queued → running → (completed | partial | failed | stopped)`；`running → paused`（当前块结束后释放名额，下一个排队运行开始）；`paused → queued`（继续）；`queued|paused → cancelled`；服务重启时 `running → interrupted → queued`（自动恢复，从未完成项继续）。`partial` = 有单项失败、不可用能力或离线来源；不得统称完成。
 - 追加来源 → 新运行 `append`，复用已有素材（路径 + size + mtime 未变即不重做）；重扫 `rescan`（可指定能力、素材子集，用于小批试跑新版本）；重试 `retry`（失败项）。新运行不改写旧运行与旧结果。
 - 来源离线：该来源素材 `online=0`，记录与预览保留，运行记为 `partial` 并在汇总列出；`POST /tasks/{id}/verify-sources` 重新核对，恢复在线后自动排队 `append` 继续。
@@ -155,7 +157,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - `POST /collections/{id}/members {add?: [], remove?: []}`（smart 不可，400）；`POST /collections/{id}/merge {ids, name?}` → 新 Manual，原集合软删除；`POST /collections/{id}/split {asset_ids, name}` → 新 Manual，成员移出原集合；`POST /collections/{id}/save-as-manual {name}`
 - `POST /collections/{id}/complete {note?}`；`POST /collections/{id}/zero {resolution?: keep_picks|clear_picks}`（有 Pick 且无 resolution → 409 `{picks: [{id, collections: [{id, name}]}]}`）；`POST /collections/{id}/reopen`
 - `DELETE /collections/{id}`（软删除，素材和标记不变）；`POST /collections/{id}/restore`
-- `GET /coverage?task=` → `[{collection_id, name, group_kind, size, picks, state: covered|zeroed|uncovered}]`（事件/地点/场景/物种集合；不宣称知道未拍到的地点）
+- `GET /coverage?task=` → `[{collection_id, name, group_kind, size, picks, state: covered|zeroed|uncovered}]`（除“全部素材”与自建集合外的自动集合；不宣称知道未拍到的地点）
 
 `Collection = {id, kind, origin, group_kind, task_id, name, description, rule, version, deleted_at, size, cover_ids: [≤4], judged, picks, rejects, ai_picks, ai_rejects, low_score: bool, review: {state: open|completed|zeroed, at, unhandled, new_since: n}, user_edited}`。`low_score` = 有美学分且全部低于 AI 拒绝线或全部为 AI reject。
 
@@ -182,7 +184,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 1. RAW/JPEG：同目录、同 stem（不区分大小写）为一个素材；文件、逻辑素材、字节分别计数。
 2. 任务级 Review 分母 = 已发现素材数；“已判断” = 有 Flag 或星级；浏览不算。
 3. 导出 schema 如 §7；冲突默认 `rename`；复制后 sha256 校验。
-4. 默认自动集合：每任务“全部素材”+ 事件（时间间隔 > 2 h 切分）+ 地点（GPS 约 1 km 网格，无 GPS 不建）+ 场景大类 + 物种（species 级）。
+4. 默认自动集合：每任务“全部素材”+ 修订 2 的主体分组与细分（取代最初的事件/地点/场景/物种平铺分组）。
 5. Smart Collection 动态：成员按规则实时求值；完成时记录快照，之后新增显示“新增待审”。
 6. 删除集合为软删除，恢复期限首版不限。
 7. 预览：thumb 长边 360、large 长边 1600；低分辨率预览不代表 RAW 解码或对焦验证（UI 明示）。
@@ -223,3 +225,14 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **未实现**：`assets.sha256` 不在扫描时计算（导出复制时自行计算 sha256）。
 - **时区（R2）**：任务可选字段 `timezone`（IANA 名称或 `±HH:MM`，否则 400），见于 `Task`、`POST/PATCH /tasks` 与运行 `config.timezone` 快照；分组时若 `grouping.suggest` 接受 `tz` 参数则传入。自动集合保存建议组的 `summary`，`Collection` 增加 `time_basis` 与 `uncertain`（`uncertain_ids` 数量）。拍摄时间不做任何时区换算，日期筛选按相机本地时间比较。schema 增加 `tasks.timezone`、`collections.summary`；旧数据库启动时按缺失列 `ALTER TABLE ADD COLUMN`。
 - **队列韧性**：运行中的任何异常（含 Analyzer.close 等清理）都不会停止工作队列：结果完整而只有清理失败 → `partial`，`summary.cleanup_error` 记原因；其他异常 → `failed` 并记 `error`；工作循环本身捕获异常、退避后继续。未结束运行的 `progress` 最多 0.99，`total_analysis` 自预览阶段起即为估计值。删除当前默认预设时 `default_preset` 回到内建 `photo`（DELETE 响应带 `default_preset`）；设置指向不存在的预设时建任务也回退到 `photo`。
+
+## 契约修订 2：主体分组、人物、同一拍摄（2026-10-21，owner 确认，优先于上文冲突处）
+
+依据：真实语料全量扫描后 owner 判定“单纯按时间分组跟不分组没区别”；选定主轴为 **主体 → 地点/日期**，新增本地人脸聚类，导出图作为原片的版本合并（#88 评论）。
+
+- **同一拍摄（`versions.py`）**：预览阶段结束时在任务的照片间归并。规则依次为：① 相机文件编号（文件名开头的字母 + ≥3 位数字，如 `DSC01234`）、拍摄时间（到秒）、相机三者一致 → 同一拍摄（`same_capture`）；② 没有拍摄时间、编号与某次拍摄相同、且预览的 64 位差值哈希在任一 90° 旋转下相差 ≤ 10 位、并且没有另一个不同时间的拍摄同样接近（相差 ≤ 2 位以内）→ 导出图（`export`）。代表版本：RAW（DNG 次于其他 RAW）→ 像素多者 → 路径。其余版本写 `assets.version_of`、`version_reason`，从自动集合中移出（`collection_members.removed_by='version'`，人工加入的成员不动），已启用的模型能力记 `not_applicable`（原因“同一拍摄的其他版本”），不再分析；代表版本缺时间或 GPS 时分组借用版本的。哈希缓存在 `assets.meta.dhash`。`POST /assets/{id}/split-version` = 人确认“不是同一张”：取消归并、恢复自动集合成员、能力回到 `pending`（retry 补跑），并设 `version_lock=1`，以后永不再自动归并。
+- **查询**：筛选参数增加 `versions=hide|all|only`，缺省 `hide`（列表、Smart 规则、导出按筛选都只看代表版本）；`collection=` 按成员如实返回。`AssetItem` 增加 `version_of`（id）与 `versions`（数量）；`AssetDetail` 增加 `original {id, name, reason}`、`versions [{id, name, path, reason, preview, online}]`、`version_lock`。`Task.counts.versions`；`Task.review.total` 不含版本；运行 `summary.versions = {same_capture, export}`。
+- **人物（`faces.py`，能力 `people`，`local=True`）**：OpenCV YuNet（MIT）检测人脸与五点，SFace（Apache-2.0）对齐后出 128 维特征；两个 ONNX 文件在 Hugging Face 固定 revision（`opencv/face_detection_yunet@3cc26e7f`、`opencv/face_recognition_sface@3d708243`），CPU 运行。输入是 Gardener 自己的直立预览（长边 1600），不是原片。结果 `results.data = {faces: [{box: 比例坐标, score, vec: f16 base64}], count, input: "preview"}`，`done`（有脸）/ `unrecognized`（无脸）；置信度 < 0.85 或脸框短边 < 40 px 的不算。特征只存数据库，`AssetDetail.caps.people.data.faces` 不含 `vec`。分组时对任务内全部人脸贪心聚类（按脸的面积 × 置信度从高到低开新人，余弦 ≥ 0.40 归入最接近的人）。预设：`photo`、`wildlife` 含 `people`（已有数据库的内建预设保留其现值，可在管理页打开）。模型加载失败 → 人物对该运行 `unavailable` 并附原因。
+- **分组（`grouping.suggest`）**：主体 = 人物（每人一组，“人物 1, 2…”按照片数从多到少命名，可改名）、分类单元（种；只到属/科时“Fratercula（属）”）、未识别到种的动物类型（鸟类 / 哺乳动物 / 其他动物，取内容标签）、否则内容标签（山地、海岸、人像…；人像类但无已识别人脸 → “人物 · 其他”）；视频一组“视频”，无主体信息“未分类”。同一照片可同时在人物组与物种组；场景只收没有人物与动物主体的照片。少于 3 张的主体并入上一级（稀有物种 → 其动物类型，稀有场景 → “其他场景”，单人 → “人物 · 其他”）。≥ 10 张的主体再细分：多数成员有 GPS → 约 2 km 网格、相邻格合并为一个地点；否则按拍摄日（相机本地时间；任务有 `timezone` 时换算到该时区；无时区的 UTC 时间标为不确定）。细分少于 3 张的并入“其他日期 / 其他地点”，无时间/无 GPS 的单列，只分出一份时不细分。不再生成单纯按时间或单纯按地点的顶层分组。
+- **自动集合**：`collections.parent_id` 指向细分所属的主体集合；`group_kind` 取上面的 kind；`Collection` 增加 `parent_id`、`label`（细分的短名）。匹配：同 kind、同父集合内先按 `auto_key`；人物与地点（key 随规模漂移）再按成员重叠（重叠 ≥ 较小一方的一半），每个已有集合一轮只匹配一个建议组。父集合被删除时不建、不补其细分。分析进行中的重组只建达到 3 张的主体组，不做合并与细分；`group` 阶段（以及停止的运行）做最终分组。旧数据库已有的 `event`/`place` 自动集合原样保留。
+- **UI**：Collections 以主体为 block，细分作为 block 内的日期/地点入口；类型筛选为人物 / 物种 / 动物 / 场景 / 其他；详情显示“同一拍摄的其他版本”与“不是同一张”。
