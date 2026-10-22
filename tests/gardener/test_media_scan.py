@@ -77,3 +77,13 @@ def test_symlinked_folders_are_reported_not_followed(tmp_path):
     found, skipped = discover(str(root))
     assert [os.path.basename(f.primary) for f in found] == ["here.jpg"]
     assert skipped == [Skipped(str(root / "linkdir"), "symlink")]
+
+
+def test_skips_a_name_with_a_line_break(tmp_path):
+    touch(tmp_path / "ok.jpg")
+    touch(tmp_path / "x\n-all=\n-overwrite_original\n.jpg")
+    touch(tmp_path / "y\r.jpg")
+    found, skipped = discover(str(tmp_path))
+    assert [os.path.basename(f.primary) for f in found] == ["ok.jpg"]
+    assert {os.path.basename(s.path): s.reason for s in skipped} == {
+        "x\n-all=\n-overwrite_original\n.jpg": "unsafe_name", "y\r.jpg": "unsafe_name"}

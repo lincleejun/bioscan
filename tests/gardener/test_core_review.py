@@ -421,3 +421,34 @@ def test_combined_filters_across_tasks(env, tmp_path):
         sm = c.post(f"{API}/collections", json={"name": "跨任务", "kind": "smart",
                                                 "rule": {"flag": "pick", "stars_min": 4}}).json()
         assert q(collection=sm["id"]) == sorted([ia[0], vid])
+
+
+def test_tag_merge_into_a_grandchild_leaves_no_parent_cycle(env):
+    with env.client() as c:
+        a, p, b = (c.post(f"{API}/tags", json={"name": n}).json() for n in ("A", "P", "B"))
+        c.patch(f"{API}/tags/{p['id']}", json={"parent_id": a["id"]})
+        c.patch(f"{API}/tags/{b['id']}", json={"parent_id": p["id"]})
+        assert c.post(f"{API}/tags/{a['id']}/merge", json={"into": b["id"]}).status_code == 200
+        parent = {x["id"]: x["parent_id"] for x in c.get(f"{API}/tags").json()}
+        assert parent[b["id"]] is None and parent[p["id"]] == b["id"]
+
+
+def test_clear_cache_tolerates_a_file_vanishing_meanwhile(env, tmp_path, monkeypatch):
+    src = tmp_path / "card"
+    photos(src, 2)
+    with env.client() as c:
+        t = scanned(c, src)
+        aid = ids(c, task=t["id"])[0]
+        real = os.path.getsize
+        gone = []
+
+        def getsize(p):              # a preview's .part renamed away between walk and stat
+            if not gone:
+                gone.append(p)
+                os.remove(p)
+            return real(p)
+        monkeypatch.setattr(os.path, "getsize", getsize)
+        r = c.post(f"{API}/storage/clear-cache")
+        monkeypatch.undo()
+        assert r.status_code == 200 and r.json()["removed_files"] == 3
+        assert c.get(f"{API}/assets/{aid}").json()["preview"] == "pending"
