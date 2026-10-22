@@ -190,3 +190,53 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
     # without --species the request keeps the album profile's species=false and the columns stay empty
     assert main(["aesthetic", "score", str(d), "--export", "csv", "--out", str(out)]) == 0
     assert sent["payload"]["options"]["identify"]["species"] is False
+
+
+def test_score_takes_reasons_waivers_and_status_from_select(tmp_path, monkeypatch):
+    """#72: the album profile waives underexposed at night, as `bioscan cull` does; the CSV and the page
+    carry select's status."""
+    from bioscan import cull
+    from bioscan.cli import cull as cc
+
+    monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
+    d = photos(tmp_path, ("night.jpg", "day.jpg"))
+    evs = [result(str(d / "night.jpg"), 0.0, label="night", reasons=["underexposed"], v=(1.0, 0.0)),
+           result(str(d / "day.jpg"), 60.0, reasons=["underexposed"], v=(0.0, 1.0)),
+           {"type": "done", "schema": 1, "ok": 2, "failed": 0, "elapsed_ms": 1.0}]
+    monkeypatch.setattr(client, "run", lambda payload, url: [json.dumps(e).encode() for e in evs])
+    out = tmp_path / "aes"
+    assert main(["aesthetic", "score", str(d), "--export", "csv,html", "--out", str(out), "--no-thumbs"]) == 0
+    with open(f"{out}.csv") as f:
+        rows = {r["path"].rsplit("/", 1)[1]: r for r in csv.DictReader(f)}
+    assert rows["night.jpg"]["reject_reasons"] == "" and rows["night.jpg"]["waived"] == "underexposed"
+    assert rows["day.jpg"]["reject_reasons"] == "underexposed"
+    culled = {r["path"].rsplit("/", 1)[1]: r["status"] for r in cull.records(cull.apply(
+        evs, cc.reducer_run(sc.expand(profile.builtin(), cc.DEFAULT_PROFILE, None, {}))))}
+    assert {k: r["status"] for k, r in rows.items()} == culled == {"night.jpg": "pick", "day.jpg": "reject"}
+    assert '"ss":"pick"' in (tmp_path / "aes.html").read_text()
+
+
+def test_score_lat_lon_fill_photos_without_gps(tmp_path, monkeypatch):
+    """#84: --lat/--lon reach the /run inputs as in `run`: only photos whose EXIF has no GPS get them."""
+    from types import SimpleNamespace
+
+    from bioscan.cli import geotag_cli
+
+    monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
+    d = photos(tmp_path, ("gps.jpg", "bare.jpg"))
+    monkeypatch.setattr(geotag_cli, "read_photos", lambda paths: [
+        SimpleNamespace(path=p, lat=1.0 if p.endswith("gps.jpg") else None) for p in paths])
+    sent = {}
+
+    def fake_run(payload, url):
+        sent["payload"] = payload
+        return [json.dumps({"type": "done", "schema": 1, "ok": 0, "failed": 0, "elapsed_ms": 1.0}).encode()]
+    monkeypatch.setattr(client, "run", fake_run)
+    out = str(tmp_path / "aes")
+    assert main(["aesthetic", "score", str(d), "--species", "--lat", "37.87", "--lon", "-122.25", "--out", out]) == 0
+    by = {i["path"].rsplit("/", 1)[1]: i for i in sent["payload"]["inputs"]}
+    assert by["bare.jpg"] == {"path": str(d / "bare.jpg"), "lat": 37.87, "lon": -122.25} and "lat" not in by["gps.jpg"]
+    with pytest.raises(SystemExit, match="go together"):
+        main(["aesthetic", "score", str(d), "--lat", "37.87", "--out", out])
+    with pytest.raises(SystemExit, match="--preds"):
+        main(["aesthetic", "score", "--preds", f"{out}.ndjson", "--lat", "1", "--lon", "2"])
