@@ -572,6 +572,8 @@ def read_budget(path: str | Path) -> dict:
         if extra:
             raise bench.BenchError(f"{path}: rule {i + 1}: unknown keys {sorted(extra)}")
         r.setdefault("scopes", ["all"])
+        if not isinstance(r["scopes"], list) or not all(isinstance(s, str) and s for s in r["scopes"]):
+            raise bench.BenchError(f"{path}: rule {i + 1}: scopes must be a list of scope names")
     return raw
 
 

@@ -213,12 +213,31 @@ def cmd_gt_inat(a):
     return 0
 
 
+SCENE_DEFAULTS = {"map": str(PROJECT_ROOT / "data" / "scene" / "oid-labels.toml"), "per_label": 50, "seed": 7,
+                  "subset": "validation,test", "cache": None, "dry_run": False}
+
+
+def check_gt_scene(p: argparse.ArgumentParser, a) -> None:
+    """--from re-fetches a fixed manifest: the sampling flags mean nothing there, so say so instead of
+    ignoring them; --subset names are checked before anything is downloaded."""
+    given = [k for k in SCENE_DEFAULTS if getattr(a, k) is not None and getattr(a, k) is not False]
+    if a.from_manifest and given:
+        p.error(f"gt scene --from takes only --out; drop {', '.join('--' + k.replace('_', '-') for k in given)}")
+    for k, v in SCENE_DEFAULTS.items():
+        if getattr(a, k) is None:
+            setattr(a, k, v)
+    a.subset = tuple(s.strip() for s in a.subset.split(",") if s.strip())
+    unknown = [s for s in a.subset if s not in gt.OID_LABELS]
+    if not a.subset or unknown:
+        p.error(f"--subset: unknown {unknown or 'none given'}; use {', '.join(gt.OID_LABELS)}")
+
+
 def cmd_gt_scene(a):
-    if getattr(a, "from_manifest", None):
+    if a.from_manifest:
         rows = gt.gt_scene_from(a.from_manifest, a.out)
         print(f"{len(rows)} photos -> {Path(a.out) / 'groundtruth-scene.csv'}")
         return 0
-    rows = gt.gt_scene(a.map, a.out, a.per_label, seed=a.seed, subsets=tuple(a.subset.split(",")), cache_dir=a.cache,
+    rows = gt.gt_scene(a.map, a.out, a.per_label, seed=a.seed, subsets=a.subset, cache_dir=a.cache,
                        dry_run=a.dry_run)
     print(f"{len(rows)} photos -> {Path(a.out) / 'groundtruth-scene.csv'}" + (" (dry run: URLs as paths)" if a.dry_run else ""))
     return 0
@@ -363,12 +382,13 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--from", dest="from_manifest", metavar="CSV",
                    help="re-fetch a committed set (e.g. data/scene/scene-v1.csv) by url + md5 instead of sampling; "
                         "photos already there with that md5 are kept")
-    s.add_argument("--map", default=str(PROJECT_ROOT / "data" / "scene" / "oid-labels.toml"))
-    s.add_argument("--per-label", type=int, default=50)
-    s.add_argument("--seed", type=int, default=7)
-    s.add_argument("--subset", default="validation,test", help="Open Images subsets to draw from")
+    s.add_argument("--map", help=f"scene map (default {SCENE_DEFAULTS['map']})")
+    s.add_argument("--per-label", type=int, help=f"photos per scene label (default {SCENE_DEFAULTS['per_label']})")
+    s.add_argument("--seed", type=int, help=f"sampling seed (default {SCENE_DEFAULTS['seed']})")
+    s.add_argument("--subset", help=f"Open Images subsets to draw from, comma-separated (default {SCENE_DEFAULTS['subset']})")
     s.add_argument("--cache", help="where the Open Images CSVs are kept (default ~/.cache/bioscan/openimages)")
-    s.add_argument("--dry-run", action="store_true", help="fetch the label CSVs and count, download no photos")
+    s.add_argument("--dry-run", action="store_true", help="fetch the label CSVs and count, download no photos "
+                                                          "(sampling only; not with --from)")
     s.set_defaults(func=cmd_gt_scene)
 
     s = sub.add_parser("eval", help="run identify over a ground-truth CSV and write report.md")
@@ -404,7 +424,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
-    a = parser().parse_args(argv)
+    p = parser()
+    a = p.parse_args(argv)
+    if getattr(a, "func", None) is cmd_gt_scene:
+        check_gt_scene(p, a)
     try:
         return a.func(a)
     except client.ServiceError as e:

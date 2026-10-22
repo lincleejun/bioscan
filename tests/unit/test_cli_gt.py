@@ -339,3 +339,31 @@ def test_gt_scene_from_manifest_keeps_matching_files_and_checks_md5(tmp_path):
     (tmp_path / "gt.csv").write_text("path,tier,scene\nx,scene,coast\n")
     with pytest.raises(ValueError, match="missing columns"):
         gt.gt_scene_from(str(tmp_path / "gt.csv"), str(out), get=get)
+
+
+@pytest.mark.parametrize("extra", [["--dry-run"], ["--per-label", "5"], ["--subset", "test"], ["--seed", "0"],
+                                   ["--map", "m.toml"], ["--cache", "c"]])
+def test_gt_scene_from_rejects_sampling_flags(tmp_path, monkeypatch, extra):
+    from bioscan.cli import main as cli
+    monkeypatch.setattr(gt, "gt_scene_from", lambda *a, **k: pytest.fail("no fetch with a flag --from ignores"))
+    with pytest.raises(SystemExit) as e:
+        cli.main(["gt", "scene", "--from", "m.csv", "--out", str(tmp_path), *extra])
+    assert e.value.code == 2
+
+
+def test_gt_scene_subsets_are_stripped_and_checked_before_download(tmp_path, monkeypatch):
+    from bioscan.cli import main as cli
+    got = {}
+    monkeypatch.setattr(gt, "gt_scene", lambda *a, subsets, **k: got.setdefault("subsets", subsets) and [])
+    assert cli.main(["gt", "scene", "--out", str(tmp_path), "--subset", "validation, test"]) == 0
+    assert got["subsets"] == ("validation", "test")
+    monkeypatch.setattr(gt, "gt_scene", lambda *a, **k: pytest.fail("no download with a bad subset"))
+    with pytest.raises(SystemExit) as e:
+        cli.main(["gt", "scene", "--out", str(tmp_path), "--subset", "validaton"])
+    assert e.value.code == 2
+
+
+def test_gt_scene_unknown_subset_fails_before_any_fetch(tmp_path):
+    with pytest.raises(ValueError):
+        gt.gt_scene(str(tmp_path / "map.toml"), str(tmp_path), 1, subsets=("val",),
+                    get=lambda url: pytest.fail(f"fetched {url}"))

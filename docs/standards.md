@@ -452,7 +452,8 @@ portrait photograph), so a first run's failures need a look at the photos before
 CVDF S3 mirror), `md5`, labels, licence and attribution, no photos (about 600 MB; they stay under
 `runs/`, ignored by git). Any machine gets the identical set with `gt scene --from`: a photo already
 there with the manifest's md5 is kept, anything else is downloaded, and a download whose md5 differs
-fails the run, so a bench on this tier always scores the same files.
+fails the run, so a bench on this tier always scores the same files. `--from` takes only `--out`: the
+sampling flags (`--map`, `--per-label`, `--seed`, `--subset`, `--cache`, `--dry-run`) are refused with it.
 
 How measured (any machine with the service running and the out folder under its allow-roots):
 ```sh
