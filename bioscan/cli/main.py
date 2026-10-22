@@ -136,14 +136,9 @@ def build_payload(a, config: profile.Config | None = None) -> dict:
                 inp["lat"], inp["lon"] = placed[inp["path"]]
     if a.lat is not None:
         # Request coordinates override EXIF on the service side, so only fill images whose
-        # EXIF has none -- that keeps "EXIF wins" semantics for the batch default. The EXIF is read
-        # with Pillow, as for the track (read above when --gpx is given); exiftool is not needed.
+        # EXIF has none -- that keeps "EXIF wins" semantics for the batch default.
         if not gpx:
-            try:
-                exif_gps = {ph.path for ph in geotag_cli.read_photos(paths) if ph.lat is not None}
-            except ImportError as e:
-                raise SystemExit(f"--lat/--lon needs Pillow to read EXIF GPS, so a photo's own GPS wins over "
-                                 f"the batch coordinate; the EXIF reader did not import ({e})") from None
+            exif_gps = geotag_cli.exif_gps_paths(paths)
         for inp in inputs:
             if inp["path"] not in exif_gps and "lat" not in inp:
                 inp["lat"], inp["lon"] = a.lat, a.lon

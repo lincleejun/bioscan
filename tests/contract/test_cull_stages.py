@@ -191,9 +191,9 @@ def test_a_tilted_landscape_horizon_is_a_flag_not_a_reject(client, engine, tmp_p
     assert all(r["flags"] == ["horizon_tilt"] for r in tilted.values()) and all(r["flags"] == [] for r in level.values())
     drop = lambda recs: {p: {k: v for k, v in r.items() if k != "flags"} for p, r in recs.items()}   # noqa: E731
     assert drop(tilted) == drop(level)                                         # status, keep, reasons unchanged
-    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(evs)}  # noqa: E731
+    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(cull.apply(evs, reducers))}  # noqa: E731
     assert stars(tilted_evs) == stars(level_evs)
-    assert [r["flags"] for r in aesscore.rows_of(tilted_evs)] == [["horizon_tilt"]] * 2
+    assert [r["flags"] for r in aesscore.rows_of(cull.apply(tilted_evs, reducers))] == [["horizon_tilt"]] * 2
 
 
 def test_a_bird_at_the_frame_top_is_a_tight_headroom_flag_not_a_reject(client, engine, tmp_path, monkeypatch):
@@ -222,9 +222,9 @@ def test_a_bird_at_the_frame_top_is_a_tight_headroom_flag_not_a_reject(client, e
     assert all(r["flags"] == ["tight_headroom"] for r in tight.values()) and all(r["flags"] == [] for r in room.values())
     drop = lambda recs: {p: {k: v for k, v in r.items() if k != "flags"} for p, r in recs.items()}   # noqa: E731
     assert drop(tight) == drop(room)                                           # status, keep, reasons unchanged
-    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(evs)}  # noqa: E731
+    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(cull.apply(evs, reducers))}  # noqa: E731
     assert stars(tight_evs) == stars(room_evs)
-    assert [r["flags"] for r in aesscore.rows_of(tight_evs)] == [["tight_headroom"]] * 2
+    assert [r["flags"] for r in aesscore.rows_of(cull.apply(tight_evs, reducers))] == [["tight_headroom"]] * 2
 
 
 def test_facing_asks_owlv2_for_the_subjects_head_and_reports_its_fingerprint(client, fakes, tmp_path):
@@ -279,6 +279,6 @@ def test_a_bird_facing_the_near_edge_is_a_no_lead_room_flag_not_a_reject(client,
     assert all(r["flags"] == ["no_lead_room"] for r in edge.values()) and all(r["flags"] == [] for r in room.values())
     drop = lambda recs: {p: {k: v for k, v in r.items() if k != "flags"} for p, r in recs.items()}   # noqa: E731
     assert drop(edge) == drop(room)                                            # status, keep, reasons unchanged
-    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(evs)}  # noqa: E731
+    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(cull.apply(evs, reducers))}  # noqa: E731
     assert stars(edge_evs) == stars(room_evs)
-    assert [r["flags"] for r in aesscore.rows_of(edge_evs)] == [["no_lead_room"]] * 2
+    assert [r["flags"] for r in aesscore.rows_of(cull.apply(edge_evs, reducers))] == [["no_lead_room"]] * 2
