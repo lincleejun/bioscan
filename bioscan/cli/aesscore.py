@@ -14,10 +14,10 @@ at the copy's full size). The service writes the page's jpg copies in `<out>-fil
 browser-readable originals and marks the rest.
 
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
-and reject reasons come from the album profile's scene and quality stages; flags (horizon_tilt: a
-landscape's horizon tilts more than the profile's `select.horizon_flag_deg`; tight_headroom: the
-subject's box starts within `select.headroom_min` of the frame top) only mark a photo, they never
-change its stars. `--species` turns the
+comes from the album profile's scene stage; status (pick / spare / duplicate / reject), reject reasons
+(after the profile's waivers) and flags come from its `select` reducer, run here as in `bioscan cull`;
+flags (notes such as horizon_tilt or tight_headroom; docs/album.md lists them with their options) only
+mark a photo, they never change its stars. `--species` turns the
 profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
 genus or family, as `bioscan summarize` counts it) with an English name beside it (`rp.common_of`: the common name, or
 "a vireo" / "a hawk or eagle" above species), and the page groups and filters by it. The page
