@@ -189,13 +189,13 @@ class Store:
                    self.all("SELECT id, path, online FROM sources WHERE task_id = ? ORDER BY added_at, path", (task_id,))]
         last = self.one("SELECT * FROM runs WHERE task_id = ? ORDER BY seq DESC LIMIT 1", (task_id,))
         n = self.one("SELECT count(*) assets, coalesce(sum(a.media = 'photo'), 0) photos, "
-                     "coalesce(sum(a.media = 'video'), 0) videos, coalesce(sum(a.version_of IS NOT NULL), 0) versions "
-                     "FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?", (task_id,))
+                     f"coalesce(sum(a.media = 'video'), 0) videos, coalesce(sum(NOT {query.IN_TASK_REP}), 0) versions "
+                     "FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?", (task_id, task_id))
         f = self.one("SELECT count(*) files, coalesce(sum(f.size), 0) bytes FROM task_assets ta "
                      "JOIN asset_files f ON f.asset_id = ta.asset_id WHERE ta.task_id = ?", (task_id,))
         judged = self.one("SELECT count(*) n FROM task_assets ta JOIN marks m ON m.asset_id = ta.asset_id "
-                          "JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ? AND a.version_of IS NULL "
-                          "AND (m.flag IS NOT NULL OR m.stars > 0)", (task_id,))["n"]
+                          f"JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ? AND {query.IN_TASK_REP} "
+                          "AND (m.flag IS NOT NULL OR m.stars > 0)", (task_id, task_id))["n"]
         acts = [r["act"] for r in self.all(
             "SELECT (SELECT r.action FROM collection_reviews r WHERE r.collection_id = c.id ORDER BY r.id DESC LIMIT 1) act "
             "FROM collections c WHERE c.task_id = ? AND c.deleted_at IS NULL", (task_id,))]

@@ -3,10 +3,12 @@ honestly and the next runs still execute; progress never reads 1.0 before a run 
 default preset never leaves task creation broken."""
 from __future__ import annotations
 
+import os
 import threading
+from pathlib import Path
 
 from core_fixtures import *  # noqa: F403 - fixtures (env, fakes)
-from core_fixtures import BASE, FakeAnalyzer, create_task, ok_engine, photos, wait_task, wait_until
+from core_fixtures import BASE, FakeAnalyzer, create_task, make_jpg, ok_engine, photos, wait_task, wait_until
 from fastapi.testclient import TestClient
 
 from bioscan.gardener.api import create_gardener_app
@@ -134,6 +136,44 @@ def test_missing_found_before_a_pause_is_still_reported_after_resume(env, fakes,
         r = wait_until(lambda: (x := c.get(f"{API}/runs/{run['id']}").json())["status"] in
                        ("completed", "partial", "failed") and x, what="end")
         assert (r["status"], r["summary"]["missing"]) == ("partial", 1)
+
+
+def test_resume_right_after_pause_keeps_the_run_going(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 3)
+    fakes.gate.clear()
+    with env.client() as c:
+        t = create_task(c, [str(src)], caps=CAPS)
+        wait_until(lambda: c.get(f"{API}/tasks/{t['id']}").json()["scan"]["phase"] == "analyze", what="analyze")
+        assert c.post(f"{API}/tasks/{t['id']}/pause").status_code == 200
+        assert c.post(f"{API}/tasks/{t['id']}/resume").status_code == 200     # before the pause landed
+        fakes.gate.set()
+        t = wait_task(c, t["id"])
+        assert t["scan"]["status"] == "completed" and len(t["runs"]) == 1
+        paths = [p for p, _ in fakes.analyzed]
+        assert len(paths) == len(set(paths)) == 3                             # nothing analysed twice
+
+
+def test_a_changed_file_deleted_before_it_is_recorded_reads_missing(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    gone = photos(src, 2)[0]
+    tk = fakes.toolkit()
+    listed = tk.discover
+    with TestClient(create_gardener_app(env.data, engine=ok_engine(), toolkit=tk), base_url=BASE) as c:
+        t = wait_task(c, create_task(c, [str(src)], caps=CAPS)["id"])
+        make_jpg(Path(gone), color=(1, 2, 3), size=(80, 60), when=1_700_000_500)   # changed: its hash is read
+
+        def then_deleted(root):
+            out = listed(root)
+            os.remove(gone)
+            return out
+        tk.discover = then_deleted
+        run = c.post(f"{API}/tasks/{t['id']}/sources", json={"paths": [str(src)]}).json()
+        r = wait_until(lambda: (x := c.get(f"{API}/runs/{run['id']}").json())["status"] in
+                       ("completed", "partial", "failed") and x, what="end")
+        assert (r["status"], r["summary"]["missing"], r["error"]) == ("partial", 1, None)
+        items = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
+        assert sorted(i["online"] for i in items) == [False, True]
 
 
 def test_append_source_row_is_committed_with_the_run(env, tmp_path, monkeypatch):

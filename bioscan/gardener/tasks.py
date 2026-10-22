@@ -124,8 +124,8 @@ def set_status(c: Any, run_ids: list[str], status: str) -> None:
 
 
 class Worker:
-    """The background loop. `request(run_id, "pause"|"stop")` asks the running run to end at the next
-    item or chunk boundary; queued/paused runs change state directly in the API."""
+    """The background loop. `request(run_id, "pause"|"stop"|"resume")` asks the running run to end at the
+    next item or chunk boundary (resume: and queue again); queued/paused runs change state directly in the API."""
 
     def __init__(self, store: st.Store, toolkit: Toolkit, get_engine: Callable[[], Any]) -> None:
         self.store, self.toolkit, self.get_engine = store, toolkit, get_engine
@@ -317,8 +317,7 @@ class RunExec:
             for d in found:
                 if self.stopping():
                     return
-                seen.update(f.path for f in d.files)
-                reused += self.upsert(d, src["id"])
+                reused += self.upsert(d, src["id"], seen)
                 self.save_counts()
             missing += mark_missing(self.store, root, seen)
             self.counts["missing"] = missing
@@ -335,15 +334,23 @@ class RunExec:
             src = self.store.one("SELECT * FROM sources WHERE task_id = ? AND path = ?", (self.task_id, root))
         return src
 
-    def upsert(self, d: Any, source_id: str) -> int:
-        """One discovered asset into the records; 1 when it is unchanged and already previewed (reused)."""
+    def upsert(self, d: Any, source_id: str, seen: set[str]) -> int:
+        """One discovered asset into the records; 1 when it is unchanged and already previewed (reused).
+        Its files go into `seen`, unless one went away since discovery: then the asset waits for the next
+        scan and mark_missing records the vanished file."""
         old = {f["path"]: f for f in self.store.all(
             f"SELECT * FROM asset_files WHERE path IN ({st.marks_in(d.files)})", [f.path for f in d.files])}
-        hashes = {}
+        hashes, gone = {}, set()
         for f in d.files:          # outside the lock: size/mtime moved, so read the content identity
             o = old.get(f.path)
             if o is not None and (o["size"], o["mtime_ns"]) != (f.size, f.mtime_ns):
-                hashes[f.path] = self.tk.quick_hash(f.path)
+                try:
+                    hashes[f.path] = self.tk.quick_hash(f.path)
+                except OSError:
+                    gone.add(f.path)
+        seen.update(f.path for f in d.files if f.path not in gone)
+        if gone:
+            return 0
         t = now()
         with self.store.tx() as c:
             # identity: a registered file first (a RAW that gains a JPEG keeps its asset), the pair key second
@@ -687,6 +694,8 @@ class RunExec:
             status = "stopped"
         elif flag == "pause":
             status = "paused"
+        elif flag == "resume":          # resumed before the pause landed: carry on from where it stopped
+            status = "queued"
         elif self.w.shutdown:
             status = "interrupted"
         elif (summary["failed"] or summary["preview_failed"] or summary["unavailable"] or summary["offline_sources"]
@@ -951,11 +960,15 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
     parent with its key; people and places, whose keys drift as they grow, on the one they overlap most;
     else a new one. Auto only adds members, never revives a tombstone, never renames a user-edited
     collection, never touches (or refills from) a deleted one, and makes no children under a deleted
-    parent. A representative without a time or GPS of its own takes its versions'."""
+    parent. A representative without a time or GPS of its own takes its versions'. A version whose
+    representative is not in this task (another task's wider folder) stands for itself here, with the
+    representative's analysis."""
     latest: dict[tuple[str, str], Any] = {(r["asset_id"], r["capability"]): loads(r["data"]) for r in store.all(
         "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(x.id) FROM results x "
-        "JOIN task_assets ta ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability IN "
-        "('content', 'species') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)", (task_id,))}
+        "WHERE x.asset_id IN (SELECT ta.asset_id FROM task_assets ta WHERE ta.task_id = ? UNION SELECT a.version_of "
+        "FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?) AND x.capability IN "
+        "('content', 'species') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)",
+        (task_id, task_id))}
     rows = store.all("SELECT a.id, a.taken_at, a.lat, a.lon, a.media, a.version_of FROM task_assets ta JOIN assets a "
                      "ON a.id = ta.asset_id WHERE ta.task_id = ? ORDER BY ta.ord", (task_id,))
     subject_caps = [c for c in SUBJECT_CAPS if c in enabled]
@@ -965,14 +978,19 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
                        f"IN ({st.marks_in(subject_caps)})", [task_id, *subject_caps]) if subject_caps else []:
         settled_caps.setdefault(r["asset_id"], set()).add(r["capability"])
     unsettled = {r["id"] for r in rows if r["media"] == "photo" and len(settled_caps.get(r["id"], ())) < len(subject_caps)}
+    mine = {r["id"] for r in rows}
     by_rep: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
-        if r["version_of"]:
+        if r["version_of"] in mine:
             by_rep.setdefault(r["version_of"], []).append(r)
-    reps = [r for r in rows if not r["version_of"]]
+    reps = [r for r in rows if r["version_of"] not in mine]
+
+    def result(a: dict[str, Any], cap: str) -> Any:
+        return latest.get((a["id"], cap)) or latest.get((a["version_of"], cap))
+
     from bioscan.gardener.grouping import PEOPLE
 
-    portraits = {a["id"] for a in reps if (latest.get((a["id"], "content")) or {}).get("label") in PEOPLE}
+    portraits = {a["id"] for a in reps if (result(a, "content") or {}).get("label") in PEOPLE}
     people, names = _people(store, task_id, {r["id"] for r in reps}, portraits) if "people" in enabled else ({}, {})
     assets = []
     for a in reps:
@@ -981,7 +999,7 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
             own["taken_at"] = own["taken_at"] or v["taken_at"]
             if own["lat"] is None or own["lon"] is None:
                 own["lat"], own["lon"] = v["lat"], v["lon"]
-        ct, sp = latest.get((a["id"], "content")), latest.get((a["id"], "species"))
+        ct, sp = result(a, "content"), result(a, "species")
         assets.append(own | {"content": {"group": ct.get("group"), "label": ct.get("label")} if ct else None,
                              "species": {"taxon": sp.get("taxon"), "common": sp.get("common"), "level": sp.get("level")}
                              if sp and sp.get("taxon") else None,
@@ -1084,8 +1102,14 @@ def pause(store: st.Store, worker: Worker, task_id: str) -> None:
 
 
 def resume(store: st.Store, worker: Worker, task_id: str) -> None:
+    """Paused runs queue again. A running run asked to pause and not yet paused ends its current step and
+    queues again at once instead (it may already have acted on the pause, so the flag cannot just go)."""
     with store.tx() as c:
-        set_status(c, [r["id"] for r in active_runs(store, task_id) if r["status"] == "paused"], "queued")
+        for r in active_runs(store, task_id):
+            if r["status"] == "paused":
+                set_status(c, [r["id"]], "queued")
+            elif r["status"] == "running" and worker.flags.get(r["id"]) == "pause":
+                worker.request(r["id"], "resume")
     worker.wake()
 
 
