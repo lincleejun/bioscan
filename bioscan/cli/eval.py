@@ -220,7 +220,8 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
                 "groundtruth_sha256": sha256_of(gt_csv), "synonyms_sha256": sha256_of(SYNONYMS_CSV) if synonyms else None,
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
         # stream into a temp file: a request the service rejects (400) must not wipe an earlier run's preds;
-        # once anything streamed, it replaces the old file, even if the stream breaks (reported as incomplete)
+        # once anything streamed, it replaces the old file, even if the stream breaks (reported as incomplete).
+        # An empty stream replaces nothing and is scored as this run: no predictions, incomplete.
         tmp = preds_path.with_name(preds_path.name + ".tmp")
         streamed = False
         try:
@@ -238,10 +239,13 @@ def run_eval(gt_csv: str, out_dir: str, no_geo: bool, url: str, preds_file: str 
             else:
                 tmp.unlink(missing_ok=True)
         print(file=sys.stderr)
-    preds_meta = read_preds_meta(preds_path)
-    complete = preds_complete(preds_path)   # `done` decides, meta line or not (run --json writes none)
-    with open(preds_path, "rb") as f:
-        preds = load_preds(f)
+    if preds_file or streamed:
+        preds_meta = read_preds_meta(preds_path)
+        complete = preds_complete(preds_path)   # `done` decides, meta line or not (run --json writes none)
+        with open(preds_path, "rb") as f:
+            preds = load_preds(f)
+    else:
+        preds_meta, complete, preds = head, False, {}
     metrics = compute(rows, preds)
     ident_opts = (preds_meta.get("options") or {}).get("identify", {})
     geo = ident_opts.get("geo")

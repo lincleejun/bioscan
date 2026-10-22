@@ -226,6 +226,21 @@ def test_broken_stream_still_replaces_preds(tmp_path, monkeypatch):
     assert len(lines) == 2 and json.loads(lines[1]) == PREDS[0]
 
 
+def test_empty_stream_is_incomplete_and_keeps_earlier_preds(tmp_path, monkeypatch):
+    from bioscan.cli import main as cli
+    monkeypatch.setattr(ev.client, "health", lambda url: {"status": "ok"})
+    monkeypatch.setattr(ev.client, "run", lambda payload, url: iter(()))       # 200, no events
+    assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "new")]) == cli.EXIT_INCOMPLETE
+    _fake_service(monkeypatch, PREDS)
+    ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    preds = tmp_path / "a" / "preds.ndjson"
+    before = preds.read_bytes()
+    monkeypatch.setattr(ev.client, "run", lambda payload, url: iter(()))
+    report, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    assert complete is False and "- complete: False" in report
+    assert preds.read_bytes() == before and not (tmp_path / "a" / "preds.ndjson.tmp").exists()
+
+
 def test_old_preds_without_meta_still_score(tmp_path):
     preds = tmp_path / "p.ndjson"
     preds.write_text("".join(json.dumps(p) + "\n" for p in PREDS if p["type"] != "done"))
