@@ -13,8 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import bioscan
-from bioscan import cull, profile
-from bioscan.cli.report import mass
+from bioscan import contract, cull, profile
 from bioscan.gardener import capabilities
 
 ALBUM = "album"         # the profile whose scene, burst and select options Gardener uses
@@ -96,7 +95,7 @@ def _species(p: dict[str, Any]) -> tuple[str, dict | None]:
         if sp and sp.get("top"):
             first, level = sp["top"][0], sp["level"]
             return "done", {"taxon": sp["taxon"], "common": first["common"] if level == "species" else None,
-                            "level": level, "p": first["posterior"] if mass(sp) is None else mass(sp),
+                            "level": level, "p": first["posterior"] if contract.mass(sp) is None else contract.mass(sp),
                             "top": [{"scientific": c["scientific"], "common": c["common"], "p": c["posterior"]}
                                     for c in sp["top"]],
                             "uncertain": level != "species"}

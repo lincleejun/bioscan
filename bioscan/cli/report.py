@@ -24,7 +24,6 @@ ANIMALS = CLASSES[:3]
 RANGE_EPS = 0.01                   # = bioscan.service.rules.RANGE_EPS (numpy there; tests hold the two together)
 SINGLE_SIGHTING_MAX_POSTERIOR = 0.8
 TOP = 3                            # candidates kept per member / review item
-LEVEL_RANK = {"species": 6, "genus": 5, "family": 4}               # taxonomy index of the name at each level
 REASONS = {   # code -> what the page says
     "unconfirmed": "no name held up",
     "coarse_level": "named only to genus or family; a person can often finish it",
@@ -37,44 +36,16 @@ REASONS = {   # code -> what the page says
 
 # ---- summarize --------------------------------------------------------------------------------
 
-def taxon(sp: dict[str, Any] | None) -> str | None:
-    """The taxon a box counts under: the service's `taxon` (the species, or the genus or family that rolled
-    up); None when unconfirmed. A preds file written before the service carried it: the first candidate's
-    name at the box's level."""
-    if sp and "taxon" in sp:
-        return sp["taxon"]
-    top, level = contract.top_of(sp), contract.level_of(sp)
-    if not top or level not in LEVEL_RANK:
-        return None
-    if level == "species":
-        return top[0]["scientific"]
-    tax = top[0].get("taxonomy") or []
-    return tax[LEVEL_RANK[level]] if len(tax) > LEVEL_RANK[level] else None
-
-
 def lead(sp: dict[str, Any] | None) -> dict[str, Any] | None:
     """The best candidate inside the box's taxon (its lineage is the taxon's); None when unconfirmed."""
-    name, level = taxon(sp), contract.level_of(sp)
+    name, level = contract.taxon(sp), contract.level_of(sp)
     if not name:
         return None
     top = contract.top_of(sp)
     if level == "species":
         return top[0]
-    return next((c for c in top if len(c.get("taxonomy") or []) > LEVEL_RANK[level]
-                 and c["taxonomy"][LEVEL_RANK[level]] == name), None)
-
-
-def mass(sp: dict[str, Any] | None) -> float | None:
-    """The box's confidence in its taxon: the first candidate's posterior at species, the summed posterior of
-    the listed candidates inside the taxon at genus or family; None when unconfirmed."""
-    name, level = taxon(sp), contract.level_of(sp)
-    if not name:
-        return None
-    top = contract.top_of(sp)
-    if level == "species":
-        return top[0]["posterior"]
-    k = LEVEL_RANK[level]
-    return sum(c["posterior"] for c in top if len(c.get("taxonomy") or []) > k and c["taxonomy"][k] == name)
+    return next((c for c in top if len(c.get("taxonomy") or []) > contract.LEVEL_RANK[level]
+                 and c["taxonomy"][contract.LEVEL_RANK[level]] == name), None)
 
 
 def common_of(sp: dict[str, Any] | None) -> str | None:
@@ -82,14 +53,14 @@ def common_of(sp: dict[str, Any] | None) -> str | None:
     family, "a"/"an" and the last word the taxon's candidates' common names end in most often, plus
     "or <the next word>" when that one ends two names or ties ("a vireo", "a hawk or eagle"). None when
     unconfirmed or no candidate of the taxon has a common name."""
-    name, level = taxon(sp), contract.level_of(sp)
+    name, level = contract.taxon(sp), contract.level_of(sp)
     if not name:
         return None
     top = contract.top_of(sp)
     if level == "species":
         return top[0].get("common")
     words = Counter(c["common"].split()[-1].lower() for c in top
-                    if (c.get("common") or "").strip() and c["taxonomy"][LEVEL_RANK[level]] == name)
+                    if (c.get("common") or "").strip() and c["taxonomy"][contract.LEVEL_RANK[level]] == name)
     if not words:
         return None
     (w, n), *rest = words.most_common(2)
@@ -128,7 +99,7 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
             if "species" not in b:                  # species off: nothing to name, nothing to review
                 continue
             sp = contract.species_of(b)
-            top, level, name = contract.top_of(sp), contract.level_of(sp), taxon(sp)
+            top, level, name = contract.top_of(sp), contract.level_of(sp), contract.taxon(sp)
             reasons = []
             if sp is None:
                 reasons.append("no_list")
@@ -142,10 +113,10 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
                     "suggested": name or (top[0]["scientific"] if top else None), "common": common_of(sp),
                     "top": top[:TOP]}
             if name:
-                p = mass(sp)
+                p = contract.mass(sp)
                 t = taxa.setdefault(name, {
                     "name": name, "common": common_of(sp), "level": level,
-                    "kind": b["kind"], "taxonomy": lead(sp)["taxonomy"][:LEVEL_RANK[level] + 1], "list": sp.get("list"),
+                    "kind": b["kind"], "taxonomy": lead(sp)["taxonomy"][:contract.LEVEL_RANK[level] + 1], "list": sp.get("list"),
                     "members": [], "_sharp": []})
                 t["members"].append({**where, "box": b["id"], "posterior": p, "top": top[:TOP]})
                 t["_sharp"].append((b.get("quality") or {}).get("sharpness") or 0.0)

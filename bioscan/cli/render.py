@@ -4,7 +4,6 @@ import time
 from collections import Counter
 
 from bioscan import contract
-from bioscan.cli.report import mass, taxon
 
 LEVEL_ZH = {"species": "种", "genus": "属", "family": "科"}
 
@@ -17,8 +16,8 @@ def box_label(i: int, box: dict) -> str:
     if level == "unconfirmed" or not top:
         return f"[{i}] unconfirmed"
     t0 = top[0]
-    name = t0.get("common") or t0["scientific"] if level == "species" else taxon(sp)
-    return f"[{i}] {name} {mass(sp) or 0:.2f} {LEVEL_ZH[level]}"
+    name = t0.get("common") or t0["scientific"] if level == "species" else contract.taxon(sp)
+    return f"[{i}] {name} {contract.mass(sp) or 0:.2f} {LEVEL_ZH[level]}"
 
 
 def result_line(ev: dict) -> str:

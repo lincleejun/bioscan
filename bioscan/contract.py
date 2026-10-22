@@ -191,6 +191,38 @@ def top_of(sp: dict[str, Any] | None) -> list[dict[str, Any]]:
     return (sp or {}).get("top") or []
 
 
+# taxonomy index of the name at each level
+LEVEL_RANK = {"species": 6, "genus": 5, "family": 4}
+
+
+def taxon(sp: dict[str, Any] | None) -> str | None:
+    """The taxon a box counts under: the service's `taxon` (the species, or the genus or family that rolled
+    up); None when unconfirmed. A preds file written before the service carried it: the first candidate's
+    name at the box's level."""
+    if sp and "taxon" in sp:
+        return sp["taxon"]
+    top, level = top_of(sp), level_of(sp)
+    if not top or level not in LEVEL_RANK:
+        return None
+    if level == "species":
+        return top[0]["scientific"]
+    tax = top[0].get("taxonomy") or []
+    return tax[LEVEL_RANK[level]] if len(tax) > LEVEL_RANK[level] else None
+
+
+def mass(sp: dict[str, Any] | None) -> float | None:
+    """The box's confidence in its taxon: the first candidate's posterior at species, the summed posterior of
+    the listed candidates inside the taxon at genus or family; None when unconfirmed."""
+    name, level = taxon(sp), level_of(sp)
+    if not name:
+        return None
+    top = top_of(sp)
+    if level == "species":
+        return top[0]["posterior"]
+    k = LEVEL_RANK[level]
+    return sum(c["posterior"] for c in top if len(c.get("taxonomy") or []) > k and c["taxonomy"][k] == name)
+
+
 def _problems(obj: Any, cls: Any, where: str) -> list[str]:
     if not isinstance(obj, dict):
         return [f"{where.rstrip('.') or 'identify'}: not an object"]

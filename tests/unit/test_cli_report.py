@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 
+from bioscan import contract
 from bioscan.cli import cull as cull_cli
 from bioscan.cli import report as rp
 from bioscan.cli.main import main
@@ -173,7 +174,7 @@ def test_a_family_box_reads_its_taxon_mass_everywhere():
     box["species"]["taxon"] = "Accipitridae"
     sure = bx(1, top=[cand("Calidris mauri", 0.5)])
     e = ev("ab", "bird", [sure, box])
-    assert abs(rp.mass(box["species"]) - 0.66) < 1e-9
+    assert abs(contract.mass(box["species"]) - 0.66) < 1e-9
     taxa = {t["name"]: t for t in rp.summarize([e])["taxa"]}
     assert abs(taxa["Accipitridae"]["posterior"]["max"] - 0.66) < 1e-9
     assert render.box_label(1, box).startswith("[1] Accipitridae 0.66")
