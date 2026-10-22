@@ -149,7 +149,7 @@ def test_stage_settings_and_facts(heads, tmp_path):
 def test_album_profile_run_has_the_product(tmp_path, no_builtin):
     with client_for(Fakes().engine()) as c:
         res = result(c, {"inputs": [{"path": make_jpg(tmp_path / "a.jpg")}], "profile": "album"})
-    assert list(res[0]["products"]) == ["identify", "embed", "aesthetics", "quality", "scene"]
+    assert list(res[0]["products"]) == ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
     assert res[0]["products"]["aesthetics"]["score"] is None
 
 

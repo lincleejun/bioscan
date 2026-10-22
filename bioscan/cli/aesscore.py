@@ -16,7 +16,8 @@ browser-readable originals and marks the rest.
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
 and reject reasons come from the album profile's scene and quality stages; flags (horizon_tilt: a
 landscape's horizon tilts more than the profile's `select.horizon_flag_deg`; tight_headroom: the
-subject's box starts within `select.headroom_min` of the frame top) only mark a photo, they never
+subject's box starts within `select.headroom_min` of the frame top; no_lead_room: the subject faces
+the nearer side edge with under `select.lead_room_min` of the frame width in front) only mark a photo, they never
 change its stars. `--species` turns the
 profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
 genus or family, as `bioscan summarize` counts it) with an English name beside it (`rp.common_of`: the common name, or

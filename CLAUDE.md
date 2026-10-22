@@ -71,7 +71,7 @@ When the owner gives a folder of photos and says nothing else, this is the job, 
    `uv run bioscan --url http://127.0.0.1:8767 aesthetic score DIR --species --export json,csv,html --out DIR/bioscan`
    (top level only unless told `-r`; the photos' own GPS is used). `aesthetic score` has no `--lat/--lon`: when the
    photos have no GPS and the place is known, run `uv run bioscan --url http://127.0.0.1:8767 run DIR --want
-   identify,aesthetics,quality,scene --lat LAT --lon LON --json --out DIR/bioscan.ndjson`, then
+   identify,aesthetics,quality,scene,facing --lat LAT --lon LON --json --out DIR/bioscan.ndjson`, then
    `uv run bioscan aesthetic score --preds DIR/bioscan.ndjson --export json,csv,html --out DIR/bioscan`.
 3. Report the run's own summary (scored / named / failed, score range, star cuts, top taxa, scene counts),
    open `DIR/bioscan.html`, and list names that look out of place for the location.

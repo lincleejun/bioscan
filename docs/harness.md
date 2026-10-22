@@ -348,7 +348,7 @@ A minimal example is `tests/unit/fixtures/standards-example.toml`.
 
 ## Album tier: culling (`bench ... --profile album`)
 
-The album profile (identify with species off, embed, aesthetics, quality, scene; reducers burst and select) is scored
+The album profile (identify with species off, embed, aesthetics, quality, scene, facing; reducers burst and select) is scored
 with the same report.json: its species `metrics` mean nothing there, its [`plugin_metrics`](#plugin_metrics-and-plugin_images)
 are the measure. The ground truth is a CSV with `path`, `tier`, `keep` (1/0), `reject_reasons` (`;`-joined, blank
 = none), `burst_id` (blank = in no burst), `scene` (blank = unlabelled) and `scene_group` (the label's group; blank =

@@ -23,8 +23,8 @@ top_k = 5
 geo = true
 
 [profile.album]
-description = "Culling an album: boxes for subject focus without species (BioCLIP never loads), the frame vector, an aesthetic score (it only reorders, never rejects), technical quality with reject reasons and a scene category; bioscan cull then groups bursts and selects the best per category."
-stages = ["identify", "embed", "aesthetics", "quality", "scene"]
+description = "Culling an album: boxes for subject focus without species (BioCLIP never loads), the frame vector, an aesthetic score (it only reorders, never rejects), technical quality with reject reasons, a scene category and which way the subject faces; bioscan cull then groups bursts and selects the best per category."
+stages = ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
 reducers = ["burst", "select"]
 
 [profile.album.options.identify]
