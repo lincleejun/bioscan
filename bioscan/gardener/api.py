@@ -326,8 +326,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         for d, _, names in os.walk(store.cache_dir):
             for n in names:
                 p = os.path.join(d, n)
-                freed += os.path.getsize(p)
-                os.remove(p)
+                try:                  # a running preview may rename or drop its .part meanwhile
+                    size = os.path.getsize(p)
+                    os.remove(p)
+                except FileNotFoundError:
+                    continue
+                freed += size
                 removed += 1
         with store.tx() as c:
             c.execute("UPDATE assets SET preview_status = 'pending', preview_method = NULL, preview_error = NULL, "
@@ -420,9 +424,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             c.execute("INSERT OR IGNORE INTO asset_tags SELECT asset_id, ?, source, run_id, confidence, created_at "
                       "FROM asset_tags WHERE tag_id = ?", (into, tid))
             c.execute("DELETE FROM asset_tags WHERE tag_id = ?", (tid,))
-            c.execute("UPDATE tags SET parent_id = ? WHERE parent_id = ? AND id != ?", (into, tid, into))
-            if target["parent_id"] == tid:               # merging into a child: it takes the merged tag's place
+            below = {r[0] for r in c.execute(
+                "WITH RECURSIVE d(id) AS (SELECT id FROM tags WHERE parent_id = ? "
+                "UNION SELECT t.id FROM tags t JOIN d ON t.parent_id = d.id) SELECT id FROM d", (tid,))}
+            if into in below:          # merging into a descendant: it takes the merged tag's place first
                 c.execute("UPDATE tags SET parent_id = ? WHERE id = ?", (src["parent_id"], into))
+            c.execute("UPDATE tags SET parent_id = ? WHERE parent_id = ? AND id != ?", (into, tid, into))
             c.execute("UPDATE tags SET merged_into = ?, active = 0, updated_at = ? WHERE id = ?", (into, t, tid))
             tag_history(c, tid, "merge", {"into": into})
             tag_history(c, into, "merged_from", {"from": tid})

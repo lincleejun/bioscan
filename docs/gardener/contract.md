@@ -51,7 +51,7 @@ PHOTO_EXT: frozenset[str]   # .jpg .jpeg .png .tif .tiff .heic? + bioscan.format
 VIDEO_EXT: frozenset[str]   # .mov .mp4 .m4v .avi .mts .mkv
 @dataclass class FileInfo: path: str; role: str; ext: str; size: int; mtime_ns: int   # role: raw|jpeg|image|video
 @dataclass class Discovered: pair_key: str; media: str; primary: str; files: list[FileInfo]  # media: photo|video
-@dataclass class Skipped: path: str; reason: str      # unsupported | sidecar | hidden | unreadable
+@dataclass class Skipped: path: str; reason: str      # unsupported | sidecar | hidden | unreadable | symlink | unsafe_name（文件名含换行）
 def discover(root: str) -> tuple[list[Discovered], list[Skipped]]   # 递归、排序稳定；同目录同 stem(小写) 的 RAW+JPEG 为一个素材，primary=JPEG
 def quick_hash(path: str) -> str        # sha256(size + 首 1 MiB + 尾 1 MiB)，文件身份用
 def is_online(path: str) -> bool
