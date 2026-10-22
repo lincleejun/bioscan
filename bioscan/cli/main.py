@@ -258,8 +258,8 @@ def cmd_eval(a):
               file=sys.stderr)
         return EXIT_INCOMPLETE
     preds_path = Path(a.preds) if a.preds else Path(a.out) / "preds.ndjson"
-    with open(preds_path, "rb") as f:
-        failed = sum(e.get("type") == contract.ERROR for e in ev.load_preds(f).values())
+    with open(preds_path, "rb") as f:   # the report's `failed`: ground-truth images errored or never answered
+        failed = sum(m["failed"] for m in ev.compute(ev.read_gt(a.groundtruth), ev.load_preds(f)).values())
     if failed:
         print(f"error: {failed} image(s) failed; they count as misses", file=sys.stderr)
         return EXIT_PARTIAL
