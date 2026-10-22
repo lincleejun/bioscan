@@ -177,6 +177,7 @@ const F={sort:'st',dir:'',stars:new Set(),rej:'',scenes:new Set(),sp:'',dec:'',q
 let merging=null,shown=[],cur=-1,sel=new Set(),anchor=-1;
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({dec:DEC,merge:MERGE,gone:[...GONE]}))}catch(e){}};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const url=p=>p.split('/').map(encodeURIComponent).join('/');  // a relative path as a URL: # ? % in names stay literal
 const BY={};for(const r of DATA)if(r.sp&&!BY[r.sp])BY[r.sp]={cn:r.cn,lv:r.lv,tx:r.tx};
 function eff(r){let sp=r.sp,n=0;while(sp&&MERGE[sp]&&n++<20)sp=MERGE[sp];if(sp===r.sp)return r;const b=BY[sp]||{};return{...r,sp,cn:b.cn||null,lv:b.lv||r.lv,tx:b.tx||[sp]}}
 const keyOf=r=>(r.sp?r.tx:['(unnamed)']).join('/');
@@ -195,7 +196,7 @@ function pass(r){const q=F.q;
     &&(F.dec===''||(F.dec==='u'?!DEC[r.p]:DEC[r.p]===F.dec))&&(!F.group||keyOf(r)===F.group||keyOf(r).startsWith(F.group+'/'))}
 function render(){
   shown=LIVE().map(eff).filter(pass).sort(SORTS[F.sort][1]);sel.clear();anchor=-1;
-  grid.innerHTML=shown.length?shown.map((r,i)=>`<figure class="card ${DEC[r.p]||''}" data-i="${i}" data-p="${esc(r.p)}"><div class="im">${r.t?`<img loading="lazy" src="${esc(r.t)}" alt="">`:'<span class="no">no thumbnail</span>'}
+  grid.innerHTML=shown.length?shown.map((r,i)=>`<figure class="card ${DEC[r.p]||''}" data-i="${i}" data-p="${esc(r.p)}"><div class="im">${r.t?`<img loading="lazy" src="${esc(url(r.t))}" alt="">`:'<span class="no">no thumbnail</span>'}
 <div class="ov1"><span class="badge">${r.s==null?'–':r.s.toFixed(3)}</span>${r.st?`<span class="badge st">${'★'.repeat(r.st)}</span>`:''}</div><span class="mk">${DEC[r.p]==='k'?'✓':'✕'}</span>
 <span class="zoom" title="open">${ICON_ZOOM}</span><div class="hov"><button class="k">keep</button><button class="x">drop</button></div></div>
 <figcaption class="cap"><div class="t" title="${esc(r.sp||'')}">${r.sp?esc(label(r)):'<i>unnamed</i>'}</div><div class="f"><span>${esc(r.f)}</span>${r.rr.length?`<span class="rr" title="${esc(r.rr.join(', '))}">${esc(r.rr[0].replace(/_/g,' '))}${r.rr.length>1?' +'+(r.rr.length-1):''}</span>`:''}${(r.fl||[]).map(x=>`<span class="fl" title="flag (not a reject)">${esc(x.replace(/_/g,' '))}</span>`).join('')}</div></figcaption></figure>`).join('')
@@ -253,8 +254,8 @@ const lb=$('#lb'),lbi=$('#lbi');
 function caption(){const r=shown[cur];if(!r)return;$('#lbn').textContent=`${cur+1} / ${shown.length}`;$('#lbf').textContent=r.p;
   $('#lbsp').innerHTML=`${r.s==null?'–':r.s.toFixed(3)} <span style="color:#fbbf24">${stars(r.st)}</span>${r.sp?' · '+esc(label(r))+(r.cn?' <i style="color:#aaa">'+esc(r.sp)+'</i>':''):''}${r.rr.length?' · <span style="color:#fca5a5">'+esc(r.rr.join(', ').replace(/_/g,' '))+'</span>':''}${r.fl?' · <span style="color:#fbbf24">'+esc(r.fl.join(', ').replace(/_/g,' '))+'</span>':''}${r.o?' · original':r.l?' · '+esc(r.l.split('/').pop()):''}`;
   $('#lbk').classList.toggle('on',DEC[r.p]==='k');$('#lbx').classList.toggle('on',DEC[r.p]==='x')}
-function open(i){if(i<0||i>=shown.length)return;cur=i;const r=shown[i],src=r.o||r.l||r.t;if(!src)return;lbi.src=src;caption();lb.classList.add('on');
-  const nx=shown[i+1];if(nx){const im=new Image();im.src=nx.o||nx.l||nx.t||''}}
+function open(i){if(i<0||i>=shown.length)return;cur=i;const r=shown[i],src=r.o||r.l||r.t;if(!src)return;lbi.src=url(src);caption();lb.classList.add('on');
+  const nx=shown[i+1];if(nx){const im=new Image();im.src=url(nx.o||nx.l||nx.t||'')}}
 function close(){lb.classList.remove('on');lbi.src='';cur=-1}
 $('#lbk').onclick=()=>mark([shown[cur].p],'k',true);$('#lbx').onclick=()=>mark([shown[cur].p],'x',true);$('#lbc').onclick=close;
 $('#lbprev').onclick=()=>open(cur-1);$('#lbnext').onclick=()=>open(cur+1);$('#lbstage').onclick=e=>{if(e.target===e.currentTarget||e.target===lbi)close()};

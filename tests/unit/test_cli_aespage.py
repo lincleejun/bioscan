@@ -41,3 +41,12 @@ def test_cuts_are_the_stars_cuts(tmp_path):
 def test_figure_src_is_url_encoded(tmp_path):
     tile = cc.figure(str(tmp_path / "a#b?c%d.jpg"), None, tmp_path, "")
     assert 'src="a%23b%3Fc%25d.jpg"' in tile
+
+
+def test_page_builds_image_urls_through_the_encoder(tmp_path):
+    out = tmp_path / "p.html"
+    aespage.write_html([_row(str(tmp_path / "a#b.jpg"))], [], str(out), "t")
+    page = out.read_text(encoding="utf-8")
+    assert "map(encodeURIComponent)" in page
+    assert 'src="${esc(url(r.t))}"' in page and "lbi.src=url(" in page and "im.src=url(" in page
+    assert not re.search(r"\.src=(?!url\(|'')", page)
