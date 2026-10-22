@@ -150,6 +150,21 @@ def test_the_old_motion_or_defocus_name_still_validates_and_waives_both():
     profile.resolve(profile.builtin(), "album", reducer_options={"select": {"waive": {"night": ["motion_or_defocus"]}}})
 
 
+def test_album_waives_no_subject_in_every_scene_group_but_wildlife():
+    # #85: the gate's animal share on a flower or a plate of food is macro / plant confusion, not a lost subject.
+    # A box-less photo gets no wildlife share (wildlife_box), so with scene in the run no_subject never rejects;
+    # a run without scene (uncategorised) still rejects it.
+    album = profile.resolve(profile.builtin(), "album").reducer_run()
+    groups = profile.resolve(profile.builtin(), "album").options["scene"]["groups"]
+    events = [scened(g, 10 * i, groups[g][0], g, reasons=["no_subject"]) for i, g in enumerate(groups)]
+    events += [ev("unscened", 500, reasons=["no_subject", "overexposed"])]
+    del events[-1]["products"]["scene"]
+    r = {x["path"]: x for x in cull.records(cull.apply(events, album))}
+    assert {g for g in groups if r[g]["waived"] == ["no_subject"] and r[g]["status"] == "pick"} == set(groups) - {"wildlife"}
+    assert r["wildlife"]["reasons"] == ["no_subject"]
+    assert r["unscened"]["reasons"] == ["no_subject", "overexposed"] and r["unscened"]["status"] == "reject"
+
+
 def test_select_rejects_unknown_waive_reasons():
     cull.check_select(SELECT)
     with pytest.raises(ValueError, match=r"'underexpose'.*underexposed"):

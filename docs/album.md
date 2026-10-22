@@ -78,8 +78,11 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
   without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for the
-  `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26); an unknown
-  category or reason in `waive` is rejected.
+  `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26) and
+  `no_subject` for every group but wildlife (#85: on flowers, food and grassland the gate's animal share is
+  macro / plant confusion, and those photos were thrown out). A box-less photo gets no wildlife share
+  (`wildlife_box`), so with scene in the run `no_subject` is recorded under `waived` and never rejects; a run
+  without scene still rejects on it. An unknown category or reason in `waive` is rejected.
 - **Scene** (`scene`): SigLIP2 zero-shot over the frame vector the service already computes. The album profile
   names 40 fine labels (`label`) in 8 groups (`group`): wildlife, landscape, night, people, macro, architecture, food,
   other (docs/research/2026-09-24-scene-taxonomy.md §3.2). The wildlife group gets the gate's bird + mammal +
@@ -101,7 +104,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   scene group, the default, or `"label"` for the fine label), skipping a
   photo whose frame vector is 0.95 alike to one already picked. Each photo gets a status: `pick`, `spare` (a keeper
   past the top N), `duplicate` or `reject`. `waive` lifts reject reasons per scene group, label or attribute value:
-  `waive = { night = ["underexposed"] }` by default; an attribute key reads `"light=night" = ["underexposed"]`.
+  the select default is `waive = { night = ["underexposed"] }`; the album profile adds `no_subject` for every group
+  but wildlife (see Rejects). An attribute key reads `"light=night" = ["underexposed"]`.
   **Flags** mark a photo without changing its status, rank, keep or stars: `horizon_tilt` when a landscape's
   horizon tilts more than `horizon_flag_deg` (default 3°) either way; `tight_headroom` when the subject (identify's
   best box by score) starts less than `headroom_min` (default 0.02, a share of the frame height; 0 turns it off)
