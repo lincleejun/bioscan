@@ -55,3 +55,15 @@ def test_apply_refuses_everything_without_a_token(tmp_path, monkeypatch):
             r = c.post("/apply", json={"drop": [str(src / "b.ARW")], "delete": True}, headers=h)
             assert r.status_code == 403
     assert (src / "b.ARW").exists()
+
+
+def test_apply_rejects_a_nul_in_a_path_with_400(tmp_path):
+    src = album(tmp_path)
+    app = create_app(Fakes().engine(), decode_pool=ThreadPoolExecutor(2), allow_roots=[str(tmp_path)], token="t0k")
+    h = {"x-bioscan-token": "t0k"}
+    with TestClient(app, raise_server_exceptions=False) as c:
+        for body in ({"drop": [str(src / "b.ARW") + "\x00x"], "delete": True},
+                     {"keep": [str(src / "a.ARW")], "keep_to": str(tmp_path / "k") + "\x00"}):
+            r = c.post("/apply", json=body, headers=h)
+            assert r.status_code == 400 and "error" in r.json()
+    assert (src / "b.ARW").exists() and not (tmp_path / "k").exists()

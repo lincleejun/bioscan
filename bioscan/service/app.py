@@ -181,6 +181,9 @@ def parse_apply(body: Any) -> tuple[list[str], list[str], str | None, bool]:
         raise ValueError("keep needs keep_to")
     if lists["drop"] and not delete:
         raise ValueError("drop needs delete: true (the service never moves drops; bioscan aesthetic apply --drop-to does)")
+    for key, paths in (*lists.items(), ("keep_to", [keep_to] if keep_to else [])):
+        if any("\x00" in q for q in paths):
+            raise ValueError(f"{key} contains a path with a NUL character")
     return lists["keep"], lists["drop"], keep_to, delete
 
 
