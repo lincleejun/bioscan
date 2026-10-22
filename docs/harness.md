@@ -244,7 +244,7 @@ Rates are fractions 0–1 rounded to 6 places, like `metrics`. The built-in metr
 ```toml
 [[rule]]
 metric = "top1"                      # any metric key except n
-scopes = ["all", "bird", "mammal"]   # default: all, bird, mammal, other; <tier>/<scope> keys work too
+scopes = ["all", "bird", "mammal"]   # a list; default: all, bird, mammal, other; <tier>/<scope> keys work too; an unknown scope is an error
 max_drop_pts = 3.0                   # exactly one of: max_drop_pts, max_rise_pts (rates, percentage points),
                                      #                 max_drop_pct, max_rise_pct (relative %, any metric)
 min_n = 1                            # skip scopes with fewer images in either report (optional)
