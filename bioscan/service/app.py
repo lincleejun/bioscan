@@ -7,10 +7,10 @@ import argparse
 import asyncio
 import json
 import logging
-import math
 from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Executor
 from contextlib import asynccontextmanager
+from math import isfinite
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -48,7 +48,7 @@ def parse_run(body: Any, registry: Sequence[plugin.Manifest] = BUILTIN,
             v = inp.get(key)
             if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
                 raise ValueError(f"inputs[{i}].{key} must be a number")
-            if v is not None and not (math.isfinite(v) and abs(v) <= bound):
+            if v is not None and not (isfinite(v) and abs(v) <= bound):
                 raise ValueError(f"inputs[{i}].{key} must be finite and within ±{bound}")
         if (inp.get("lat") is None) != (inp.get("lon") is None):
             raise ValueError(f"inputs[{i}]: lat and lon go together")
