@@ -331,11 +331,20 @@ _Avoid_: flaw, defect, score
 A note `select` puts on a photo that never changes its status, rank, keep or stars (a flag is not a reject reason):
 `horizon_tilt` when the scene stage's horizon (landscapes only) tilts more than `horizon_flag_deg`, default 3°;
 `tight_headroom` when the subject's box starts less than `headroom_min` (default 0.02) of the frame height below the
-frame top and fills under half the frame. It shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
+frame top and fills under half the frame; `no_lead_room` when the subject faces the nearer side edge (its **facing**)
+with less than `lead_room_min` (default 0.1) of the frame width in front of its box and fills under half the frame.
+It shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
 _Avoid_: warning, soft reject
 
 **Subject**:
 The photo's main animal: identify's best box by score. A photo without a box is judged on its whole frame.
+
+**Facing**:
+Which way the subject looks, `left` or `right` in the upright frame, or null (at the camera, away, or unknown): the
+`facing` stage asks OWLv2 for the kind's head and eye inside the subject's box and reads the head's (else the
+eye's) offset from the box centre. In front of the subject is the frame on its facing side (lead room). The stage is
+opt-in (the album profile leaves it out: one more OWLv2 call per photo), so without it no photo gets `no_lead_room`.
+_Avoid_: direction, heading, gaze, pose
 
 **Keeper**:
 A photo worth keeping: no reject reason (after waivers). In ground truth, a row with `keep = 1`; losing one to a

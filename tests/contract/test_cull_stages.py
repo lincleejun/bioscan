@@ -225,3 +225,60 @@ def test_a_bird_at_the_frame_top_is_a_tight_headroom_flag_not_a_reject(client, e
     stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(cull.apply(evs, reducers))}  # noqa: E731
     assert stars(tight_evs) == stars(room_evs)
     assert [r["flags"] for r in aesscore.rows_of(cull.apply(tight_evs, reducers))] == [["tight_headroom"]] * 2
+
+
+def test_facing_asks_owlv2_for_the_subjects_head_and_reports_its_fingerprint(client, fakes, tmp_path):
+    """#27 step 2: the facing stage crops identify's best box from the decoded frame and asks the
+    detector for the kind's head and eye; the fake's head sits right of the box centre."""
+    from conftest import BOX
+
+    from bioscan.plugins.facing import MANIFEST
+    from bioscan.plugins.facing import stage as facing_stage
+
+    p = make_jpg(tmp_path / "a.jpg")
+    res = result(events(client.post("/run", json={"inputs": [{"path": p}], "want": ["facing", "identify"],
+                                                  "options": {"identify": {"species": False}}})))
+    assert list(res["products"]) == ["identify", "facing"]
+    f = res["products"]["facing"]
+    assert list(f) == list(MANIFEST.output) and f["box"] == res["products"]["identify"]["boxes"][0]["id"]
+    assert f["side"] == "right" and f["offset"] > facing_stage.FACING_OFFSET and f["eye"] is None
+    x0, y0, x1, y1 = f["head"]["xyxy"]
+    assert BOX[0] < x0 < x1 <= BOX[2] and BOX[1] <= y0 < y1 < BOX[3] and f["head"]["score"] == 0.3
+    assert fakes.parts == [((round(BOX[2] * 64) - round(BOX[0] * 64), round(BOX[3] * 48) - round(BOX[1] * 48)),
+                            ("bird head", "bird eye"))]
+    assert len(fakes.frames) == 1                                    # identify's detection only
+    assert res["engine"]["plugins"] == {"facing": plugin.fingerprint(1, facing_stage.STAGE.settings())}
+    r = client.post("/run", json={"inputs": [{"path": p}], "want": ["facing"]})
+    assert r.status_code == 400 and "stage facing reads 'boxes'" in r.json()["error"]
+
+
+def test_a_bird_facing_the_near_edge_is_a_no_lead_room_flag_not_a_reject(client, engine, tmp_path, monkeypatch):
+    """#27 step 2 on the fakes: the subject faces right (the fake head) and its box ends near the
+    right edge: the no_lead_room flag in the cull records and aesthetic score's rows; status, keep,
+    reasons and stars stay as they were."""
+    from conftest import FakeOWLv2
+
+    from bioscan import cull, profile
+    from bioscan.cli import aesscore
+
+    d = tmp_path / "album"
+    d.mkdir()
+    paths = [make_jpg(d / f"{i}.jpg") for i in range(2)]
+    body = {"inputs": [{"path": p, "taken_at": f"2026-05-01T08:0{i}:00"} for i, p in enumerate(paths)],
+            "want": ["identify", "embed", "quality", "scene", "facing"], "options": {"identify": {"species": False}}}
+    reducers = profile.resolve(profile.builtin(), "album").reducer_run()
+
+    def run(left):
+        monkeypatch.setattr(FakeOWLv2, "box", staticmethod(lambda size: (left * size[0], 0.3 * size[1],
+                                                                         (left + 0.35) * size[0], 0.7 * size[1])))
+        evs = events(client.post("/run", json=body))
+        return evs, {r["path"]: r for r in cull.records(cull.apply(evs, reducers))}
+
+    room_evs, room = run(0.1)                # 0.55 of the frame in front
+    edge_evs, edge = run(0.6)                # 0.05 in front: above quality's CUT_MARGIN, under lead_room_min
+    assert all(r["flags"] == ["no_lead_room"] for r in edge.values()) and all(r["flags"] == [] for r in room.values())
+    drop = lambda recs: {p: {k: v for k, v in r.items() if k != "flags"} for p, r in recs.items()}   # noqa: E731
+    assert drop(edge) == drop(room)                                            # status, keep, reasons unchanged
+    stars = lambda evs: {r["path"]: (r["stars"], r["reject_reasons"]) for r in aesscore.rows_of(cull.apply(evs, reducers))}  # noqa: E731
+    assert stars(edge_evs) == stars(room_evs)
+    assert [r["flags"] for r in aesscore.rows_of(cull.apply(edge_evs, reducers))] == [["no_lead_room"]] * 2
