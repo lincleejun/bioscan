@@ -45,8 +45,8 @@
 | R38 | 多客户端修改用版本检测冲突，不静默覆盖人工判断（§12） | `marks.version`、`collections.version`、409 | `test_core_*` | 见 PR 证据 |
 | R39 | 文件数、逻辑素材数、字节量分别计数；RAW/JPEG 配对（D02，§2） | `scan.discover`；`Task.counts` | `test_media_scan*`；真实数据清点 | 见 PR 证据 |
 | R40 | 本机访问默认（§12） | `server.py` 默认 127.0.0.1 | 代码审阅 | 见 PR 证据 |
-| R41 | 多维分组：主体（人物、物种、动物类型、场景）→ 地点或日期；单纯时间不单独成组（owner 2026-10-21，契约修订 2） | `grouping.py`、`tasks.regroup`、`collections.parent_id` | `test_media_grouping*`、`test_core_scan*`、`test_core_review*` | 见 PR 证据 |
-| R42 | 按人分组：本地人脸检测与聚类，可改名（owner 2026-10-21） | `faces.py`、能力 `people`、`tasks.analyze_people` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据；聚类质量未验证（无标注） |
+| R41 | 多维分组：主体（人物、物种、动物类型、场景）为组，带 GPS 的大组按地点细分；时间不切分也不单独成组（owner 2026-10-21，契约修订 2/3） | `grouping.py`、`tasks.regroup`、`collections.parent_id` | `test_media_grouping*`、`test_core_scan*`、`test_core_review*` | 见 PR 证据 |
+| R42 | 按人分组：本地人脸检测与聚类；给人物分组或单张脸命名，所有任务与以后的扫描直接归入，同名即合并（owner 2026-10-21，契约修订 3） | `faces.py`、`people.py`、能力 `people`、`PATCH /collections`、`POST /assets/{id}/faces/{i}` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据；聚类质量未验证（无标注） |
 | R43 | 导出图与跨目录副本作为原片的版本合并，只出现一次；人可撤销（owner 2026-10-21） | `versions.py`、`assets.version_of`、`POST /assets/{id}/split-version` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据 |
 
 ## 明确后置（不在 v0.1，未实现）

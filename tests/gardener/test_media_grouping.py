@@ -65,32 +65,34 @@ def test_people_are_named_by_size_and_share_photos_with_taxa():
     assert g["person:other"].asset_ids == ["lone"]                           # one photo of someone: 人物 · 其他
 
 
-def test_unsettled_assets_wait_and_a_running_pass_makes_no_folds_or_children():
+def test_unsettled_assets_wait_and_a_running_pass_makes_no_folds():
     days = [f"2025-03-0{d}T09:00:00" for d in (1, 2)]
     assets = ([asset(f"o{i}", days[i % 2], content=BIRD, species=OWL) for i in range(12)]
               + [asset("e", days[0], content=BIRD, species=EAGLE), asset("w", days[0], settled=False)])
     running = suggest(assets, final=False)
-    assert [g.key for g in running] == ["species:Megascops asio"]            # no eagle fold, no days, no "w"
+    assert [g.key for g in running] == ["species:Megascops asio"]            # no eagle fold, no "w"
     done = by_key(suggest(assets))
     assert "animal:bird" in done and not any("w" in g.asset_ids for g in done.values())
-    assert {k for k in done if "/" in k} == {"species:Megascops asio/day:2025-03-01",
-                                            "species:Megascops asio/day:2025-03-02"}
 
 
-def test_large_subjects_split_by_day_small_days_fold_one_day_no_split():
-    times = ["2025-08-29T09:00:00"] * 6 + ["2025-08-30T10:00:00"] * 5 + ["2025-09-02T08:00:00"] * 2 + [None]
+def test_time_never_splits_a_subject():
+    times = ["2025-08-29T09:00:00"] * 6 + ["2025-08-30T10:00:00"] * 5 + ["2024-09-02T08:00:00"] * 2 + [None]
     assets = [asset(f"m{i:02d}", t, content=MOUNTAIN) for i, t in enumerate(times)]
-    kids = [g for g in suggest(assets) if g.parent == "scene:mountain"]
-    assert [(g.key.split("/")[1], g.name, len(g.asset_ids)) for g in kids] == [
-        ("day:2025-08-29", "山地 · 8月29日", 6), ("day:2025-08-30", "山地 · 8月30日", 5),
-        ("day:other", "山地 · 其他日期", 2), ("day:none", "山地 · 无日期", 1)]
-    assert all(g.kind == "day" for g in kids)
-    one_day = [asset(f"s{i:02d}", "2025-08-29T09:00:00", content=MOUNTAIN) for i in range(12)]
-    assert [g.key for g in suggest(one_day)] == ["scene:mountain"]
-    few = [asset(f"f{i}", f"2025-08-2{i}T09:00:00", content=MOUNTAIN) for i in range(9)]
-    assert [g.key for g in suggest(few)] == ["scene:mountain"]               # under SPLIT_MIN: never split
-    years = [asset(f"y{i:02d}", f"{2024 + i % 2}-10-13T09:00:00", content=MOUNTAIN) for i in range(10)]
-    assert {g.name for g in suggest(years) if g.parent} == {"山地 · 2024年10月13日", "山地 · 2025年10月13日"}
+    assets += [asset(f"p{i:02d}", t, content={"group": "people", "label": "portrait"}, people=["a_x"])
+               for i, t in enumerate(times)]
+    got = suggest(assets)
+    assert [(g.key, len(g.asset_ids)) for g in got] == [("person:a_x", 14), ("scene:mountain", 14)]
+
+
+def test_named_people_keep_their_name_and_never_fold():
+    assets = ([asset("n1", content={"group": "people", "label": "portrait"}, people=["named:p_1"])]
+              + [asset(f"u{i}", content={"group": "people", "label": "portrait"}, people=["a_u"]) for i in range(3)])
+    g = by_key(suggest(assets, names={"named:p_1": "小明"}))
+    assert g["person:named:p_1"].name == "小明" and g["person:named:p_1"].asset_ids == ["n1"]   # one photo: still a group
+    assert g["person:a_u"].name == "人物 1"                                  # clusters are numbered among themselves
+    assert "person:other" not in g
+    running = suggest(assets, final=False, names={"named:p_1": "小明"})
+    assert [x.key for x in running] == ["person:named:p_1"]      # clusters (and "人物 N") only once faces are all in
 
 
 def test_large_subjects_with_gps_split_by_place_and_touching_cells_join():
@@ -103,13 +105,11 @@ def test_large_subjects_with_gps_split_by_place_and_touching_cells_join():
     assert kids[2].name == "山地 · 地点未知"
 
 
-def test_shooting_day_uses_the_task_zone_and_flags_utc_stamps_without_one():
-    assets = ([asset(f"p{i}", "2025-03-01T10:05:00", content=MOUNTAIN) for i in range(5)]
-              + [asset(f"v{i}", "2025-03-02T03:00:00Z", content=MOUNTAIN) for i in range(5)])
-    kids = [g for g in suggest(assets) if g.parent]
-    assert [g.name for g in kids] == ["山地 · 3月1日", "山地 · 3月2日"]
-    assert kids[1].summary["uncertain_ids"] == [f"v{i}" for i in range(5)]
-    assert [g.key for g in suggest(assets, tz="-08:00")] == ["scene:mountain"]   # 19:00 the same day: one day
+def test_place_names_use_the_task_zone():
+    assets = [asset(f"p{i}", "2025-03-02T03:00:00Z", 61.10, -149.80, content=MOUNTAIN) for i in range(5)]
+    assets += [asset(f"q{i}", "2025-03-02T03:00:00Z", 63.50, -150.10, content=MOUNTAIN) for i in range(5)]
+    assert [g.name for g in suggest(assets) if g.parent][0].endswith("3月2日")
+    assert [g.name for g in suggest(assets, tz="-08:00") if g.parent][0].endswith("3月1日")   # 19:00 the day before
     with pytest.raises(ValueError):
         suggest(assets, tz="Mars/Olympus")
     assert suggest([]) == []

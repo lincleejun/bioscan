@@ -1,20 +1,21 @@
-"""Automatic group suggestions (docs/gardener/contract.md §4, §9.4, 单元 3): two levels.
+"""Automatic group suggestions (docs/gardener/contract.md §4, §9.4, 契约修订 2/3).
 
-1. Subject: who or what the photo is of. A person found by the face clusters, a taxon from species
-   identification (species level, or genus/family when that is all it says), an animal type when no
-   taxon is named (bird / mammal / other, from the content label), else the content label (山地,
-   海岸, 人像 ...). A photo with a person and a taxon is in both groups; scenes take the rest.
-   Videos form one 视频 group; a photo with no subject information is 未分类.
-2. Within a subject of at least SPLIT_MIN photos: by place when most members carry GPS (a ~2 km grid
-   whose neighbouring cells join), otherwise by shooting day (the local wall clock; with `tz`, times
-   with offsets are shown in that zone). Only a split into two or more parts is made.
+1. Subject: who or what the photo is of. A person (a named person, else a face cluster), a taxon from
+   species identification (species level, or genus/family when that is all it says), an animal type
+   when no taxon is named (bird / mammal / other, from the content label), else the content label
+   (山地, 海岸, 人像 ...). A photo with a person and a taxon is in both groups; scenes take the rest.
+   Videos form one 视频 group; a photo with no subject information is 未分类. One subject is one
+   group however many days it spans: time never splits a group.
+2. Within a subject of at least SPLIT_MIN photos whose members mostly carry GPS: by place (a ~2 km
+   grid whose neighbouring cells join). Only a split into two or more parts is made.
 
 Groups smaller than MIN_GROUP fold into a broader one (a rare species into its animal type, a rare
-scene into 其他场景, a rare person into 人物 · 其他; small days or places into 其他日期 / 其他地点).
-`final=False` (while analysis is still running) makes only subject groups that already meet the
-size bar, never fold groups or children: members added then stay right when the run finishes.
-An asset that is not `settled` (its subject capabilities still pending) is left out until it is.
-Pure time is never a group on its own. Standard library only."""
+scene into 其他场景, an unnamed person seen once or twice into 人物 · 其他; small places into 其他地点);
+a named person is always their own group. `final=False` (while analysis is still running) makes
+only subject groups that already meet the size bar and no face-cluster groups (clusters and their
+numbers still change), never folds groups or splits places: members added then stay right when the
+run finishes. An asset that is not `settled` (its subject capabilities still pending) is left out
+until it is. Standard library only."""
 from __future__ import annotations
 
 import math
@@ -142,71 +143,61 @@ def _md(d: date, years: set[int]) -> str:
 
 
 def _children(parent: Group, members: list[dict], where: tzinfo | None) -> list[Group]:
-    """Split one subject by place (most members have GPS) or by day; [] when it is one part."""
+    """Split one subject by place when most of its members carry GPS; [] otherwise or when it is one place."""
     located = [a for a in members if _has_gps(a)]
+    if len(located) < GPS_SHARE * len(members):
+        return []
     parts: dict[str, list[dict]] = {}
     names: dict[str, str] = {}
     days = {a["id"]: _day(a.get("taken_at"), where) for a in members}
     years = {d.year for d, _ in days.values() if d}
-    if len(located) >= GPS_SHARE * len(members):
-        grid = _places(located)
-        for a in members:
-            key = f"place:{grid[a['id']]}" if a["id"] in grid else "place:none"
-            parts.setdefault(key, []).append(a)
-        for key, ms in parts.items():
-            if key == "place:none":
-                names[key] = "地点未知"
-                continue
-            lat = sum(a["lat"] for a in ms) / len(ms)
-            lon = sum(a["lon"] for a in ms) / len(ms)
-            ds = sorted(d for a in ms if (d := days[a["id"]][0]))
-            span = "" if not ds else f" · {_md(ds[0], years)}" + ("" if ds[0] == ds[-1] else f"–{_md(ds[-1], years)}")
-            names[key] = f"地点 ({lat:.2f}, {lon:.2f}){span}"
-        other = ("place:other", "其他地点")
-    else:
-        for a in members:
-            d = days[a["id"]][0]
-            key = f"day:{d.isoformat()}" if d else "day:none"
-            parts.setdefault(key, []).append(a)
-            names[key] = _md(d, years) if d else "无日期"
-        other = ("day:other", "其他日期")
-    kind = "place" if other[0].startswith("place") else "day"
-    small = [k for k, ms in parts.items() if len(ms) < MIN_GROUP and not k.endswith(":none")]
+    grid = _places(located)
+    for a in members:
+        key = f"place:{grid[a['id']]}" if a["id"] in grid else "place:none"
+        parts.setdefault(key, []).append(a)
+    for key, ms in parts.items():
+        if key == "place:none":
+            names[key] = "地点未知"
+            continue
+        lat = sum(a["lat"] for a in ms) / len(ms)
+        lon = sum(a["lon"] for a in ms) / len(ms)
+        ds = sorted(d for a in ms if (d := days[a["id"]][0]))
+        span = "" if not ds else f" · {_md(ds[0], years)}" + ("" if ds[0] == ds[-1] else f"–{_md(ds[-1], years)}")
+        names[key] = f"地点 ({lat:.2f}, {lon:.2f}){span}"
+    small = [k for k, ms in parts.items() if len(ms) < MIN_GROUP and k != "place:none"]
     if small:
-        folded = [a for k in small for a in parts.pop(k)]
-        parts[other[0]] = folded
-        names[other[0]] = other[1]
+        parts["place:other"] = [a for k in small for a in parts.pop(k)]
+        names["place:other"] = "其他地点"
     if len(parts) < 2:
         return []
     out = []
-    for key in sorted(parts, key=lambda k: (k.endswith(":none"), k.endswith(":other"), k)):
+    for key in sorted(parts, key=lambda k: (k == "place:none", k == "place:other", k)):
         ms = parts[key]
-        uncertain = [a["id"] for a in ms if days[a["id"]][1]]
         ds = sorted(d.isoformat() for a in ms if (d := days[a["id"]][0]))
-        out.append(Group(f"{parent.key}/{key}", kind, f"{parent.name} · {names[key]}", [a["id"] for a in ms],
+        out.append(Group(f"{parent.key}/{key}", "place", f"{parent.name} · {names[key]}", [a["id"] for a in ms],
                          {"count": len(ms), "start": ds[0] if ds else None, "end": ds[-1] if ds else None,
-                          "uncertain_ids": uncertain, "time_basis": "instant" if where else "local"},
-                         parent=parent.key))
-        out[-1].summary["label"] = names[key]
+                          "label": names[key]}, parent=parent.key))
     return out
 
 
-def suggest(assets: list[dict], *, tz: str | None = None, final: bool = True) -> list[Group]:
+def suggest(assets: list[dict], *, tz: str | None = None, final: bool = True,
+            names: dict[str, str] | None = None) -> list[Group]:
     """assets: {id, taken_at, lat, lon, media, content: {group, label} | None, species: {taxon, common,
-    level} | None, people: [person key] | None, settled: bool (default True)}; person keys come
-    largest person first (they are named 人物 1, 人物 2, ...). tz: the zone camera-local times were
-    taken in, when known (IANA name or +HH:MM). Returns parents (largest first) followed by their
-    children. ValueError on an unknown tz."""
+    level} | None, people: [person key] | None, settled: bool (default True)}. `names`: person key ->
+    the name a person gave (named people); other person keys are face clusters, named 人物 1, 人物 2, ...
+    by photo count. tz: the zone camera-local times were taken in, when known (IANA name or +HH:MM).
+    Returns parents (largest first) followed by their place splits. ValueError on an unknown tz."""
     where = zone(tz) if tz else None
+    names = names or {}
     ready = [a for a in assets if a.get("settled", True)]
     order: list[str] = []
     for a in ready:
         for p in a.get("people") or []:
-            if p not in order:
+            if p not in order and p not in names:
                 order.append(p)
     sizes = Counter(p for a in ready for p in set(a.get("people") or []))
     order.sort(key=lambda p: -sizes[p])
-    people_names = {p: f"人物 {i + 1}" for i, p in enumerate(order)}
+    people_names = {p: f"人物 {i + 1}" for i, p in enumerate(order)} | names
     groups: dict[str, Group] = {}
     pending: list[tuple[dict, tuple[str, str, str, tuple[str, str] | None]]] = []
     for a in ready:
@@ -215,12 +206,15 @@ def suggest(assets: list[dict], *, tz: str | None = None, final: bool = True) ->
     count = Counter(s[0] for _, s in pending)
     by_id = {a["id"]: a for a in ready}
     for a, (key, kind, name, fold) in pending:
-        if count[key] < MIN_GROUP and fold is not None:
+        named = kind == "person" and key.removeprefix("person:") in names
+        if kind == "person" and not named and not final:
+            continue                # face clusters (and their numbers) change while faces still arrive
+        if count[key] < MIN_GROUP and fold is not None and not named:
             if not final:
                 continue
             key, name = fold
             kind = "person" if key.startswith("person") else "animal" if key.startswith("animal") else "scene"
-        elif count[key] < MIN_GROUP and not final:
+        elif count[key] < MIN_GROUP and not final and not named:
             continue
         g = groups.setdefault(key, Group(key, kind, name, [], {}))
         if a["id"] not in g.asset_ids:

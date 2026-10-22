@@ -542,6 +542,18 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         a = fk.asset(aid)
         return fk.detail(a) | {"original": None, "version_lock": True, "versions": []}
 
+    @app.get(P + "/people")
+    def people():
+        return []
+
+    @app.post(P + "/assets/{aid}/faces/{idx}")
+    def name_face(aid: str, idx: int):
+        return fk.detail(fk.asset(aid))
+
+    @app.delete(P + "/assets/{aid}/faces/{idx}")
+    def unname_face(aid: str, idx: int):
+        return fk.detail(fk.asset(aid))
+
     @app.get(P + "/assets/{aid}/{kind}")
     def asset_media(aid: str, kind: str):
         a = fk.asset(aid)

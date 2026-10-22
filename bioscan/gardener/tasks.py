@@ -36,7 +36,7 @@ BIOSCAN_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages)
 VIDEO_NA = "视频首版只做元数据、封面、播放与人工标记；图像分析不适用"
 # what a group kind needs switched on, any of them ((): always; "other" = videos and photos with no subject information)
 GROUP_NEEDS = {"species": ("species",), "person": ("people", "content"), "animal": ("content", "species"),
-               "scene": ("content",), "other": (), "day": ("place_event",), "place": ("place_event",)}
+               "scene": ("content",), "other": (), "place": ("place_event",)}
 SUBJECT_CAPS = ("content", "species", "people")
 PEOPLE_EVERY = 64            # regroup after this many people results
 META_BATCH = 64
@@ -875,26 +875,69 @@ def ensure_all_collection(c: Any, task_id: str) -> str | None:
     return None if row["deleted_at"] else row["id"]
 
 
-def _people(store: st.Store, task_id: str, reps: set[str]) -> dict[str, list[str]]:
-    """asset id -> person keys, from the task's latest face results clustered by faces.cluster; a key is
-    person-seed = the person's first asset id (sorted), largest person first in the returned lists."""
+def people_faces(store: st.Store, task_id: str) -> dict[str, list[dict[str, Any]]]:
+    """asset id -> its faces (latest people result) for every asset of the task that has some."""
     rows = store.all(
         "SELECT asset_id, data FROM results WHERE id IN (SELECT max(x.id) FROM results x JOIN task_assets ta "
         "ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability = 'people' AND x.status = 'done' "
         "GROUP BY x.asset_id)", (task_id,))
-    found = [(r["asset_id"], f["vec"], (f["box"][2] - f["box"][0]) * (f["box"][3] - f["box"][1]) * f["score"])
-             for r in sorted(rows, key=lambda r: r["asset_id"]) if r["asset_id"] in reps
-             for f in (loads(r["data"], {}) or {}).get("faces", []) if f.get("vec")]
-    if not found:
-        return {}
-    from bioscan.gardener import faces
+    return {r["asset_id"]: fs for r in rows if (fs := [f for f in (loads(r["data"], {}) or {}).get("faces", [])
+                                                       if f.get("vec")])}
 
+
+def _people(store: st.Store, task_id: str, reps: set[str],
+            portraits: set[str] = frozenset()) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """(asset id -> person keys, named key -> name). A face a user named belongs to that person; another
+    face joins the named person whose confirmed faces it matches (faces.nearest); the remaining strong
+    faces are clustered (faces.cluster, key = the person's first asset id). Then leftover faces (a cluster
+    under MIN_GROUP photos, or a weak face: profile, sunglasses, small) join the established person
+    (named, or a cluster of MIN_GROUP+ photos) they most likely are (faces.attach). A weak face counts
+    only on a photo whose content label is people (`portraits`), so an animal never becomes a person."""
+    found = people_faces(store, task_id)
+    if not found:
+        return {}, {}
+    from bioscan.gardener import faces
+    from bioscan.gardener.grouping import MIN_GROUP
+
+    named = {f"named:{r['id']}": r["name"] for r in store.all("SELECT id, name FROM people")}
+    refs: dict[str, list[str]] = {}
+    fixed: dict[tuple[str, int], str] = {}
+    for r in store.all("SELECT asset_id, face, person_id, vec FROM person_faces"):
+        refs.setdefault(f"named:{r['person_id']}", []).append(r["vec"])
+        fixed[(r["asset_id"], r["face"])] = f"named:{r['person_id']}"
+    cents = {k: faces.centroid(vs) for k, vs in refs.items()}
     out: dict[str, list[str]] = {}
-    for ids in faces.cluster(found):
-        key = min(ids)
-        for aid in ids:
-            out.setdefault(aid, []).append(key)
-    return out
+
+    def put(aid: str, key: str) -> None:
+        if key not in out.setdefault(aid, []):
+            out[aid].append(key)
+
+    strong, weak = [], []
+    for aid in sorted(found):
+        if aid not in reps:
+            continue
+        for i, f in enumerate(found[aid]):
+            key = fixed.get((aid, i)) or (faces.nearest(f["vec"], cents) if faces.strong(f) else None)
+            if key:
+                put(aid, key)
+            elif faces.strong(f):
+                strong.append((aid, f["vec"], (f["box"][2] - f["box"][0]) * (f["box"][3] - f["box"][1]) * f["score"]))
+            elif aid in portraits:
+                weak.append((aid, f["vec"]))
+    vecs = {}
+    leftover = list(weak)
+    for ids in faces.cluster(strong):
+        if len(ids) >= MIN_GROUP:
+            key = min(ids)
+            vecs[key] = [v for a, v, _ in strong if a in ids]
+            for aid in ids:
+                put(aid, key)
+        else:
+            leftover += [(a, v) for a, v, _ in strong if a in ids]
+    established = cents | {k: faces.centroid(vs) for k, vs in vecs.items()}
+    for aid, vec in leftover:
+        put(aid, faces.attach(vec, established) or aid)    # unattached: a person of its own (folds into 人物 · 其他)
+    return out, named
 
 
 def _base_key(key: str | None) -> str:
@@ -927,7 +970,10 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
         if r["version_of"]:
             by_rep.setdefault(r["version_of"], []).append(r)
     reps = [r for r in rows if not r["version_of"]]
-    people = _people(store, task_id, {r["id"] for r in reps}) if "people" in enabled else {}
+    from bioscan.gardener.grouping import PEOPLE
+
+    portraits = {a["id"] for a in reps if (latest.get((a["id"], "content")) or {}).get("label") in PEOPLE}
+    people, names = _people(store, task_id, {r["id"] for r in reps}, portraits) if "people" in enabled else ({}, {})
     assets = []
     for a in reps:
         own = dict(a)
@@ -942,8 +988,9 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
                              "people": people.get(a["id"]), "settled": a["id"] not in unsettled})
     if not assets:
         return 0
-    params = inspect.signature(tk.suggest).parameters      # grouping.suggest(assets, tz=..., final=...)
-    kw = ({"tz": tz} if "tz" in params else {}) | ({"final": final} if "final" in params else {})
+    params = inspect.signature(tk.suggest).parameters      # grouping.suggest(assets, tz=..., final=..., names=...)
+    kw = ({"tz": tz} if "tz" in params else {}) | ({"final": final} if "final" in params else {}) | \
+        ({"names": names} if "names" in params else {})
     groups = [g for g in tk.suggest(assets, **kw) if g.kind in GROUP_NEEDS
               and (not GROUP_NEEDS[g.kind] or any(n in enabled for n in GROUP_NEEDS[g.kind]))]
     t, skipped = now(), 0
@@ -997,6 +1044,20 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
             if not target["user_edited"] and target["name"] != g.name:
                 c.execute("UPDATE collections SET name = ?, updated_at = ? WHERE id = ?", (g.name, t, target["id"]))
                 target["name"] = g.name
+        if final and "people" in enabled:
+            # a face cluster's identity drifts as faces arrive: an unnamed cluster group the final pass no longer
+            # suggests, that no person touched (not renamed, reviewed or given members), is retired, not left as a
+            # second "人物 N"
+            for col in cols:
+                k = col["auto_key"] or ""
+                if (col["group_kind"] == "person" and col["id"] not in taken and not col["deleted_at"]
+                        and not col["user_edited"] and k.startswith("person:a_")
+                        and not c.execute("SELECT 1 FROM collection_reviews WHERE collection_id = ?", (col["id"],)).fetchone()
+                        and not c.execute("SELECT 1 FROM collection_members WHERE collection_id = ? AND added_by = 'user'",
+                                          (col["id"],)).fetchone()):
+                    c.execute("UPDATE collections SET deleted_at = ?, updated_at = ?, version = version + 1, "
+                              "auto_key = auto_key || '#retired-' || id WHERE id = ?", (t, t, col["id"]))
+                    st.collection_history(c, col["id"], "delete", {"reason": "superseded_cluster"}, "system")
         if "place_event" in enabled and run_id:
             for r in c.execute("SELECT asset_id FROM run_assets WHERE run_id = ?", (run_id,)).fetchall():
                 c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, updated_at) VALUES "

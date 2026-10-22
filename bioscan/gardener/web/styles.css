@@ -708,6 +708,11 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .versions li { display: grid; grid-template-columns: 48px 1fr auto; gap: 8px; align-items: center; }
 .versions img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: var(--panel); }
 .versions li > span { display: flex; flex-direction: column; gap: 2px; word-break: break-all; }
+.faces { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.faces li { display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; align-items: center; }
+.faces li > span:nth-child(2) { display: flex; flex-direction: column; gap: 2px; }
+.face { width: 56px; height: 56px; border-radius: 50%; background-color: var(--panel); background-repeat: no-repeat; border: 1px solid var(--line); }
+.face-acts { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th, .tbl td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .tbl th { font-weight: 600; color: var(--muted); font-size: 12px; }

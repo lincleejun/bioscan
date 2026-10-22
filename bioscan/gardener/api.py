@@ -23,7 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import query, tasks
+from bioscan.gardener import people, query, tasks
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
@@ -757,6 +757,14 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         col = col_or_404(cid)
         if "version" in body and body["version"] != col["version"]:
             raise Conflict("集合已被其他客户端修改", version=col["version"])
+        if "name" in body and col["group_kind"] == "person" and col["origin"] == "auto":
+            named = name_person_group(cid, people.check_name(body["name"]), actor)
+            if named is not None:
+                if "description" in body:
+                    with store.tx() as c:
+                        c.execute("UPDATE collections SET description = ?, updated_at = ? WHERE id = ?",
+                                  (text(body, "description"), now(), named))
+                return store.collection(named)
         changes: dict[str, Any] = {}
         if "name" in body:
             changes["name"] = text(body, "name", required=True)
@@ -777,6 +785,72 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 st.collection_history(c, cid, "rule" if "rule" in changes else "rename",
                                       {k: v for k, v in changes.items() if k != "user_edited"}, actor)
         return store.collection(cid)
+
+    def name_person_group(cid: str, name: str, actor: str) -> str | None:
+        """A person group gets a name: its faces become that person's confirmed faces (people.py) and
+        every task regroups, so this person's other photos join it. None: not a group of one face cluster."""
+        row = store.one("SELECT task_id, auto_key FROM collections WHERE id = ?", (cid,))
+        k = row["auto_key"] or ""
+        if k.startswith("person:named:"):
+            with store.tx() as c:
+                pid = people.rename(c, k.removeprefix("person:named:").split("#")[0], name, actor)
+        elif k.startswith("person:") and not k.startswith("person:other"):
+            from bioscan.gardener import faces
+
+            found = tasks.people_faces(store, row["task_id"])
+            per_asset = {a: [f["vec"] for f in found[a]] for a in store.ids_where({"collection": cid}) if a in found}
+            if not per_asset:
+                return None
+            pick = faces.shared_face(per_asset)
+            with store.tx() as c:
+                pid = people.person_of(c, name)
+                people.confirm(c, pid, [(a, i, per_asset[a][i]) for a, i in pick.items()], "collection")
+                people.adopt(c, cid, pid, actor)
+        else:
+            return None
+        regroup_people()
+        live = store.one("SELECT id FROM collections WHERE task_id = ? AND auto_key = ? AND deleted_at IS NULL",
+                         (row["task_id"], people.key(pid)))
+        return live["id"] if live else cid
+
+    def regroup_people() -> None:
+        """Regroup every task that finds people, so a name reaches all of them now, not at the next scan."""
+        for t in store.all("SELECT id, capabilities, timezone FROM tasks WHERE archived_at IS NULL"):
+            caps = set(loads(t["capabilities"], []))
+            if "people" in caps:
+                tasks.regroup(store, tk, t["id"], caps, tz=t["timezone"], final=True)
+
+    @r.get("/people")
+    def get_people() -> list[dict[str, Any]]:
+        return store.all("SELECT p.id, p.name, (SELECT count(*) FROM person_faces f WHERE f.person_id = p.id) faces "
+                         "FROM people p ORDER BY p.name")
+
+    def face_of(aid: str, idx: int) -> str:
+        asset_or_404(aid)
+        res = store.one("SELECT data FROM results WHERE asset_id = ? AND capability = 'people' AND status = 'done' "
+                        "ORDER BY id DESC LIMIT 1", (aid,))
+        fs = [f for f in (loads(res["data"], {}) or {}).get("faces", []) if f.get("vec")] if res else []
+        if not 0 <= idx < len(fs):
+            raise NotFound(f"asset {aid} has no face {idx}")
+        return fs[idx]["vec"]
+
+    @r.post("/assets/{aid}/faces/{idx}")
+    def name_face(aid: str, idx: int, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        """Name one face: it is that person from now on, in every task (a new name creates the person)."""
+        vec, name = face_of(aid, idx), people.check_name(body.get("name"))
+        with store.tx() as c:
+            people.confirm(c, people.person_of(c, name), [(aid, idx, vec)], "face")
+        regroup_people()
+        return store.asset_detail(aid)
+
+    @r.delete("/assets/{aid}/faces/{idx}")
+    def unname_face(aid: str, idx: int) -> dict[str, Any]:
+        face_of(aid, idx)
+        with store.tx() as c:
+            c.execute("DELETE FROM person_faces WHERE asset_id = ? AND face = ?", (aid, idx))
+            c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (now(), aid))
+        regroup_people()
+        return store.asset_detail(aid)
 
     def manual(cid: str, what: str) -> dict[str, Any]:
         col = col_or_404(cid)

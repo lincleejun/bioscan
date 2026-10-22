@@ -285,7 +285,7 @@ class Store:
                 for r in self.all("SELECT * FROM asset_caps WHERE asset_id = ?", (asset_id,))}
         if (caps.get("people") or {}).get("data"):           # identity features stay in the database
             p = caps["people"]["data"]
-            caps["people"]["data"] = p | {"faces": [{k: v for k, v in f.items() if k != "vec"} for f in p.get("faces", [])]}
+            caps["people"]["data"] = p | {"faces": self.face_people(asset_id, p.get("faces", []))}
         of = self.one("SELECT id, primary_path FROM assets WHERE id = ?", (a["version_of"],)) if a["version_of"] else None
         versions = [{"id": v["id"], "name": Path(v["primary_path"]).name, "path": v["primary_path"],
                      "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"])}
@@ -304,6 +304,32 @@ class Store:
                            "original": None if of is None else {"id": of["id"], "name": Path(of["primary_path"]).name,
                                                                 "reason": a["version_reason"]},
                            "version_lock": bool(a["version_lock"]), "versions": versions}
+
+    def face_people(self, asset_id: str, faces: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Faces without their features, each with `person`: {id, name, confirmed} — confirmed when a user
+        named that face, else the named person it matches (faces.nearest), else None."""
+        fixed = {r["face"]: r for r in self.all("SELECT f.face, p.id, p.name FROM person_faces f JOIN people p "
+                                                "ON p.id = f.person_id WHERE f.asset_id = ?", (asset_id,))}
+        refs: dict[str, list[str]] = {}
+        names: dict[str, str] = {}
+        if any(i not in fixed for i in range(len(faces))):
+            for r in self.all("SELECT f.person_id, f.vec, p.name FROM person_faces f JOIN people p ON p.id = f.person_id"):
+                refs.setdefault(r["person_id"], []).append(r["vec"])
+                names[r["person_id"]] = r["name"]
+        cents = {}
+        if refs:
+            from bioscan.gardener import faces as facemod
+
+            cents = {pid: facemod.centroid(vs) for pid, vs in refs.items()}
+        out = []
+        for i, f in enumerate(faces):
+            person = None
+            if i in fixed:
+                person = {"id": fixed[i]["id"], "name": fixed[i]["name"], "confirmed": True}
+            elif cents and f.get("vec") and (pid := facemod.nearest(f["vec"], cents)):
+                person = {"id": pid, "name": names[pid], "confirmed": False}
+            out.append({k: v for k, v in f.items() if k != "vec"} | {"person": person})
+        return out
 
     def collections_of(self, asset_id: str) -> list[dict[str, Any]]:
         """Live collections (manual by membership, smart by rule) that hold the asset."""

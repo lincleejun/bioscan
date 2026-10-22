@@ -57,7 +57,7 @@
     failed: ['失败', 'fail'], unrecognized: ['未识别', 'muted'], unavailable: ['不可用', 'fail'],
   };
   const VERDICT = { pick: '建议保留', reject: '建议舍弃', none: '无明确建议' };
-  const GROUP = { all: '全部素材', person: '人物', species: '物种', animal: '动物', scene: '场景', other: '其他', day: '日期', place: '地点', event: '事件（旧）' };
+  const GROUP = { all: '全部素材', person: '人物', species: '物种', animal: '动物', scene: '场景', other: '其他', place: '地点', day: '日期（旧）', event: '事件（旧）' };
   const GROUP_ORDER = ['all', 'person', 'species', 'animal', 'scene', 'other'];
   const VERSION_WHY = { same_capture: '同一拍摄的副本', export: '导出图（无拍摄信息，按文件编号与画面确认）' };
   const MODES = { quiet: ['安静', '占用最低，适合边用电脑边扫描'], balanced: ['均衡', '默认'], full: ['全速', '尽量占满资源'] };
@@ -660,6 +660,7 @@
         ${hist.length ? `<details><summary class="hint">标记历史 ${hist.length} 条</summary><ul class="hist">${hist.slice().reverse().map(h => `<li>${esc(fmtTime(h.at))} · ${esc(FIELD[h.field] || h.field)} ${esc(h.old == null ? '无' : h.old)} → ${esc(h.new == null ? '无' : h.new)} · ${esc(h.actor)}${h.reason ? ' · ' + esc(h.reason === 'content_changed' ? '内容变化，系统清空' : h.reason) : ''}</li>`).join('')}</ul></details>` : '<p class="hint">尚无人工判断。浏览经过不计为已审。</p>'}
         ${cols.length ? `<div class="in-cols"><span class="hint">出现在 ${cols.length} 个集合，标记一致：</span>${cols.map(c => `<a class="col-ref" href="#/review/${esc(c.id)}">${esc(c.name)}</a>`).join('')}</div>` : ''}
       </section>
+      ${facesHTML(a, d)}
       <section class="card card-ai"><h3>AI 建议<span class="sub">机器结果 · 与人工判断分开保存</span></h3>${aiBodyHTML(a, d)}</section>
       <section class="card"><h3>能力状态</h3><ul class="cap-list">${capsHTML}</ul>${a.analysis === 'failed' ? `<button type="button" class="btn sm" data-action="retry-asset" data-id="${esc(a.id)}">${ic('retry')}重试此项</button>` : ''}</section>
       <section class="card"><h3>元数据与文件</h3><dl class="meta">
@@ -672,6 +673,19 @@
         ${a.online ? `<button type="button" class="btn sm ghost" data-action="reveal" data-id="${esc(a.id)}">${ic('folder')}在 Finder 中显示</button>` : ''}
         <p class="hint">${PREVIEW_NOTE}</p></section>
       ${versionsHTML(d)}`;
+  }
+  // 照片里的人脸：点“命名”给这张脸起名；名字记住后，所有任务里认出是此人的照片都归入同名分组
+  function facesHTML(a, d) {
+    const fs = d && d.caps && d.caps.people && d.caps.people.data && d.caps.people.data.faces;
+    if (!fs || !fs.length) return '';
+    const crop = f => {
+      const [x0, y0, x1, y1] = f.box, w = Math.max(x1 - x0, 0.01), h = Math.max(y1 - y0, 0.01);
+      return `background-image:url('${mediaUrl(a.id, 'large')}');background-size:${100 / w}% ${100 / h}%;background-position:${w < 1 ? (x0 / (1 - w)) * 100 : 0}% ${h < 1 ? (y0 / (1 - h)) * 100 : 0}%`;
+    };
+    const btn = (act, i, label, name) => `<button type="button" class="btn sm ghost" data-action="${act}" data-id="${esc(a.id)}" data-face="${i}"${name ? ` data-name="${esc(name)}"` : ''}>${label}</button>`;
+    return `<section class="card"><h3>人物<span class="sub">命名后，所有任务里认出是此人的照片都归入同名分组</span></h3><ul class="faces">${fs.map((f, i) => `<li><span class="face" style="${esc(crop(f))}" role="img" aria-label="人脸 ${i + 1}"></span>
+      <span>${f.person ? `<b>${esc(f.person.name)}</b><small class="hint">${f.person.confirmed ? '已确认' : '按已命名的脸认出'}</small>` : '<small class="hint">未命名</small>'}</span>
+      <span class="face-acts">${f.person && !f.person.confirmed ? btn('name-face', i, '是此人', f.person.name) : ''}${btn('name-face', i, f.person ? '改名' : '命名')}${f.person && f.person.confirmed ? btn('unname-face', i, '取消') : ''}</span></li>`).join('')}</ul></section>`;
   }
   // 同一拍摄的其他版本：只在代表版本出现；“不是同一张”由人确认后永不再自动合并
   function versionsHTML(d) {
@@ -856,7 +870,7 @@
       <button type="button" class="btn sm ghost" data-action="coverage" data-id="${esc(taskId || '')}">覆盖检查</button>
       <a class="btn sm ghost" href="#/collections/deleted">${ic('trash')}已删除</a></div></div>`;
   }
-  // 两层：主体（人物/物种/动物/场景/其他）是 block，其下按日期或地点的细分是块内入口
+  // 主体（人物/物种/动物/场景/其他）是 block；带 GPS 的大组按地点细分，细分是块内入口。时间不切分分组
   function topLevel(cols) {
     const live = new Set(scopeCols().map(c => c.id));
     const rank = c => { const i = GROUP_ORDER.indexOf(c.group_kind || 'user'); return i < 0 ? GROUP_ORDER.length : i; };
@@ -865,7 +879,7 @@
   function childrenHTML(c) {
     const kids = scopeCols().filter(k => k.parent_id === c.id);
     if (!kids.length) return '';
-    return `<div class="col-kids"><span class="hint">按${kids[0].group_kind === 'place' ? '地点' : '日期'}细分</span>${kids.map(k => `<a class="kid-chip${k.review.state !== 'open' ? ' done' : ''}" href="#/review/${esc(k.id)}" title="${esc(k.name)}">${esc(k.label || k.name)}<b>${k.size}</b></a>`).join('')}</div>`;
+    return `<div class="col-kids"><span class="hint">按${kids[0].group_kind === 'place' ? '地点' : '日期（旧）'}细分</span>${kids.map(k => `<a class="kid-chip${k.review.state !== 'open' ? ' done' : ''}" href="#/review/${esc(k.id)}" title="${esc(k.name)}">${esc(k.label || k.name)}<b>${k.size}</b></a>`).join('')}</div>`;
   }
   function blocksHTML(cols, showTask) {
     return `<div class="col-grid">${topLevel(cols).map(c => `<article class="col-block"><div class="montage-wrap">${montageHTML(c)}</div><div class="col-info">${colInfoHTML(c, showTask)}${childrenHTML(c)}</div></article>`).join('')}</div>`;
@@ -873,7 +887,7 @@
   function colAreaHTML() {
     const cols = scopeCols().filter(passColF);
     ui.colKey = JSON.stringify(scopeCols());
-    if (ui.view === 'task') return cols.length ? blocksHTML(cols, false) : '<div class="empty">还没有集合。照片分析完成后按人物、物种、动物类型和场景分组，较大的组再按日期或地点细分。</div>';
+    if (ui.view === 'task') return cols.length ? blocksHTML(cols, false) : '<div class="empty">还没有集合。照片分析完成后按人物、物种、动物类型和场景分组；同一主体跨多少天都在一组，带 GPS 的大组再按地点细分。</div>';
     const groups = new Map();
     cols.forEach(c => { const k = c.task_id || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); });
     if (!groups.size) return '<div class="empty">没有符合条件的集合。</div>';
@@ -885,7 +899,7 @@
   async function vCollections() {
     await refreshCols();
     return `<div class="page">
-      <header class="page-head"><div><h1 tabindex="-1">Collections</h1><p class="lede">按人物、物种、动物类型、场景等主体组织的 Review 单位，较大的组再按日期或地点细分。同一素材可出现在多个集合，人工标记全局一致；各集合完成进度独立。</p></div></header>
+      <header class="page-head"><div><h1 tabindex="-1">Collections</h1><p class="lede">按人物、物种、动物类型、场景等主体组织的 Review 单位：同一主体不按时间切开，带 GPS 的大组按地点细分。人物分组可以命名，以后的扫描会直接归入。同一素材可出现在多个集合，人工标记全局一致；各集合完成进度独立。</p></div></header>
       ${colToolbarHTML('')}
       <div id="col-area">${colAreaHTML()}</div>
     </div>`;
@@ -1069,23 +1083,34 @@
   function openEditCol(id) {
     const c = S.cols.find(x => x.id === id) || (ui.col && ui.col.id === id ? ui.col : null);
     if (!c) return;
-    dialog({
-      title: '编辑集合', focus: '#ec-name',
-      body: `<div class="field"><label for="ec-name">名称</label><input id="ec-name" class="input" maxlength="80" value="${esc(c.name)}"></div>
+    const person = c.group_kind === 'person' && c.origin === 'auto';
+    const nameField = person
+      ? `<div class="field"><label for="ec-name">这个人叫什么</label><input id="ec-name" class="input" maxlength="60" value="${esc(c.name)}" list="ec-people" autocomplete="off"><datalist id="ec-people"></datalist></div>`
+      : `<div class="field"><label for="ec-name">名称</label><input id="ec-name" class="input" maxlength="80" value="${esc(c.name)}"></div>`;
+    const d = dialog({
+      title: person ? '给人物命名' : '编辑集合', focus: '#ec-name',
+      body: `${nameField}
         <div class="field"><label for="ec-desc">描述</label><textarea id="ec-desc" class="input" rows="3" maxlength="1000">${esc(c.description)}</textarea></div>
         ${c.kind === 'smart' ? `<div class="field"><label for="ec-rule">规则（JSON，键同全部素材筛选）</label><textarea id="ec-rule" class="input mono" rows="3">${esc(JSON.stringify(c.rule || {}))}</textarea></div>` : ''}
-        <p class="hint">改名不影响成员和人工标记；之后重新分组也不会覆盖人工命名。</p>`,
+        <p class="hint">${person ? '命名后，这一组的脸成为此人的参考：所有任务里认出是此人的照片都归入这个名字的分组，以后的扫描也会直接加进来。名字与已有的人相同，就合并为同一个人。' : '改名不影响成员和人工标记；之后重新分组也不会覆盖人工命名。'}</p>`,
       actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
-      onSubmit: async (v, d) => {
-        const name = val(d, '#ec-name');
+      onSubmit: async (v, dd) => {
+        const name = val(dd, '#ec-name');
         if (!name) throw new Error('名称不能为空');
-        const body = { name, description: val(d, '#ec-desc'), version: c.version };
-        if (c.kind === 'smart') { try { body.rule = JSON.parse(val(d, '#ec-rule') || '{}'); } catch (e) { throw new Error('规则不是有效的 JSON'); } }
-        try { await api('PATCH', `/collections/${encodeURIComponent(c.id)}`, body); } catch (e) { if (e.status === 409) { await rerender(); throw new Error('集合已被其他客户端修改，已载入最新版本，请重新编辑'); } throw e; }
-        toast(`已保存「${name}」`);
+        const body = { name, description: val(dd, '#ec-desc'), version: c.version };
+        if (c.kind === 'smart') { try { body.rule = JSON.parse(val(dd, '#ec-rule') || '{}'); } catch (e) { throw new Error('规则不是有效的 JSON'); } }
+        let got;
+        try { got = await api('PATCH', `/collections/${encodeURIComponent(c.id)}`, body); } catch (e) { if (e.status === 409) { await rerender(); throw new Error('集合已被其他客户端修改，已载入最新版本，请重新编辑'); } throw e; }
+        S.details.clear();
+        toast(got.id !== c.id ? `已并入「${got.name}」` : `已保存「${name}」`);
+        if (got.id !== c.id && ui.col && ui.col.id === c.id) { location.hash = `#/review/${got.id}`; return; }
         await rerender();
       },
     });
+    if (person) peopleOptions($('#ec-people', d));
+  }
+  async function peopleOptions(list) {
+    try { list.innerHTML = (await api('GET', '/people')).map(p => `<option value="${esc(p.name)}"></option>`).join(''); } catch (e) { /* 只影响输入提示 */ }
   }
   function openComplete() {
     const c = ui.col;
@@ -1333,6 +1358,33 @@
         await api('POST', `/assets/${encodeURIComponent(el.dataset.id)}/split-version`);
         S.details.clear();
         toast('已分开：它从此单独出现，不再自动合并；在任务中「重试」可补做它的分析');
+        renderInspector();
+      } catch (e) { toast(errMsg(e)); }
+    },
+    'name-face': el => {
+      const { id, face, name } = el.dataset;
+      const save = async n => {
+        await api('POST', `/assets/${encodeURIComponent(id)}/faces/${encodeURIComponent(face)}`, { name: n });
+        S.details.clear();
+        await refreshCols();
+        toast(`已记住「${n}」：这个人的照片会归入同名分组`);
+        renderInspector();
+      };
+      if (name) { save(name).catch(e => toast(errMsg(e))); return; }
+      const d = dialog({
+        title: '给这张脸命名', focus: '#nf-name',
+        body: '<div class="field"><label for="nf-name">这个人叫什么</label><input id="nf-name" class="input" maxlength="60" list="nf-people" autocomplete="off"><datalist id="nf-people"></datalist></div><p class="hint">选已有的名字就是同一个人；新名字会新建一个人。以后的扫描会直接把认出的照片加进去。</p>',
+        actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
+        onSubmit: async (v, dd) => { const n = val(dd, '#nf-name'); if (!n) throw new Error('名字不能为空'); await save(n); },
+      });
+      peopleOptions($('#nf-people', d));
+    },
+    'unname-face': async el => {
+      try {
+        await api('DELETE', `/assets/${encodeURIComponent(el.dataset.id)}/faces/${encodeURIComponent(el.dataset.face)}`);
+        S.details.clear();
+        await refreshCols();
+        toast('已取消这张脸的命名');
         renderInspector();
       } catch (e) { toast(errMsg(e)); }
     },

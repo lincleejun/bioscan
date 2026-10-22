@@ -177,12 +177,12 @@ class Fakes:
     def faces(self):
         return FakeFaces(self)
 
-    def suggest(self, assets, *, tz=None, final=True):
-        """Contract §4 shape of grouping.suggest: settled assets only; a group per person key, a subject
-        per asset (species, else the content group, else 未分类); with `final`, one day child per subject
-        and shooting day."""
+    def suggest(self, assets, *, tz=None, final=True, names=None):
+        """Contract §4 shape of grouping.suggest: settled assets only; a group per person key (named with
+        `names` when given), a subject per asset (species, else the content group, else 未分类)."""
         self.tz_seen = tz
         self.finals.append(final)
+        names = names or {}
         by: dict[str, list[dict]] = {}
         for a in assets:
             if not a.get("settled", True):
@@ -196,18 +196,9 @@ class Fakes:
             else:
                 key = "other:none"
             by.setdefault(key, []).append(a)
-        groups = [Group(k, k.split(":")[0], k.split(":", 1)[1], [a["id"] for a in ms]) for k, ms in by.items()]
-        if final:
-            basis = "task_timezone" if tz else "camera_local"
-            for k, ms in by.items():
-                days: dict[str, list[str]] = {}
-                for a in ms:
-                    if a["taken_at"]:
-                        days.setdefault(a["taken_at"][:10], []).append(a["id"])
-                groups += [Group(f"{k}/day:{d}", "day", f"{k} · {d}", ids,
-                                 {"time_basis": basis, "uncertain_ids": [] if tz else ids[:1]}, parent=k)
-                           for d, ids in days.items()]
-        return groups
+        return [Group(k, k.split(":")[0], names.get(k.removeprefix("person:")) or k.split(":", 1)[1],
+                      [a["id"] for a in ms], {"time_basis": "task_timezone" if tz else "camera_local"})
+                for k, ms in by.items()]
 
     def export(self, dest_dir, *, title, scope, collections, assets, copy, conflict="rename", protected):
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -225,8 +216,9 @@ class Fakes:
 
 
 class FakeFaces:
-    """faces.FaceModel's shape. A preview whose green channel is above 180 shows one face: person A when
-    its red channel is below 128, else person B (make_jpg(color=FACE_A / FACE_B)); other images show none."""
+    """faces.FaceModel's shape. A preview whose green channel is above 180 shows one face, whose person
+    the red channel decides: below 80 person A, below 160 person C, else person B (make_jpg(color=FACE_A /
+    FACE_C / FACE_B)); other images show none."""
 
     def __init__(self, fakes: Fakes) -> None:
         self.fakes, self.version = fakes, "people@fake1"
@@ -242,11 +234,13 @@ class FakeFaces:
             r, g, _ = im.convert("RGB").resize((1, 1)).getpixel((0, 0))
         if g <= 180:
             return []
-        vec = [1.0, 0.0] + [0.0] * 126 if r < 128 else [0.0, 1.0] + [0.0] * 126
+        axis = 0 if r < 80 else 2 if r < 160 else 1
+        vec = [0.0] * 128
+        vec[axis] = 1.0
         return [{"box": [0.2, 0.2, 0.6, 0.7], "score": 0.95, "vec": encode(vec)}]
 
 
-FACE_A, FACE_B = (20, 220, 20), (220, 220, 20)
+FACE_A, FACE_B, FACE_C = (20, 220, 20), (220, 220, 20), (120, 220, 20)
 
 
 class FakeAnalyzer:

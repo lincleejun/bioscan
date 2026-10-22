@@ -2,7 +2,7 @@
 
 Only runs with BIOSCAN_MODEL_TESTS=1 and the weights in the HF cache (tests/models/download.py). The
 wildlife sample of tests/models/sample.csv has no people, so the face model must stay quiet on it:
-well-formed output, and faces on at most a tenth of the photos (false positives on animals would put
+well-formed output, and strong faces (the ones that start clusters) on at most a tenth of the photos (false positives on animals would put
 wildlife into person groups)."""
 import csv
 import os
@@ -52,5 +52,5 @@ def test_face_model_is_pinned_and_quiet_on_wildlife():
         for f in found:
             assert all(0.0 <= x <= 1.0 for x in f["box"]) and f["score"] >= faces.MIN_SCORE
             assert abs(float(np.linalg.norm(faces.decode(f["vec"]))) - 1.0) < 1e-3
-        with_faces += bool(found)
+        with_faces += any(faces.strong(f) for f in found)   # weak faces count only on people photos
     assert with_faces <= len(paths) / 10, f"faces on {with_faces} of {len(paths)} wildlife photos"

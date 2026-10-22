@@ -344,14 +344,14 @@ def test_task_timezone_reaches_grouping_and_collections_show_the_time_basis(env,
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": [str(src)], "timezone": "Mars/Base"}).status_code == 400
         t = wait_task(c, create_task(c, [str(src)], caps=["place_event"])["id"])
         assert t["timezone"] is None and fakes.tz_seen is None
-        ev = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "day")
-        assert (ev["time_basis"], ev["uncertain"]) == ("camera_local", 1)
+        ev = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "other")
+        assert ev["time_basis"] == "camera_local"
         assert c.patch(f"{API}/tasks/{t['id']}", json={"timezone": "+08:00"}).json()["timezone"] == "+08:00"
         assert c.patch(f"{API}/tasks/{t['id']}", json={"timezone": "+25:00"}).status_code == 400
         run = finish(c, c.post(f"{API}/tasks/{t['id']}/rescan", json={}).json()["id"])
         assert run["config"]["timezone"] == "+08:00" and fakes.tz_seen == "+08:00"
         ev = c.get(f"{API}/collections/{ev['id']}").json()
-        assert (ev["time_basis"], ev["uncertain"]) == ("task_timezone", 0)
+        assert ev["time_basis"] == "task_timezone"
         t2 = create_task(c, [str(src)], caps=["place_event"], timezone="Asia/Shanghai")
         assert t2["timezone"] == "Asia/Shanghai"
         day = c.get(f"{API}/assets/{ids(c, task=t['id'])[0]}").json()["taken_at"][:10]

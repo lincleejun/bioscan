@@ -16,9 +16,18 @@ import numpy as np
 
 YUNET = ("opencv/face_detection_yunet", "face_detection_yunet_2023mar.onnx", "3cc26e7f1014a5ee5d74a42acee58bafc9d0a310")
 SFACE = ("opencv/face_recognition_sface", "face_recognition_sface_2021dec.onnx", "3d7082438a6e4551e840c9b2bb60b71e8da4b524")
-MIN_SCORE = 0.85        # YuNet confidence
-MIN_FACE = 40           # px, shorter side of the face box on the preview: smaller faces carry no identity
+MIN_SCORE = 0.6         # YuNet confidence a face needs to be kept at all
+MIN_FACE = 24           # px, shorter side of the face box on the preview
+STRONG_SCORE = 0.85     # a face this sure and this big carries enough identity to start or join a cluster
+STRONG_FACE = 40
 SAME_PERSON = 0.40      # cosine between a face and a person's mean feature (SFace's own cut is 0.363)
+LOOSE = 0.20            # a leftover face (profile, sunglasses, small) may join an established person at this
+MARGIN = 0.08           # ... when the next closest person is this much further away
+
+
+def strong(face: dict) -> bool:
+    """Results from before weak faces were kept have no `px`: they were all strong."""
+    return face.get("score", 0) >= STRONG_SCORE and face.get("px", STRONG_FACE) >= STRONG_FACE
 
 
 def version() -> str:
@@ -80,7 +89,7 @@ class FaceModel:
                 feat = feat / (float(np.linalg.norm(feat)) or 1.0)
                 out.append({"box": [round(max(x, 0) / w, 4), round(max(y, 0) / h, 4), round(min(x + fw, w) / w, 4),
                                     round(min(y + fh, h) / h, 4)],
-                            "score": round(score, 4), "vec": encode(feat)})
+                            "score": round(score, 4), "px": int(min(fw, fh)), "vec": encode(feat)})
         return sorted(out, key=lambda d: -(d["box"][2] - d["box"][0]) * (d["box"][3] - d["box"][1]))
 
 
@@ -115,3 +124,42 @@ def cluster(faces: list[tuple[str, str, float]], threshold: float = SAME_PERSON)
                 ids.append(faces[i][0])
         people.append(ids)
     return sorted(people, key=lambda ids: -len(ids))
+
+
+def centroid(vecs: list[str]) -> np.ndarray:
+    c = np.mean(np.stack([decode(v) for v in vecs]), axis=0)
+    return c / (float(np.linalg.norm(c)) or 1.0)
+
+
+def nearest(vec: str, people: dict[str, np.ndarray], threshold: float = SAME_PERSON) -> str | None:
+    """The named person whose mean confirmed face is closest to `vec`, when the cosine reaches `threshold`."""
+    if not people:
+        return None
+    v = decode(vec)
+    key, best = max(((k, float(c @ v)) for k, c in people.items()), key=lambda kv: kv[1])
+    return key if best >= threshold else None
+
+
+def shared_face(per_asset: dict[str, list[str]]) -> dict[str, int]:
+    """asset id -> index of its face that belongs to the one person these assets share (the photos of one
+    person group): start from every asset's largest face (index 0), then twice take each asset's face
+    closest to the mean of the chosen ones."""
+    pick = {aid: 0 for aid, vs in per_asset.items() if vs}
+    for _ in range(2):
+        c = centroid([per_asset[a][i] for a, i in pick.items()]) if pick else None
+        if c is None:
+            break
+        pick = {a: int(np.argmax([float(decode(v) @ c) for v in per_asset[a]])) for a in pick}
+    return pick
+
+
+def attach(vec: str, people: dict[str, np.ndarray]) -> str | None:
+    """The established person a leftover face most likely is: cosine >= LOOSE and at least MARGIN ahead of
+    the next person (two people that look alike to the model get neither)."""
+    if not people:
+        return None
+    v = decode(vec)
+    sims = sorted(((float(c @ v), k) for k, c in people.items()), reverse=True)
+    best, key = sims[0]
+    runner = sims[1][0] if len(sims) > 1 else -1.0
+    return key if best >= LOOSE and best - runner >= MARGIN else None

@@ -162,3 +162,15 @@ CREATE TABLE IF NOT EXISTS asset_tags (
 CREATE TABLE IF NOT EXISTS exports (
   id TEXT PRIMARY KEY, created_at TEXT NOT NULL, request TEXT NOT NULL, report TEXT NOT NULL
 );
+
+-- Named people (契约修订 3): a person a user named, across every task; their confirmed faces are the reference
+-- new faces are matched against. Features stay in this file only.
+CREATE TABLE IF NOT EXISTS people (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS person_faces (
+  asset_id TEXT NOT NULL REFERENCES assets(id), face INTEGER NOT NULL,  -- index in the asset's latest people result
+  person_id TEXT NOT NULL REFERENCES people(id), vec TEXT NOT NULL,     -- the face's feature (f16 base64)
+  source TEXT NOT NULL,          -- face (one face named) | collection (a person group named)
+  created_at TEXT NOT NULL, PRIMARY KEY (asset_id, face)
+);

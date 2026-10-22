@@ -82,8 +82,8 @@ class Analyzer:
 
 # grouping.py
 @dataclass class Group: key: str; kind: str; name: str; asset_ids: list[str]; summary: dict; parent: str | None
-    # 修订 2：kind: species | person | animal | scene | other（主体）| day | place（主体内细分，parent = 主体 key）
-def suggest(assets: list[dict], *, tz: str | None = None, final: bool = True) -> list[Group]
+    # 修订 2/3：kind: species | person | animal | scene | other（主体）| place（带 GPS 的主体内细分，parent = 主体 key）
+def suggest(assets: list[dict], *, tz: str | None = None, final: bool = True, names: dict[str, str] | None = None) -> list[Group]
     # assets: {id, taken_at, lat, lon, media, content, species, people: [person key]|None, settled: bool}
 
 # export.py
@@ -236,3 +236,16 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **分组（`grouping.suggest`）**：主体 = 人物（每人一组，“人物 1, 2…”按照片数从多到少命名，可改名）、分类单元（种；只到属/科时“Fratercula（属）”）、未识别到种的动物类型（鸟类 / 哺乳动物 / 其他动物，取内容标签）、否则内容标签（山地、海岸、人像…；人像类但无已识别人脸 → “人物 · 其他”）；视频一组“视频”，无主体信息“未分类”。同一照片可同时在人物组与物种组；场景只收没有人物与动物主体的照片。少于 3 张的主体并入上一级（稀有物种 → 其动物类型，稀有场景 → “其他场景”，单人 → “人物 · 其他”）。≥ 10 张的主体再细分：多数成员有 GPS → 约 2 km 网格、相邻格合并为一个地点；否则按拍摄日（相机本地时间；任务有 `timezone` 时换算到该时区；无时区的 UTC 时间标为不确定）。细分少于 3 张的并入“其他日期 / 其他地点”，无时间/无 GPS 的单列，只分出一份时不细分。不再生成单纯按时间或单纯按地点的顶层分组。
 - **自动集合**：`collections.parent_id` 指向细分所属的主体集合；`group_kind` 取上面的 kind；`Collection` 增加 `parent_id`、`label`（细分的短名）。匹配：同 kind、同父集合内先按 `auto_key`；人物与地点（key 随规模漂移）再按成员重叠（重叠 ≥ 较小一方的一半），每个已有集合一轮只匹配一个建议组。父集合被删除时不建、不补其细分。分析进行中的重组只建达到 3 张的主体组，不做合并与细分；`group` 阶段（以及停止的运行）做最终分组。旧数据库已有的 `event`/`place` 自动集合原样保留。
 - **UI**：Collections 以主体为 block，细分作为 block 内的日期/地点入口；类型筛选为人物 / 物种 / 动物 / 场景 / 其他；详情显示“同一拍摄的其他版本”与“不是同一张”。
+
+## 契约修订 3：时间不切分分组、给人物命名（2026-10-21，owner 确认，优先于修订 2 冲突处）
+
+依据：owner 看过修订 2 的结果后要求“同一个类型都合并，不要让时间区分开”，以及“人物 1 如何命名、点人脸命名，下次直接加进去”。
+
+- **分组**：一个主体就是一个分组，跨多少天都不按日期细分；不再生成 `day` 细分。只有多数成员带 GPS 的 ≥ 10 张主体，仍按地点（约 2 km 网格）细分，地点名附日期范围。
+- **命名人物**（`people.py`；表 `people(id, name UNIQUE)`、`person_faces(asset_id, face, person_id, vec, source)`）：
+  - 给人物分组改名（`PATCH /collections/{id} {name}`，人物自动分组）= 命名这个人：按“每张照片取最接近全组平均特征的那张脸”（`faces.shared_face`）把这些脸记为此人的确认脸（`source=collection`），分组改键为 `person:named:<id>`，名字随人。名字已属于另一个人 → 并入那个人：本任务内两组合并（成员移入，原组软删除并记 `merge`），确认脸合并。给已命名人物分组改名 = 给人改名；改成另一个已有的名字 = 两人合并。“人物 N”保留给未命名的人（409）。
+  - 给一张脸命名：`POST /assets/{id}/faces/{index} {name}`（新名字新建人物，已有名字即同一人；`source=face`）；`DELETE /assets/{id}/faces/{index}` 取消。`GET /people` → `[{id, name, faces}]`。
+  - 分组时：被命名的脸归其人；其余的脸与每个已命名人物的确认脸平均特征比较，余弦 ≥ 0.40 取最接近者；剩下的再聚类为“人物 N”。已命名人物即使只有 1 张也单独成组，不并入“人物 · 其他”。命名后服务立即对所有开启人物识别的任务重组，以后的扫描也直接归入。
+  - `AssetDetail.caps.people.data.faces[i].person = {id, name, confirmed} | null`：`confirmed` = 用户命名过这张脸；否则为按已命名的脸自动认出。
+- **UI**：人物分组的“编辑”是“给人物命名”（输入时提示已有名字）；素材详情的“人物”卡片列出每张脸，可命名、改名、确认（“是此人”）或取消。
+- **人物分组的稳定性**：分析进行中只建已命名人物的分组；未命名的人脸聚类与“人物 N”编号只在最终分组（`group` 阶段）生成，避免同名“人物 1”出现多份。最终分组时，不再被建议、且没有人动过（未改名、未审阅、无人工加入成员）的未命名聚类分组软删除（`collection_history.detail.reason = superseded_cluster`），其 `auto_key` 加后缀以免挡住以后同键的聚类。

@@ -51,9 +51,8 @@ def test_create_scan_completes_with_previews_results_groups_and_summary(env, tmp
         assert d["caps"]["place_event"]["state"] == "done" and d["meta"]["width"] == 64
         assert {x["id"] for x in d["tags"]} >= {"scene:wildlife", "scene:bird", "species:Megascops asio"}
         cols = c.get(f"{API}/collections", params={"task": t["id"]}).json()
-        by_id = {x["id"]: x for x in cols}
-        assert sorted({x["group_kind"] for x in cols}) == ["all", "day", "other", "species"] and all(x["size"] for x in cols)
-        assert all(by_id[x["parent_id"]]["group_kind"] in ("species", "other") for x in cols if x["group_kind"] == "day")
+        assert sorted({x["group_kind"] for x in cols}) == ["all", "other", "species"] and all(x["size"] for x in cols)
+        assert not any(x["parent_id"] for x in cols)                         # no GPS: no place splits, time never splits
         assert cols[0]["group_kind"] == "all" and cols[0]["size"] == 5
         r = c.get(f"{API}/assets/{pair['id']}/thumb")
         assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
