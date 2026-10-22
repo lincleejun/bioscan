@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from bioscan import aesthetic
 from bioscan.cli import cull as cc
 
 
@@ -18,6 +19,16 @@ def thumb_of(jpg: str) -> str:
     """The grid thumbnail next to a jpg copy: `<stem>-<sha8>-t.jpg`."""
     p = Path(jpg)
     return str(p.with_name(p.stem + "-t.jpg"))
+
+
+_SCRIPT_ESCAPES = str.maketrans({"<": "\\u003c", ">": "\\u003e", "&": "\\u0026",
+                                 "\u2028": "\\u2028", "\u2029": "\\u2029"})
+
+
+def script_json(value: Any) -> str:
+    """JSON safe to embed in an inline <script>: `<`, `>`, `&` and U+2028/2029 become \\u escapes, so no
+    value (a filename with `</script>` in it) can end the script or the line."""
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).translate(_SCRIPT_ESCAPES)
 
 
 def page_rows(rows: list[dict[str, Any]], base: Path, roots: str) -> list[dict[str, Any]]:
@@ -263,8 +274,8 @@ function filtermenu(){const seg=(name,opts,cur,multi)=>`<h4>${name}</h4><div cla
   const spOpts=Object.values(Object.fromEntries(LIVE().map(eff).filter(r=>r.sp).map(r=>[r.sp,{sp:r.sp,cn:r.cn,lv:r.lv}]))).sort((a,b)=>label(a).localeCompare(label(b)));
   $('#pop-filter').innerHTML=seg('stars',[[5,'★★★★★','st'],[4,'★★★★','st'],[3,'★★★','st'],[2,'★★','st'],[1,'★','st']],F.stars,true)
     +seg('marks',[['','all'],['k','keep'],['x','drop'],['u','unmarked']],F.dec)
-    +seg('rejects',[['','all'],['clean','none'],['any','any'],...REASONS.map(r=>[r,r.replace(/_/g,' ')])],F.rej)
-    +(SCENES.length>1?seg('scene',SCENES.map(s=>[s,s]),F.scenes,true):'')
+    +seg('rejects',[['','all'],['clean','none'],['any','any'],...REASONS.map(r=>[r,esc(r.replace(/_/g,' '))])],F.rej)
+    +(SCENES.length>1?seg('scene',SCENES.map(s=>[s,esc(s)]),F.scenes,true):'')
     +`<h4>species</h4><select id="f-sp"><option value="">all</option><option value="named">named</option><option value="unnamed">unnamed</option>${spOpts.map(b=>`<option value="${esc(b.sp)}">${esc(label(b))}</option>`).join('')}</select>`
     +(DIRS.length?`<h4>folder</h4><select id="f-dir"><option value="">all</option>${DIRS.map(d=>`<option>${esc(d)}</option>`).join('')}</select>`:'')
     +`<hr><button class="item" id="f-clear">clear all filters</button>`;
@@ -380,8 +391,7 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
     scenes = sorted({d["sc"] for d in data if d.get("sc")})
     reasons = sorted({x for d in data for x in d["rr"]})
     scored = [r["score"] for r in rows if r["score"] is not None]
-    n = len(scored)
-    cuts = [scored[int(n * k / 5) - 1] for k in range(1, 5)] if n >= 5 else []     # lowest score of 5, 4, 3, 2 stars
+    cuts = aesthetic.quintile_stars(scored)[1]                                   # lowest score of 5, 4, 3, 2 stars
     named = sum(1 for r in rows if r["species"])
     sub = (f"{len(scored)} scored" + (f", {named} named" if named else "")
            + (f", {len(fails)} failed" if fails else ""))
@@ -420,10 +430,11 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             '<div id="lb"><div class="stage" id="lbstage"><img id="lbi" alt=""><div class="nav prev" id="lbprev">‹</div><div class="nav next" id="lbnext">›</div>'
             '<button class="close" id="lbc">×</button></div><div class="bar"><span id="lbn"></span><span class="f" id="lbf"></span>'
             '<span class="sp" id="lbsp"></span><button class="k" id="lbk">keep</button><button class="x" id="lbx">drop</button></div></div>'
-            f"<script>const DATA={json.dumps(data, ensure_ascii=False, separators=(',', ':'))};"
-            f"const ROOT={json.dumps(roots, ensure_ascii=False)};const DIRS={json.dumps(dirs, ensure_ascii=False)};"
-            f"const SERVICE={json.dumps((service or '').rstrip('/'))};const TOKEN={json.dumps(token)};"
-            f"const SCENES={json.dumps(scenes)};const CUTS={json.dumps([round(c, 4) for c in cuts])};const REASONS={json.dumps(reasons)};const ICON_ZOOM={json.dumps(i['zoom'])};"
+            f"<script>const DATA={script_json(data)};"
+            f"const ROOT={script_json(roots)};const DIRS={script_json(dirs)};"
+            f"const SERVICE={script_json((service or '').rstrip('/'))};const TOKEN={script_json(token)};"
+            f"const SCENES={script_json(scenes)};const CUTS={script_json([round(c, 4) for c in cuts])};"
+            f"const REASONS={script_json(reasons)};const ICON_ZOOM={script_json(i['zoom'])};"
             f"{JS}</script></body></html>\n")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(page, encoding="utf-8")
