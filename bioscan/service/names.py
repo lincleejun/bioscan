@@ -21,13 +21,14 @@ import hashlib
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, NamedTuple
 
 import numpy as np
 
 from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, map_problems, norm_binomial, read_synonyms
+from bioscan.service.taxa import NOT_WILDLIFE
 
 log = logging.getLogger(__name__)
 
@@ -465,12 +466,31 @@ def load_all_taxa(cache_dir: Path = CACHE_DIR, *, tol_files: tuple[Path, Path] |
                     ["exact"] * len(taxonomy), sha=sha, source=src.source)
 
 
+def wildlife(nl: NameList) -> NameList:
+    """`nl` without the rows of a NOT_WILDLIFE genus (Homo: a person is never named as a species),
+    every per-row field cut alike; `nl` itself when it has none. Applied after the cache, so the
+    list sha and the cached matrix stay as they were (settings.fingerprint covers NOT_WILDLIFE)."""
+    drop = {g.lower() for g in NOT_WILDLIFE}
+    keep = [i for i, t in enumerate(nl.taxonomy) if len(t) < 6 or t[5].lower() not in drop]
+    if len(keep) == len(nl.taxonomy):
+        return nl
+    log.info("%s: %d rows of %s left out (not wildlife)", nl.list_id, len(nl.taxonomy) - len(keep), ", ".join(NOT_WILDLIFE))
+
+    def cut(xs: list) -> list:
+        return [xs[i] for i in keep] if xs else xs
+
+    return replace(nl, scientific=cut(nl.scientific), common=cut(nl.common), taxonomy=cut(nl.taxonomy),
+                   matrix=nl.matrix[keep], tol_how=cut(nl.tol_how), birdnet=cut(nl.birdnet),
+                   birdnet_how=cut(nl.birdnet_how))
+
+
 def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
                data_dir: Path = DATA_DIR, tol_files: tuple[Path, Path] | None = None) -> dict[str, NameList]:
     """{"bird": NameList, "mammal": NameList, "other_animal": all-taxa NameList}. `model`/`tokenizer`
     are only used on a cache miss. `tol_files` = (names.json, vectors.npy) overrides the HF download
     (tests). The all-taxa list is left out, with a warning, when it cannot be loaded or built (say
-    its cache is missing and the TreeOfLife files were deleted)."""
+    its cache is missing and the TreeOfLife files were deleted). Every list comes back as `wildlife`
+    leaves it: no Homo rows, so neither all-taxa ranking nor candidates can name a person."""
     cache_dir = Path(cache_dir).expanduser()
     syn_path = data_dir / NAMES_DIR / "synonyms.csv"
     synonyms = read_synonyms(syn_path)
@@ -501,7 +521,8 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
             labels = {"birdnet": [x.get("birdnet_label", "") for x in m],
                       "birdnet_how": [x.get("birdnet_how") or "none" for x in m],
                       "label_map_sha": label_map_sha(map_path)}
-        out[kind] = NameList(src.list_id, kind, **cols, sha=sha, **labels, unlabelled=src.unlabelled, source=src.source)
+        out[kind] = wildlife(NameList(src.list_id, kind, **cols, sha=sha, **labels, unlabelled=src.unlabelled,
+                                      source=src.source))
     try:
         other = load_all_taxa(cache_dir, tol_files=tol_files, tol=tol)
     except Exception as exc:  # noqa: BLE001 - an optional list must not cost birds and mammals
@@ -509,7 +530,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
                     ALL_TAXA.kind)
     else:
         if other is not None:
-            out[other.kind] = other
+            out[other.kind] = wildlife(other)
     for s in stats(out).values():
         log.info("names %s: %d species, TreeOfLife %s, BirdNET %s", s["list_id"], s["total"], s["tol"], s["birdnet"])
     return out
