@@ -50,7 +50,7 @@ Test and CI switches (environment variables read only by tests and `models.yml`)
 | `BIOSCAN_REQUIRE_ALLTAXA=1` | the real-model tests fail when the all-taxa list is missing, instead of skipping the other-animal floors |
 | `BIOSCAN_ALBUM_SOURCES` | how many bird and mammal photos the album-profile test degrades into rejects and bursts (default 24) |
 
-CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job. Model outputs are cached between runs (the inference cache, keyed on the adapters and `uv.lock`; a branch run restores its own newest cache, else main's newest), so a run computes only what reaches a model differently; a `v*` tag or a `cold` dispatch runs every model. It then runs the album profile on a synthetic reject set made from 24 of the photos and compares `models-report-album.json` with `baselines/ci-album.json` under `baselines/budget-album.toml` (until that baseline is committed, the job prints the candidate). `aesthetic.yml` runs only on demand (Actions tab, or a pushed `aesthetic-head-*` tag): it trains the EVA general head on CPU and prints the head file base64 in the log (data/aesthetic/README.md).
+CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.yml` runs the real-model smoke on CPU on every push / PR that touches the service, the model tests, the name data, eval/bench, baselines or dependencies (weights, photos and the all-taxa list cached; the first run after a cache miss downloads the 3.26 GB TreeOfLife vectors to build it), and on every `v*` tag. It writes the metrics to the job summary per kind (birds, mammals and the 18 other animals, which are ranked against the real all-taxa list), and compares the run's report.json with `baselines/ci-smoke.json` under `baselines/budget.toml`: a regression over budget fails the job. Model outputs are cached between runs (the inference cache, keyed on the adapters and `uv.lock`; a branch run restores its own newest cache, else main's newest), so a run computes only what reaches a model differently; a `v*` tag or a `cold` dispatch runs every model. It then runs the album profile on a synthetic reject set made from 24 of the photos and compares `models-report-album.json` with `baselines/ci-album.json` under `baselines/budget-album.toml`: a regression over budget fails the job too. `aesthetic.yml` runs only on demand (Actions tab, or a pushed `aesthetic-head-*` tag): it trains the EVA general head on CPU and prints the head file base64 in the log (data/aesthetic/README.md).
 
 ## Layout
 
@@ -58,6 +58,7 @@ CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.ym
 bioscan/contract.py              single definition of /run events, product names and the identify payload (shared by CLI and service, stdlib only)
 bioscan/naming.py                name normalisation (scientific names; gt folder labels), synonyms.csv, stale-map check (stdlib only)
 bioscan/formats.py               supported photo extensions (decoder and folder scans share it), the folder scan (stdlib only)
+bioscan/apply.py                 acting on a review's marks: copy the keeps, move or delete the drops, with their XMP sidecars
 bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > bioscan.toml [serve] > default, once, for both entry points (stdlib only)
 bioscan/profile.py               profiles and bioscan.toml: layers, merge order, the resolved plan (stdlib only; CLI and service)
 bioscan/profiles.toml            the built-in profiles full, wildlife, album
@@ -81,12 +82,19 @@ bioscan/xmp.py                   new XMP sidecars, never over an existing one: g
 bioscan/aesthetic.py             aesthetic head files, XMP/CSV ratings, trip folds, ranking metrics (stdlib only)
 bioscan/aesthetic_fit.py         ridge heads, CV, prior pull, learning curve (numpy; imported only to train or for the curve)
 bioscan/cull.py                  the burst and select reducers, cull records, the album tier's metric rows (stdlib only)
-bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
+bioscan/cli/                     main client (thin HTTP client) render gt eval bench (harness: report.json, compare, analyze, scorecard)
                                  config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
                                  aesbench (bioscan aesthetic ratings|train|eval) aesgolden (bench aesthetic)
                                  cull (bioscan cull: reducers, CSV, symlinks, HTML review, XMP)
                                  lr (bioscan lr: Lightroom Classic latest.json, plugin install)
+                                 report (bioscan summarize / report: the run summary)
+                                 aesscore (bioscan aesthetic score / apply) aespage (its HTML review page)
+bioscan/gardener/                Gardener: local-first photo review workstation on top of bioscan (docs/gardener/)
 extensions/lightroom/            the Lightroom Classic plugin (Lua) that applies latest.json
+scripts/build_names.py           build (or load from cache) the bird and mammal name matrices, print stats
+scripts/build_name_map.py        build the committed label maps under data/names/
+scripts/eva_golden.py            the public aesthetic golden set: 100 held-out EVA images, 20 per star
+scripts/aes_arena_score.py       score a golden folder with an external aesthetic model, for bench aesthetic score
 scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 scripts/train_aesthetic_head.py  the EVA general head, in-process with the service's decode and SigLIP2
 scripts/aes_plant.py             planted copies (known answers) for the aesthetic golden set

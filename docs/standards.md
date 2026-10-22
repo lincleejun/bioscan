@@ -133,8 +133,8 @@ Failed images count as misses on every accuracy metric.
 compares it with `data/standards.toml`.
 
 ```sh
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden                  # golden, real GPS
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden-nogeo --no-geo   # location-aware
+bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden                  # golden, real GPS
+bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden-nogeo --no-geo   # location-aware
 bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own                           # own RAW
 bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own-nogeo --no-geo
 BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models                                          # smoke (CI models.yml)
@@ -160,7 +160,7 @@ RAW files have no GPS, so to score them with one batch coordinate, fill those tw
 | Other animals genus | none | **75%** | 90% | unmeasured | the level most other-animal answers should stop at |
 
 How measured: golden tier (other animals: the golden other-animal slice), with GPS, `bioscan bench run
-data/inat/groundtruth-inat.csv --out runs/<tag>-golden`, rows `bird`, `mammal`, `other`.
+data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden`, rows `bird`, `mammal`, `other`.
 
 The industry numbers are not like-for-like. Merlin, iNat and Dongniao measure on their own
 unpublished test sets. CUB/NABirds are curated closed sets, and SpeciesNet works on camera traps.
@@ -181,7 +181,7 @@ They show the level people expect, not a result on our folders.
 | Other animals coverage | none | **≥ 40%** | ≥ 70% | unmeasured | most other-animal answers should stop at genus or family |
 | Calibration (ECE, all kinds) | none published | **≤ 0.05** | ≤ 0.02 | unmeasured (no calibrated `p_correct` yet) | a "90%" answer should be right 85–95% of the time; this gates v1.0 only |
 
-How measured: golden tier, `bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden`.
+How measured: golden tier, `bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden`.
 Confident-error rate and precision must always be read together with coverage.
 
 For context, general vision-language models identify fewer than 13% of the answerable birds in the
@@ -247,7 +247,7 @@ group can prove an 85% bar with a 3-point margin.
 | Decode, median | none | **≤ 700 ms** | ≤ 300 ms | ~650 ms from a USB disk (README, before v1.1; the 3072 px detail copy since is unmeasured) | with 4 workers, 700 ms still feeds more than 5 images/s; the stretch needs the embedded preview |
 
 How measured: `mac` tier, 2,000 RAW files, 24 MP (plus 45 MP), from SSD and USB disk, on an M1-class
-Mac: `bioscan bench run <gt> --out runs/<tag>-speed`. Throughput = ok ÷ (`done.elapsed_ms` / 1000).
+Mac: `bioscan bench run <gt> --tier mac --out runs/<tag>-speed`. Throughput = ok ÷ (`done.elapsed_ms` / 1000).
 Report the machine, the disk and the settings fingerprint with it.
 
 ## 7. Taxonomic coverage (manual)
