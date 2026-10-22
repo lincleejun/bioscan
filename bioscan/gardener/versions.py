@@ -132,10 +132,17 @@ def link(store: st.Store, task_id: str, thumb: Callable[[str], Path], model_caps
         for aid, hs in fresh.items():
             meta = loads(c.execute("SELECT meta FROM assets WHERE id = ?", (aid,)).fetchone()[0], {})
             c.execute("UPDATE assets SET meta = ? WHERE id = ?", (dumps(meta | {"dhash": [f"{h:016x}" for h in hs]}), aid))
+        # another task's link (representative outside this task) is not this task's to change; a planned
+        # representative that is such a version hands its versions to its own representative: no chains
+        outside = {r["id"]: r["version_of"] for r in rows if r["version_of"] and r["version_of"] not in mine}
         for r in rows:
+            if r["id"] in outside:
+                continue
             target = want.get(r["id"])
+            if target and target[0] in outside:
+                target = (outside[target[0]], target[1])
             old = (r["version_of"], r["version_reason"]) if r["version_of"] else None
-            if target != old and (target or old[0] in mine) and not set_version(c, r["id"], target, model_caps, t):
+            if target != old and not set_version(c, r["id"], target, model_caps, t):
                 continue
             if target:
                 counts[target[1]] += 1

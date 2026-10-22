@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan.gardener import capabilities as capmod
+from bioscan.gardener import query
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
@@ -481,8 +482,8 @@ class RunExec:
         rows = self.store.all(
             f"SELECT ra.asset_id, c.capability, c.state, c.run_id FROM run_assets ra JOIN assets a ON a.id = ra.asset_id "
             f"LEFT JOIN asset_caps c ON c.asset_id = ra.asset_id AND c.capability IN ({st.marks_in(caps)}) "
-            "WHERE ra.run_id = ? AND a.online = 1 AND a.media = 'photo' AND a.version_of IS NULL",
-            [*caps, self.id])   # videos: records only; versions: through their representative
+            f"WHERE ra.run_id = ? AND a.online = 1 AND a.media = 'photo' AND {query.IN_TASK_REP}",
+            [*caps, self.id, self.task_id])   # videos: records only; versions: through their representative
         have: dict[str, dict[str, dict[str, Any]]] = {}
         for r in rows:
             have.setdefault(r["asset_id"], {})
@@ -657,8 +658,8 @@ class RunExec:
                 "SELECT a.id, a.primary_path, a.taken_at, a.camera, x.capability, x.data FROM task_assets ta "
                 "JOIN assets a ON a.id = ta.asset_id JOIN results x ON x.id IN (SELECT max(id) FROM results "
                 "WHERE asset_id = a.id AND capability LIKE 'raw:%' AND status = 'done' GROUP BY capability) "
-                "WHERE ta.task_id = ? AND a.media = 'photo' AND a.version_of IS NULL ORDER BY a.taken_at, a.primary_path",
-                (self.task_id,)):
+                f"WHERE ta.task_id = ? AND a.media = 'photo' AND {query.IN_TASK_REP} ORDER BY a.taken_at, a.primary_path",
+                (self.task_id, self.task_id)):
             row = rows.setdefault(r["id"], {"asset_id": r["id"], "path": r["primary_path"], "taken_at": r["taken_at"],
                                             "camera": r["camera"], "products": {}})
             row["products"][r["capability"].removeprefix("raw:")] = loads(r["data"])
@@ -684,28 +685,29 @@ class RunExec:
 
     # ---- end ----
     def finish(self, error: str | None, cleanup: str | None = None) -> None:
-        flag = self.w.flags.get(self.id)
         summary = self.summary()
         if cleanup:
             summary["cleanup_error"] = cleanup
-        if error:
-            status = "failed"
-        elif flag == "stop":
-            status = "stopped"
-        elif flag == "pause":
-            status = "paused"
-        elif flag == "resume":          # resumed before the pause landed: carry on from where it stopped
-            status = "queued"
-        elif self.w.shutdown:
-            status = "interrupted"
-        elif (summary["failed"] or summary["preview_failed"] or summary["unavailable"] or summary["offline_sources"]
-              or summary["missing"] or summary["not_run"] or cleanup):     # a reused asset's old failure counts too
-            status = "partial"
-        else:
-            status = "completed"
-        ended = status in st.TERMINAL
         self.save_counts(force=True)
         with self.store.tx() as c:
+            # pause/resume/stop change the flag under this same lock: read it where the status is written
+            flag = self.w.flags.get(self.id)
+            if error:
+                status = "failed"
+            elif flag == "stop":
+                status = "stopped"
+            elif flag == "pause":
+                status = "paused"
+            elif flag == "resume":          # resumed before the pause landed: carry on from where it stopped
+                status = "queued"
+            elif self.w.shutdown:
+                status = "interrupted"
+            elif (summary["failed"] or summary["preview_failed"] or summary["unavailable"] or summary["offline_sources"]
+                  or summary["missing"] or summary["not_run"] or cleanup):  # a reused asset's old failure counts too
+                status = "partial"
+            else:
+                status = "completed"
+            ended = status in st.TERMINAL
             c.execute("UPDATE runs SET status = ?, phase = CASE WHEN ? THEN NULL ELSE phase END, summary = ?, "
                       "error = ?, finished_at = CASE WHEN ? THEN ? ELSE NULL END WHERE id = ?",
                       (status, ended, dumps(summary), error, ended, now(), self.id))
@@ -961,21 +963,20 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
     else a new one. Auto only adds members, never revives a tombstone, never renames a user-edited
     collection, never touches (or refills from) a deleted one, and makes no children under a deleted
     parent. A representative without a time or GPS of its own takes its versions'. A version whose
-    representative is not in this task (another task's wider folder) stands for itself here, with the
-    representative's analysis."""
+    representative is not in this task (another task's wider folder) stands for itself here: it is analysed
+    here, and until then (its capabilities read 不适用 as a version) it is not settled."""
     latest: dict[tuple[str, str], Any] = {(r["asset_id"], r["capability"]): loads(r["data"]) for r in store.all(
         "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(x.id) FROM results x "
-        "WHERE x.asset_id IN (SELECT ta.asset_id FROM task_assets ta WHERE ta.task_id = ? UNION SELECT a.version_of "
-        "FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?) AND x.capability IN "
-        "('content', 'species') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)",
-        (task_id, task_id))}
+        "JOIN task_assets ta ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability IN "
+        "('content', 'species') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)", (task_id,))}
     rows = store.all("SELECT a.id, a.taken_at, a.lat, a.lon, a.media, a.version_of FROM task_assets ta JOIN assets a "
                      "ON a.id = ta.asset_id WHERE ta.task_id = ? ORDER BY ta.ord", (task_id,))
     subject_caps = [c for c in SUBJECT_CAPS if c in enabled]
     settled_caps: dict[str, set[str]] = {}               # a photo is grouped once each subject capability ended
     for r in store.all(f"SELECT c.asset_id, c.capability FROM asset_caps c JOIN task_assets ta ON ta.asset_id = "
-                       f"c.asset_id WHERE ta.task_id = ? AND c.state NOT IN ('pending', 'running') AND c.capability "
-                       f"IN ({st.marks_in(subject_caps)})", [task_id, *subject_caps]) if subject_caps else []:
+                       f"c.asset_id WHERE ta.task_id = ? AND c.state NOT IN ('pending', 'running') AND NOT "
+                       f"(c.state = 'not_applicable' AND c.error IS ?) AND c.capability IN ({st.marks_in(subject_caps)})",
+                       [task_id, vers.VERSION_NA, *subject_caps]) if subject_caps else []:
         settled_caps.setdefault(r["asset_id"], set()).add(r["capability"])
     unsettled = {r["id"] for r in rows if r["media"] == "photo" and len(settled_caps.get(r["id"], ())) < len(subject_caps)}
     mine = {r["id"] for r in rows}
@@ -985,12 +986,9 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
             by_rep.setdefault(r["version_of"], []).append(r)
     reps = [r for r in rows if r["version_of"] not in mine]
 
-    def result(a: dict[str, Any], cap: str) -> Any:
-        return latest.get((a["id"], cap)) or latest.get((a["version_of"], cap))
-
     from bioscan.gardener.grouping import PEOPLE
 
-    portraits = {a["id"] for a in reps if (result(a, "content") or {}).get("label") in PEOPLE}
+    portraits = {a["id"] for a in reps if (latest.get((a["id"], "content")) or {}).get("label") in PEOPLE}
     people, names = _people(store, task_id, {r["id"] for r in reps}, portraits) if "people" in enabled else ({}, {})
     assets = []
     for a in reps:
@@ -999,7 +997,7 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
             own["taken_at"] = own["taken_at"] or v["taken_at"]
             if own["lat"] is None or own["lon"] is None:
                 own["lat"], own["lon"] = v["lat"], v["lon"]
-        ct, sp = result(a, "content"), result(a, "species")
+        ct, sp = latest.get((a["id"], "content")), latest.get((a["id"], "species"))
         assets.append(own | {"content": {"group": ct.get("group"), "label": ct.get("label")} if ct else None,
                              "species": {"taxon": sp.get("taxon"), "common": sp.get("common"), "level": sp.get("level")}
                              if sp and sp.get("taxon") else None,

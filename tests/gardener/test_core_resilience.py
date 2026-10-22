@@ -11,6 +11,7 @@ from core_fixtures import *  # noqa: F403 - fixtures (env, fakes)
 from core_fixtures import BASE, FakeAnalyzer, create_task, make_jpg, ok_engine, photos, wait_task, wait_until
 from fastapi.testclient import TestClient
 
+from bioscan.gardener import tasks
 from bioscan.gardener.api import create_gardener_app
 
 API = "/api/v1"
@@ -152,6 +153,29 @@ def test_resume_right_after_pause_keeps_the_run_going(env, fakes, tmp_path):
         assert t["scan"]["status"] == "completed" and len(t["runs"]) == 1
         paths = [p for p, _ in fakes.analyzed]
         assert len(paths) == len(set(paths)) == 3                             # nothing analysed twice
+
+
+def test_resume_landing_while_a_pausing_run_finishes_is_not_lost(env, fakes, tmp_path, monkeypatch):
+    src = tmp_path / "card"
+    photos(src, 3)
+    real, fired = tasks.RunExec.summary, []
+
+    def summary_then_resume(self):              # the resume lands between finish reading and writing the status
+        out = real(self)
+        if self.w.flags.get(self.id) == "pause" and not fired:
+            fired.append(self.id)
+            tasks.resume(self.store, self.w, self.task_id)
+        return out
+    monkeypatch.setattr(tasks.RunExec, "summary", summary_then_resume)
+    fakes.gate.clear()
+    with env.client() as c:
+        t = create_task(c, [str(src)], caps=CAPS)
+        wait_until(lambda: c.get(f"{API}/tasks/{t['id']}").json()["scan"]["phase"] == "analyze", what="analyze")
+        c.post(f"{API}/tasks/{t['id']}/pause")
+        fakes.gate.set()
+        t = wait_task(c, t["id"], ("completed", "partial", "failed", "stopped", "cancelled", "paused"))
+        assert fired and t["scan"]["status"] == "completed" and len(t["runs"]) == 1
+
 
 
 def test_a_changed_file_deleted_before_it_is_recorded_reads_missing(env, fakes, tmp_path):

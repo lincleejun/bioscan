@@ -20,3 +20,12 @@ def test_a_second_service_on_the_same_data_dir_refuses_to_start(tmp_path, capsys
         held.close()
     again = server.hold_data_dir(tmp_path)          # released with its holder
     again.close()
+
+
+def test_a_data_dir_that_cannot_be_locked_says_why(tmp_path, capsys):
+    blocker = tmp_path / "file"
+    blocker.write_text("not a directory")
+    with pytest.raises(SystemExit) as e:
+        server.main(["--data-dir", str(blocker)])
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "无法锁定数据目录" in err and "exists" in err.lower()
