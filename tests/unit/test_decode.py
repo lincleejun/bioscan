@@ -1,3 +1,4 @@
+import pytest
 from PIL import Image
 
 from bioscan.service import decode
@@ -45,6 +46,15 @@ def test_blank_or_zero_date_falls_back_to_ifd0_with_its_offset():
             == "2026-05-01T07:59:59+01:00", junk                      # IFD0 DateTime pairs with OffsetTime
         assert decode.taken_at_from({0x9003: junk}, {0x0132: junk}) is None
     assert decode.taken_at_from({0x9003: "2026:05:01 08:00:00\x00"}, {}) == "2026-05-01T08:00:00"
+    # only IFD0 DateTime and OffsetTimeOriginal: the offset is still used
+    assert decode.taken_at_from({0x9011: "-07:00"}, base) == "2026-05-01T07:59:59-07:00"
+
+
+@pytest.mark.parametrize("raw", ["2026-05-01 08:00:00", "2026/05/01 08:00:00", "2026:05:01T08:00:00",
+                                 "2026-05-01T08:00:00+02:00", "  2026:05:01 08:00:00  "])
+def test_non_exif_date_separators_still_read(raw):
+    """Writers that use '-', '/' or 'T' gave a time before the blank/zero check; they still do."""
+    assert decode.taken_at_from({0x9003: raw, 0x9011: "-07:00"}, {}) == "2026-05-01T08:00:00-07:00"
 
 
 def test_16_bit_greyscale_keeps_its_range(tmp_path):
@@ -60,6 +70,18 @@ def test_16_bit_greyscale_keeps_its_range(tmp_path):
         px = np.asarray(decode.decode(str(p)).image)
         assert px.min() == 0 and px.max() == 255 and (px == 255).mean() < 0.01, ext
         assert abs(int(px[0, 128, 0]) - 32) <= 1, ext          # mid-row value scaled by 1/256, not clipped
+
+
+def test_32_bit_greyscale_with_8_bit_values_is_not_darkened(tmp_path):
+    import numpy as np
+
+    ramp = np.tile(np.arange(256, dtype=np.int32), (4, 1))
+    p = tmp_path / "ramp.tif"
+    Image.fromarray(ramp).save(p)
+    with Image.open(p) as im:
+        assert im.mode == "I"
+    px = np.asarray(decode.decode(str(p)).image)
+    assert px.min() == 0 and px.max() == 255 and int(px[0, 128, 0]) == 128
 
 
 def test_small_image_not_upscaled():

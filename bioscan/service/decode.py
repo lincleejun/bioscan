@@ -64,12 +64,13 @@ def gps_from_ifd(gps: dict) -> tuple[float | None, float | None]:
     return lat, lon
 
 
-_EXIF_TIME = re.compile(r"\d{4}:(\d\d):(\d\d) \d\d:\d\d:\d\d")
+_EXIF_TIME = re.compile(r"\d{4}[:\-/](\d\d)[:\-/](\d\d)[ T]\d\d:\d\d:\d\d")
 
 
 def _exif_time(raw: object) -> str | None:
-    """'YYYY:MM:DD HH:MM:SS' (stripped), or None for a blank, zeroed or malformed value."""
-    s = str(raw or "").strip("\x00 ")[:19]
+    """The first 19 characters, 'YYYY:MM:DD HH:MM:SS' (also '-' or '/' in the date, 'T' before the
+    time, as some writers use), or None for a blank, zeroed or malformed value."""
+    s = str(raw or "").strip("\x00 \t\r\n")[:19]
     m = _EXIF_TIME.fullmatch(s)
     return s if m and int(m[1]) and int(m[2]) else None
 
@@ -79,8 +80,9 @@ def taken_at_from(exif_ifd: dict, base: dict) -> str | None:
     the file has them: '2026-05-01T08:00:00.37-07:00'. Burst frames differ only in the fraction.
     A blank or zeroed DateTimeOriginal counts as missing."""
     s, sub, offset = _exif_time(exif_ifd.get(0x9003)), exif_ifd.get(0x9291), exif_ifd.get(0x9011)
-    if s is None:      # IFD0 DateTime pairs with SubSecTime and OffsetTime
-        s, sub, offset = _exif_time(base.get(0x0132)), exif_ifd.get(0x9290), exif_ifd.get(0x9010)
+    if s is None:      # IFD0 DateTime pairs with SubSecTime and OffsetTime (else OffsetTimeOriginal)
+        s, sub = _exif_time(base.get(0x0132)), exif_ifd.get(0x9290)
+        offset = exif_ifd.get(0x9010) or exif_ifd.get(0x9011)
     if s is None:
         return None
     iso = f"{s[0:4]}-{s[5:7]}-{s[8:10]}T{s[11:19]}" + subsec(sub)
@@ -242,8 +244,9 @@ def _raster(data: bytes) -> tuple[Image.Image, int, int, int]:
     with Image.open(io.BytesIO(data)) as im:
         orientation = int(im.getexif().get(0x0112, 1) or 1)
         upright = ImageOps.exif_transpose(im)
-        if upright.mode == "I" or upright.mode.startswith("I;16"):
-            # 16-bit greyscale: convert("RGB") clips at 255 (a near-white frame); scale to 8 bits first
+        if upright.mode.startswith("I;16") or (upright.mode == "I" and upright.getextrema()[1] > 255):
+            # 16-bit greyscale: convert("RGB") clips at 255 (a near-white frame); scale to 8 bits first.
+            # An "I" image whose values all fit in 8 bits is already 8-bit data.
             upright = upright.convert("I").point(lambda v: v / 256).convert("L")
         upright = upright.convert("RGB")
     return upright, upright.width, upright.height, orientation

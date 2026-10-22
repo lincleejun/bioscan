@@ -290,7 +290,7 @@ def test_run_rejects_bad_coordinates_and_nul_paths(tmp_path):
                              ({"lat": 0, "lon": 500}, "inputs[0].lon must be finite")]:
             r = c.post("/run", json={"inputs": [{"path": ok, **inp}]})
             assert r.status_code == 400 and message in r.json()["error"], inp
-        for lat in ("NaN", "-Infinity"):
+        for lat in ("NaN", "-Infinity", "1" + "0" * 400):        # a huge int made isfinite overflow (500)
             r = c.post("/run", content=f'{{"inputs": [{{"path": "{ok}", "lat": {lat}, "lon": 1}}]}}')
             assert r.status_code == 400 and "inputs[0].lat must be finite" in r.json()["error"], lat
         r = c.post("/run", json={"inputs": [{"path": ok + "\x00x"}]})

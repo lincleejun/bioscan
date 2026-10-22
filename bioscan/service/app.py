@@ -10,7 +10,6 @@ import logging
 from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Executor
 from contextlib import asynccontextmanager
-from math import isfinite
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -48,7 +47,8 @@ def parse_run(body: Any, registry: Sequence[plugin.Manifest] = BUILTIN,
             v = inp.get(key)
             if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
                 raise ValueError(f"inputs[{i}].{key} must be a number")
-            if v is not None and not (isfinite(v) and abs(v) <= bound):
+            # abs(v) <= bound is False for NaN and ±inf, and, unlike isfinite, never overflows on a huge int
+            if v is not None and not abs(v) <= bound:
                 raise ValueError(f"inputs[{i}].{key} must be finite and within ±{bound}")
         if (inp.get("lat") is None) != (inp.get("lon") is None):
             raise ValueError(f"inputs[{i}]: lat and lon go together")
@@ -123,7 +123,8 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
     async def run(request: Request) -> Any:
         origin = request.headers.get("origin")
         if origin is not None and urlsplit(origin).netloc != request.headers.get("host"):
-            # no browser page calls /run; a foreign page could POST text/plain (no preflight) and read the stream
+            # no browser page calls /run; this stops a cross-origin page POSTing text/plain (no preflight)
+            # and reading the stream. It is no DNS-rebinding guard: there Host is the attacker's own name.
             return JSONResponse({"error": "/run does not take requests from other origins"}, status_code=403)
         try:
             inputs, plan = parse_run(json.loads(await request.body()), plugins, profiles)
