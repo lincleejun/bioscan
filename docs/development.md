@@ -58,6 +58,7 @@ CI (`.github/workflows/`): `ci.yml` runs ruff + pytest on every push; `models.ym
 bioscan/contract.py              single definition of /run events, product names and the identify payload (shared by CLI and service, stdlib only)
 bioscan/naming.py                name normalisation (scientific names; gt folder labels), synonyms.csv, stale-map check (stdlib only)
 bioscan/formats.py               supported photo extensions (decoder and folder scans share it), the folder scan (stdlib only)
+bioscan/apply.py                 acting on a review's marks: copy the keeps, move or delete the drops, with their XMP sidecars
 bioscan/serve_config.py          serve settings: flag > BIOSCAN_* > bioscan.toml [serve] > default, once, for both entry points (stdlib only)
 bioscan/profile.py               profiles and bioscan.toml: layers, merge order, the resolved plan (stdlib only; CLI and service)
 bioscan/profiles.toml            the built-in profiles full, wildlife, album
@@ -81,12 +82,19 @@ bioscan/xmp.py                   new XMP sidecars, never over an existing one: g
 bioscan/aesthetic.py             aesthetic head files, XMP/CSV ratings, trip folds, ranking metrics (stdlib only)
 bioscan/aesthetic_fit.py         ridge heads, CV, prior pull, learning curve (numpy; imported only to train or for the curve)
 bioscan/cull.py                  the burst and select reducers, cull records, the album tier's metric rows (stdlib only)
-bioscan/cli/                     main client render gt eval bench (harness: report.json, compare, analyze, scorecard)
+bioscan/cli/                     main client (thin HTTP client) render gt eval bench (harness: report.json, compare, analyze, scorecard)
                                  config (profiles) geotag_cli (bioscan geotag, run --gpx) geobench (bench geotag)
                                  aesbench (bioscan aesthetic ratings|train|eval) aesgolden (bench aesthetic)
                                  cull (bioscan cull: reducers, CSV, symlinks, HTML review, XMP)
                                  lr (bioscan lr: Lightroom Classic latest.json, plugin install)
+                                 report (bioscan summarize / report: the run summary)
+                                 aesscore (bioscan aesthetic score / apply) aespage (its HTML review page)
+bioscan/gardener/                Gardener: local-first photo review workstation on top of bioscan (docs/gardener/)
 extensions/lightroom/            the Lightroom Classic plugin (Lua) that applies latest.json
+scripts/build_names.py           build (or load from cache) the bird and mammal name matrices, print stats
+scripts/build_name_map.py        build the committed label maps under data/names/
+scripts/eva_golden.py            the public aesthetic golden set: 100 held-out EVA images, 20 per star
+scripts/aes_arena_score.py       score a golden folder with an external aesthetic model, for bench aesthetic score
 scripts/geotag_synth.py          synthetic GPX scenarios from the golden set, for bench geotag
 scripts/train_aesthetic_head.py  the EVA general head, in-process with the service's decode and SigLIP2
 scripts/aes_plant.py             planted copies (known answers) for the aesthetic golden set
