@@ -34,3 +34,12 @@ def test_upstream_error_is_3(monkeypatch, capsys):
     monkeypatch.setattr(gt, "gt_inat", boom)
     assert cli.main(["gt", "inat", "--dry-run"]) == cli.EXIT_INCOMPLETE
     assert "upstream request failed: iNaturalist unreachable" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("events,code", [(OK, 0), (PARTIAL, 1), (PARTIAL[1:], 1), (CUT, 3)])
+def test_eval_exit_codes(tmp_path, capsys, events, code):
+    gt_csv = tmp_path / "gt.csv"
+    gt_csv.write_text("path,scientific,tier,kind\n/a.jpg,Corvus corax,own,bird\n/b.jpg,Corvus corax,own,bird\n")
+    preds = tmp_path / "p.ndjson"
+    preds.write_text("".join(json.dumps(e) + "\n" for e in events))
+    assert cli.main(["eval", str(gt_csv), "--out", str(tmp_path / "o"), "--preds", str(preds)]) == code

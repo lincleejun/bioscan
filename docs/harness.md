@@ -473,7 +473,7 @@ Rates carry Wilson intervals (`<rate>_ci`), and the scorecard judges them on the
 Geotagging does not change a photo's capture time, so BirdNET's week (read from `taken_at`) is unchanged by
 construction. Only the place can move, and `cell_change_rate` says how often it leaves the truth's 0.01° cell:
 1.0% in `perfect` ([docs/results/2026-09-24-geotag-synthetic.md](results/2026-09-24-geotag-synthetic.md)). `--gt-out` writes the golden CSV once per scenario with
-lat/lon replaced by the geotag fix (blank where there is none), so `bench run` can measure identification on
+lat/lon replaced by the geotag fix (blank where there is none; the source CSV is the absolute path `geotag_synth.py` records in scenarios.json), so `bench run` can measure identification on
 GPX-derived positions:
 
 ```sh

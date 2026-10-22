@@ -475,7 +475,7 @@ def test_run_and_eval_pass_candidates(tmp_path, monkeypatch):
     assert "candidates" not in cli.build_payload(cli.parser().parse_args(["run", str(tmp_path)]))["options"]["identify"]
     _fake_service(monkeypatch, PREDS)
     assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "e"), "--candidates", "Buteo, Canis",
-                     "--identify-opt", "kind_check=false"]) == 0
+                     "--identify-opt", "kind_check=false"]) == cli.EXIT_PARTIAL   # PREDS has one failed image
     meta = json.loads((tmp_path / "e" / "preds.ndjson").read_text().splitlines()[0])
     assert meta["options"]["identify"] == {"top_k": 5, "geo": True, "kind_check": False, "candidates": ["Buteo", "Canis"]}
     assert '- identify options: {"candidates": ["Buteo", "Canis"], "kind_check": false}' in \

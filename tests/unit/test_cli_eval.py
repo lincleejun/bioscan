@@ -178,7 +178,7 @@ def test_identify_opts_reach_the_service_and_the_report(tmp_path, monkeypatch):
     monkeypatch.setattr(ev.client, "run", lambda payload, url: sent.append(payload) or
                         (json.dumps(e).encode() for e in PREDS))
     assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "a"), "--identify-opt", "kind_check=false",
-                     "--identify-opt", "range_veto=true"]) == 0
+                     "--identify-opt", "range_veto=true"]) == cli.EXIT_PARTIAL   # PREDS has one failed image
     assert sent[0]["options"]["identify"] == {"top_k": 5, "geo": True, "kind_check": False, "range_veto": True}
     meta = json.loads((tmp_path / "a" / "preds.ndjson").read_text().splitlines()[0])
     assert meta["options"]["identify"]["kind_check"] is False
