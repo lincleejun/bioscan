@@ -110,10 +110,10 @@ def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[
         sp = contract.species_of(b)
         name, level = rp.taxon(sp), contract.level_of(sp)
         if name:
-            top = contract.top_of(sp)[0]
-            if best is None or top["posterior"] > best[0]:
+            p = rp.mass(sp)
+            if best is None or p > best[0]:
                 lineage = [*(rp.lead(sp).get("taxonomy") or [])[2:rp.LEVEL_RANK[level]], name]
-                best = (top["posterior"], name, rp.common_of(sp), level, lineage)
+                best = (p, name, rp.common_of(sp), level, lineage)
     return best[1:] if best else (None, None, None, [])
 
 

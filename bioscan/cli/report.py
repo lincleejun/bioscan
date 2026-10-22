@@ -64,6 +64,19 @@ def lead(sp: dict[str, Any] | None) -> dict[str, Any] | None:
                  and c["taxonomy"][LEVEL_RANK[level]] == name), None)
 
 
+def mass(sp: dict[str, Any] | None) -> float | None:
+    """The box's confidence in its taxon: the first candidate's posterior at species, the summed posterior of
+    the listed candidates inside the taxon at genus or family; None when unconfirmed."""
+    name, level = taxon(sp), contract.level_of(sp)
+    if not name:
+        return None
+    top = contract.top_of(sp)
+    if level == "species":
+        return top[0]["posterior"]
+    k = LEVEL_RANK[level]
+    return sum(c["posterior"] for c in top if len(c.get("taxonomy") or []) > k and c["taxonomy"][k] == name)
+
+
 def common_of(sp: dict[str, Any] | None) -> str | None:
     """The English name of the box's taxon: the first candidate's common name at species level; at genus or
     family, "a"/"an" and the last word the taxon's candidates' common names end in most often, plus
@@ -129,7 +142,7 @@ def summarize(events: list[dict[str, Any]], preds: str = "", preds_sha256: str |
                     "suggested": name or (top[0]["scientific"] if top else None), "common": common_of(sp),
                     "top": top[:TOP]}
             if name:
-                p = top[0]["posterior"]
+                p = mass(sp)
                 t = taxa.setdefault(name, {
                     "name": name, "common": common_of(sp), "level": level,
                     "kind": b["kind"], "taxonomy": lead(sp)["taxonomy"][:LEVEL_RANK[level] + 1], "list": sp.get("list"),

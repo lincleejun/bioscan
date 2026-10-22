@@ -4,11 +4,9 @@ import time
 from collections import Counter
 
 from bioscan import contract
-from bioscan.cli.report import taxon
+from bioscan.cli.report import mass, taxon
 
 LEVEL_ZH = {"species": "种", "genus": "属", "family": "科"}
-# taxonomy is 7 levels: kingdom phylum class order family genus species
-RANK_INDEX = {"genus": 5, "family": 4}
 
 
 def box_label(i: int, box: dict) -> str:
@@ -19,13 +17,8 @@ def box_label(i: int, box: dict) -> str:
     if level == "unconfirmed" or not top:
         return f"[{i}] unconfirmed"
     t0 = top[0]
-    if level == "species":
-        return f"[{i}] {t0.get('common') or t0['scientific']} {t0['posterior']:.2f} 种"
-    # genus / family: the taxon that rolled up, and the posterior mass of top entries in it
-    k = RANK_INDEX[level]
-    name = taxon(sp)
-    mass = sum(t["posterior"] for t in top if len(t.get("taxonomy", [])) > k and t["taxonomy"][k] == name)
-    return f"[{i}] {name} {mass:.2f} {LEVEL_ZH[level]}"
+    name = t0.get("common") or t0["scientific"] if level == "species" else taxon(sp)
+    return f"[{i}] {name} {mass(sp) or 0:.2f} {LEVEL_ZH[level]}"
 
 
 def result_line(ev: dict) -> str:

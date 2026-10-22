@@ -40,7 +40,7 @@ def events():
     mauri = [cand("Calidris mauri", 0.9), cand("Calidris alpina", 0.1)]
     return [
         ev("a", "bird", [bx(0, top=mauri, sharp=0.2), bx(1, top=mauri, sharp=0.9)], t="10"),   # 2 boxes: a taxon
-        ev("b", "bird", [bx(0, level="genus", top=[cand("Calidris alpina", 0.5), cand("Calidris mauri", 0.4)])]),
+        ev("b", "bird", [bx(0, level="genus", top=[cand("Calidris alpina", 0.4), cand("Calidris mauri", 0.3)])]),
         ev("c", "bird", [bx(0, level="unconfirmed", top=[cand("Calidris alpina", 0.3)])]),
         ev("d", "mammal", [bx(0, "mammal", top=[cand("Canis latrans", 0.7, p_geo=0.001)])]),       # single + range
         ev("e", "other_animal", [bx(0, "other_animal")]),                                          # no list
@@ -156,3 +156,25 @@ def test_review_row_and_heading_carry_the_english_name(tmp_path):
     page = (tmp_path / "report.html").read_text()
     assert ('<h3><span class="common">a vireo</span> <i>Vireo</i> <span class="muted">(genus)</span>'
             ' <span class="muted">1</span></h3>') in page
+
+
+def test_a_family_box_reads_its_taxon_mass_everywhere():
+    """#73: first candidate 0.30 (Fringillidae), Accipitridae holds 0.66: summary, `named` and the terminal
+    line all read 0.66, so the family box beats a 0.50 species box as the photo's surest."""
+    from bioscan.cli import aesscore, render
+
+    def c(name, fam, p):
+        return {"scientific": name, "common": None, "taxonomy": ["Animalia", "Chordata", "Aves", "O", fam,
+                                                                  name.split()[0], name], "posterior": p}
+    fam = [c("Fringilla a", "Fringillidae", 0.30), c("Buteo b", "Accipitridae", 0.25),
+           c("Aquila c", "Accipitridae", 0.20), c("Accipiter d", "Accipitridae", 0.15),
+           c("Haliaeetus e", "Accipitridae", 0.06)]
+    box = bx(0, level="family", top=fam)
+    box["species"]["taxon"] = "Accipitridae"
+    sure = bx(1, top=[cand("Calidris mauri", 0.5)])
+    e = ev("ab", "bird", [sure, box])
+    assert abs(rp.mass(box["species"]) - 0.66) < 1e-9
+    taxa = {t["name"]: t for t in rp.summarize([e])["taxa"]}
+    assert abs(taxa["Accipitridae"]["posterior"]["max"] - 0.66) < 1e-9
+    assert render.box_label(1, box).startswith("[1] Accipitridae 0.66")
+    assert aesscore.named(e)[0] == "Accipitridae"
