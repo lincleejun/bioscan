@@ -47,6 +47,8 @@ profile's species naming on (BioCLIP loads; the location prior applies as in `bi
 name of its surest box (species, or genus / family when only that held up, as `bioscan summarize` counts it).
 `--lat/--lon` (both or neither) is the batch coordinate for the photos whose EXIF has no GPS, as in `bioscan run`:
 a photo's own GPS still wins. It goes into the service request, so `--preds` (no service call) refuses it.
+The scan leaves out `<out>-files/` (the page's own copies from an earlier run). The printed summary gives scored /
+named / failed, the score range and star cuts, the top taxa (common name, count) and the scene-group counts.
 
 | file | what |
 |---|---|

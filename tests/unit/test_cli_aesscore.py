@@ -240,3 +240,29 @@ def test_score_lat_lon_fill_photos_without_gps(tmp_path, monkeypatch):
         main(["aesthetic", "score", str(d), "--lat", "37.87", "--out", out])
     with pytest.raises(SystemExit, match="--preds"):
         main(["aesthetic", "score", "--preds", f"{out}.ndjson", "--lat", "1", "--lon", "2"])
+
+
+def test_a_rerun_does_not_score_the_pages_own_copies(tmp_path, monkeypatch):
+    monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
+    d = photos(tmp_path, ("a.jpg",))
+    (d / "bioscan-files").mkdir()
+    (d / "bioscan-files" / "a-0.jpg").write_bytes(b"x")
+    (d / "bioscan-files" / "a-0-t.jpg").write_bytes(b"x")
+    sent = {}
+
+    def fake_run(payload, url):
+        sent["payload"] = payload
+        return [json.dumps({"type": "done", "schema": 1, "ok": 0, "failed": 0, "elapsed_ms": 1.0}).encode()]
+    monkeypatch.setattr(client, "run", fake_run)
+    assert main(["aesthetic", "score", str(d), "-r", "--export", "html", "--out", str(d / "bioscan")]) == 0
+    assert [i["path"] for i in sent["payload"]["inputs"]] == [str(d / "a.jpg")]
+
+
+def test_summary_lists_top_taxa_and_scene_groups():
+    row = lambda sp, cn, g: {"score": 0.5, "species": sp, "common": cn, "level": "species", "scene_group": g,  # noqa: E731
+                             "note": None}
+    rows = [row("Corvus corax", "Common Raven", "wildlife"), row("Corvus corax", "Common Raven", "wildlife"),
+            row("Buteo", None, "wildlife"), row(None, None, "landscape")]
+    text = sc.summary(rows, [])
+    assert "Common Raven 2" in text and "Buteo 1" in text
+    assert "wildlife 3" in text and "landscape 1" in text

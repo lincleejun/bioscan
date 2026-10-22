@@ -30,6 +30,7 @@ import csv
 import json
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,7 @@ FORMATS = ("json", "csv", "html")
 THUMB_EDGE = 1024
 EDGE = 3072
 DEFAULT_OUT = "aesthetic-scores"
+TOP_TAXA = 5
 CSV_FIELDS = ("rank", "path", "score", "stars", "status", "scene", "species", "common", "level", "reject_reasons",
               "waived", "flags", "sharpness", "taken_at")
 
@@ -138,7 +140,8 @@ def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         score = float(s) if isinstance(s, (int, float)) and not isinstance(s, bool) and s == s else None
         species, common, level, lineage = named(ev)
         scene = f"{sc['label']} ({sc['group']})" if sc.get("group") not in (None, sc.get("label")) else sc.get("label")
-        rows.append({"path": ev["path"], "score": score, "scene": scene, "status": sel.get("status"),
+        rows.append({"path": ev["path"], "score": score, "scene": scene, "scene_group": sc.get("group") or sc.get("label"),
+                     "status": sel.get("status"),
                      "species": species, "common": common, "level": level, "lineage": lineage,
                      "reject_reasons": list(sel.get("reasons") or []), "waived": list(sel.get("waived") or []),
                      "flags": list(sel.get("flags") or []),
@@ -186,6 +189,12 @@ def summary(rows: list[dict[str, Any]], fails: list[dict[str, Any]]) -> str:
         lines.append(f"{sum(by.values())} named: " + ", ".join(f"{by[k]} to {k}" for k in ("species", "genus", "family")
                                                               if k in by))
     notes = {r["note"] for r in rows if r["score"] is None and r["note"]}
+    taxa = Counter(r["common"] or r["species"] for r in rows if r["species"])
+    if taxa:
+        lines.append("top taxa: " + ", ".join(f"{n} {c}" for n, c in taxa.most_common(TOP_TAXA)))
+    scenes = Counter(r.get("scene_group") for r in rows if r.get("scene_group"))
+    if scenes:
+        lines.append("scenes: " + ", ".join(f"{n} {c}" for n, c in scenes.most_common()))
     lines += [f"note: {n}" for n in sorted(notes)]
     return "\n".join(lines)
 
@@ -208,7 +217,9 @@ def cmd_score(a) -> int:
         if not a.paths:
             raise SystemExit("give photo files or folders, or --preds FILE")
         exts = formats.parse_ext(a.ext)
-        paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)]
+        skip = Path(files_dir(out))                       # the page's own copies from an earlier run: not photos
+        paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)
+                 if not Path(p).resolve().is_relative_to(skip)]
         if not paths:
             raise SystemExit("no images found")
         body, head = build_request(paths, out, "html" in exports and not a.no_thumbs, a.species, a.edge,
