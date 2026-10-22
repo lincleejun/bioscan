@@ -1,7 +1,7 @@
 name: models
 
 # Real SigLIP2 + OWLv2 + BioCLIP 2.5 Huge (+ BirdNET geo, + the all-taxa list) on CPU over 95 iNaturalist photos,
-# then the album profile (aesthetics, quality, scene, facing, burst, select) on a synthetic reject set made from them,
+# then the album profile (aesthetics, quality, scene, burst, select) on a synthetic reject set made from them,
 # and the aesthetic head on the real SigLIP2 vectors (tests/models/test_aesthetic_models.py).
 # Report: the job summary, the job log and the `models-report` artifact. The harness steps compare the
 # run's report.json with baselines/ci-smoke.json under baselines/budget.toml, and the album report with

@@ -342,7 +342,8 @@ The photo's main animal: identify's best box by score. A photo without a box is 
 **Facing**:
 Which way the subject looks, `left` or `right` in the upright frame, or null (at the camera, away, or unknown): the
 `facing` stage asks OWLv2 for the kind's head and eye inside the subject's box and reads the head's (else the
-eye's) offset from the box centre. In front of the subject is the frame on its facing side (lead room).
+eye's) offset from the box centre. In front of the subject is the frame on its facing side (lead room). The stage is
+opt-in (the album profile leaves it out: one more OWLv2 call per photo), so without it no photo gets `no_lead_room`.
 _Avoid_: direction, heading, gaze, pose
 
 **Keeper**:

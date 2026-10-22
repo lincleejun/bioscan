@@ -37,15 +37,25 @@ def test_builtin_profiles():
     assert full.want == ["identify"] and full.plan.models == ("bioclip", "owlv2", "siglip2")
     assert all(src == "default" for src in full.sources["identify"].values())
     album = profile.resolve(BUILTIN, "album")
-    assert album.want == ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
-    assert album.options["identify"]["species"] is False
+    assert album.want == ["identify", "embed", "aesthetics", "quality", "scene"] and album.options["identify"]["species"] is False
     assert album.sources["identify"]["species"] == "profiles.toml" and album.plan.models == ("owlv2", "siglip2")
-    assert album.plan.stages == ("aesthetics", "embed", "identify", "facing", "quality", "scene")
-    assert album.reducers == ["burst", "select"]
+    assert album.plan.stages == ("aesthetics", "embed", "identify", "quality", "scene") and album.reducers == ["burst", "select"]
     assert album.reducer_run()["select"]["per_category"] == 10 and full.reducers == [] and full.reducer_run() == {}
     wild = profile.resolve(BUILTIN, "wildlife")
     assert wild.want == ["geotag", "identify"] and wild.plan.stages == ("geotag", "identify")
     assert wild.options["geotag"]["gpx"] == [] and "geotag" not in profile.resolve(BUILTIN, "full").want
+
+
+def test_facing_is_opt_in_through_a_bioscan_toml(tmp_path):
+    """The album profile leaves the facing stage out (one more OWLv2 call per photo, #27 step 2); a
+    bioscan.toml that lists it runs it after identify, with no new model to load."""
+    assert "facing" not in profile.resolve(BUILTIN, "album").want
+    cfg = profile.load(files(tmp_path, project='[profile.album]\nstages = ["identify", "embed", "aesthetics", "quality", '
+                                               '"scene", "facing"]\n'), env={})
+    album = profile.resolve(cfg, "album")
+    assert album.want == ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
+    assert album.plan.stages == ("aesthetics", "embed", "identify", "facing", "quality", "scene")
+    assert album.plan.models == ("owlv2", "siglip2") and album.options["identify"]["species"] is False
 
 
 def test_waive_keys_must_name_a_scene_category():
@@ -98,7 +108,7 @@ def test_payload_errors_unchanged(photos):
 
 def test_payload_with_a_profile(photos, tmp_path):
     body = build_payload(parser().parse_args(["run", str(photos), "--profile", "album"]), BUILTIN)
-    assert body["want"] == ["identify", "embed", "aesthetics", "quality", "scene", "facing"] and "profile" not in body
+    assert body["want"] == ["identify", "embed", "aesthetics", "quality", "scene"] and "profile" not in body
     assert body["options"] == {"identify": {"top_k": 5, "geo": True, "species": False},
                                "scene": BUILTIN.layers[0].data["profile"]["album"]["options"]["scene"]}   # the taxonomy
     body = build_payload(parser().parse_args(["run", str(photos), "--profile", "album", "--top-k", "2",
@@ -188,7 +198,7 @@ def test_request_errors_keep_their_messages():
 def test_eval_request():
     assert cli_config.eval_request(None, False, {}, BUILTIN) is None          # the request eval always sent
     r = cli_config.eval_request("album", False, {"kind_check": False}, BUILTIN)
-    assert r == {"profile": "album", "want": ["identify", "embed", "aesthetics", "quality", "scene", "facing"],
+    assert r == {"profile": "album", "want": ["identify", "embed", "aesthetics", "quality", "scene"],
                  "options": {"identify": {"top_k": 5, "geo": True, "kind_check": False, "species": False},
                              "scene": BUILTIN.layers[0].data["profile"]["album"]["options"]["scene"]},
                  "reducers": profile.resolve(BUILTIN, "album").reducer_run()}
@@ -207,7 +217,7 @@ def test_eval_meta_line_records_the_profile(tmp_path, monkeypatch):
     ev.run_eval(str(gt), str(tmp_path / "o"), False, "u", identify_opts={})
     ev.run_eval(str(gt), str(tmp_path / "p"), False, "u", request=cli_config.eval_request("album", False, {}, BUILTIN))
     assert sent[0]["want"] == ["identify"] and sent[0]["options"] == {"identify": {"top_k": 5, "geo": True}}
-    assert sent[1]["want"] == ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
+    assert sent[1]["want"] == ["identify", "embed", "aesthetics", "quality", "scene"]
     assert "profile" not in ev.read_preds_meta(tmp_path / "o" / "preds.ndjson")
     assert ev.read_preds_meta(tmp_path / "p" / "preds.ndjson")["profile"] == "album"
     assert set(ev.read_preds_meta(tmp_path / "p" / "preds.ndjson")["reducers"]) == {"burst", "select"}
@@ -270,9 +280,8 @@ def test_config_show(tmp_path, capsys):
                        env={})
     d = cli_config.show("album", cfg, env={"BIOSCAN_DETAIL_EDGE": "4000"})
     assert d["profile"] == {"name": "album", "from": "--profile"}
-    assert d["stages"] == {"want": ["identify", "embed", "aesthetics", "quality", "scene", "facing"],
-                           "from": "profiles.toml",
-                           "run_order": ["aesthetics", "embed", "identify", "facing", "quality", "scene"]}
+    assert d["stages"] == {"want": ["identify", "embed", "aesthetics", "quality", "scene"], "from": "profiles.toml",
+                           "run_order": ["aesthetics", "embed", "identify", "quality", "scene"]}
     assert d["reducers"] == ["burst", "select"] and d["options"]["select"]["per_category"] == {"value": 10, "from": "default"}
     assert d["models"] == ["owlv2", "siglip2"] and d["frame_pass"] and d["detail_copy"]
     assert d["options"]["identify"]["top_k"] == {"value": 3, "from": f"project {tmp_path}/bioscan.toml"}
@@ -293,5 +302,4 @@ def test_config_show_command_stays_import_light(tmp_path):
             "or m.startswith('bioscan.service') or m.endswith('.stage')])")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=tmp_path,
                          env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}).stdout
-    assert "HEAVY []" in out and "run order aesthetics, embed, identify, facing, quality, scene" in out \
-        and '"run_order"' in out
+    assert "HEAVY []" in out and "run order aesthetics, embed, identify, quality, scene" in out and '"run_order"' in out

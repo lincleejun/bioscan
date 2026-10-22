@@ -105,5 +105,5 @@ def test_want_null_is_a_400_unless_a_profile_is_named(client, tmp_path):
     assert r.status_code == 400 and r.json()["error"] == "want must be a non-empty list of product names"
     ev = events(client.post("/run", json={"inputs": [{"path": p}], "want": None, "profile": "album"}))
     assert list(next(e for e in ev if e["type"] == "result")["products"]) == ["identify", "embed", "aesthetics",
-                                                                            "quality", "scene", "facing"]
+                                                                            "quality", "scene"]
 

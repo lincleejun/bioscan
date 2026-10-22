@@ -80,8 +80,8 @@ def test_album_profile_end_to_end_then_the_reducers(client, engine, tmp_path, mo
                                            "profile": "album"}))
     results = [e for e in evs if e["type"] == "result"]
     assert len(results) == 5 and evs[-1]["type"] == "done" and engine.loaded() == ["siglip2", "owlv2"]
-    assert list(results[0]["products"]) == ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
-    assert list(results[0]["engine"]["plugins"]) == ["aesthetics", "quality", "scene", "facing"]
+    assert list(results[0]["products"]) == ["identify", "embed", "aesthetics", "quality", "scene"]
+    assert list(results[0]["engine"]["plugins"]) == ["aesthetics", "quality", "scene"]
     assert results[0]["engine"]["plugins"]["aesthetics"] == f"v1@{head.id}"
     assert "species" not in results[0]["products"]["identify"]["boxes"][0]
     res = profile.resolve(profile.builtin(), "album")
