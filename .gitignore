@@ -12,3 +12,5 @@ runs/
 uv.lock
 data/inat/*/
 .claude/worktrees/
+.scratch/
+.gardener-runtime/

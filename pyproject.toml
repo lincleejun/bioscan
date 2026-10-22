@@ -17,11 +17,13 @@ dependencies = [
     "numpy>=2.0",
     "huggingface-hub>=0.30",
     "birdnet>=1.1,<2",
+    "opencv-python-headless>=4.10",
 ]
 
 [project.scripts]
 bioscan-serve = "bioscan.service.app:main"
 bioscan = "bioscan.cli.main:main"
+gardener = "bioscan.gardener.cli:main"
 
 [dependency-groups]
 dev = [

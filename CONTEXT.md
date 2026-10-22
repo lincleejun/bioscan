@@ -463,3 +463,42 @@ An image paired between two reports (by sha256, else path) whose top-1 went from
 Why an image has no correct top-1, one per image: failed, gate_miss, detector_miss, wrong_kind, not_in_list,
 out_of_range, prior_suppressed, within_genus, within_family, far_miss; `overconfident` (wrong at level species) overlaps them.
 
+
+## Gardener (docs/gardener/)
+
+**Task** (任务):
+One Import/Scan job: sources, background text, a capability config; persists and can be appended to. Not a Collection.
+
+**Task run** (运行):
+One execution of a task (scan, append, rescan, retry) with its config and scope snapshot; never rewrites an earlier one.
+_Avoid_: Run (that is a BioScan `/run` request; a task run may drive several)
+
+**Asset** (素材):
+What the user reviews: one photo (RAW + same-stem JPEG in one folder) or one whole video, with its files.
+
+**Collection**:
+A content group and review unit; manual (explicit members) or smart (a saved asset query). An asset may be in many.
+
+**Subject group** (主体分组):
+An automatic collection for who or what the photos show: a person, a taxon, an animal type without a named taxon,
+or a scene label. One subject is one group however many days it spans; only a large one whose photos carry GPS is
+split into child collections by place. Time never splits or forms a group.
+_Avoid_: Event group, day split (earlier groupings, kept only in older databases)
+
+**Version** (同一拍摄的版本):
+Another asset of the same capture: a copy in another folder (same camera file number, time and camera) or an export
+without EXIF matched by file number and preview hash. Its representative stands for it in lists, groups and review.
+_Avoid_: Duplicate (versions are kept, never removed)
+
+**Person** (人物):
+Someone a user named (by naming a face or a person group); their confirmed faces are matched in every task, now and
+in later scans. Faces matching no named person form clusters shown as 人物 1, 2, … until named.
+
+**Flag / Star**:
+The human pick/reject and 0–5 rating, global per asset, shared by every collection.
+
+**AI suggestion**:
+A machine pick/reject/none with score and reasons, per task run; stored apart from Flag/Star.
+
+**Capability** (能力):
+A user-facing analysis switch (content, species, quality, ...) mapped to BioScan stages and reducers; not a model.
