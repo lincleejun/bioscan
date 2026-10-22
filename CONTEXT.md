@@ -34,7 +34,8 @@ _Avoid_: format (that is the extension)
 
 **Capture time**:
 `taken_at`: DateTimeOriginal as ISO 8601 with the sub-seconds and UTC offset when the file has them
-(`2026-05-01T08:00:00.37-07:00`); what orders burst frames and picks the location prior's week.
+(`2026-05-01T08:00:00.37-07:00`); what orders burst frames and picks the location prior's week. A blank or
+zeroed DateTimeOriginal counts as missing: IFD0 DateTime (with SubSecTime and OffsetTime) is used instead.
 _Avoid_: timestamp, date
 
 **Stage**:
