@@ -102,7 +102,8 @@ def shrink(events: list[dict[str, Any]], edge: int) -> int:
 
 
 def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[str]]:
-    """(taxon, common, level, lineage) of the photo's surest named box: species, genus or family name
+    """(taxon, common, level, lineage) of the photo's surest named box: the most specific level (the service
+    grades a box species only when it is sure), then the most taxon mass; the species, genus or family name
     as the summary counts it, and its lineage from class down to that name (the page's tree);
     (None, None, None, []) when species was off or nothing held up."""
     best = None
@@ -110,10 +111,10 @@ def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[
         sp = contract.species_of(b)
         name, level = contract.taxon(sp), contract.level_of(sp)
         if name:
-            p = contract.mass(sp)
-            if best is None or p > best[0]:
+            key = (contract.LEVEL_RANK[level], contract.mass(sp))
+            if best is None or key > best[0]:
                 lineage = [*(rp.lead(sp).get("taxonomy") or [])[2:contract.LEVEL_RANK[level]], name]
-                best = (p, name, rp.common_of(sp), level, lineage)
+                best = (key, name, rp.common_of(sp), level, lineage)
     return best[1:] if best else (None, None, None, [])
 
 

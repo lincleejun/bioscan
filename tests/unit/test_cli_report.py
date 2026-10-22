@@ -159,23 +159,41 @@ def test_review_row_and_heading_carry_the_english_name(tmp_path):
             ' <span class="muted">1</span></h3>') in page
 
 
+def _t(name, fam, p):
+    return {"scientific": name, "common": None, "taxonomy": ["Animalia", "Chordata", "Aves", "O", fam,
+                                                          name.split()[0], name], "posterior": p}
+
+
+def _rolled(i, level, name, top):
+    b = bx(i, level=level, top=top)
+    b["species"]["taxon"] = name
+    return b
+
+
 def test_a_family_box_reads_its_taxon_mass_everywhere():
     """#73: first candidate 0.30 (Fringillidae), Accipitridae holds 0.66: summary, `named` and the terminal
-    line all read 0.66, so the family box beats a 0.50 species box as the photo's surest."""
+    line all read 0.66, so it beats a family box whose first candidate is higher (0.45) but mass lower (0.62)."""
     from bioscan.cli import aesscore, render
 
-    def c(name, fam, p):
-        return {"scientific": name, "common": None, "taxonomy": ["Animalia", "Chordata", "Aves", "O", fam,
-                                                                  name.split()[0], name], "posterior": p}
-    fam = [c("Fringilla a", "Fringillidae", 0.30), c("Buteo b", "Accipitridae", 0.25),
-           c("Aquila c", "Accipitridae", 0.20), c("Accipiter d", "Accipitridae", 0.15),
-           c("Haliaeetus e", "Accipitridae", 0.06)]
-    box = bx(0, level="family", top=fam)
-    box["species"]["taxon"] = "Accipitridae"
-    sure = bx(1, top=[cand("Calidris mauri", 0.5)])
-    e = ev("ab", "bird", [sure, box])
+    box = _rolled(0, "family", "Accipitridae", [
+        _t("Fringilla a", "Fringillidae", 0.30), _t("Buteo b", "Accipitridae", 0.25),
+        _t("Aquila c", "Accipitridae", 0.20), _t("Accipiter d", "Accipitridae", 0.15),
+        _t("Haliaeetus e", "Accipitridae", 0.06)])
+    gulls = _rolled(1, "family", "Laridae", [
+        _t("Larus a", "Laridae", 0.45), _t("Corvus b", "Corvidae", 0.30), _t("Sterna c", "Laridae", 0.17)])
+    e = ev("ab", "bird", [gulls, box])
     assert abs(contract.mass(box["species"]) - 0.66) < 1e-9
     taxa = {t["name"]: t for t in rp.summarize([e])["taxa"]}
     assert abs(taxa["Accipitridae"]["posterior"]["max"] - 0.66) < 1e-9
     assert render.box_label(1, box).startswith("[1] Accipitridae 0.66")
     assert aesscore.named(e)[0] == "Accipitridae"
+
+
+def test_named_prefers_a_species_box_to_a_rolled_up_one():
+    """A genus mass sums candidates, so it is not comparable with a species posterior: the service grading
+    a box species is the verdict. American Crow 0.977 beats a Corvus genus box at 0.98."""
+    from bioscan.cli import aesscore
+
+    crow = bx(0, top=[_t("Corvus brachyrhynchos", "Corvidae", 0.977)])
+    genus = _rolled(1, "genus", "Corvus", [_t("Corvus corax", "Corvidae", 0.6), _t("Corvus brachyrhynchos", "Corvidae", 0.38)])
+    assert aesscore.named(ev("crow", "bird", [genus, crow]))[:3] == ("Corvus brachyrhynchos", None, "species")
