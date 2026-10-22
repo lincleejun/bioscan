@@ -214,7 +214,7 @@ Review reasons are rules, never a model: `unconfirmed` (level unconfirmed), `coa
 One-time install, then restart Lightroom Classic once:
 
 ```bash
-bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy); relinks a stale link, refuses to replace a real folder
+bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy); relinks a stale link; an existing copy is kept (remove it to refresh)
 ```
 
 Every scan after that is one line. `wildlife` keeps species on; add the `aesthetics` stage to get aesthetic stars (`album` alone turns species off, so every photo would land in `待确认`):

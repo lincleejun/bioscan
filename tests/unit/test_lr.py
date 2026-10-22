@@ -224,7 +224,7 @@ def test_keywords_name_genus_and_family_in_english_then_latin():
         ["bioscan", "bird", "a hawk or eagle (Accipitridae)"], ["bioscan", "bird", "Megascops"], ["bioscan", "bird"]]
 
 
-def test_install_replaces_dead_link_and_refuses_foreign_dir(tmp_path):
+def test_install_replaces_dead_link_and_keeps_a_copy(tmp_path):
     mods = tmp_path / "Modules"
     mods.mkdir()
     link = mods / "bioscan.lrplugin"
@@ -232,6 +232,7 @@ def test_install_replaces_dead_link_and_refuses_foreign_dir(tmp_path):
     assert main(["lr", "install", "--modules", str(mods)]) == 0
     assert link.resolve() == lr.PLUGIN.resolve()
     other = tmp_path / "Other"
-    (other / "bioscan.lrplugin").mkdir(parents=True)                     # not ours: left alone
-    assert main(["lr", "install", "--modules", str(other)]) == 1
+    (other / "bioscan.lrplugin").mkdir(parents=True)                     # a copy: left alone
+    assert main(["lr", "install", "--modules", str(other)]) == 0
+    assert main(["lr", "install", "--modules", str(other), "--copy"]) == 0
     assert not (other / "bioscan.lrplugin").is_symlink()

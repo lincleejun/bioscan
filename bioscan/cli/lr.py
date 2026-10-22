@@ -133,9 +133,8 @@ def cmd_install(a) -> int:
     if dest.is_symlink():                      # dead, or pointing at another checkout: relink
         dest.unlink()
     elif dest.exists():
-        print(f"error: {dest} exists and is not a link to {PLUGIN} (an old copy?); remove it and re-run",
-              file=sys.stderr)
-        return 1
+        print(f"already installed (a copy): {dest}; to refresh it, remove it and re-run")
+        return 0
     dest.parent.mkdir(parents=True, exist_ok=True)
     if a.copy:
         shutil.copytree(PLUGIN, dest)
