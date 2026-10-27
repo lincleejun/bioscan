@@ -361,6 +361,9 @@ def gt_scene(map_path: str, out_dir: str, per_label: int, seed: int = 7, subsets
     md5 (the manifest `gt scene --from` re-fetches). The label CSVs (about 180 MB in all) are cached
     under cache_dir; --dry-run does everything but the photos and writes the CSV with the photo URL as
     path and no md5."""
+    unknown = [s for s in subsets if s not in OID_LABELS]
+    if unknown:                        # before ~180 MB of label CSVs are fetched
+        raise ValueError(f"unknown Open Images subsets {unknown}; use {', '.join(OID_LABELS)}")
     spec = read_scene_map(map_path)
     cache_dir = cache_dir or str(Path.home() / ".cache" / "bioscan" / "openimages")
     throttle = throttle or Throttle(0.2)

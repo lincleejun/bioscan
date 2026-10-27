@@ -1,6 +1,6 @@
 # Album: aesthetics and culling
 
-The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Nothing here deletes or moves a photo or writes into one; only `cull --xmp` rates photos, in new XMP sidecars.
+The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Scoring and culling never delete, move or write into a photo; only `cull --xmp` rates photos, in new XMP sidecars. Acting on the marks is a separate, explicit step: the review page's Delete drops removes them through the running service (`POST /apply`), and `aesthetic apply --drop-to DIR` moves them.
 
 ## Aesthetics
 
@@ -58,8 +58,10 @@ named / failed, the score range and star cuts, the top taxa (common name, count)
 
 `bioscan aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
 **copied** to `--keep-to` (originals and their XMP sidecars), the drops **moved** to `--drop-to`; `--dry-run` only
-reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo already at the target is
-skipped and a missing one reported (exit 1).
+reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo whose file or any of its
+sidecars is already at the target (or would be, from an earlier photo in the same run, `--dry-run` included) is
+skipped and a missing one reported (exit 1). A shared `<stem>.xmp` stays behind while another photo with that stem
+(the RAW of a RAW+JPEG pair) stays in the folder; the same holds for the page's **Delete drops…**.
 
 Stars are quintiles of the run's own scores (5 = top fifth), a relative rank and not a rating. A photo without a
 score (no head installed) sorts last with the head's note; nothing is rated, moved or deleted.

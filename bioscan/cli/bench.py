@@ -114,10 +114,10 @@ def genus_of(name: str | None) -> str:
 
 def read_name_list(path: str | Path) -> dict[str, str]:
     """norm(scientific) -> family from one list CSV: avilist_map.csv (scientific, family), the
-    AviList CSV (Scientific_name, Family, Taxon_rank) or MDD (genus, specificEpithet, family)."""
+    AviList CSV (v2025 or v2026 headers) or MDD (genus, specificEpithet, family)."""
     out: dict[str, str] = {}
     with open(path, newline="", encoding="utf-8-sig") as f:
-        for r in csv.DictReader(f):
+        for r in map(naming.avilist_row, csv.DictReader(f)):
             if r.get("Taxon_rank") not in (None, "species"):
                 continue
             sci = r.get("scientific") or r.get("Scientific_name") or " ".join(
@@ -567,6 +567,13 @@ def read_budget(path: str | Path, registry: dict[str, tuple] | None = None) -> d
         extra = set(r) - {"metric", "plugin", "scopes", "min_n", "note", *RULE_LIMITS}
         if extra:
             raise BenchError(f"{where}: unknown keys {sorted(extra)}")
+        scopes = r.get("scopes", [])
+        if not isinstance(scopes, list) or not all(isinstance(s, str) and s for s in scopes):
+            raise BenchError(f"{where}: scopes must be a list of scope names")
+        if "plugin" not in r:          # plugin scopes are whatever its rows emit (e.g. reject reasons)
+            bad = [s for s in scopes if s.split("/", 1)[-1] not in SCOPES or s.count("/") > 1]
+            if bad:
+                raise BenchError(f"{where}: unknown scopes {bad}; use {', '.join(SCOPES)} or <tier>/<scope>")
     for sect, key in (("species", "max_lost"), ("images", "max_broken")):
         if set(raw.get(sect, {})) - {key}:
             raise BenchError(f"{path}: [{sect}] takes only {key}")
@@ -1190,6 +1197,9 @@ def cmd_baseline(a) -> int:
     if dest.exists() and not a.force:
         raise BenchError(f"{dest} exists; baselines are committed data, pass --force to replace it")
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() and dest.samefile(a.report):
+        print(f"baseline {dest} is already this report")
+        return EXIT_OK
     shutil.copyfile(a.report, dest)
     print(f"baseline -> {dest}")
     return EXIT_OK

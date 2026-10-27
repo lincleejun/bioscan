@@ -55,7 +55,8 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
 - Open source first; commercial use is not a goal for now.
 - The BioScan `/run` service stays stateless; state lives in files the user asks for (preds, baselines).
   Superseded for Gardener only (ADR 0001, 2026-10-21): `bioscan.gardener` is a persistent local service
-  (SQLite records + a separate preview cache) shared by its web UI, CLI and MCP; it never writes into photo sources.
+  (SQLite records + a separate preview cache) shared by its web UI, CLI and MCP; it never writes into photo sources,
+  except that a cleanup plan a person confirmed moves its files to the macOS Trash (ADR 0003).
 - Identification is all-taxa by default. A caller may narrow it to candidate taxa (e.g. "A, B or C") as a
   speed/accuracy aid, never as a requirement.
 - Where a list has no location label for a row, fall back to its genus; a box may move between kinds
