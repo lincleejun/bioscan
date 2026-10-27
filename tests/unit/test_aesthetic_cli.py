@@ -355,3 +355,11 @@ def test_train_script_refuses_to_overwrite_the_head_without_force(tmp_path, caps
     assert out.read_text() == "{}" and out.stat().st_mtime_ns == before
     script.refuse_overwrite(out, force=True)                      # --force: the guard lets it through
     script.refuse_overwrite(tmp_path / "absent.json", force=False)
+
+
+def test_train_has_no_pick_min():
+    """Training regresses on stars; picks never enter it, so the flag is not offered."""
+    from bioscan.cli.main import parser
+    with pytest.raises(SystemExit):
+        parser().parse_args(["aesthetic", "train", "--ratings", "r.csv", "--pick-min", "3"])
+    assert parser().parse_args(["aesthetic", "eval", "r.csv", "--out", "o", "--pick-min", "3"]).pick_min == 3

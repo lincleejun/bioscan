@@ -374,8 +374,6 @@ def add_parser(sub) -> None:
 
     def common(s):
         s.add_argument("--embeddings", metavar="FILE", help="NDJSON cache of frame vectors, reused and extended")
-        s.add_argument("--pick-min", type=float, default=aes.PICK_MIN,
-                       help="without explicit picks, a rating >= this is a pick (default %(default)g)")
         s.add_argument("--seed", type=int, default=0)
         s.add_argument("--folds", type=int, default=5, help="cross-validation folds (by trip for ratings)")
 
@@ -407,6 +405,8 @@ def add_parser(sub) -> None:
     s.add_argument("--curve", default="50,100,200,500,1000", help="learning-curve sizes (default %(default)s)")
     s.add_argument("--no-curve", action="store_true", help="skip the learning curve (no fitting, no numpy)")
     s.add_argument("--alpha", type=float, default=100.0, help="ridge strength of the curve's personal heads")
+    s.add_argument("--pick-min", type=float, default=aes.PICK_MIN,
+                   help="without explicit picks, a rating >= this is a pick (default %(default)g)")
     common(s)
     s.set_defaults(func=cmd_eval)
 

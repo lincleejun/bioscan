@@ -312,3 +312,10 @@ def test_scorecard_holds_the_baseline_to_the_aesthetic_golden_standards(tmp_path
     status = {r["metric"]: r["status"] for r in sc["rows"]}
     assert status == {"spearman": "pass", "precision_at_k": "pass", "keepers_lost_at_20": "pass", "group_top1": "n/a"}
     assert "3 pass, 0 fail, 1 n/a" in md.read_text()
+
+
+def test_budget_scopes_must_be_a_list(tmp_path):
+    budget = tmp_path / "b.toml"
+    budget.write_text('[[rule]]\nmetric = "spearman"\nmax_drop_pts = 3\nscopes = "all"\n')
+    with pytest.raises(bench.BenchError):
+        ag.read_budget(budget)

@@ -475,10 +475,25 @@ def _write(path, text):
     ("[other]\n", "unknown budget sections"),
     ('[rule]\nmetric = "top1"\nmax_drop_pts = 1\n', "not one"),
     ("not toml [", "cannot read budget"),
+    ('[[rule]]\nmetric = "top1"\nmax_drop_pts = 1\nscopes = "all"\n', "scopes"),
+    ('[[rule]]\nmetric = "top1"\nmax_drop_pts = 1\nscopes = ["all", "brid"]\n', "scopes"),
+    ('[[rule]]\nmetric = "top1"\nmax_drop_pts = 1\nscopes = ["own/brid"]\n', "scopes"),
 ])
 def test_budget_file_errors(tmp_path, text, msg):
     with pytest.raises(bench.BenchError, match=msg.replace("*", r"\*")):
         bench.read_budget(_write(tmp_path / "b.toml", text))
+
+
+def test_budget_accepts_tier_scopes(tmp_path):
+    text = '[[rule]]\nmetric = "top1"\nmax_drop_pts = 1\nscopes = ["all", "bird", "own/mammal"]\n'
+    assert bench.read_budget(_write(tmp_path / "b.toml", text))["rule"][0]["scopes"][2] == "own/mammal"
+
+
+def test_baseline_onto_itself_is_a_no_op(tmp_path, report):
+    base = tmp_path / "baselines"
+    src = bench.write_json(report, base / "x.json")
+    assert cli.main(["bench", "baseline", str(src), "--name", "x", "--dir", str(base), "--force"]) == 0
+    assert json.loads(src.read_text()) == json.loads(json.dumps(report))
 
 
 def test_compare_exit_2_when_incomparable(tmp_path, report):
