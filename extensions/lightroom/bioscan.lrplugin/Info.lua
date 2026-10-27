@@ -9,6 +9,7 @@ return {
   -- The menu script is a separate file: a required module cannot tell whether it runs as a menu item.
   LrLibraryMenuItems = {
     { title = "bioscan: Apply latest scan", file = "ApplyMenu.lua" },
+    { title = "bioscan: Apply Gardener handoffs", file = "HandoffMenu.lua" },
   },
-  VERSION = { major = 0, minor = 1, revision = 0 },
+  VERSION = { major = 0, minor = 2, revision = 0 },
 }
