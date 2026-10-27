@@ -54,7 +54,7 @@
 | R46 | 人工结论优先，模型重跑不覆盖；纠错、连拍范围、先看影响范围、整批撤销（PRD §10，AC04、AC09） | `POST /identifications`、`/identifications/undo` | `test_core_identities.py::test_correcting_*`、`test_a_burst_claim_*`、`test_a_rescan_keeps_*`、`test_a_drawn_box_*` | 已由测试证实；真模型试用一次（Mac） |
 | R47 | 物种卡片跨任务累积、无最小张数，“已拍到 N 种”只计人工确认，候选不计（PRD §03、§04，AC02、AC05） | `GET /species`、视图 `current_ids` | `test_core_identities.py::test_species_cards_*`、`test_hiding_a_card_*` | 已由测试证实；真模型试用一次（Mac） |
 | R48 | 中英文名、学名、同义名、旧学名检索同一物种；`species=` 跟随当前结论（PRD §10，AC13 部分） | `taxa.py`、`GET /names`、`query.where` | `test_core_identities.py::test_names_resolve_*`、`test_the_species_filter_*`、`test_the_name_index_rebuilds_*` | 已由测试证实；Smart 规则增减预览未做 |
-| R49 | 物种页、物种详情、任务内按物种查看、检查器逐主体确认纠错（PRD §05、§07） | `web/app.js`（vSpecies、vSpeciesOne、subjectsHTML） | `test_ui_web.py`（静态与契约路由）；真模型浏览器走查（Mac） | 部分验证：页面在 headless Chrome 中对 fake API 渲染过（#/cleanup、计划页、Review 按钮）；对话框未点击，无自动化浏览器测试 |
+| R49 | 物种页、物种详情、任务内按物种查看、检查器逐主体确认纠错（PRD §05、§07） | `web/app.js`（vSpecies、vSpeciesOne、subjectsHTML） | `test_ui_web.py`（静态与契约路由）；真模型浏览器走查（Mac） | 部分验证：无自动化浏览器测试 |
 | R50 | CLI 与 MCP 覆盖物种动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_species_commands_*`、`test_ui_mcp.py::test_species_tools_*` | 已由测试证实（请求映射） |
 | E-R01 | 从集合、物种或选择交给 Lightroom：冻结成员、检查在线、稳定身份、重复不重复导入（PRD §12，AC14） | `handoff.py`、`POST /handoffs`、`editor_links`；插件 `Handoff.lua` | `test_core_handoff.py::test_a_handoff_freezes_*`、`test_offline_photos_*` | 服务端已由测试证实；Lightroom 内未验证 |
 | E-R02 | 每张返回成功/跳过/失败，只写文件不算完成（PRD §12，AC14） | `handoff.ingest`、`GET /handoffs/{id}` | `test_core_handoff.py::test_a_handoff_freezes_*` | 服务端已由测试证实；Lightroom 内未验证 |
