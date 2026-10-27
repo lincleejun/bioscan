@@ -20,7 +20,7 @@ function Apply.read()
   if not LrFileUtils.exists(Apply.PATH) then
     return nil, "no scan to apply: " .. Apply.PATH .. " does not exist"
   end
-  local doc, _, err = json.decode(LrFileUtils.readFile(Apply.PATH))
+  local doc, _, err = json.decode(LrFileUtils.readFile(Apply.PATH), 1, nil, nil, nil)   -- plain tables (see Handoff.lua)
   if type(doc) ~= "table" or doc.schema ~= 1 or type(doc.photos) ~= "table" then
     return nil, "cannot read " .. Apply.PATH .. ": " .. tostring(err or "not a schema 1 file")
   end

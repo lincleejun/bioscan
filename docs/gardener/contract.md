@@ -494,9 +494,12 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   列表，执行只经确认对话框，并明示“将修改来源目录”。
 - **CLI / MCP**：`gardener handoff create|show|list`、`gardener cleanup plan|show|list|run --yes`；MCP
   `lightroom_handoff`、`get_handoff`、`cleanup_plan`、`get_cleanup_plan`、`run_cleanup_plan`（`confirm` 必填）。
-- **未验证**：Lightroom 中的一切行为（插件在 Lightroom Classic 里实际运行之前均未验证）：`findPhotoByUuid`、
-  `getRawMetadata("keywords"|"uuid")`、`removeKeyword`、`createKeyword` 的同义词（已存在的关键词保持原同义词）、
-  `setRawMetadata("rating", nil)`、`LrFileUtils.files` 轮询、插件中的 `io.open` 写结果文件。真实磁盘上的废纸篓只在本机
+- **在 Lightroom Classic 14.2 里实测（2026-10-27，新建的测试目录，4 张照片含一张 Sony A1 ARW）**：
+  - 轮询器自动处理交接文件、按路径就地导入、在 `Gardener` 集合组下建集合、写星级、写 `Aves|目|科|种` 层级关键词及英文名同义词、写结果文件：4/4 成功。
+  - 同一批再交接：不重复导入，只有星级变了的那张写入，其余 `same`。
+  - 在 Lightroom 里手动改过星级的照片再交接：星级字段跳过并报告 `conflicts: ["stars"]`，Lightroom 的值保留。
+  - 实测发现并修复：dkjson 默认给解析出的数组挂元表，SDK 对 `createKeyword` 的同义词报 `Assertion failed: packed`；插件的 `json.decode` 现在都显式不挂元表（测试 `test_the_plugin_decodes_json_into_plain_tables`）。
+- **仍未验证**：`findPhotoByUuid`（路径不变时用不到）、`removeKeyword`（物种更正）、`setRawMetadata("rating", nil)`（清除星级）、已存在关键词的同义词。真实磁盘上的废纸篓只在本机
   临时文件上试过 `/usr/bin/trash`；外置盘与网络卷未验证。
 - **未做**：被移走照片的物种卡片计数排除（PRD §11）；交接失败项的单独重试（重复交接即可，身份复用）；预设与导出（P1）。
 
