@@ -33,6 +33,16 @@ def norm_label(name: str | None) -> str:
     return " ".join((name or "").replace("’", "'").replace("_", " ").replace("-", " ").lower().split())
 
 
+# AviList v2026 renamed its CSV headers; rows are read under the v2025 names.
+AVILIST_V2026_COLS = {"RANK": "Taxon_rank", "ORDER": "Order", "FAMILY": "Family",
+                      "SCIENTIFIC NAME": "Scientific_name", "ENGLISH NAME: AVILIST": "English_name_AviList"}
+
+
+def avilist_row(r: dict[str, str]) -> dict[str, str]:
+    """An AviList CSV row (v2025 or v2026 headers) keyed by the v2025 column names."""
+    return {AVILIST_V2026_COLS.get(k, k): v for k, v in r.items()}
+
+
 def read_synonyms(path: Path = SYNONYMS_CSV) -> list[dict[str, str]]:
     """synonyms.csv rows (avilist_scientific, alias, source, note); [] when the file is absent."""
     if not Path(path).is_file():

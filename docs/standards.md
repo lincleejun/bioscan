@@ -45,7 +45,7 @@ must clear it, not just the observed rate.
 | Tier | What | N | Lists | Licence | Where it runs | Use |
 |---|---|---|---|---|---|---|
 | `smoke` | 95 iNat photos (42 birds, 35 mammals, 18 other animals; 83 species), `tests/models/sample.csv` | 95 | reduced: AviList rows of the sampled genera + 41 mammals | CC BY-NC / CC BY / CC0, fetched at test time | CI `models.yml`, CPU, every push | regression guard |
-| `golden` | iNat research-grade, California, 65 species × 25 (42 bird, 23 mammal), real GPS and dates, `data/inat/groundtruth-inat.csv` | 1,625 | full AviList 2025 + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
+| `golden` | iNat research-grade, California, 65 species × 25 (42 bird, 23 mammal), real GPS and dates, `data/inat/groundtruth-inat.csv` | 1,625 | full AviList (v2026 from 2026-10-26; v1.5 numbers were measured on v2025) + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
 | `golden` other-animal slice | **to build**: iNat California, about 16 non-bird, non-mammal species × 25 (reptiles, amphibians, insects, spiders), with `bioscan gt inat` | ~400 | TreeOfLife-wide list (work package W4) | as golden | owner's Mac | all-taxa default |
 | `own` | owner's telephoto RAW, folder-name truth, `data/groundtruth-own.csv` (288 Western Screech-Owl, 85 Red-tailed Hawk, 31 Steller's Jay) | 404 | full lists | private | owner's Mac | the real use case |
 | `public` | **to build**: ≥ 5 regions, CC0/CC BY only, one observation per photo, ≤ 5 per observer, sequestered test split | ≥ 5,000 | full lists | CC0 / CC BY, redistributable | owner's Mac; published | claim we can show others |
@@ -254,7 +254,7 @@ Report the machine, the disk and the settings fingerprint with it.
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
-| Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,131** (all of AviList 2025) | — | 11,131 (`bioscan names stats`; data/README) | the whole world list, extinct species included |
+| Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,172** (all of AviList v2026) | — | 11,172 (`bioscan names stats`; data/README) | the whole world list, extinct species included |
 | Mammal species in the name list | ~2,000 categories, SpeciesNet, all taxa (vendor claim) [^speciesnet] | **6,904** (all of MDD v2.5) | — | 6,904 | the whole world list |
 | Other animal species with a name | 100,000+ taxa, iNat CV 2.20, all kingdoms (vendor claim) [^inat220] | **100,000** | 300,000 | 366,460 (CI 2026-09); TreeOfLife-200M has no vectors for many reptiles and ray-finned fish (smoke: 0 of 6 reptiles, 0 of 1 fish) | all taxa by default has to mean most animals people photograph |
 | Share of truth species in the lists | none | **100%** | 100% | golden birds 42/42 (checked against `avilist_map.csv` + synonyms, 2026-09-24); golden mammals 23/23 as scored by `bioscan eval` (MDD CSV not in the repo, not re-checked); own 3/3 | a species missing from the list can never be named, so it would make the accuracy numbers meaningless |

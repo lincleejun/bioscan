@@ -27,7 +27,7 @@ from typing import Callable, NamedTuple
 
 import numpy as np
 
-from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, map_problems, norm_binomial, read_synonyms
+from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, avilist_row, map_problems, norm_binomial, read_synonyms
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ DIM = 1024
 @dataclass(frozen=True)
 class NameList:
     """One species list, complete as `load_lists` returns it. Frozen: fields are set once, there."""
-    list_id: str                 # "avilist-2025" | "mdd-2025"
+    list_id: str                 # "avilist-2026" | "mdd-2025"
     kind: str                    # "bird" | "mammal"
     scientific: list[str]
     common: list[str]
@@ -68,7 +68,7 @@ def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> li
 def read_avilist(path: Path) -> list[tuple[str, str, list[str]]]:
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
+        for r in map(avilist_row, csv.DictReader(f)):
             if r["Taxon_rank"] != "species":
                 continue
             genus, epithet = norm_binomial(r["Scientific_name"]).split(" ", 1)
@@ -102,8 +102,8 @@ class ListSource(NamedTuple):
 
 
 LISTS = {
-    # zero: the 748 unlabelled AviList rows are mostly extinct or lumped sisters that must stay suppressed
-    "bird": ListSource("avilist-2025", "avilist", "Aves", read_avilist, "avilist_map.csv", "zero", "AviList v2025"),
+    # zero: the 744 unlabelled AviList rows are mostly extinct or lumped sisters that must stay suppressed
+    "bird": ListSource("avilist-2026", "avilist", "Aves", read_avilist, "avilist_map.csv", "zero", "AviList v2026"),
     # genus: BirdNET labels only 1,048 of 6,904 MDD species; the rest borrow their genus's presence
     "mammal": ListSource("mdd-2025", "mdd", "Mammalia", read_mdd, "mdd_map.csv", "genus", "MDD v2.5"),
 }

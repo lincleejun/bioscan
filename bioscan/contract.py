@@ -112,7 +112,7 @@ class Candidate(TypedDict):
 
 
 class Species(TypedDict):
-    list: str                    # name list id: avilist-2025 | mdd-2025 | tol200m-animalia
+    list: str                    # name list id: avilist-2026 | mdd-2025 | tol200m-animalia
     level: Level
     taxon: str | None            # the name at `level`: the species, or the genus / family that rolled up; None unconfirmed
     top: list[Candidate]         # by posterior, highest first; a range-vetoed first may cede to a congener

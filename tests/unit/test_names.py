@@ -67,6 +67,15 @@ def test_tol_text_matches_treeoflife_format():
     assert names.tol_text(tax, "") == "an image of Animalia Chordata Aves Passeriformes Corvidae Corvus corax."
 
 
+def test_read_avilist_v2026_headers_match_v2025(tmp_path):
+    from bioscan.cli import bench
+    v2026 = ["#", "RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST"]
+    write_csv(tmp_path / "v2025.csv", AVI_HEADER, AVI_ROWS)
+    write_csv(tmp_path / "v2026.csv", v2026, AVI_ROWS)
+    assert names.read_avilist(tmp_path / "v2026.csv") == names.read_avilist(tmp_path / "v2025.csv")
+    assert bench.read_name_list(tmp_path / "v2026.csv") == {"corvus corax": "Corvidae", "megascops kennicottii": "Strigidae"}
+
+
 def test_match_tol_class_and_family():
     birds = [("Corvus corax", "", ["", "", "Aves", "", "Corvidae", "", ""]),
              ("Megascops kennicottii", "", ["", "", "Aves", "", "Strigidae", "", ""])]
@@ -81,7 +90,7 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
     lists = names.load_lists(FakeModel(), tok, "cpu", cache, data_dir=data, tol_files=tol)
 
     bird, mammal = lists["bird"], lists["mammal"]
-    assert bird.list_id == "avilist-2025" and mammal.list_id == "mdd-2025"
+    assert bird.list_id == "avilist-2026" and mammal.list_id == "mdd-2025"
     assert bird.scientific == ["Corvus corax", "Megascops kennicottii"]  # subspecies/order rows dropped
     assert bird.taxonomy[0] == ["Animalia", "Chordata", "Aves", "Passeriformes", "Corvidae", "Corvus", "Corvus corax"]
     assert mammal.scientific == ["Rangifer tarandus", "Alces alces"] and mammal.common == ["Reindeer", "Moose"]
@@ -95,7 +104,7 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
     ])
     how = {"exact": 1, "synonym": 0, "none": 1}
     assert names.stats(lists) == {
-        "bird": {"list_id": "avilist-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
+        "bird": {"list_id": "avilist-2026", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
                  "tol": how, "birdnet": None},
         "mammal": {"list_id": "mdd-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
                    "tol": how, "birdnet": None},
