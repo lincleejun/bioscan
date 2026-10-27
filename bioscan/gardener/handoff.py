@@ -25,20 +25,16 @@ def default_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "bioscan" / "lightroom"
 
 
-# ---- uses adapter: the one place to switch when the four uses (record / edit / pending / reject) land ----
 def uses_of(c: Any, asset_ids: list[str]) -> dict[str, str]:
-    """asset id -> its use. Until the four-uses field exists: pick -> record, reject -> reject, else pending."""
+    """asset id -> its use (contract revision 5B, marks.use): record | edit | pending | reject; no mark = pending."""
     out = dict.fromkeys(asset_ids, "pending")
     for part in st.chunks(asset_ids):
-        for r in c.execute(f"SELECT asset_id, flag FROM marks WHERE asset_id IN ({st.marks_in(part)})", part):
-            out[r[0]] = {"pick": "record", "reject": "reject"}.get(r[1], "pending")
+        for r in c.execute(f"SELECT asset_id, use FROM marks WHERE asset_id IN ({st.marks_in(part)})", part):
+            out[r[0]] = r[1] or "pending"
     return out
 
 
-# ponytail: today a pick (-> record) is the only positive human choice, so it is what a handoff takes by default;
-# switch to ("edit",) when the four uses land (PRD §12: only 选入修图 goes to Lightroom by default).
-HANDOFF_USES = ("record",)
-# ---- end uses adapter ----
+HANDOFF_USES = ("edit",)          # PRD §12: by default only 选入修图 goes to Lightroom
 
 
 # ---- field conflict rules (mirrored in Decide.lua) ----
@@ -115,7 +111,7 @@ def create(c: Any, ids: list[str], *, name: str, scope: dict[str, Any], uses: tu
     use = uses_of(c, ids)
     ids = [a for a in ids if (use[a] in uses if uses else use[a] != "reject")]
     if not ids:
-        raise st.Error("范围内没有要交接的照片（默认只交接已 Pick 的）")
+        raise st.Error("范围内没有要交接的照片（默认只交接选入修图的）")
     hid, t = st.new_id("h"), now()
     links = {r["asset_id"]: r for r in c.execute(
         f"SELECT * FROM editor_links WHERE editor = ? AND asset_id IN ({st.marks_in(ids)})", [EDITOR, *ids])}
@@ -123,8 +119,9 @@ def create(c: Any, ids: list[str], *, name: str, scope: dict[str, Any], uses: tu
         f"SELECT asset_id, stars FROM marks WHERE asset_id IN ({st.marks_in(ids)})", ids)}
     photos, rows = [], []
     for i, aid in enumerate(ids):
-        files = sorted(c.execute("SELECT path, role FROM asset_files WHERE asset_id = ?", (aid,)).fetchall(),
-                       key=lambda f: (ROLE_ORDER.get(f["role"], 9), f["path"]))
+        files = sorted(c.execute("SELECT path, role FROM asset_files WHERE asset_id = ? UNION SELECT path, 'managed' "
+                                 "FROM managed_files WHERE asset_id = ?", (aid, aid)).fetchall(),
+                       key=lambda f: (ROLE_ORDER.get(f["role"], 9), f["path"]))   # the imported copy first (5D)
         paths = [f["path"] for f in files if os.path.exists(f["path"])]
         link = links.get(aid)
         if not paths:

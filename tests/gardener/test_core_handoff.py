@@ -90,11 +90,11 @@ def ok(p, stars="write", keywords="write", uuid=None):
             "keywords": {"action": keywords, "value": ["|".join(k["chain"]) for k in p["keywords"]]}}
 
 
-def test_a_handoff_freezes_picks_writes_the_file_and_is_done_only_from_real_results(env, tmp_path):
+def test_a_handoff_freezes_edit_picks_writes_the_file_and_is_done_only_from_real_results(env, tmp_path):
     lr = tmp_path / "lr"
     with env.client(lightroom_dir=lr) as c:
         src, aids = shoot(env, tmp_path, c)
-        c.post(f"{API}/marks", json={"asset_ids": aids[:2], "flag": "pick", "stars": 4})
+        c.post(f"{API}/marks", json={"asset_ids": aids[:2], "use": "edit", "stars": 4})
         c.post(f"{API}/marks", json={"asset_ids": [aids[2]], "flag": "reject"})
         sid = c.get(f"{API}/assets/{aids[0]}").json()["subjects"][0]["id"]
         c.post(f"{API}/identifications", json={"subject_ids": [sid], "claim": {"accept": True}})
@@ -102,11 +102,11 @@ def test_a_handoff_freezes_picks_writes_the_file_and_is_done_only_from_real_resu
         r = c.post(f"{API}/handoffs", json={"collection_id": all_col["id"], "name": "猫头鹰"})
         assert r.status_code == 201, r.text
         h = r.json()
-        assert h["status"] == "written" and h["counts"]["pending"] == 2       # picks only; the reject stays out
+        assert h["status"] == "written" and h["counts"]["pending"] == 2       # 选入修图 only; the reject stays out
         doc = json.loads(Path(h["doc_path"]).read_text())
         assert Path(h["doc_path"]).parent == lr / "handoffs" and doc["schema"] == 2 and doc["name"] == "猫头鹰"
         first, second = sorted(doc["photos"], key=lambda p: p["paths"][0])
-        assert first["paths"] == [str(src / "IMG_0.jpg")] and first["stars"] == 4 and first["use"] == "record"
+        assert first["paths"] == [str(src / "IMG_0.jpg")] and first["stars"] == 4 and first["use"] == "edit"
         assert first["keywords"] == [{"chain": OWL, "synonyms": ["Eastern Screech-Owl"], "concept": "avibase:test-asio"}]
         assert second["keywords"] == []                                        # an AI-only species is no keyword
         assert first["baseline"] == {"stars": None, "keywords": None} and first["uuid"] is None
@@ -139,7 +139,7 @@ def test_a_handoff_freezes_picks_writes_the_file_and_is_done_only_from_real_resu
 def test_a_conflicting_field_keeps_its_baseline_and_is_reported(env, tmp_path):
     with env.client(lightroom_dir=tmp_path / "lr") as c:
         _src, aids = shoot(env, tmp_path, c, n=1)
-        c.post(f"{API}/marks", json={"asset_ids": aids, "flag": "pick", "stars": 2})
+        c.post(f"{API}/marks", json={"asset_ids": aids, "use": "edit", "stars": 2})
         h = c.post(f"{API}/handoffs", json={"asset_ids": aids}).json()
         p = json.loads(Path(h["doc_path"]).read_text())["photos"][0]
         plugin_result(h, [ok(p)])

@@ -283,6 +283,10 @@ def undo(c: Any, batch_id: str) -> dict[str, Any]:
 
 
 KIND_OF_PREFIX = {"avibase": "bird", "mdd": "mammal"}
+# A photo a confirmed cleanup plan moved to the Trash, every file of it, has left the library (PRD §03, §11: counts
+# change only once a photo is actually removed); an offline disk never counts as removed (AC12).
+GONE = ("AND NOT (json_extract(a.meta, '$.trashed') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM asset_files f "
+        "WHERE f.asset_id = a.id AND f.online = 1))")
 
 
 def species(c: Any, task_id: str | None = None, include_hidden: bool = False) -> dict[str, Any]:
@@ -294,7 +298,7 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
     photos whose subjects stop at genus/family or are unconfirmed. `task_id` narrows it to one task."""
     scope = "AND a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)" if task_id else ""
     rows = c.execute(f"SELECT ci.*, a.taken_at, coalesce(m.stars, 0) stars FROM current_ids ci JOIN assets a ON "
-                     f"a.id = ci.asset_id LEFT JOIN marks m ON m.asset_id = a.id WHERE a.version_of IS NULL {scope} "
+                     f"a.id = ci.asset_id LEFT JOIN marks m ON m.asset_id = a.id WHERE a.version_of IS NULL {scope} {GONE} "
                      f"ORDER BY ci.created_at", [task_id] if task_id else []).fetchall()
     prefs = {r["concept"]: r for r in c.execute("SELECT * FROM species_prefs")}
     cards: dict[str, dict[str, Any]] = {}

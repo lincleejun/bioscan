@@ -37,7 +37,8 @@ def _files(c: Any, asset_id: str) -> list[dict[str, Any]]:
     """Every file of the asset as it is on disk now: registered files, then the sidecars named after one of them
     (`IMG_1.xmp`, `IMG_1.ARW.xmp`). A `<stem>.xmp` shared with another asset's file (ARW + DNG of one stem are two
     assets) is left out. A missing registered file has `exists: False`."""
-    reg = c.execute("SELECT path, role FROM asset_files WHERE asset_id = ? ORDER BY path", (asset_id,)).fetchall()
+    reg = c.execute("SELECT path, role FROM asset_files WHERE asset_id = ? UNION SELECT path, 'managed' FROM "
+                    "managed_files WHERE asset_id = ? ORDER BY path", (asset_id, asset_id)).fetchall()   # + imported copies (5D)
     out, seen = [], set()
     for f in reg:
         st_ = os.stat(f["path"]) if os.path.isfile(f["path"]) else None

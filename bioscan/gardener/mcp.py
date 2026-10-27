@@ -100,7 +100,7 @@ TOOLS = [
 
     # ---- 契约修订 5E: Lightroom handoff and cleanup plans ----
     _tool("lightroom_handoff", "把集合（collection_id）、物种（concept）或选中照片（asset_ids）交给 Lightroom Classic：冻结成员快照、"
-          "写出交接文件，插件导入缺少的照片、加入以交接命名的集合、写星级与物种关键词。默认只交 Pick；uses 可指定用途。"
+          "写出交接文件，插件导入缺少的照片、加入以交接命名的集合、写星级与物种关键词。默认只交选入修图（edit）；uses 可指定用途。"
           "返回的 status 为 written 时插件还没处理；用 get_handoff 看逐张真实结果，不要把 written 说成完成。",
           {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS, "uses": _IDS, "name": _STR}),
     _tool("get_handoff", "交接的逐张结果：ok / skipped / failed 与原因，以及因 Lightroom 中已被改过而跳过的字段（conflicts）。",
