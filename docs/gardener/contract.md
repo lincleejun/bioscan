@@ -428,7 +428,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **受管理副本**：表 `managed_files(asset_id, path, source_path, role, size, source_mtime_ns, quick_hash, sha256, plan_id, imported_at)`。素材 id 不变，`asset_files` 仍只记来源文件；`AssetDetail.managed` 列出已校验的副本。
 - **界面**：任务页“完成与导入 →”（`#/import/<task>`）填写目标根目录、地点与“待定照片一起导入”，生成计划后进入确认页（`#/import/<task>/<plan>`）：各用途照片数与默认处理、文件与容量、目标目录、重复与改名、未完成项，按钮“导入 N 张”；之后显示进度与结果（入库数、失败清单、未复制范围、下一步）。确认页切换待定开关即按同一目标重新生成计划。
 - **CLI 与 MCP**：`gardener import plan|run|show|list`；MCP `plan_import`、`run_import`、`get_import`。
-- **未做**：完成页的物种统计（新增物种、已有物种补充、唯一记录影响）；导入批次成为 Collection；Lightroom 交接与清理计划；exFAT 上崩溃留下的半个目标文件只报告为失败（无法证明是自己写的，不删除）。
+- **未做**：完成页的物种统计（新增物种、已有物种补充、唯一记录影响）（修订 7B 已做）；导入批次成为 Collection（修订 7B 已做）；Lightroom 交接与清理计划；exFAT 上崩溃留下的半个目标文件只报告为失败（无法证明是自己写的，不删除）。
 ## 契约修订 5E：Lightroom 交接与清理计划（2026-10-26，AfterShooting PRD v1 §11、§12、§13，AC14、AC15、AC18；ADR 0003）
 
 依据：owner 2026-10-26 决定——交接通过扩展现有 Lightroom Classic 插件（`extensions/lightroom/bioscan.lrplugin/`）完成，
@@ -498,7 +498,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   `getRawMetadata("keywords"|"uuid")`、`removeKeyword`、`createKeyword` 的同义词（已存在的关键词保持原同义词）、
   `setRawMetadata("rating", nil)`、`LrFileUtils.files` 轮询、插件中的 `io.open` 写结果文件。真实磁盘上的废纸篓只在本机
   临时文件上试过 `/usr/bin/trash`；外置盘与网络卷未验证。
-- **未做**：被移走照片的物种卡片计数排除（PRD §11）；交接失败项的单独重试（重复交接即可，身份复用）；预设与导出（P1）。
+- **未做**：被移走照片的物种卡片计数排除（PRD §11）；交接失败项的单独重试（修订 7B 已做）；预设与导出（P1；修订 7B 已做，Lightroom 内未验证）。
 
 ## 契约修订 6：任务视图按任务判断代表版本（2026-10-27，#102 与修订 4/5B/5D 的衔接）
 
@@ -544,5 +544,5 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 每张结果增加 `develop: {action: applied|same|conflict|failed|none, preset, preset_name, fingerprint, reason}`、`export: {action: exported|skipped|failed, path, reason}`。步骤出错时记为该步 `failed` 并写出结果，不会无限重试。
 - **修图进度**（列 `editor_links.progress`，`AssetDetail.lightroom = {photo_id, uuid, path, handoff_id, progress}`）：只在读回结果时按逐张真实结果推进，**从不因写出交接文件或发出命令而改变**：`in_lightroom`（status ok）→ `preset_applied`（develop 为 applied 或 same）→ `exported`（export 为 exported 且有路径，记 `exported_path`、`exported_at`）；不倒退。`Handoff.counts` 增加 `preset_applied`、`exported`；显影冲突计入 `conflicts`（`conflicts` 含 `"develop"`）。`Handoff.status` 的含义不变（照片是否送达）。
 - **CLI / MCP**：`gardener handoff create … --preset UUID [--preset-name] [--export-preset PATH --export-dir DIR --overwrite rename|skip|overwrite] [--no-remember]`、`gardener handoff preview`、`gardener handoff presets`；MCP `lightroom_handoff` 的 `develop`、`export`、`remember`，`preview_handoff`、`lightroom_presets`。
-- **未验证**（插件在 Lightroom Classic 里实际运行之前）：SDK 6.0 参考里有的 `developPresetByUuid`、`developPresetFolders`、`getDevelopPresets`、`applyDevelopPreset`、`getDevelopSettings`（文档标为实验性）、`LrExportSession`、`doExportOnCurrentTask`、`waitForRender` 的实际行为；写入门结束后立即读到的显影设置是否已含预设；插件环境里的 `loadstring` / `setfenv` 读 `.lrtemplate`；`LR_export_destinationType`、`LR_export_destinationPathPrefix`、`LR_export_useSubfolder`、`LR_collisionHandling` 的取值（尤其 `skip`）；导出预设的目录位置；`os.date`。
+- **未验证**（插件在 Lightroom Classic 里实际运行之前）：SDK 6.0 参考里有的 `developPresetByUuid`、`developPresetFolders`、`getDevelopPresets`、`applyDevelopPreset`、`getDevelopSettings`（文档标为实验性）、`LrExportSession`、`doExportOnCurrentTask`、`waitForRender` 的实际行为；写入门结束后立即读到的显影设置是否已含预设；插件环境里的 `loadstring` / `setfenv` 读 `.lrtemplate`；`LR_export_destinationType`、`LR_export_destinationPathPrefix`、`LR_export_useSubfolder`、`LR_collisionHandling` 的取值（尤其 `skip`）；导出预设的目录位置。
 - **未做**：按单张照片选不同预设；Smart Collection 的“是否已修图”条件（`progress` 已可查，规则字段未加）；导出模板以外的导出参数编辑；双向同步与逐字段合并（FR13 其余部分）。

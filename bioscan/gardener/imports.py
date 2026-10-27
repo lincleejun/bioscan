@@ -340,9 +340,11 @@ def batch_collection(store: st.Store, pid: str, *, actor: str, recreate: bool = 
         col = c.execute("SELECT id, deleted_at FROM collections WHERE id = ?", (p["collection_id"],)).fetchone() \
             if p["collection_id"] else None
         if col is not None and col["deleted_at"] is None:
-            n = st.add_members(c, col["id"], done, "auto")
-            if n:
-                st.collection_history(c, col["id"], "members", {"added": n, "import_plan": pid}, actor)
+            have = {r[0] for r in c.execute("SELECT asset_id FROM collection_members WHERE collection_id = ?",
+                                            (col["id"],))}
+            new = [a for a in done if a not in have]       # a removed member keeps its tombstone row: not re-added
+            if st.add_members(c, col["id"], new, "auto"):
+                st.collection_history(c, col["id"], "members", {"add": new, "remove": [], "import_plan": pid}, actor)
             return col["id"]
         if (col is not None and not recreate) or not done:
             return None

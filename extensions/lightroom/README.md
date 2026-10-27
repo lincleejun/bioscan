@@ -103,7 +103,7 @@ SDK calls (in the SDK 6.0 reference, unverified in Lightroom): `LrApplication.de
 `LrPhoto:applyDevelopPreset(preset, plugin)`, `LrPhoto:getDevelopSettings` (marked experimental), `LrExportSession`,
 `doExportOnCurrentTask`, `renditions`, `LrExportRendition:waitForRender`/`.photo`, `LrFileUtils.recursiveFiles`,
 `createAllDirectories`. Not in the reference: `loadstring`/`setfenv` inside the plug-in, the `LR_export_*` setting names
-and `LR_collisionHandling` values (`rename`, `skip`, `overwrite`), `os.date`.
+and `LR_collisionHandling` values (`rename`, `skip`, `overwrite`). `LrDate.currentTime`/`timeToW3CDate` stamp presets.json.
 
 ## Acceptance checklist (manual, on the owner's Mac)
 

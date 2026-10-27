@@ -4,6 +4,7 @@
 -- follows Decide.lua (the same rules as bioscan/gardener/handoff.py). Develop settings and keywords other than
 -- the ones a handoff wrote before are never touched.
 local LrApplication = import "LrApplication"
+local LrDate = import "LrDate"
 local LrDialogs = import "LrDialogs"
 local LrExportSession = import "LrExportSession"
 local LrFileUtils = import "LrFileUtils"
@@ -278,7 +279,7 @@ function Handoff.writePresets()
   end
   table.sort(exp, function(a, b) return a.path < b.path end)
   LrFileUtils.createAllDirectories(LrPathUtils.parent(Handoff.PRESETS))
-  writeJson(Handoff.PRESETS, { schema = 1, at = os.date("!%Y-%m-%dT%H:%M:%SZ"), develop = dev, export = exp })
+  writeJson(Handoff.PRESETS, { schema = 1, at = LrDate.timeToW3CDate(LrDate.currentTime()), develop = dev, export = exp })
 end
 -- ---- end 契约修订 7B ----
 
