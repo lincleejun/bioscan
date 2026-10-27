@@ -362,6 +362,8 @@ _Avoid_: good photo, select (a verb here)
 **Burst**:
 Frames of one camera at most `max_gap_s` apart whose frame vectors are alike (cosine at least `min_cosine`),
 chained in time order by the `burst` reducer; a frame in no burst has id null.
+In Gardener a person may split a wrong burst (`POST /bursts/split`); the split is kept as a burst override and
+applied over every later run of the reducer.
 _Avoid_: sequence, series, stack
 
 **Scene category**:

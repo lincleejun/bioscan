@@ -252,7 +252,8 @@ class Fake:
     def detail(self, a: dict) -> dict:
         cols = [{"id": c["id"], "name": c["name"]} for c in self.cols.values()
                 if not c["deleted_at"] and a["id"] in self.members(c)]
-        return {**a, "collections": cols}
+        encs = [{"id": "e_fake1", "task_id": a["task_ids"][0], "photos": 5}] if a["media"] == "photo" and a["task_ids"] else []
+        return {**a, "collections": cols, "encounters": encs}
 
     def col_out(self, c: dict) -> dict:
         ms = [self.assets[m] for m in self.members(c)]
@@ -702,6 +703,9 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         if not body.get("dry_run"):
             fk.mark({"asset_ids": [a["id"]], "use": out["keep"]["use"]}, "ui")
             out["batch_id"] = fk.mark({"asset_ids": sibs, "use": "reject"}, "ui")["batch_id"] if sibs else None
+        out["collections"] = [{"id": o["id"], "name": o["name"], "asset_ids": [m for m in sibs if m in fk.members(o)]}
+                              for o in fk.cols.values() if not o["deleted_at"] and o["origin"] != "auto"
+                              and set(sibs) & set(fk.members(o))]
         return out
 
     @app.get(P + "/encounters")
@@ -721,11 +725,27 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
 
     @app.post(P + "/encounters/{eid}/split", status_code=201)
     def encounter_split(eid: str, body: dict):
-        return {"id": "e_fake2", "from": eid}
+        return {"id": "e_fake2", "from": eid, "batch_id": "b_enc1"}
 
     @app.post(P + "/encounters/merge")
     def encounter_merge(body: dict):
-        return {"id": body["ids"][0]}
+        return {"id": body["ids"][0], "batch_id": "b_enc2"}
+
+    # ---- contract revision 7A: shapes only; behaviour is tested on the real service ----
+    @app.post(P + "/encounters/undo")
+    def encounter_undo(body: dict):
+        if body.get("batch_id") not in ("b_enc1", "b_enc2"):
+            raise HTTPException(404, "no encounter batch")
+        return {"undone": 1, "action": "split" if body["batch_id"] == "b_enc1" else "merge"}
+
+    @app.post(P + "/bursts/split", status_code=201)
+    def burst_split(body: dict):
+        ids = [body["at"]] if body.get("at") else body.get("asset_ids") or []
+        a = fk.asset(ids[0]) if ids else None
+        if not a or not a["burst"]:
+            raise Err(400, "要拆的照片须在同一个连拍里", "bad_request")
+        new = a["burst"]["id"] + "~p_fake"
+        return {"burst_id": new if len(ids) > 1 else None, "from": a["burst"]["id"], "moved": ids}
 
     @app.post(P + "/collections/{cid}/preview-rule")
     def preview_rule(cid: str, body: dict):

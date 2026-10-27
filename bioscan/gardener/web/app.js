@@ -618,17 +618,26 @@
     const a = ws.current && A(ws.current);
     if (!a) return '';
     const e = encOn(ws) && ws.enc.by.get(a.id);
-    return (a.burst && a.burst.size > 1 ? `<button type="button" class="btn sm ghost" data-action="keep-best" data-id="${esc(a.id)}" data-key="b-keep">保留此张并淘汰相似帧…</button>` : '')
+    const sibs = a.burst && a.burst.size > 1 ? ws.all.map(A).filter(x => x && x.burst && x.burst.id === a.burst.id)
+      .sort((x, y) => ((x.taken_at || '') + x.id < (y.taken_at || '') + y.id ? -1 : 1)) : [];   // 7A: split a wrong burst
+    return (sibs.length > 1 && sibs[0].id !== a.id ? `<button type="button" class="btn sm ghost" data-action="burst-split" data-id="${esc(a.id)}">从这张起拆为新连拍</button>` : '')
+      + (a.burst && a.burst.size > 1 ? `<button type="button" class="btn sm ghost" data-action="keep-best" data-id="${esc(a.id)}" data-key="b-keep">保留此张并淘汰相似帧…</button>` : '')
       + (e && e.asset_ids.indexOf(a.id) > 0 ? `<button type="button" class="btn sm ghost" data-action="enc-split" data-id="${esc(e.id)}" data-at="${esc(a.id)}" data-key="b-split-enc">从这张起拆为新拍摄段</button>` : '');
   }
   const SKIP_WHY = { human: '已有人工决定', only_record: '唯一的物种记录' };
+  // 契约修订 7A：拍摄段的拆、合各是一批，可整批撤销；之后又改过则服务拒绝（409）
+  const encUndo = (ws, batch) => (batch ? { action: { label: '撤销', run: async () => {
+    try { await api('POST', '/encounters/undo', { batch_id: batch }); toast('已撤销'); await loadEnc(ws); } catch (e) { toast(e.status === 409 ? '这些拍摄段之后又被修改过，无法撤销' : errMsg(e)); }
+  } } } : undefined);
   async function keepBest(id) {
     let r;
     try { r = await api('POST', '/marks/keep-best', { asset_id: id, dry_run: true }); } catch (e) { toast(errMsg(e)); return; }
     const skipped = r.skipped.map(x => `<li>${esc((A(x.id) || { name: x.id }).name)} · ${esc(SKIP_WHY[x.reason] || x.reason)}</li>`).join('');
+    const cols = (r.collections || []).filter(x => !ui.ws || x.id !== ui.ws.colId);     // 7A: PRD §05
+    const also = cols.length ? `<p class="note warn block">${ic('warn')}要淘汰的帧也在其他集合：${cols.map(x => `${esc(x.name)}（${x.asset_ids.length} 张）`).join('、')}。用途是全局的，这些集合里会同样显示为淘汰。</p>` : '';
     dialog({
       title: '保留此张并淘汰相似帧',
-      body: `<p>保留「${esc((A(id) || { name: id }).name)}」，同一连拍里另外 <b>${r.reject.length}</b> 张标为淘汰。</p>${skipped ? `<p class="hint">不会改动：</p><ul class="conf-list">${skipped}</ul>` : ''}<p class="hint">淘汰只是决定，不删除或移动任何文件；整批可撤销。</p>`,
+      body: `<p>保留「${esc((A(id) || { name: id }).name)}」，同一连拍里另外 <b>${r.reject.length}</b> 张标为淘汰。</p>${also}${skipped ? `<p class="hint">不会改动：</p><ul class="conf-list">${skipped}</ul>` : ''}<p class="hint">淘汰只是决定，不删除或移动任何文件；整批可撤销。</p>`,
       actions: [{ label: '保留记录并淘汰其余', value: 'record', kind: 'primary' }, { label: '选入修图并淘汰其余', value: 'edit' }],
       onSubmit: async v => {
         try {
@@ -689,7 +698,7 @@
     const ae = d && d.caps && d.caps.aesthetic;
     if (!a.ai) {
       const st = ae ? ae.state : null;
-      if (st === 'not_enabled') return '<p class="hint">本任务未启用「美学与选择建议」，因此没有 AI Pick/Reject 建议。</p>';
+      if (st === 'not_enabled') return '<p class="hint">本任务未启用「美学与选择建议」，因此没有 AI 保留/舍弃建议。</p>';
       if (st === 'failed') return `<p class="ai-fail">${ic('warn')}分析失败：${esc(ae.error || '原因未知')}</p><button type="button" class="btn sm" data-action="retry-asset" data-id="${esc(a.id)}">${ic('retry')}重试此项</button>`;
       if (st === 'unavailable') return `<p class="ai-fail">${ic('warn')}能力不可用：${esc(ae.error || '原因未知')}</p>`;
       if (st === 'running') return '<p class="hint">正在分析…</p>';
@@ -705,7 +714,7 @@
     if (f.online) return pill('在线', 'ok');
     return d.meta && d.meta.missing ? pill('文件缺失', 'fail') : pill('来源离线', 'wait');
   }
-  // 服务替人清空过的判断（内容变化、本组不留清 Pick）：说明原因并可整批恢复
+  // 服务替人清空过的判断（内容变化、本组不留清除保留记录 / 选入修图）：说明原因并可整批恢复
   function restoreHTML(hist, meta) {
     const seen = new Set(), out = [];
     hist.slice().reverse().forEach(h => {
@@ -714,7 +723,7 @@
       const zeroed = typeof h.reason === 'string' && h.reason.startsWith('zero:');
       if (!changed && !zeroed) return;
       seen.add(h.batch_id);
-      out.push(`<div class="note ${changed ? 'warn' : 'info'} block restore-row"><span>${ic('warn')}${changed ? '内容已变化，旧判断已清空' : '「本组不留」清除了 Pick'}（${esc(fmtTime(h.at))}）</span><button type="button" class="btn sm" data-action="restore-batch" data-id="${esc(h.batch_id)}" data-label="${changed ? '恢复旧判断' : '恢复 Pick'}">${changed ? '恢复旧判断' : '恢复 Pick'}</button></div>`);
+      out.push(`<div class="note ${changed ? 'warn' : 'info'} block restore-row"><span>${ic('warn')}${changed ? '内容已变化，旧判断已清空' : '「本组不留」清除了保留记录 / 选入修图'}（${esc(fmtTime(h.at))}）</span><button type="button" class="btn sm" data-action="restore-batch" data-id="${esc(h.batch_id)}" data-label="${changed ? '恢复旧判断' : '恢复保留决定'}">${changed ? '恢复旧判断' : '恢复保留决定'}</button></div>`);
     });
     if (!out.length && meta.content_changed_at) out.push(`<p class="note warn block">${ic('warn')}内容已变化（${esc(fmtTime(meta.content_changed_at))}），旧判断见历史。</p>`);
     return out.join('');
@@ -779,7 +788,7 @@
       return `background-image:url('${mediaUrl(a.id, 'large')}');background-size:${100 / w}% ${100 / h}%;background-position:${w < 1 ? (x0 / (1 - w)) * 100 : 0}% ${h < 1 ? (y0 / (1 - h)) * 100 : 0}%`;
     };
     const btn = (act, s, label) => `<button type="button" class="btn sm ghost" data-action="${act}" data-id="${esc(a.id)}" data-subject="${esc(s.id)}">${label}</button>`;
-    const burst = a.burst && a.burst.size > 1;
+    const scopes = idScopes(a, d), scope = idScope(a, d);
     return `<section class="card"><h3>物种<span class="sub">${esc(ID_NOTE)}</span></h3><ul class="faces subjects">${ss.map((s, i) => {
       const cur = s.current, ai = s.ai;
       const src = !cur ? '' : s.human ? '<small class="pill p-ok">人工确认</small>' : `<small class="hint">AI 候选${cur.p != null ? ' · ' + esc(fmtScore(cur.p)) : ''}</small>`;
@@ -792,7 +801,19 @@
       return `<li><span class="face subj" style="${esc(crop(s))}" role="img" aria-label="动物 ${i + 1}"></span>
         <span><b>${esc(idText(cur))}</b>${src}${aiDiff}${said}${why}</span>
         <span class="face-acts">${picks}${!s.human && ai && ai.level === 'species' ? btn('id-accept', s, '确认') : ''}${btn('id-change', s, '改为…')}${btn('id-unsure', s, '不确定')}</span></li>`;
-    }).join('') || `<li class="hint">${(d.caps.subject || {}).state === 'done' ? '模型没有标出动物。' : '还没有主体框（未分析或未启用主体检测）。'}</li>`}</ul>${a.media === 'photo' && a.preview === 'ready' ? `<button type="button" class="btn sm ghost" data-action="id-draw" data-id="${esc(a.id)}">标出漏掉的动物</button>` : ''}${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
+    }).join('') || `<li class="hint">${(d.caps.subject || {}).state === 'done' ? '模型没有标出动物。' : '还没有主体框（未分析或未启用主体检测）。'}</li>`}</ul>${a.media === 'photo' && a.preview === 'ready' ? `<button type="button" class="btn sm ghost" data-action="id-draw" data-id="${esc(a.id)}">标出漏掉的动物</button>` : ''}${scopes.length > 1 ? `<label class="check-row">确认或改为时一起改：<select class="input sm" data-pref="idscope" aria-label="物种结论一起改的范围">${scopes.map(([v, t]) => `<option value="${v}" ${v === scope ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label><p class="hint">连拍或拍摄段里只改模型认成同一种的主体（或照片唯一的主体）；已有人工结论的不改。</p>` : ''}</section>`;
+  }
+  // 契约修订 7A：物种结论一起改的范围——仅此主体 / 同一连拍 / 同一拍摄段，界面偏好 idscope
+  function idScopes(a, d) {
+    const out = [['subject', '仅此主体']];
+    if (a && a.burst && a.burst.size > 1) out.push(['burst', `同一连拍（${a.burst.size} 张）`]);
+    const e = d && (d.encounters || []).find(x => x.photos > 1);
+    if (e) out.push(['encounter', `同一拍摄段（${e.photos} 张）`]);
+    return out;
+  }
+  function idScope(a, d) {
+    const have = idScopes(a, d).map(x => x[0]), want = prefs.get('idscope', 'burst');
+    return have.includes(want) ? want : have.includes('burst') ? 'burst' : 'subject';
   }
   // 同一拍摄的其他版本：只在代表版本出现；“不是同一张”由人确认后永不再自动合并
   function versionsHTML(d) {
@@ -948,13 +969,13 @@
   async function identify(el, claim, label) {
     const a = A(el.dataset.id);
     const drawn = el.dataset.xyxy ? JSON.parse(el.dataset.xyxy) : null;     // a box a person drew: no burst scope
-    const scope = !drawn && a && a.burst && a.burst.size > 1 && prefs.get('idburst', '1') === '1' ? 'burst' : 'subject';
+    const scope = drawn ? 'subject' : idScope(a, S.details.get(el.dataset.id));
     try {
       const r = await api('POST', '/identifications', Object.assign(drawn ? { new_subjects: [{ asset_id: el.dataset.id, xyxy: drawn }] }
         : { subject_ids: [el.dataset.subject] }, { claim, scope }));
       const n = r.changed.length, skip = r.skipped.filter(x => x.reason === 'human').length;
       S.details.clear();
-      toast(`${label}${n > 1 ? `（${n} 只，含同一连拍）` : ''}${skip ? `；${skip} 张已有人工结论，未改` : ''}`, r.batch_id ? { action: { label: '撤销', run: async () => {
+      toast(`${label}${n > 1 ? `（${n} 只，含${scope === 'encounter' ? '同一拍摄段' : '同一连拍'}）` : ''}${skip ? `；${skip} 张已有人工结论，未改` : ''}`, r.batch_id ? { action: { label: '撤销', run: async () => {
         try { await api('POST', '/identifications/undo', { batch_id: r.batch_id }); S.details.clear(); toast('已撤销'); renderInspector(); } catch (e) { toast(e.status === 409 ? '之后又被人工修改过，无法撤销' : errMsg(e)); }
       } } } : undefined);
       renderInspector();
@@ -985,7 +1006,7 @@
   }
   function colNotes(c) {
     const w = [];
-    if (c.review.state === 'zeroed') w.push(c.picks ? `<span class="note warn">${ic('warn')}已标记本组不留，但含 ${c.picks} 张 Pick</span>` : '<span class="note muted">已明确零选</span>');
+    if (c.review.state === 'zeroed') w.push(c.picks ? `<span class="note warn">${ic('warn')}已标记本组不留，但含 ${c.picks} 张保留记录或选入修图</span>` : '<span class="note muted">已明确零选</span>');
     else if (c.size && !c.picks) w.push(`<span class="note warn">${ic('warn')}尚无人工入选</span>`);
     if (c.low_score) w.push('<span class="note">AI 整组评分偏低 · 全部候选仍可审阅</span>');
     if (c.review.new_since) w.push(`<span class="note info">新增 ${c.review.new_since} 张待审</span>`);
@@ -1125,7 +1146,7 @@
       <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy">
       <span class="sp-name"><b>${esc(k.zh || k.common || k.taxon)}</b>${k.zh && k.common ? `<small>${esc(k.common)}</small>` : ''}<i>${esc(k.taxon)}</i></span>
       <span class="sp-meta">${k.confirmed ? `已确认 ${k.confirmed}` : ''}${k.confirmed && k.candidates ? ' · ' : ''}${k.candidates ? `待确认 ${k.candidates}` : ''}${k.only_one ? ' · <b class="pill p-wait">仅 1 张</b>' : ''}</span>
-      <span class="sp-meta mono">${esc(when)}</span></a>`;
+      <span class="sp-meta mono">${esc(when)}${k.encounters ? ` · ${k.encounters} 个拍摄段` : ''}</span></a>`;
   }
   async function vSpecies(p) {
     const lib = await api('GET', '/species', null, { task: p.task });
@@ -1582,7 +1603,7 @@
     const c = ui.col;
     dialog({
       title: '完成本组？',
-      body: `<p>本组 ${c.size} 张中，${c.judged} 张已判断，<b>${c.review.unhandled} 张未逐张处理</b>。</p><p class="hint">未处理的素材保持原状，<b>不会被自动 Reject</b>。之后若有新成员加入，会标记为「新增待审」，历史完成记录保留。</p>
+      body: `<p>本组 ${c.size} 张中，${c.judged} 张已判断，<b>${c.review.unhandled} 张未逐张处理</b>。</p><p class="hint">未处理的素材保持原状，<b>不会被自动淘汰</b>。之后若有新成员加入，会标记为「新增待审」，历史完成记录保留。</p>
         <div class="field"><label for="cp-note">备注（可选）</label><input id="cp-note" class="input" maxlength="200"></div>`,
       actions: [{ label: '完成本组', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => {
@@ -1597,13 +1618,13 @@
   async function zero(c, resolution) {
     const r = await api('POST', `/collections/${encodeURIComponent(c.id)}/zero`, resolution ? { resolution } : {});
     await refreshCol(); await refreshCols();
-    if (r.batch_id) toast(`已清除 Pick，「${c.name}」记为本组不留`, { action: { label: '撤销清除', run: () => undoBatch(r.batch_id, '本组不留清除的 Pick') } });
+    if (r.batch_id) toast(`已把保留记录 / 选入修图改回待定，「${c.name}」记为本组不留`, { action: { label: '撤销清除', run: () => undoBatch(r.batch_id, '本组不留清除的保留决定') } });
     else toast(`「${c.name}」已记为本组不留`);
     pollNow();
   }
   function openZero() {
     const c = ui.col;
-    confirmDialog('本组不留？', `<p>将「${esc(c.name)}」记为明确零选。</p><p class="hint">不会 Reject、移动或删除任何素材；若本组含已 Pick 的素材，会先请你选择如何处理。</p>`, '确认本组不留', 'primary', async () => {
+    confirmDialog('本组不留？', `<p>将「${esc(c.name)}」记为明确零选。</p><p class="hint">不会淘汰、移动或删除任何素材；若本组含保留记录或选入修图的照片，会先请你选择如何处理。</p>`, '确认本组不留', 'primary', async () => {
       try { await zero(c); } catch (e) {
         if (e.status !== 409 || !e.body.picks) throw e;
         setTimeout(() => openZeroConflict(c, e.body.picks), 0);
@@ -1613,9 +1634,9 @@
   function openZeroConflict(c, picks) {
     const list = picks.map(p => { const a = A(p.id) || { id: p.id, name: p.id, preview: 'ready', online: true }; return `<li class="conf-item">${photo(a, 'thumb')}<span><b>${esc(a.name)}</b><span class="hint">${p.collections.length ? '也在：' + p.collections.map(x => esc(x.name)).join('、') : '仅在本组'}</span></span></li>`; }).join('');
     dialog({
-      title: `本组含 ${picks.length} 张已 Pick 的素材`, cls: 'conflict',
-      body: `<p class="note warn block">${ic('warn')}「本组不留」与现有 Pick 冲突。Pick 是全局判断，会同时影响这些素材所在的其他集合，因此不会被静默修改。</p><ul class="conf-list">${list}</ul><p class="hint">请选择处理方式（清除后可撤销）：</p>`,
-      actions: [{ label: '保留 Pick，仅完成本组', value: 'keep_picks', kind: 'primary' }, { label: `清除这 ${picks.length} 张的 Pick 并记为不留`, value: 'clear_picks', kind: 'danger' }],
+      title: `本组含 ${picks.length} 张保留记录或选入修图的照片`, cls: 'conflict',
+      body: `<p class="note warn block">${ic('warn')}「本组不留」与这些照片的用途冲突。保留记录、选入修图是全局决定，会同时影响这些照片所在的其他集合，因此不会被静默修改。</p><ul class="conf-list">${list}</ul><p class="hint">请选择处理方式（清除后可撤销）：</p>`,
+      actions: [{ label: '保留它们的用途，仅完成本组', value: 'keep_picks', kind: 'primary' }, { label: `把这 ${picks.length} 张改回待定并记为不留`, value: 'clear_picks', kind: 'danger' }],
       onSubmit: v => (v ? zero(c, v) : undefined),
     });
   }
@@ -1940,8 +1961,9 @@
     burst: el => { const ws = ui.ws, b = el.dataset.id; if (ws.expanded.has(b)) ws.expanded.delete(b); else ws.expanded.add(b); recompute(); },
     'enc-mode': () => { const ws = ui.ws; ws.encMode = !ws.encMode; prefs.set('enc', ws.encMode ? '1' : '0'); const b = $('[data-action="enc-mode"]'); b.setAttribute('aria-pressed', String(ws.encMode)); b.textContent = ws.encMode ? '按拍摄段' : '不分段'; recompute(); },
     'enc-toggle': el => { const o = ui.ws.enc.open, id = el.dataset.id; if (o.has(id)) o.delete(id); else o.add(id); recompute(); },
-    'enc-split': async el => { const ws = ui.ws; try { await api('POST', `/encounters/${encodeURIComponent(el.dataset.id)}/split`, { at: el.dataset.at }); toast('已拆为新拍摄段；重新扫描不会恢复旧分段'); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
-    'enc-merge': async el => { const ws = ui.ws; try { await api('POST', '/encounters/merge', { ids: [el.dataset.id, el.dataset.other] }); toast('已合并拍摄段'); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'enc-split': async el => { const ws = ui.ws; try { const r = await api('POST', `/encounters/${encodeURIComponent(el.dataset.id)}/split`, { at: el.dataset.at }); toast('已拆为新拍摄段；重新扫描不会恢复旧分段', encUndo(ws, r.batch_id)); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'enc-merge': async el => { const ws = ui.ws; try { const r = await api('POST', '/encounters/merge', { ids: [el.dataset.id, el.dataset.other] }); toast('已合并拍摄段', encUndo(ws, r.batch_id)); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'burst-split': async el => { const ws = ui.ws; try { const r = await api('POST', '/bursts/split', { at: el.dataset.id }); toast(`已从这张起拆出 ${r.moved.length} 张为新连拍；重新扫描不会恢复，物种结论不变`); await pollNow(); if (encOn(ws)) await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
     'keep-best': el => keepBest(el.dataset.id),
     'burst-collapse': () => { const ws = ui.ws; ws.collapse = !ws.collapse; prefs.set('burst', ws.collapse ? '1' : '0'); const b = $('[data-action="burst-collapse"]'); b.setAttribute('aria-pressed', String(ws.collapse)); b.textContent = ws.collapse ? '连拍已折叠' : '连拍已展开'; recompute(); },
     'grid-size': () => { const n = prefs.get('grid', 'm') === 'm' ? 'l' : 'm'; prefs.set('grid', n); const w = $('.ws'); w.classList.remove('grid-m', 'grid-l'); w.classList.add('grid-' + n); },
@@ -1996,8 +2018,8 @@
       try {
         const rows = await api('GET', '/coverage', null, { task: el.dataset.id || undefined });
         const ST = { covered: ['已覆盖', 'ok'], zeroed: ['明确不留', 'muted'], uncovered: ['未覆盖', 'fail'] };
-        dialog({ title: '覆盖检查', cls: 'wide', body: `<p class="hint">只检查已扫描素材形成的事件/地点/场景/物种集合；没有拍到的地点系统无从得知。「未覆盖」= 尚无人工 Pick 且未明确不留，不强制每组保留一张。</p>
-          <table class="tbl"><thead><tr><th>集合</th><th>类型</th><th>张数</th><th>Pick</th><th>状态</th></tr></thead><tbody>${rows.map(r => `<tr><td><a href="#/review/${esc(r.collection_id)}">${esc(r.name)}</a></td><td>${esc(GROUP[r.group_kind] || r.group_kind)}</td><td>${esc(r.size)}</td><td>${esc(r.picks)}</td><td>${pill((ST[r.state] || [r.state])[0], (ST[r.state] || [0, 'muted'])[1])}</td></tr>`).join('') || '<tr><td colspan="5" class="hint">还没有可检查的集合。</td></tr>'}</tbody></table>` });
+        dialog({ title: '覆盖检查', cls: 'wide', body: `<p class="hint">只检查已扫描素材形成的事件/地点/场景/物种集合；没有拍到的地点系统无从得知。「未覆盖」= 尚无保留记录或选入修图、且未明确不留，不强制每组保留一张。</p>
+          <table class="tbl"><thead><tr><th>集合</th><th>类型</th><th>张数</th><th>保留</th><th>状态</th></tr></thead><tbody>${rows.map(r => `<tr><td><a href="#/review/${esc(r.collection_id)}">${esc(r.name)}</a></td><td>${esc(GROUP[r.group_kind] || r.group_kind)}</td><td>${esc(r.size)}</td><td>${esc(r.picks)}</td><td>${pill((ST[r.state] || [r.state])[0], (ST[r.state] || [0, 'muted'])[1])}</td></tr>`).join('') || '<tr><td colspan="5" class="hint">还没有可检查的集合。</td></tr>'}</tbody></table>` });
       } catch (e) { toast(errMsg(e)); }
     },
     'lib-clear': () => { ui.lib = {}; route(true); },
@@ -2237,7 +2259,8 @@
     } else if (t.dataset.actionChange === 'batch-stars' && t.value !== '') {
       const n = Number(t.value);
       doMark(Array.from(ui.ws.sel), { stars: n }, n ? `批量 ${n} 星` : '批量清除星级');
-    } else if (t.dataset.pref === 'advance' || t.dataset.pref === 'idburst') prefs.set(t.dataset.pref, t.checked ? '1' : '0');
+    } else if (t.dataset.pref === 'advance') prefs.set(t.dataset.pref, t.checked ? '1' : '0');
+    else if (t.dataset.pref === 'idscope') prefs.set('idscope', t.value);
     else if (t.name === 'def-mode' || t.name === 'def-preset') {
       try { S.settings = await api('PUT', '/settings', t.name === 'def-mode' ? { run_mode: t.value } : { default_preset: t.value }); toast('默认设置已保存'); } catch (err) { toast(errMsg(err)); }
     }
@@ -2278,7 +2301,7 @@
     const radio = (v, text, on, dis) => `<label class="radio-row"><input type="radio" name="ho-scope" value="${v}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}><span>${text}</span></label>`;
     dialog({
       title: '在 Lightroom 打开', cls: 'export',
-      body: `<fieldset class="fs"><legend>范围</legend>${scope ? radio('scope', `${esc(label)} 中已 Pick 的照片`, true) : ''}${radio('selected', `当前选中（${sel.length} 张，淘汰的除外）`, !scope, !sel.length)}</fieldset>
+      body: `<fieldset class="fs"><legend>范围</legend>${scope ? radio('scope', `${esc(label)} 中选入修图的照片`, true) : ''}${radio('selected', `当前选中（${sel.length} 张，淘汰的除外）`, !scope, !sel.length)}</fieldset>
         <div class="field"><label for="ho-name">Lightroom 集合名</label><input id="ho-name" class="input" maxlength="80" value="${esc(label)}" placeholder="默认取集合或物种名"></div>
         <p class="hint">冻结此刻的成员：已在 Lightroom 目录中的照片按路径找到并复用，其余就地添加（不复制），全部放进 Gardener 集合组里以此命名的集合。写入你给的星级（AI 分数不会变成星级）和你确认过的物种关键词（Aves|目|科|学名，英文名与中文名为同义词）；其他关键词与显影设置不动。Lightroom 中已改过的星级或关键词不覆盖，列为冲突。原片离线的照片跳过。</p>
         <div id="ho-report" aria-live="polite"></div>`,

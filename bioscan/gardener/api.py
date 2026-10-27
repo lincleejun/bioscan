@@ -840,8 +840,15 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
             raise Error("expect must be {asset_id: version}")
         with store.tx() as c:
-            return rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
-                                    dry_run=bool(body.get("dry_run")), expect=expect)
+            out = rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
+                               dry_run=bool(body.get("dry_run")), expect=expect)
+        cols: dict[str, dict[str, Any]] = {}            # 7A: the person's collections the rejects are in (PRD §05)
+        auto = {r["id"] for r in store.all("SELECT id FROM collections WHERE origin = 'auto'")} if out["reject"] else set()
+        for i in out["reject"]:
+            for col in store.collections_of(i):
+                if col["id"] not in auto:
+                    cols.setdefault(col["id"], col | {"asset_ids": []})["asset_ids"].append(i)
+        return out | {"collections": list(cols.values())}
 
     @r.get("/encounters")
     def get_encounters(task: str | None = None, concept: str | None = None) -> dict[str, Any]:
@@ -859,13 +866,33 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
             raise Error("one of at (asset id) or asset_ids is required")
         with store.tx() as c:
-            new = rv.split_encounter(c, eid, at=at, asset_ids=ids, actor=actor)
-        return {"id": new, "from": eid}
+            new, batch = rv.logged(c, "split", [eid], lambda: rv.split_encounter(c, eid, at=at, asset_ids=ids,
+                                                                                 actor=actor), actor=actor)
+        return {"id": new, "from": eid, "batch_id": batch}
 
     @r.post("/encounters/merge")
     def merge_encounters(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        eids = list(dict.fromkeys(strs(body.get("ids"), "ids")))
         with store.tx() as c:
-            return {"id": rv.merge_encounters(c, strs(body.get("ids"), "ids"), actor=actor)}
+            kept, batch = rv.logged(c, "merge", eids, lambda: rv.merge_encounters(c, eids, actor=actor), actor=actor)
+        return {"id": kept, "batch_id": batch}
+
+    # ---- contract revision 7A: undo an encounter split/merge, split a wrong burst ----
+    @r.post("/encounters/undo")
+    def undo_encounters(body: dict[str, Any] = BODY) -> dict[str, Any]:
+        with store.tx() as c:
+            return rv.undo_encounters(c, text(body, "batch_id", required=True))
+
+    @r.post("/bursts/split", status_code=201)
+    def split_burst(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """{at: asset_id} moves that frame and the later ones, {asset_ids} exactly those, to a new burst that
+        survives rescans."""
+        at = body.get("at")
+        ids = strs(body["asset_ids"], "asset_ids") if body.get("asset_ids") is not None else None
+        if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
+            raise Error("one of at (asset id) or asset_ids is required")
+        with store.tx() as c:
+            return rv.split_burst(c, at=at, asset_ids=ids, actor=actor)
 
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,
