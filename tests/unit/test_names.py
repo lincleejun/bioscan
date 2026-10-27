@@ -5,6 +5,7 @@ import time
 import numpy as np
 import torch
 
+from bioscan import contract
 from bioscan.service import names
 
 AVI_HEADER = ["Sequence", "Taxon_rank", "Order", "Family", "Scientific_name", "English_name_AviList"]
@@ -74,6 +75,19 @@ def test_read_avilist_v2026_headers_match_v2025(tmp_path):
     write_csv(tmp_path / "v2026.csv", v2026, AVI_ROWS)
     assert names.read_avilist(tmp_path / "v2026.csv") == names.read_avilist(tmp_path / "v2025.csv")
     assert bench.read_name_list(tmp_path / "v2026.csv") == {"corvus corax": "Corvidae", "megascops kennicottii": "Strigidae"}
+
+
+def test_concept_ids_from_avibase_and_mdd_else_the_name(tmp_path):
+    write_csv(tmp_path / "avi.csv", ["RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST", "AVIBASE ID"],
+              [["species", "Passeriformes", "Troglodytidae", "Nannus pacificus", "Pacific Wren", "avibase-5D1A2DC4"],
+               ["species", "Passeriformes", "Corvidae", "Corvus corax", "Northern Raven", ""]])
+    write_csv(tmp_path / "mdd.csv", MDD_HEADER + ["id"], [MDD_ROWS[0] + ["1003456"]])
+    assert [r[3] for r in names.read_avilist(tmp_path / "avi.csv")] == ["avibase:avibase-5D1A2DC4", ""]
+    assert [r[3] for r in names.read_mdd(tmp_path / "mdd.csv")] == ["mdd:1003456"]
+    nl = names.NameList("b", "bird", ["Nannus pacificus", "Corvus corax"], ["", ""], [[""] * 7] * 2,
+                        np.zeros((2, 4), np.float32), ["exact"] * 2, concept=["avibase:x", ""])
+    assert [names.concept_of(nl, i) for i in (0, 1)] == ["avibase:x", ""]
+    assert contract.candidate("Corvus corax", None, [], 0.5, None, 0.5, "")["concept"] == "name:Corvus corax"
 
 
 def test_match_tol_class_and_family():

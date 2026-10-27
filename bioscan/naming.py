@@ -35,7 +35,8 @@ def norm_label(name: str | None) -> str:
 
 # AviList v2026 renamed its CSV headers; rows are read under the v2025 names.
 AVILIST_V2026_COLS = {"RANK": "Taxon_rank", "ORDER": "Order", "FAMILY": "Family",
-                      "SCIENTIFIC NAME": "Scientific_name", "ENGLISH NAME: AVILIST": "English_name_AviList"}
+                      "SCIENTIFIC NAME": "Scientific_name", "ENGLISH NAME: AVILIST": "English_name_AviList",
+                      "AVIBASE ID": "AvibaseID"}
 
 
 def avilist_row(r: dict[str, str]) -> dict[str, str]:

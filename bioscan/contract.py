@@ -104,6 +104,7 @@ class Quality(TypedDict):
 
 class Candidate(TypedDict):
     scientific: str
+    concept: str                 # stable id: avibase:<id> | mdd:<id>; name:<scientific> when the list has none
     common: str | None
     taxonomy: list[str]          # 7 ranks: kingdom phylum class order family genus species
     p_visual: float
@@ -144,9 +145,9 @@ def quality(sharpness: float, exposure: float) -> Quality:
 
 
 def candidate(scientific: str, common: str | None, taxonomy: list[str], p_visual: float, p_geo: float | None,
-              posterior: float) -> Candidate:
-    return {"scientific": scientific, "common": common, "taxonomy": taxonomy, "p_visual": p_visual, "p_geo": p_geo,
-            "posterior": posterior}
+              posterior: float, concept: str = "") -> Candidate:
+    return {"scientific": scientific, "concept": concept or f"name:{scientific}", "common": common,
+            "taxonomy": taxonomy, "p_visual": p_visual, "p_geo": p_geo, "posterior": posterior}
 
 
 def species(list_id: str, level: Level, taxon: str | None, top: list[Candidate]) -> Species:
@@ -233,4 +234,5 @@ IDENTIFY_OUTPUT: dict[str, Any] = {
                "score": "float", "kind": "bird|mammal|other_animal",
                "quality": {"sharpness": "float", "exposure": "float, mean luma - 0.5"},
                "species": "null | {list, level: species|genus|family|unconfirmed, taxon: the name at level or null, "
-                          "top: [{scientific, common, taxonomy[7], p_visual, p_geo, posterior}]}"}]}
+                          "top: [{scientific, concept: avibase:id|mdd:id|name:scientific, common, taxonomy[7], p_visual, "
+                          "p_geo, posterior}]}"}]}
