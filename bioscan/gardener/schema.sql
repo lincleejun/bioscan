@@ -244,3 +244,33 @@ CREATE TABLE IF NOT EXISTS encounter_members (
   PRIMARY KEY (task_id, asset_id)
 );
 CREATE INDEX IF NOT EXISTS encounter_members_enc ON encounter_members (encounter_id);
+
+-- Import (contract revision 5D, PRD §06 正式导入): a plan freezes which files of which assets go where; the runner
+-- copies, verifies and commits each file; managed_files says where the verified managed copies of an asset are.
+CREATE TABLE IF NOT EXISTS import_plans (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
+  seq INTEGER NOT NULL,          -- batch number (all plans): the _B<seq> suffix of renamed groups
+  status TEXT NOT NULL,          -- planned | queued | running | completed | partial | failed
+  dest_root TEXT NOT NULL, folder TEXT NOT NULL, place TEXT, include_pending INTEGER NOT NULL,
+  summary TEXT NOT NULL,         -- JSON frozen at planning: uses, not_copied, unfinished
+  error TEXT, interruptions INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS import_items (
+  plan_id TEXT NOT NULL REFERENCES import_plans(id), asset_id TEXT NOT NULL REFERENCES assets(id),
+  src TEXT NOT NULL, dst TEXT NOT NULL,                -- dst frozen at planning, never re-derived
+  role TEXT NOT NULL,            -- raw | jpeg | image | video | sidecar
+  size INTEGER NOT NULL, mtime_ns INTEGER, quick_hash TEXT,
+  action TEXT NOT NULL,          -- copy | identical (dst already holds it) | reuse (imported before) | duplicate (same content imported from elsewhere)
+  state TEXT NOT NULL,           -- pending | copying | done | failed
+  sha256 TEXT, error TEXT, done_at TEXT,
+  PRIMARY KEY (plan_id, src)
+);
+CREATE TABLE IF NOT EXISTS managed_files (
+  asset_id TEXT NOT NULL REFERENCES assets(id), path TEXT NOT NULL, source_path TEXT NOT NULL, role TEXT NOT NULL,
+  size INTEGER NOT NULL, source_mtime_ns INTEGER, quick_hash TEXT, sha256 TEXT NOT NULL,
+  plan_id TEXT NOT NULL, imported_at TEXT NOT NULL,
+  PRIMARY KEY (asset_id, path)
+);
+CREATE INDEX IF NOT EXISTS managed_files_source ON managed_files (source_path);
+CREATE INDEX IF NOT EXISTS managed_files_hash ON managed_files (size, quick_hash);

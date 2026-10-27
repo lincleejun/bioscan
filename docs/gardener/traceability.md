@@ -69,6 +69,10 @@
 | C-R2 | 细节异步解码、不阻塞网格与标记，可取消/被取代，有时限，缓存有上限且可清理（PRD §14 细节读取、资源） | `detail.Details`（2 线程、按素材取代、90 s、`cache/detail` 2 GiB） | `test_newer_request_supersedes_a_queued_one_and_timeout_cancels`、`test_marks_do_not_wait_for_a_decode`、`test_detail_timeout_is_503`、`test_cache_cap_evicts_oldest` | 已由测试证实（假解码器） |
 | C-R3 | 大图与并排比较标明“快速预览 / 原像素细节加载中 / 原像素细节可用”，预览放大不称 100%；同尺度、同步或独立缩放平移，点动物切换目标，默认不选最高分框；底部连拍胶片条（PRD §08 第三级，AC06） | `web/app.js`（dvMount、dvFetch、dvLightbox、dvCompare） | `test_ui_web.py::test_mandated_copy_present`、`test_detail_images_use_the_contract_route_and_never_say_100_percent`；Chrome 手动走查（合成 24 MP JPEG） | 部分验证：无自动化浏览器测试 |
 | C-R4 | 浏览基线：热缓存切换 P95 ≤ 150 ms，细节解码单独统计（PRD §14） | `scripts/gardener_detail_bench.py` | 本机合成 JPEG 运行结果见修订 5C | 只测了进程内 HTTP 与合成 JPEG；RAW 与浏览器解码未测 |
+| D-R1 | 导入计划：按用途复制（默认含待定、不含淘汰），文件组含 RAW、同拍 JPEG、XMP/ACR sidecar，`YYYY-MM-DD_地点` 目录，批次后缀，精确重复，容量与未完成项（PRD §06，AC10） | `imports.py`（`build`、`uses_of`）、`scan.sidecars`、`POST /tasks/{id}/import-plan` | `test_core_imports.py::test_plan_by_use_*`、`test_name_conflicts_get_a_batch_suffix_*`、`test_exact_duplicates_*`、`test_sidecars_are_found_*` | 已由测试证实；真实存储卡未验证 |
+| D-R2 | 复制后核对字节与 sha256 再入库；幂等、可续跑；部分失败如实报告；来源不变（PRD §06、§11，AC11） | `imports.Runner`、`POST /imports/{id}/run`、`managed_files` | `test_core_imports.py::test_run_verifies_*`、`test_partial_failure_*`、`test_crash_mid_import_resumes_*`、`test_not_enough_space_*` | 已由测试证实；exFAT 真盘未验证 |
+| D-R3 | 完成与导入确认页、结果页（PRD §09） | `web/app.js`（vImport、importPlanHTML、importResultHTML） | `test_ui_web.py`（契约路由）；对假服务的无头 Chrome 截图 | 部分验证：无自动化浏览器测试 |
+| D-R4 | CLI 与 MCP 的导入命令（PRD §13） | `cli.py`（`import`）、`mcp.py`（`plan_import`、`run_import`、`get_import`） | `test_ui_cli.py::test_import_commands`、`test_ui_mcp.py::test_import_tools_*` | 已由测试证实（请求映射与假服务往返） |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

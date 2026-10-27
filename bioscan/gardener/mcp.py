@@ -87,6 +87,16 @@ TOOLS = [
            "ids": _IDS}, ("action",)),
     _tool("preview_rule", "Smart Collection 规则改动的预览：命中数 total、当前成员数 current、增减 added/removed（各至多 200 个 id）；"
           "不保存。", {"id": _STR, "rule": {"type": "object"}}, ("id", "rule")),
+    # ---- import (契约修订 5D) ----
+    _tool("plan_import", "为任务生成导入计划：按用途复制（保留记录、选入修图，include_pending 默认含待定；淘汰不复制），"
+          "每组含 RAW、同拍 JPEG 与 XMP/ACR sidecar，目标 dest_root/YYYY-MM-DD_地点；返回重复、改名、所需与可用空间、"
+          "未完成项。只读来源，不复制任何文件。",
+          {"task_id": _STR, "dest_root": _STR, "place": _STR, "include_pending": {"type": "boolean"}},
+          ("task_id", "dest_root")),
+    _tool("run_import", "执行或续跑导入计划（后台复制，逐文件 sha256 校验后入库；已核验的文件不再复制）。"
+          "先让用户看过 plan_import 的结果。", {"plan_id": _STR}, ("plan_id",)),
+    _tool("get_import", "导入计划的进度与结果：status 为 partial 时 failed 列出失败的文件，不是成功。",
+          {"plan_id": _STR}, ("plan_id",)),
 ]
 _NAMES = {t["name"] for t in TOOLS}
 
@@ -152,6 +162,13 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
         return "POST", f"/collections/{args['id']}/preview-rule", {"rule": args["rule"]}, None
     if name == "capabilities":
         return ("POST", "/capabilities/check", {}, None) if args.get("check") else ("GET", "/capabilities", None, None)
+    if name == "plan_import":
+        return ("POST", f"/tasks/{args['task_id']}/import-plan",
+                {"dest_root": args["dest_root"], **_pick(args, ("place", "include_pending"))}, None)
+    if name == "run_import":
+        return "POST", f"/imports/{args['plan_id']}/run", {}, None
+    if name == "get_import":
+        return "GET", f"/imports/{args['plan_id']}", None, None
     raise KeyError(name)
 
 

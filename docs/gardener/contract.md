@@ -406,3 +406,25 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - JPEG 细节，20 % 区域：中位 69 ms，P95 74 ms（每次完整解码原图）。整幅缩到 2048 px：中位 168 ms，P95 176 ms。
   - RAW 解码耗时**未测**：用 `--photos <真实目录>` 在 owner 的 Mac 上补测。
 - **未做**：四图以上比较（PRD 允许后置）；眼部裁切建议（没有眼部检测）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与同拍 JPEG 若尺寸略有不同，比例坐标会有几个像素的偏差（未在真实文件上核对）。
+## 契约修订 5D：正式导入（2026-10-26，AfterShooting PRD v1 §06“正式导入”、§09、AC10、AC11；优先于上文冲突处）
+
+依据：PRD §06 要求 Review 后先生成导入计划、再复制并核对，§09 要求完成页能核对目标、待定、重复、容量与失败项后再“导入 N 张”。
+
+- **用途（适配函数）**：导入按每张照片的用途选择：保留记录 `record`、选入修图 `edit`、待定 `pending`、淘汰 `reject`。用途只从 `imports.uses_of(c, asset_ids)` 读取；四种用途落地之前它把 Flag 映射为 pick → record、reject → reject、无 → pending。`imports.decided_since` 判断计划生成后决定是否又变过。改用新字段时只改这两个函数。
+- **计划** `POST /tasks/{id}/import-plan {dest_root, place?, include_pending?: true}` → 201 `ImportPlan`：
+  - 范围：本任务的代表版本；同一拍摄的其他版本不另复制（`not_copied.versions`），因为它们是同一次拍摄的副本或导出图。默认复制 record + edit + pending，`include_pending=false` 时待定不复制（`not_copied.pending`，界面提醒“仍仅在来源中”）；淘汰永不复制。
+  - 文件组：素材的全部文件（RAW、同拍 JPEG）加上旁边的 sidecar（`scan.sidecars`：同目录、`<stem>.<ext>` 或 `<文件名>.<ext>`，不区分大小写，扩展名为 `SIDECAR_EXT` 加 `.acr`）。`discover()` 仍跳过 sidecar，发现语义不变。
+  - 目录：`dest_root/YYYY-MM-DD_地点`；跨日为 `YYYY-MM-DD~YYYY-MM-DD_地点`；未填地点为“未标注地点”。日期取相机本地拍摄日，没有拍摄时间的素材取文件修改日。全部文件平铺在这一个目录。
+  - 同名：目标名被不同内容占用（不区分大小写），或被本计划另一组占用时，整组文件加批次后缀 `_B<seq>`（再冲突为 `_B<seq>-2`…），RAW、JPEG 与 sidecar 保持同一 stem；从不覆盖。`seq` 是全部导入计划的批次号。
+  - 精确重复（每个文件的 `action`）：`copy`；`identical` = 目标同名文件内容相同（sha256）；`reuse` = 同一来源文件此前已导入且大小、修改时间未变、副本仍在；`duplicate` = 其他路径的同内容文件已在库中（大小 + quick hash 命中后再比 sha256；sidecar 没有指纹，不参与）。后三种都不复制。连拍相似永远不算重复。
+  - 目标路径在计划中冻结，执行时不再重新推导。目标位于任何任务来源目录之内 → 400。
+- **`ImportPlan`** = `{id, task_id, seq, status: planned|queued|running|completed|partial|failed, dest_root, folder, dest_dir, place, include_pending, created_at, started_at, finished_at, error, interruptions, stale, uses: {record, edit, pending, reject, total}, not_copied: {reject, pending, versions}, unfinished: {offline, analysis_pending, scan_active}, assets, files, bytes, sidecars, copy_files, copy_bytes, needed_bytes, free_bytes, enough_space, duplicates: {identical, reuse, duplicate, items}, renamed: {files, items}, progress: {files_total, files_done, files_failed, bytes_total, bytes_done, assets_total, assets_done, assets_failed}, failed: [{asset_id, path, error}]}`（列表最多 200 项）。`GET /imports?task=`、`GET /imports/{id}`。
+- **执行** `POST /imports/{id}/run`：
+  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
+  - 每个文件：核对来源大小与计划一致，经 `export._copy` 复制（临时文件 + sha256 回读 + 硬链接或 O_EXCL 发布，从不覆盖），再核对字节数，然后立即提交为 `done` 并登记到 `managed_files`。目标已存在时：内容相同即算完成，否则列为失败，不覆盖。
+  - 幂等与恢复：已完成的文件不再复制；重启时 running → queued（`interruptions` + 1）、copying → pending，并清理本目录中崩溃留下的 `.gardener-part` 临时文件。同一来源再生成计划得到 `reuse`，不复制、不新建素材。
+  - 结果：有任何失败文件 → `partial`（全部失败为 `failed`），`failed` 逐项列出；不得称为成功。来源只读，不删除、不写入。
+- **受管理副本**：表 `managed_files(asset_id, path, source_path, role, size, source_mtime_ns, quick_hash, sha256, plan_id, imported_at)`。素材 id 不变，`asset_files` 仍只记来源文件；`AssetDetail.managed` 列出已校验的副本。
+- **界面**：任务页“完成与导入 →”（`#/import/<task>`）填写目标根目录、地点与“待定照片一起导入”，生成计划后进入确认页（`#/import/<task>/<plan>`）：各用途照片数与默认处理、文件与容量、目标目录、重复与改名、未完成项，按钮“导入 N 张”；之后显示进度与结果（入库数、失败清单、未复制范围、下一步）。确认页切换待定开关即按同一目标重新生成计划。
+- **CLI 与 MCP**：`gardener import plan|run|show|list`；MCP `plan_import`、`run_import`、`get_import`。
+- **未做**：完成页的物种统计（新增物种、已有物种补充、唯一记录影响）；导入批次成为 Collection；Lightroom 交接与清理计划；exFAT 上崩溃留下的半个目标文件只报告为失败（无法证明是自己写的，不删除）。

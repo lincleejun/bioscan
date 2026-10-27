@@ -201,3 +201,20 @@ def test_keep_best_and_encounters_render(svc, capsys):
     assert "预览（未写入）" in out and "淘汰 2 张" in out
     assert cli.main(["--url", url, "encounters", "--task", "t_0001"]) == 0
     assert "e_fake1" in capsys.readouterr().out
+
+
+def test_import_commands(svc, capsys, tmp_path):
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("import", "plan", "t_1", "--dest", "/lib", "--place", "东滩", "--no-pending") == \
+        ("POST", "/tasks/t_1/import-plan", {"dest_root": "/lib", "include_pending": False, "place": "东滩"}, None)
+    assert req("import", "run", "ip_1") == ("POST", "/imports/ip_1/run", {}, None)
+    assert req("import", "show", "ip_1") == ("GET", "/imports/ip_1", None, None)
+    assert req("import", "list", "--task", "t_1") == ("GET", "/imports", None, {"task": "t_1"})
+    url, fake = svc
+    tid = next(iter(fake.tasks))
+    p = run_json(capsys, url, "import", "plan", tid, "--dest", str(tmp_path))
+    assert p["status"] == "planned" and p["dest_root"] == str(tmp_path)
+    code, out, _ = run(capsys, url, "import", "run", p["id"])
+    assert code == 0 and "partial" in out and "源文件不存在或离线" in out and "选入修图" in out
