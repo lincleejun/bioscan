@@ -747,3 +747,32 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .enc-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 2px 2px; border-top: 1px solid var(--line); }
 .enc-head:first-child { border-top: 0; padding-top: 0; }
 .enc-head .hint { flex: 1 1 auto; min-width: 0; }
+/* ---- 原像素细节查看器（契约修订 5C）：放大查看与并排比较 ---- */
+.dv { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--canvas); touch-action: none; cursor: grab; user-select: none; }
+.dv.is-drag { cursor: grabbing; }
+.dv-frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.dv-prev { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.dv-det { position: absolute; display: block; }
+.dv [hidden] { display: none !important; }
+.dv-subj { position: absolute; padding: 0; background: transparent; border: calc(1.5px / var(--z, 1)) solid rgba(255,255,255,.7); border-radius: calc(3px / var(--z, 1)); cursor: zoom-in; }
+.dv-subj:hover, .dv-subj:focus-visible { border-color: #f2c55c; outline: none; }
+.dv.no-boxes .dv-subj { display: none; }
+.dv-bar { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; pointer-events: none; }
+.dv-bar > * { pointer-events: auto; }
+.dv-state { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(0,0,0,.66); color: #e9ece9; }
+.dv-state[data-state="loading"] { background: rgba(143,93,14,.9); }
+.dv-state[data-state="ready"] { background: rgba(44,115,73,.92); color: #fff; }
+.dv-state[data-state="failed"] { background: rgba(173,70,55,.92); color: #fff; }
+.dv-tools { margin-left: auto; display: flex; gap: 4px; }
+.dv-tools .btn[aria-pressed="false"] { opacity: .6; }
+.cmp-view { position: relative; flex: 1; min-height: 240px; }
+.cmp-item.is-active { box-shadow: 0 0 0 2px #f2c55c; }
+.cmp-foot { flex: none; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.cmp-foot .check-row { color: #d9ddd9; }
+.cmp-foot .hint { color: #8d948e; }
+.cmp-strip { flex: none; display: flex; gap: 6px; overflow-x: auto; padding-top: 8px; }
+.cmp-strip:empty { display: none; }
+.cmp-thumb { flex: none; width: 96px; padding: 0; border: 2px solid transparent; border-radius: 4px; background: none; overflow: hidden; cursor: pointer; }
+.cmp-thumb .ph { aspect-ratio: 4 / 3; }
+.cmp-thumb[aria-pressed="true"] { border-color: #f2c55c; }
+@media (max-width: 720px) { .cmp-grid { grid-template-columns: 1fr; } }

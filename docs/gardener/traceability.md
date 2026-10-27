@@ -65,6 +65,10 @@
 | B-R4 | 界面：R/E/U/X 用途键，网格按拍摄段分组可展开收起，任务内物种 → 拍摄段 → 连拍（PRD §07、§08） | `web/app.js`（flagSeg、encHeadHTML、keepBest、vSpeciesOne） | `test_ui_web.py::test_review_flow_ui_contract_5b`、`test_ui_calls_only_contract_endpoints`；Chrome 对 §6 fake 走查一次（段标题与展开、R/E 键、保留此张预览、规则预览后二次保存，无控制台错误） | 部分验证：无自动化浏览器测试，未对真实服务走查 |
 | B-R5 | Smart 规则改动先显示命中数与增减，再保存（PRD §04，AC13） | `POST /collections/{id}/preview-rule`；`openEditCol` | `test_core_review_flow.py::test_rule_preview_*` | 已由测试证实 |
 | B-R6 | CLI 与 MCP 同样可做以上动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_review_flow_commands_*`、`test_ui_mcp.py::test_review_flow_tools_*` | 已由测试证实（请求映射） |
+| C-R1 | 原像素细节读取：RAW 全尺寸解码、JPEG/TIFF 原图裁切，坐标为直立画面 0–1（EXIF 旋转、RAW flip），说明来源与像素（PRD §08 第三级，AC06；修订 5C） | `detail.py`、`GET /assets/{id}/detail` | `test_media_detail.py::test_jpeg_crop_is_in_upright_coordinates`、`test_raw_full_decode_upright_and_cached`、`test_detail_endpoint_reports_what_it_is` | JPEG 已由测试证实；RAW 只用假 rawpy 测，未在真实 RAW 上验证 |
+| C-R2 | 细节异步解码、不阻塞网格与标记，可取消/被取代，有时限，缓存有上限且可清理（PRD §14 细节读取、资源） | `detail.Details`（2 线程、按素材取代、90 s、`cache/detail` 2 GiB） | `test_newer_request_supersedes_a_queued_one_and_timeout_cancels`、`test_marks_do_not_wait_for_a_decode`、`test_detail_timeout_is_503`、`test_cache_cap_evicts_oldest` | 已由测试证实（假解码器） |
+| C-R3 | 大图与并排比较标明“快速预览 / 原像素细节加载中 / 原像素细节可用”，预览放大不称 100%；同尺度、同步或独立缩放平移，点动物切换目标，默认不选最高分框；底部连拍胶片条（PRD §08 第三级，AC06） | `web/app.js`（dvMount、dvFetch、dvLightbox、dvCompare） | `test_ui_web.py::test_mandated_copy_present`、`test_detail_images_use_the_contract_route_and_never_say_100_percent`；Chrome 手动走查（合成 24 MP JPEG） | 部分验证：无自动化浏览器测试 |
+| C-R4 | 浏览基线：热缓存切换 P95 ≤ 150 ms，细节解码单独统计（PRD §14） | `scripts/gardener_detail_bench.py` | 本机合成 JPEG 运行结果见修订 5C | 只测了进程内 HTTP 与合成 JPEG；RAW 与浏览器解码未测 |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

@@ -384,3 +384,25 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **CLI 与 MCP**：
   - CLI：`mark --use`、`assets --use`、`keep-best ID [--edit] [--dry-run]`、`encounters --task|--concept`、`encounter split ID --at|--assets`、`encounter merge IDS`、`collection preview-rule ID --rule JSON`、`identify --encounter`。
   - MCP：`set_marks` 增加 `use`；新工具 `keep_best`、`undo_marks`、`list_encounters`、`edit_encounters`、`preview_rule`；`identify_species` 的 `scope` 可为 `encounter`。
+## 契约修订 5C：快速比较 RAW、原像素细节（2026-10-26，AfterShooting PRD §08 第三级、§14、AC06；优先于上文冲突处）
+
+依据：PRD 要求“切换优先显示嵌入预览，再异步加载细节”，并明确标记“快速预览 / 原像素细节加载中 / 原像素细节可用”，不能把 1600 px 预览的放大称为真实 RAW 100%。**RAW 部分未在真实 RAW 文件上验证**（开发机上没有 RAW，测试用假 rawpy）。
+
+- **`GET /assets/{id}/detail?xyxy=x0,y0,x1,y1&max=2048`**（`detail.py`）：
+  - 返回原像素裁切的 JPEG（q92）。`xyxy` 是**直立画面**的 0–1 比例（与 `subjects.xyxy`、预览同一坐标），缺省整幅；`max` 是返回图长边上限（64–4096），只缩小、不放大。
+  - 读哪个文件：素材有在线的 RAW（RAW+JPEG 对里的 RAW）就读 RAW，否则读 primary。
+  - RAW：LibRaw 全尺寸解码（`postprocess(use_camera_wb=True, output_bps=8)`，不用 half_size），由 LibRaw 按 `sizes.flip` 转正，与 BioScan 识别用的解码同一方向，主体框对得上。JPEG/PNG/TIFF：Pillow 按 EXIF 方向转正后裁切。
+  - 响应头说明它是什么：`X-Detail-Source: original`、`X-Detail-File: raw|image`、`X-Detail-Decoder: libraw-full|pillow`、`X-Detail-Orientation`（已转正的 EXIF 方向）、`X-Detail-Full: W×H`（原图直立尺寸）、`X-Detail-Crop: x0,y0,x1,y1`（原像素框）、`X-Detail-Size`、`X-Detail-Scale`（返回像素 / 原像素，1 = 未缩小）、`X-Detail-Cache: hit|miss|none`、`X-Detail-Ms`。
+  - 错误：`xyxy`/`max` 不合法 400；视频 400；原片离线 404（“只有快速预览”）；解码失败 404 并附原因；被取代 409；超时 503。
+- **不阻塞**：解码在独立的 2 线程池里跑；等待中的细节请求只占一个请求线程（UI 每个视图同时最多一个），网格与标记不排在解码后面（`test_marks_do_not_wait_for_a_decode`）。若以后需要，可改为 async 路由 + `asyncio.wait_for(wrap_future)`，等待时不占线程；rawpy 0.27 在 `unpack`/`dcraw_process` 期间释放 GIL（已查其 `_rawpy.pyx`）。同一素材有更新的请求时，仍在排队的旧请求直接返回 409；等待上限 90 s，超时时还在排队的请求被取消，已经开始的解码继续完成并写入缓存，重试即命中。UI 换图、缩放、平移或点“取消”都会中止上一个请求。
+- **缓存**：RAW 的全尺寸解码存为 `cache/detail/<id[2:4]>/<id>.<size>-<mtime>.o<方向>.npy`（未压缩，内存映射，之后任何裁切都是毫秒级），总量上限 2 GiB，按最近使用淘汰；文件大小或修改时间变化即重新解码。JPEG 等不复制（文件本身就是原像素）。`POST /storage/clear-cache` 与 `GET /storage` 一并覆盖它；原片目录从不写入。
+- **界面**（`web/app.js` 的 dv* 函数）：
+  - 大图（放大查看）与并排比较用同一个查看器：先显示 1600 px 快速预览；放大到预览会被拉伸时，按可见区域外加 25 % 余量请求原像素，叠在画面的同一位置。
+  - 状态只有“快速预览”“原像素细节加载中”（可取消）“原像素细节可用（RAW 全尺寸解码 / 原图）· 原像素 N%”“原像素细节不可用：原因”。只有原像素可用时才给比例；预览放大写“预览放大 ×N（不是原像素）”。
+  - 放大查看里左右换图保留缩放与位置，便于连拍逐张看同一处。
+  - 并排比较：默认“同步缩放与平移”，两边保持**同一原像素比例**（偏好 `cmpsync`，可关闭后各自操作）。点画面中的动物框即放大到那只；同步时另一侧对准离它最近的动物。默认显示整幅，**不自动选检测分最高的框**。底部是两张所在连拍的胶片条，点缩略图替换高亮的一侧。
+- **测量**（`scripts/gardener_detail_bench.py`，进程内 HTTP，不含网络与浏览器解码；2026-10-26，macOS 26.6.2 arm64，16 核，合成 6000×4000 JPEG 12 张，热缓存）：
+  - 预览切换（large）中位 1.0 ms，P95 1.1 ms，达到 PRD §14 的 P95 ≤ 150 ms（只是服务端部分）。
+  - JPEG 细节，20 % 区域：中位 69 ms，P95 74 ms（每次完整解码原图）。整幅缩到 2048 px：中位 168 ms，P95 176 ms。
+  - RAW 解码耗时**未测**：用 `--photos <真实目录>` 在 owner 的 Mac 上补测。
+- **未做**：四图以上比较（PRD 允许后置）；眼部裁切建议（没有眼部检测）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与同拍 JPEG 若尺寸略有不同，比例坐标会有几个像素的偏差（未在真实文件上核对）。
