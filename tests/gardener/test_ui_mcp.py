@@ -44,7 +44,8 @@ def test_handshake_list_and_errors(svc):
     assert init["protocolVersion"] == "2025-06-18" and "tools" in init["capabilities"]
     names = [t["name"] for t in replies[1]["result"]["tools"]]
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
-                     "list_collections", "review_collection", "export", "capabilities"]
+                     "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
+                     "identify_species", "undo_identification", "set_species_card"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -109,3 +110,16 @@ def test_gardener_mcp_subprocess(svc):
     replies = [json.loads(line) for line in p.stdout.splitlines()]
     assert p.returncode == 0 and [r["id"] for r in replies] == [1, 2]
     assert len(json.loads(replies[1]["result"]["content"][0]["text"])) == 2
+
+
+def test_species_tools_map_to_the_revision_4_endpoints():
+    from bioscan.gardener.mcp import route
+
+    claim = {"level": "species", "concept": "avibase:x", "taxon": "Nannus pacificus"}
+    assert route("identify_species", {"subject_ids": ["s_1"], "claim": claim, "scope": "burst", "dry_run": True}) == \
+        ("POST", "/identifications", {"subject_ids": ["s_1"], "claim": claim, "scope": "burst", "dry_run": True}, None)
+    assert route("undo_identification", {"batch_id": "b_1"}) == ("POST", "/identifications/undo", {"batch_id": "b_1"}, None)
+    assert route("list_species", {"task": "t_1"}) == ("GET", "/species", None, {"task": "t_1", "hidden": "0"})
+    assert route("search_names", {"q": "金雕"}) == ("GET", "/names", None, {"q": "金雕"})
+    assert route("set_species_card", {"concept": "name:Corvus corax", "hidden": True}) == \
+        ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)

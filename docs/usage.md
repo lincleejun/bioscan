@@ -71,7 +71,7 @@ With `--json` the service's NDJSON is written as is, one line per image, for dow
    "boxes":[{"id":0,"xyxy":[0.31,0.22,0.58,0.71],"score":0.84,"kind":"bird",
              "quality":{"sharpness":0.71,"exposure":0.05},
              "species":{"list":"avilist-2026","level":"species","taxon":"Megascops kennicottii",
-               "top":[{"scientific":"Megascops kennicottii","common":"Western Screech-Owl",
+               "top":[{"scientific":"Megascops kennicottii","concept":"avibase:…","common":"Western Screech-Owl",
                        "taxonomy":["Animalia","Chordata","Aves","Strigiformes","Strigidae","Megascops","Megascops kennicottii"],
                        "p_visual":0.81,"p_geo":0.62,"posterior":0.91}]}}]}},
  "timing_ms":{"decode":650,"identify":210}}

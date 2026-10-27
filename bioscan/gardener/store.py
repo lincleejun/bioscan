@@ -17,7 +17,7 @@ from typing import Any
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import query
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
 SCHEMA = Path(__file__).with_name("schema.sql")
 DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
                                     "capability_versions": {}, "cap_status": {}}
@@ -159,6 +159,11 @@ class Store:
                 c.execute("INSERT INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
             elif int(row[0]) > SCHEMA_VERSION:
                 raise RuntimeError(f"{self.db_path} has schema {row[0]}; this Gardener reads {SCHEMA_VERSION}")
+            elif int(row[0]) < 2:
+                from bioscan.gardener import identities
+
+                identities.backfill(c)
+                c.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
             t = now()
             for pid, p in capmod.PRESETS.items():
                 c.execute("INSERT OR IGNORE INTO presets VALUES (?, ?, ?, 1, ?, ?)",
@@ -248,6 +253,20 @@ class Store:
                 tasks.setdefault(r["asset_id"], []).append(r["task_id"])
             versions = {r["version_of"]: r["n"] for r in self.all(
                 f"SELECT version_of, count(*) n FROM assets WHERE version_of IN ({q}) GROUP BY version_of", part)}
+            named: dict[str, dict[str, Any]] = {}            # the photo's species shown on its tile (revision 4)
+            for r in self.all(f"SELECT asset_id, concept, taxon, common, source, p FROM current_ids WHERE asset_id IN "
+                              f"({q}) AND level = 'species'", part):
+                key = (r["source"] == "user", r["p"] or 0.0)
+                if r["asset_id"] not in named or key > named[r["asset_id"]]["_key"]:
+                    named[r["asset_id"]] = {"taxon": r["taxon"], "common": r["common"], "p": r["p"],
+                                            "confirmed": r["source"] == "user", "_key": key, "_concept": r["concept"]}
+            from bioscan.gardener import taxa
+
+            shown = taxa.display(self.conn(), [n["_concept"] for n in named.values()])
+            for n in named.values():
+                cur = shown.get(n.pop("_concept")) or {}
+                n.update(taxon=cur.get("scientific") or n["taxon"], common=cur.get("common") or n["common"],
+                         zh=cur.get("zh"))
             for a in rows:
                 s = ai.get(a["id"])
                 content = data.get((a["id"], "content")) or {}
@@ -261,8 +280,9 @@ class Store:
                     "ai": None if s is None else {"verdict": s["verdict"], "score": s["score"],
                                                   "reasons": loads(s["reasons"], [])},
                     "content_label_zh": content.get("label_zh"),
-                    "species": None if not sp else {"taxon": sp.get("taxon"), "common": sp.get("common"),
-                                                    "p": sp.get("p")},
+                    "species": ({k: v for k, v in named[a["id"]].items() if k != "_key"} if a["id"] in named else
+                                None if not sp else {"taxon": sp.get("taxon"), "common": sp.get("common"),
+                                                     "p": sp.get("p"), "confirmed": False}),
                     "burst": None if s is None or s["burst_id"] is None else
                     {"id": s["burst_id"], "rank": s["burst_rank"], "size": s["burst_size"]},
                     "analysis": analysis_state(states.get(a["id"], []), in_run),
@@ -298,7 +318,10 @@ class Store:
                         for r in self.all("SELECT * FROM mark_history WHERE asset_id = ? ORDER BY id", (asset_id,))]
         tags = self.all("SELECT t.id, t.name, at.source FROM asset_tags at JOIN tags t ON t.id = at.tag_id "
                         "WHERE at.asset_id = ? ORDER BY t.id, at.source", (asset_id,))
-        return items[0] | {"files": files, "meta": loads(a["meta"], {}), "lat": a["lat"], "lon": a["lon"], "caps": caps,
+        from bioscan.gardener import identities
+
+        subjects = identities.subjects(self.conn(), [asset_id])[asset_id]
+        return items[0] | {"subjects": subjects, "files": files, "meta": loads(a["meta"], {}), "lat": a["lat"], "lon": a["lon"], "caps": caps,
                            "ai_history": ai_history, "mark_history": mark_history,
                            "collections": self.collections_of(asset_id), "tags": tags,
                            "original": None if of is None else {"id": of["id"], "name": Path(of["primary_path"]).name,

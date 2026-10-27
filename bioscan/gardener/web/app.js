@@ -62,6 +62,9 @@
   const VERSION_WHY = { same_capture: '同一拍摄的副本', export: '导出图（无拍摄信息，按文件编号与画面确认）' };
   const MODES = { quiet: ['安静', '占用最低，适合边用电脑边扫描'], balanced: ['均衡', '默认'], full: ['全速', '尽量占满资源'] };
   const REVIEW = { open: '审阅中', completed: '已完成', zeroed: '本组不留' };
+  const LEVEL_ZH = { species: '种', genus: '属', family: '科', unconfirmed: '不确定', not_animal: '不是动物' };
+  const KIND_ZH = { bird: '鸟类', mammal: '哺乳动物', other_animal: '其他动物' };
+  const ID_NOTE = '物种按动物主体记录：人工确认优先，模型重跑只追加新的建议，不覆盖人的结论。';
   const PREVIEW_NOTE = '低分辨率预览（含 RAW 内嵌预览）只用于浏览，不代表完整 RAW 解码或对焦验证。';
   const XML_NOTE = 'Gardener XML 只供 Gardener 使用：它不是 XMP，Lightroom 不能直接读取。导出不会移动、改名或删除任何原片。';
 
@@ -389,6 +392,7 @@
           <a href="#/task/${esc(t.id)}/preview" ${tab === 'preview' ? 'aria-current="page"' : ''}>Preview <span class="count">${(t.scan || {}).discovered || 0}</span></a>
           <a href="#/task/${esc(t.id)}/collections" ${tab === 'collections' ? 'aria-current="page"' : ''}>Collections <span class="count">${(t.review || {}).collections_total || 0}</span></a>
           <a href="#/task/${esc(t.id)}/runs" ${tab === 'runs' ? 'aria-current="page"' : ''}>运行历史 <span class="count">${(t.runs || []).length}</span></a>
+          <a href="#/species/task/${esc(t.id)}">按物种看本次拍摄 →</a>
         </nav>
       </header>`;
     if (tab === 'collections') {
@@ -660,6 +664,7 @@
         ${hist.length ? `<details><summary class="hint">标记历史 ${hist.length} 条</summary><ul class="hist">${hist.slice().reverse().map(h => `<li>${esc(fmtTime(h.at))} · ${esc(FIELD[h.field] || h.field)} ${esc(h.old == null ? '无' : h.old)} → ${esc(h.new == null ? '无' : h.new)} · ${esc(h.actor)}${h.reason ? ' · ' + esc(h.reason === 'content_changed' ? '内容变化，系统清空' : h.reason) : ''}</li>`).join('')}</ul></details>` : '<p class="hint">尚无人工判断。浏览经过不计为已审。</p>'}
         ${cols.length ? `<div class="in-cols"><span class="hint">出现在 ${cols.length} 个集合，标记一致：</span>${cols.map(c => `<a class="col-ref" href="#/review/${esc(c.id)}">${esc(c.name)}</a>`).join('')}</div>` : ''}
       </section>
+      ${subjectsHTML(a, d)}
       ${facesHTML(a, d)}
       <section class="card card-ai"><h3>AI 建议<span class="sub">机器结果 · 与人工判断分开保存</span></h3>${aiBodyHTML(a, d)}</section>
       <section class="card"><h3>能力状态</h3><ul class="cap-list">${capsHTML}</ul>${a.analysis === 'failed' ? `<button type="button" class="btn sm" data-action="retry-asset" data-id="${esc(a.id)}">${ic('retry')}重试此项</button>` : ''}</section>
@@ -686,6 +691,31 @@
     return `<section class="card"><h3>人物<span class="sub">命名后，所有任务里认出是此人的照片都归入同名分组</span></h3><ul class="faces">${fs.map((f, i) => `<li><span class="face" style="${esc(crop(f))}" role="img" aria-label="人脸 ${i + 1}"></span>
       <span>${f.person ? `<b>${esc(f.person.name)}</b><small class="hint">${f.person.confirmed ? '已确认' : '按已命名的脸认出'}</small>` : '<small class="hint">未命名</small>'}</span>
       <span class="face-acts">${f.person && !f.person.confirmed ? btn('name-face', i, '是此人', f.person.name) : ''}${btn('name-face', i, f.person ? '改名' : '命名')}${f.person && f.person.confirmed ? btn('unname-face', i, '取消') : ''}</span></li>`).join('')}</ul></section>`;
+  }
+  // 照片里的动物（主体）：每只一行，人工确认优先；确认或改名可同时作用于同一连拍（契约修订 4）
+  function idText(x) {
+    if (!x) return '未识别';
+    if (x.level === 'species') return [x.zh, x.common, x.taxon].filter(Boolean).join(' · ');
+    return x.taxon ? `${x.taxon}（${LEVEL_ZH[x.level]}）` : LEVEL_ZH[x.level] || x.level;
+  }
+  function subjectsHTML(a, d) {
+    const ss = d && d.subjects;
+    if (!ss || !ss.length) return '';
+    const crop = s => {
+      const [x0, y0, x1, y1] = s.xyxy, w = Math.max(x1 - x0, 0.01), h = Math.max(y1 - y0, 0.01);
+      return `background-image:url('${mediaUrl(a.id, 'large')}');background-size:${100 / w}% ${100 / h}%;background-position:${w < 1 ? (x0 / (1 - w)) * 100 : 0}% ${h < 1 ? (y0 / (1 - h)) * 100 : 0}%`;
+    };
+    const btn = (act, s, label) => `<button type="button" class="btn sm ghost" data-action="${act}" data-id="${esc(a.id)}" data-subject="${esc(s.id)}">${label}</button>`;
+    const burst = a.burst && a.burst.size > 1;
+    return `<section class="card"><h3>物种<span class="sub">${esc(ID_NOTE)}</span></h3><ul class="faces subjects">${ss.map((s, i) => {
+      const cur = s.current, ai = s.ai;
+      const src = !cur ? '' : s.human ? '<small class="pill p-ok">人工确认</small>' : `<small class="hint">AI 候选${cur.p != null ? ' · ' + esc(fmtScore(cur.p)) : ''}</small>`;
+      const aiDiff = s.human && ai && ai.concept !== cur.concept ? `<small class="hint">模型：${esc(idText(ai))}</small>` : '';
+      const said = cur && cur.said ? `<small class="hint">当时记作 ${esc(cur.said.taxon)}（名录已更名）</small>` : '';
+      return `<li><span class="face subj" style="${esc(crop(s))}" role="img" aria-label="动物 ${i + 1}"></span>
+        <span><b>${esc(idText(cur))}</b>${src}${aiDiff}${said}</span>
+        <span class="face-acts">${!s.human && ai && ai.level === 'species' ? btn('id-accept', s, '确认') : ''}${btn('id-change', s, '改为…')}${btn('id-unsure', s, '不确定')}</span></li>`;
+    }).join('')}</ul>${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
   }
   // 同一拍摄的其他版本：只在代表版本出现；“不是同一张”由人确认后永不再自动合并
   function versionsHTML(d) {
@@ -795,6 +825,19 @@
       if (e.status === 409) { toast('有素材刚被其他客户端修改，已载入最新标记，请重新操作'); await Promise.all(ids.map(id => { S.details.delete(id); return ensureDetail(id); })); patchTiles(ids); renderInspector(); }
       else toast(errMsg(e));
     }
+  }
+  async function identify(el, claim, label) {
+    const a = A(el.dataset.id);
+    const scope = a && a.burst && a.burst.size > 1 && prefs.get('idburst', '1') === '1' ? 'burst' : 'subject';
+    try {
+      const r = await api('POST', '/identifications', { subject_ids: [el.dataset.subject], claim, scope });
+      const n = r.changed.length, skip = r.skipped.filter(x => x.reason === 'human').length;
+      S.details.clear();
+      toast(`${label}${n > 1 ? `（${n} 只，含同一连拍）` : ''}${skip ? `；${skip} 张已有人工结论，未改` : ''}`, r.batch_id ? { action: { label: '撤销', run: async () => {
+        try { await api('POST', '/identifications/undo', { batch_id: r.batch_id }); S.details.clear(); toast('已撤销'); renderInspector(); } catch (e) { toast(e.status === 409 ? '之后又被人工修改过，无法撤销' : errMsg(e)); }
+      } } } : undefined);
+      renderInspector();
+    } catch (e) { toast(errMsg(e)); }
   }
   async function undoBatch(batch, label) {
     try {
@@ -951,6 +994,51 @@
     try { ui.col = await api('GET', `/collections/${encodeURIComponent(ui.col.id)}`); patchBinds('col-head'); patchBinds('col-actions'); patchBinds('ws-batch'); } catch (e) { /* 下次轮询再试 */ }
   }
 
+  // ---------- 物种 ----------
+  const speciesHref = k => `#/species/${encodeURIComponent(k)}`;
+  function speciesCardHTML(k) {
+    const when = k.first_taken_at === k.last_taken_at ? fmtTime(k.first_taken_at).slice(0, 10) : `${fmtTime(k.first_taken_at).slice(0, 10)} – ${fmtTime(k.last_taken_at).slice(0, 10)}`;
+    return `<a class="sp-card" href="${esc(speciesHref(k.concept))}">
+      <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy">
+      <span class="sp-name"><b>${esc(k.zh || k.common || k.taxon)}</b>${k.zh && k.common ? `<small>${esc(k.common)}</small>` : ''}<i>${esc(k.taxon)}</i></span>
+      <span class="sp-meta">${k.confirmed ? `已确认 ${k.confirmed}` : ''}${k.confirmed && k.candidates ? ' · ' : ''}${k.candidates ? `待确认 ${k.candidates}` : ''}${k.only_one ? ' · <b class="pill p-wait">仅 1 张</b>' : ''}</span>
+      <span class="sp-meta mono">${esc(when)}</span></a>`;
+  }
+  async function vSpecies(p) {
+    const lib = await api('GET', '/species', null, { task: p.task });
+    const t = p.task && (taskById(p.task) || await api('GET', `/tasks/${encodeURIComponent(p.task)}`));
+    const kind = ui.spKind || '';
+    const pass = k => !kind || k.kind === kind;
+    const grid = list => `<div class="sp-grid">${list.filter(pass).map(speciesCardHTML).join('') || '<p class="hint">没有。</p>'}</div>`;
+    const un = lib.unresolved;
+    return `<div class="page">
+      <header class="page-head"><div>${t ? `<nav class="crumbs" aria-label="位置"><a href="#/task/${esc(t.id)}/preview">${esc(t.title)}</a><span aria-hidden="true">/</span><a href="#/species">全部物种</a></nav>` : ''}<h1 tabindex="-1">${t ? '本次拍摄的物种' : '物种'}</h1>
+        <p class="lede">${t ? '本次' : '已'}拍到 <b>${lib.confirmed_total}</b> 种<span class="hint">（至少有一张照片经你确认的物种；只有模型候选的物种在「待确认」，不计入）</span></p></div>
+        <div class="seg" role="group" aria-label="类别">${[['', '全部'], ['bird', '鸟类'], ['mammal', '哺乳动物'], ['other_animal', '其他动物']].map(([v, l]) => `<button type="button" class="seg-btn" data-action="sp-kind" data-kind="${v}" aria-pressed="${kind === v}">${l}</button>`).join('')}</div></header>
+      <section><h2>已确认<span class="hint"> · ${lib.species.length} 种 · 每个物种一组，跨任务与日期累积，一张照片也单独成组</span></h2>${grid(lib.species)}</section>
+      <section><h2>待确认<span class="hint"> · ${lib.to_confirm.length} 种 · 只有模型候选</span></h2>${grid(lib.to_confirm)}</section>
+      <section><h2>待鉴定</h2><p class="hint">只识别到属或科：<a href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved">${un.genus_family + un.unconfirmed} 张</a>（属/科 ${un.genus_family} · 不确定 ${un.unconfirmed}）。可以照常保留、修图和导出，不需要先鉴定。</p></section>
+    </div>`;
+  }
+  async function vSpeciesOne(p) {
+    const lib = await api('GET', '/species', null, { hidden: '1' });
+    const k = lib.species.concat(lib.to_confirm).find(x => x.concept === p.concept);
+    if (!k) throw Object.assign(new Error('没有这个物种的照片'), { status: 404 });
+    ui.sp = k;
+    makeWs('query', { concept: k.concept }, 'time', {});
+    return `<div class="wpage">
+      <header class="rv-head">
+        <nav class="crumbs" aria-label="位置"><a href="#/species">物种</a><span aria-hidden="true">/</span><span>${esc(k.common || k.taxon)}</span></nav>
+        <div class="rh-row">
+          <div class="rh-title"><h1 tabindex="-1">${esc(k.zh || k.common || k.taxon)}</h1>${k.zh && k.common ? `<span class="hint">${esc(k.common)}</span>` : ''}<i class="hint">${esc(k.taxon)}</i>${k.kind ? `<span class="hint">${esc(KIND_ZH[k.kind] || k.kind)}</span>` : ''}</div>
+          <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="sp-cover">设当前照片为封面</button><button type="button" class="btn sm ghost" data-action="sp-hide">${k.hidden ? '在物种页显示' : '在物种页隐藏'}</button></div>
+        </div>
+        <p class="hint">已确认 ${k.confirmed} 张 · 待确认 ${k.candidates} 张 · 首次 ${esc(fmtTime(k.first_taken_at))} · 最近 ${esc(fmtTime(k.last_taken_at))}。成员来自每张照片的物种结论：在右侧「物种」卡片确认或纠正。</p>
+      </header>
+      ${wsHTML()}
+    </div>`;
+  }
+
   // ---------- 全部素材 ----------
   const LIBF = [
     ['task', '任务', 'sel'], ['collection', '集合', 'sel'], ['media', '媒体', [['', '不限'], ['photo', '照片'], ['video', '视频']]],
@@ -961,6 +1049,7 @@
     ['online', '原片', [['', '不限'], ['1', '在线'], ['0', '离线']]],
     ['analysis', '分析状态', [['', '不限'], ['pending', '等待中'], ['done', '已分析'], ['failed', '失败'], ['unavailable', '不可用']]],
     ['has_gps', 'GPS', [['', '不限'], ['1', '有'], ['0', '无']]],
+    ['id_state', '物种结论', [['', '不限'], ['confirmed', '已确认'], ['candidate', '模型候选'], ['unresolved', '待鉴定（属/科/不确定）']]],
     ['tag', '标签', 'sel'],
     ['order', '排序', [['time', '拍摄时间'], ['discovered', '发现顺序'], ['path', '文件名'], ['score', 'AI 分数']]],
   ];
@@ -1260,9 +1349,9 @@
   }
 
   // ---------- 路由 ----------
-  const VIEWS = { tasks: vTasks, create: vCreate, task: vTask, review: vReview, collections: vCollections, deleted: vDeleted, library: vLibrary, settings: vSettings };
-  const NAV_OF = { tasks: 'tasks', create: 'tasks', task: 'tasks', review: 'collections', collections: 'collections', deleted: 'collections', library: 'library', settings: 'settings' };
-  const TITLES = { tasks: '任务', create: '新建扫描任务', task: '任务', review: 'Review', collections: 'Collections', deleted: '已删除的集合', library: '全部素材', settings: '管理' };
+  const VIEWS = { tasks: vTasks, create: vCreate, task: vTask, review: vReview, collections: vCollections, deleted: vDeleted, library: vLibrary, settings: vSettings, species: vSpecies, 'species-one': vSpeciesOne };
+  const NAV_OF = { tasks: 'tasks', create: 'tasks', task: 'tasks', review: 'collections', collections: 'collections', deleted: 'collections', library: 'library', settings: 'settings', species: 'species', 'species-one': 'species' };
+  const TITLES = { tasks: '任务', create: '新建扫描任务', task: '任务', review: 'Review', collections: 'Collections', deleted: '已删除的集合', library: '全部素材', settings: '管理', species: '物种', 'species-one': '物种' };
   function parse() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
     switch (parts[0]) {
@@ -1271,6 +1360,7 @@
       case 'review': return ['review', { id: parts[1] }];
       case 'collections': return parts[1] === 'deleted' ? ['deleted', {}] : ['collections', {}];
       case 'library': return ['library', {}];
+      case 'species': return parts[1] === 'task' ? ['species', { task: parts[2] }] : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
       case 'settings': return ['settings', {}];
       case 'tasks': return ['tasks', { archived: parts[1] === 'archived' }];
       default: return null;
@@ -1360,6 +1450,37 @@
         toast('已分开：它从此单独出现，不再自动合并；在任务中「重试」可补做它的分析');
         renderInspector();
       } catch (e) { toast(errMsg(e)); }
+    },
+    'id-accept': el => identify(el, { accept: true }, '已确认'),
+    'id-unsure': el => identify(el, { level: 'unconfirmed' }, '已标为不确定'),
+    'id-change': el => {
+      const d = dialog({
+        title: '改为哪个物种', focus: '#idq',
+        body: '<div class="field"><label for="idq">学名、英文名、中文名或旧名</label><input id="idq" class="input" maxlength="80" autocomplete="off"></div><ul class="id-hits" id="id-hits" aria-live="polite"></ul><p class="hint">中文名来自你放在数据目录的 names-zh.csv；没有的物种用学名或英文名查。</p>',
+        actions: [],
+      });
+      let seq = 0;
+      $('#idq', d).addEventListener('input', async e => {
+        const q = e.target.value.trim(), my = ++seq;
+        const hits = q ? await api('GET', '/names', null, { q, limit: 12 }).catch(() => []) : [];
+        if (my !== seq) return;
+        $('#id-hits', d).innerHTML = hits.map(h => `<li><button type="button" class="btn sm ghost" data-action="id-pick" data-id="${esc(el.dataset.id)}" data-subject="${esc(el.dataset.subject)}" data-concept="${esc(h.concept)}" data-taxon="${esc(h.scientific || '')}" data-common="${esc(h.common || '')}"><b>${esc(h.zh || h.common || h.scientific)}</b> <i>${esc(h.scientific)}</i>${h.photos ? ` <small class="hint">库中 ${h.photos} 张</small>` : ''}${h.matched !== h.scientific && h.matched !== h.common && h.matched !== h.zh ? ` <small class="hint">（${esc(h.matched)}）</small>` : ''}</button></li>`).join('') || (q ? '<li class="hint">没有找到</li>' : '');
+      });
+    },
+    'id-pick': el => {
+      const dd = el.closest('dialog'); if (dd) dd.close();
+      identify(el, { level: 'species', concept: el.dataset.concept, taxon: el.dataset.taxon, common: el.dataset.common || null }, `已改为 ${el.dataset.common || el.dataset.taxon}`);
+    },
+    'sp-kind': el => { ui.spKind = el.dataset.kind; rerender(); },
+    'lib-preset': el => { ui.lib = { [el.dataset.filter]: el.dataset.value }; location.hash = '#/library'; },
+    'sp-cover': async () => {
+      const ws = ui.ws, k = ui.sp;
+      if (!ws || !ws.current || !k) { toast('先在网格里选一张照片'); return; }
+      try { await api('PATCH', `/species/${encodeURIComponent(k.concept)}`, { cover_asset_id: ws.current }); toast('已设为封面'); } catch (e) { toast(errMsg(e)); }
+    },
+    'sp-hide': async () => {
+      const k = ui.sp; if (!k) return;
+      try { await api('PATCH', `/species/${encodeURIComponent(k.concept)}`, { hidden: !k.hidden }); toast(k.hidden ? '已在物种页显示' : '已在物种页隐藏（照片与结论不变）'); rerender(); } catch (e) { toast(errMsg(e)); }
     },
     'name-face': el => {
       const { id, face, name } = el.dataset;
@@ -1630,7 +1751,7 @@
     } else if (t.dataset.actionChange === 'batch-stars' && t.value !== '') {
       const n = Number(t.value);
       doMark(Array.from(ui.ws.sel), { stars: n }, n ? `批量 ${n} 星` : '批量清除星级');
-    } else if (t.dataset.pref === 'advance') prefs.set('advance', t.checked ? '1' : '0');
+    } else if (t.dataset.pref === 'advance' || t.dataset.pref === 'idburst') prefs.set(t.dataset.pref, t.checked ? '1' : '0');
     else if (t.name === 'def-mode' || t.name === 'def-preset') {
       try { S.settings = await api('PUT', '/settings', t.name === 'def-mode' ? { run_mode: t.value } : { default_preset: t.value }); toast('默认设置已保存'); } catch (err) { toast(errMsg(err)); }
     }

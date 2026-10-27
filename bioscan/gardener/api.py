@@ -23,10 +23,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import people, query, tasks
+from bioscan.gardener import identities, people, query, tasks, taxa
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
+from bioscan.naming import DATA_DIR
 
 log = logging.getLogger("bioscan.gardener")
 BUILTIN_DEFAULT = "photo"      # the default preset when the configured one is gone
@@ -59,11 +60,14 @@ def text(body: dict[str, Any], key: str, *, required: bool = False, default: str
 
 def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: tasks.Toolkit | None = None,
                         allow_roots: list[str] | None = None, start_worker: bool = True,
-                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS) -> FastAPI:
+                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS, name_lists: Path | None = DATA_DIR) -> FastAPI:
     """`engine`: a BioScan Engine (tests pass one built on fake Loaders); None = created on first analysis.
     `toolkit`: unit 2's scanner/Analyzer functions (default: the real modules). `allow_roots`: task sources
-    must lie inside one of them (none = any directory)."""
+    must lie inside one of them (none = any directory). `name_lists`: the folder holding avilist/, mdd/ and
+    names/ the name index is built from (taxa.py); None = leave the index as it is."""
     store = st.Store(data_dir)
+    if name_lists is not None:
+        taxa.sync(store, name_lists)
     tk = toolkit or tasks.Toolkit.default()
     holder = tasks.EngineHolder(engine)
     worker = tasks.Worker(store, tk, holder.get)
@@ -698,6 +702,85 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def undo_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         return store.undo(text(body, "batch_id", required=True), actor)
 
+    @r.post("/identifications")
+    def post_identifications(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """A person's species claim on subjects (contract revision 4, S3)."""
+        sids = strs(body.get("subject_ids") or [], "subject_ids")
+        new = body.get("new_subjects") or []
+        if not isinstance(new, list) or not all(
+                isinstance(n, dict) and isinstance(n.get("asset_id"), str) and isinstance(n.get("xyxy"), list)
+                and len(n["xyxy"]) == 4 and all(isinstance(v, (int, float)) for v in n["xyxy"])
+                and 0 <= n["xyxy"][0] < n["xyxy"][2] <= 1 and 0 <= n["xyxy"][1] < n["xyxy"][3] <= 1 for n in new):
+            raise Error("new_subjects must be [{asset_id, xyxy: [x0, y0, x1, y1] within 0..1}]")
+        if not sids and not new:
+            raise Error("subject_ids or new_subjects is required")
+        claim = body.get("claim")
+        if not isinstance(claim, dict):
+            raise Error("claim is required")
+        if not claim.get("accept"):
+            level = claim.get("level")
+            if level not in identities.LEVELS:
+                raise Error(f"claim.level must be one of {', '.join(identities.LEVELS)}, or claim.accept")
+            if level == "species" and not (isinstance(claim.get("concept"), str) and isinstance(claim.get("taxon"), str)):
+                raise Error("a species claim needs concept and taxon (the scientific name)")
+            if level in ("genus", "family") and not isinstance(claim.get("taxon"), str):
+                raise Error(f"a {level} claim needs taxon")
+            if level not in ("species", "genus", "family"):
+                claim = {"level": level, "concept": None, "taxon": None, "common": None}
+            elif level != "species":
+                claim = claim | {"concept": None, "common": None}
+        scope = body.get("scope", "subject")
+        if scope not in ("subject", "burst"):
+            raise Error("scope must be subject|burst")
+        reason = body.get("reason")
+        with store.tx() as c:
+            for n in new:
+                if not c.execute("SELECT 1 FROM assets WHERE id = ?", (n["asset_id"],)).fetchone():
+                    raise NotFound(f"no asset {n['asset_id']}")
+            return identities.identify(c, sids, new, claim, scope=scope, actor=actor,
+                                       reason=reason if isinstance(reason, str) else None,
+                                       dry_run=bool(body.get("dry_run")))
+
+    @r.post("/identifications/undo")
+    def undo_identifications(body: dict[str, Any] = BODY) -> dict[str, Any]:
+        with store.tx() as c:
+            return identities.undo(c, text(body, "batch_id", required=True))
+
+    @r.get("/species")
+    def get_species(task: str | None = None, hidden: str = "0") -> dict[str, Any]:
+        """Species cards derived from identifications (contract revision 4, S4); task= narrows to one task."""
+        if task is not None:
+            task_or_404(task)
+        return identities.species(store.conn(), task, include_hidden=hidden == "1")
+
+    @r.get("/names")
+    def get_names(q: str = "", limit: int = LIMIT100) -> list[dict[str, Any]]:
+        """Taxa by any of their names (scientific, English, synonyms, replaced names, the person's Chinese)."""
+        return taxa.search(store.conn(), q, min(limit, 100))
+
+    @r.patch("/species/{concept}")
+    def patch_species(concept: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        kw: dict[str, Any] = {}
+        if "cover_asset_id" in body:
+            cover = body["cover_asset_id"]
+            if cover is not None and not store.one("SELECT 1 FROM current_ids WHERE asset_id = ? AND concept = ?",
+                                                   (cover, concept)):
+                raise Error("cover_asset_id must be a photo of this species (or null)")
+            kw["cover_asset_id"] = cover
+        if "hidden" in body:
+            if not isinstance(body["hidden"], bool):
+                raise Error("hidden must be true|false")
+            kw["hidden"] = body["hidden"]
+        if not kw:
+            raise Error("cover_asset_id or hidden is required")
+        with store.tx() as c:
+            identities.set_prefs(c, concept, **kw)
+            card = next((x for k in ("species", "to_confirm") for x in identities.species(c, include_hidden=True)[k]
+                         if x["concept"] == concept), None)
+            if card is None:                                  # raised inside: the prefs row rolls back
+                raise NotFound(f"no photo of {concept}")
+        return card
+
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,
                      limit: int = LIMIT100) -> list[dict[str, Any]]:
@@ -1040,6 +1123,14 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     app.include_router(r)
     if (WEB_DIR / "index.html").exists():
         from fastapi.staticfiles import StaticFiles
+
+        @app.middleware("http")
+        async def revalidate_ui(request: Request, call_next: Any) -> Any:
+            """The UI files revalidate (ETag) on every load, so an upgraded service never runs a stale app.js."""
+            response = await call_next(request)
+            if not request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-cache"
+            return response
 
         app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
     return app

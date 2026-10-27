@@ -58,6 +58,14 @@ class NameList:
     unlabelled: str = "zero"     # location prior for a row with no label: zero | genus (geo.LocationPrior)
     label_map_sha: str = ""      # label_map_sha(label map file) the labels came from; "" = no map
     source: str = ""             # the taxonomy the rows follow (engine info), "" = not stated
+    # Stable concept id per row (avibase:<id> | mdd:<id>); "" or no list = none (contract.candidate: name:<scientific>).
+    concept: list[str] = field(default_factory=list)
+
+
+def concept_of(nl: NameList, row: int) -> str:
+    """The row's stable concept id, "" when its list has none (stand-in lists in tests have no field)."""
+    concept = getattr(nl, "concept", None)
+    return concept[row] if concept else ""
 
 
 def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> list[str]:
@@ -65,7 +73,8 @@ def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> li
             genus.strip().capitalize(), f"{genus.strip().capitalize()} {epithet.strip().lower()}"]
 
 
-def read_avilist(path: Path) -> list[tuple[str, str, list[str]]]:
+def read_avilist(path: Path) -> list[tuple[str, str, list[str], str]]:
+    """(scientific, common, taxonomy, concept) per species row; concept = avibase:<Avibase ID>, "" when absent."""
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
         for r in map(avilist_row, csv.DictReader(f)):
@@ -73,16 +82,19 @@ def read_avilist(path: Path) -> list[tuple[str, str, list[str]]]:
                 continue
             genus, epithet = norm_binomial(r["Scientific_name"]).split(" ", 1)
             tax = _taxonomy("Aves", r["Order"], r["Family"], genus, epithet)
-            rows.append((tax[6], r["English_name_AviList"].strip(), tax))
+            avibase = (r.get("AvibaseID") or "").strip()
+            rows.append((tax[6], r["English_name_AviList"].strip(), tax, f"avibase:{avibase}" if avibase else ""))
     return rows
 
 
-def read_mdd(path: Path) -> list[tuple[str, str, list[str]]]:
+def read_mdd(path: Path) -> list[tuple[str, str, list[str], str]]:
+    """As read_avilist; concept = mdd:<MDD id>."""
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             tax = _taxonomy("Mammalia", r["order"], r["family"], r["genus"], r["specificEpithet"])
-            rows.append((tax[6], r["mainCommonName"].strip(), tax))
+            mdd = (r.get("id") or "").strip()
+            rows.append((tax[6], r["mainCommonName"].strip(), tax, f"mdd:{mdd}" if mdd else ""))
     return rows
 
 
@@ -170,7 +182,8 @@ def match_tol(rows, tol_names, cls: str, keys: list[str] | None = None) -> list[
         if tax[2] == cls:
             index.setdefault(norm_binomial(f"{tax[5]} {tax[6]}"), []).append((i, tax[4].lower()))
     out = []
-    for (_sci, _common, tax), key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
+    for row, key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
+        tax = row[2]
         hits = index.get(norm_binomial(key)) if key else None
         if not hits:
             out.append(None)
@@ -501,7 +514,8 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
             labels = {"birdnet": [x.get("birdnet_label", "") for x in m],
                       "birdnet_how": [x.get("birdnet_how") or "none" for x in m],
                       "label_map_sha": label_map_sha(map_path)}
-        out[kind] = NameList(src.list_id, kind, **cols, sha=sha, **labels, unlabelled=src.unlabelled, source=src.source)
+        out[kind] = NameList(src.list_id, kind, **cols, sha=sha, **labels, unlabelled=src.unlabelled, source=src.source,
+                             concept=[r[3] for r in rows])
     try:
         other = load_all_taxa(cache_dir, tol_files=tol_files, tol=tol)
     except Exception as exc:  # noqa: BLE001 - an optional list must not cost birds and mammals
