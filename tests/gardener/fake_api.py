@@ -535,7 +535,17 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             "duplicates": {"identical": 0, "reuse": 0, "duplicate": 0, "items": []}, "renamed": {"files": 0, "items": []},
             "progress": {"files_total": len(files), "files_done": 0, "files_failed": 0, "bytes_total": size,
                          "bytes_done": 0, "assets_total": len(take), "assets_done": 0, "assets_failed": 0},
-            "failed": []}
+            "failed": [], "collection_id": None,
+            # 契约修订 7B: the completion page's species stats (demo rows)
+            "species": {"new": [{"concept": "avibase:demo-wren", "taxon": "Nannus pacificus", "common": "Pacific Wren",
+                                 "zh": "太平洋鹪鹩", "photos": 2, "importing": 2, "before": 0}],
+                        "added": [{"concept": "avibase:demo-owl", "taxon": "Megascops asio",
+                                   "common": "Eastern Screech-Owl", "zh": None, "photos": 3, "importing": 2, "before": 5}],
+                        "to_confirm": [], "sole": [{"concept": "avibase:demo-kestrel", "taxon": "Falco tinnunculus",
+                                                    "common": "Common Kestrel", "zh": "红隼", "asset_id": mine[0]["id"]
+                                                    if mine else None, "name": mine[0]["name"] if mine else "",
+                                                    "use": "reject", "confirmed": True, "imported": False}],
+                        "counts": {"new": 1, "added": 1, "to_confirm": 0, "sole": 1, "sole_left": 1}}}
         return fk.imports[pid]
 
     def plan_of(pid: str) -> dict:
@@ -563,6 +573,16 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                  assets_done=g["assets_total"] - len(offline), assets_failed=len(offline))
         p.update(status="partial" if offline else "completed", started_at=fk.now(), finished_at=fk.now(),
                  failed=[{"asset_id": None, "path": f["path"], "error": "源文件不存在或离线"} for f in offline])
+        return p
+
+    @app.post(P + "/imports/{pid}/collection")
+    def import_collection(pid: str):
+        """契约修订 7B: the batch's manual collection, named after its folder."""
+        p = plan_of(pid)
+        if not p["progress"]["assets_done"]:
+            raise Err(400, "这个批次还没有已导入的照片", "bad_request")
+        mine = [a["id"] for a in fk.assets.values() if p["task_id"] in a["task_ids"]]
+        p["collection_id"] = fk.new_col({"name": p["folder"], "task_id": p["task_id"], "asset_ids": mine})["id"]
         return p
 
     @app.post(P + "/tasks/{tid}/{action}")

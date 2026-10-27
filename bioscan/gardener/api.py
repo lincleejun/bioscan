@@ -1241,6 +1241,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def run_import(pid: str) -> dict[str, Any]:
         return imports.start(store, importer, pid, store.task_roots())
 
+    @r.post("/imports/{pid}/collection")
+    def import_collection(pid: str, actor: str = ACTOR) -> dict[str, Any]:
+        """契约修订 7B: the batch's manual collection (made, or made again after a person deleted it)."""
+        if imports.batch_collection(store, pid, actor=actor) is None:
+            raise Error("这个批次还没有已导入的照片")
+        return imports.plan_json(store, pid)
+
     # ---- 契约修订 5E: Lightroom handoff and cleanup plans (handoff.py, cleanup.py) ----
     lr_dir = Path(lightroom_dir) if lightroom_dir is not None else handoff.default_dir()
     trash_fn = trash or cleanup.trash

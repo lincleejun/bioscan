@@ -241,3 +241,17 @@ def test_handoff_and_cleanup_commands(svc, capsys):
     plan = run_json(capsys, url, "cleanup", "plan")
     code, out, _ = run(capsys, url, "cleanup", "run", plan["id"], "--yes")
     assert code == 0 and "可恢复，未释放空间" in out and "清空废纸篓后才真正释放" in out
+
+
+def test_import_species_stats_and_batch_collection_commands(svc, capsys, tmp_path):
+    """契约修订 7B: `import show` prints the species stats; `import collection` saves the batch as a collection."""
+    from bioscan.gardener.cli import parser, request
+
+    assert request(parser().parse_args(["import", "collection", "ip_1"])) == ("POST", "/imports/ip_1/collection", {}, None)
+    url, fake = svc
+    p = run_json(capsys, url, "import", "plan", next(iter(fake.tasks)), "--dest", str(tmp_path))
+    code, out, _ = run(capsys, url, "import", "show", p["id"])
+    assert code == 0 and "物种：新增 1" in out and "唯一记录" in out and "不导入" in out
+    run(capsys, url, "import", "run", p["id"])
+    code, out, _ = run(capsys, url, "import", "collection", p["id"])
+    assert code == 0 and "Collection：c" in out

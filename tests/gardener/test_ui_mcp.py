@@ -47,7 +47,8 @@ def test_handshake_list_and_errors(svc):
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
                      "list_encounters", "edit_encounters", "preview_rule", "plan_import", "run_import", "get_import",
-                     "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan"]
+                     "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan",
+                     "import_collection"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -191,3 +192,16 @@ def test_handoff_and_cleanup_tools_round_trip(svc):
     assert err and refused["status"] == 400
     done, err = tool(url, "run_cleanup_plan", id=plan["id"], confirm=True)
     assert not err and done["report"]["freed_bytes"] == 0 and done["report"]["recoverable"] is True
+
+
+def test_import_collection_tool(svc):
+    """契约修订 7B: the batch collection over MCP; get_import carries the species stats."""
+    from bioscan.gardener.mcp import route
+
+    assert route("import_collection", {"plan_id": "ip_1"}) == ("POST", "/imports/ip_1/collection", {}, None)
+    url, fake = svc
+    p, _ = tool(url, "plan_import", task_id=next(iter(fake.tasks)), dest_root="/lib")
+    assert p["species"]["counts"]["sole_left"] == 1
+    tool(url, "run_import", plan_id=p["id"])
+    done, err = tool(url, "import_collection", plan_id=p["id"])
+    assert not err and done["collection_id"] in fake.cols

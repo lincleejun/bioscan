@@ -95,7 +95,9 @@ TOOLS = [
           ("task_id", "dest_root")),
     _tool("run_import", "执行或续跑导入计划（后台复制，逐文件 sha256 校验后入库；已核验的文件不再复制）。"
           "先让用户看过 plan_import 的结果。", {"plan_id": _STR}, ("plan_id",)),
-    _tool("get_import", "导入计划的进度与结果：status 为 partial 时 failed 列出失败的文件，不是成功。",
+    _tool("get_import", "导入计划的进度与结果：status 为 partial 时 failed 列出失败的文件，不是成功。"
+          "species 为完成页物种统计：new（库中首次确认的物种）、added（已有物种补充）、to_confirm（只有模型识别的候选）、"
+          "sole（某物种唯一的照片，imported=false 表示不导入、只留在卡片与来源中）。",
           {"plan_id": _STR}, ("plan_id",)),
 
     # ---- 契约修订 5E: Lightroom handoff and cleanup plans ----
@@ -111,6 +113,10 @@ TOOLS = [
     _tool("run_cleanup_plan", "执行清理计划：重新核对每张（仍为淘汰、文件未变），把文件移到废纸篓（可恢复，不释放空间，不永久删除）。"
           "只有用户看过计划（尤其是最后的物种照片）并明确同意后才调用；confirm 必须为 true。",
           {"id": _STR, "confirm": {"type": "boolean"}}, ("id", "confirm")),
+    # ---- 契约修订 7B: import batch collection, handoff retry, presets and export ----
+    _tool("import_collection", "把导入批次中已导入的照片存为以批次目录命名的手动 Collection（运行结束时已自动建立；"
+          "被删除后可再建）。", {"plan_id": _STR}, ("plan_id",)),
+    # ---- end 契约修订 7B ----
 ]
 _NAMES = {t["name"] for t in TOOLS}
 
@@ -198,6 +204,8 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
         return "POST", f"/imports/{args['plan_id']}/run", {}, None
     if name == "get_import":
         return "GET", f"/imports/{args['plan_id']}", None, None
+    if name == "import_collection":
+        return "POST", f"/imports/{args['plan_id']}/collection", {}, None
     raise KeyError(name)
 
 

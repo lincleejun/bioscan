@@ -172,6 +172,16 @@ def import_text(p: dict) -> str:
              f"进度：{g.get('files_done', 0)}/{g.get('files_total', 0)} 个文件，{g.get('assets_done', 0)}/"
              f"{g.get('assets_total', 0)} 张已入库，失败 {g.get('files_failed', 0)}"]
     lines += [f"  失败 {f['path']}：{f['error']}" for f in p.get("failed", [])]
+    sp = p.get("species")                            # 契约修订 7B
+    if sp:
+        n = sp["counts"]
+        nm = lambda x: x.get("zh") or x.get("common") or x.get("taxon") or x["concept"]  # noqa: E731
+        lines.append(f"物种：新增 {n['new']} · 已有物种补充 {n['added']} · 待确认候选 {n['to_confirm']} · 唯一记录 "
+                     f"{n['sole']}（其中 {n['sole_left']} 张不导入，只留在卡片与来源中）")
+        lines += [f"  新增 {nm(x)}（{x['concept']}）{x['photos']} 张，导入 {x['importing']}" for x in sp["new"]]
+        lines += [f"  唯一记录 {x['name']} {nm(x)}：{'导入' if x['imported'] else '不导入'}" for x in sp["sole"]]
+    if p.get("collection_id"):
+        lines.append(f"Collection：{p['collection_id']}（{p['folder']}）")
     return "\n".join(lines)
 
 
@@ -361,6 +371,8 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
             return "POST", f"/imports/{a.id}/run", {}, None
         if sub == "show":
             return "GET", f"/imports/{a.id}", None, None
+        if sub == "collection":
+            return "POST", f"/imports/{a.id}/collection", {}, None
         return "GET", "/imports", None, {"task": a.task}
     raise SystemExit(f"unknown command {c}")
 
@@ -508,6 +520,7 @@ def parser() -> argparse.ArgumentParser:
     im.add_parser("run", help="执行或续跑导入计划").add_argument("id")
     im.add_parser("show", help="导入计划与进度、结果").add_argument("id")
     im.add_parser("list", help="导入计划列表").add_argument("--task")
+    im.add_parser("collection", help="把已导入的照片存为以批次目录命名的 Collection（契约修订 7B）").add_argument("id")
 
     # ---- 契约修订 5E ----
     def scope_args(x):

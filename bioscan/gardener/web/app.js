@@ -2083,6 +2083,7 @@
         <dt>容量</dt><dd>需复制 ${fmtBytes(p.needed_bytes)} · 可用 ${fmtBytes(p.free_bytes)}</dd>
         <dt>重复</dt><dd>目标已有相同文件 ${d.identical || 0} · 之前已导入 ${d.reuse || 0} · 同内容已在库中 ${d.duplicate || 0}（不再复制；连拍相似不算重复）</dd>
         <dt>同名</dt><dd>${p.renamed.files ? `${p.renamed.files} 个文件加批次后缀 _B${esc(p.seq)}，整组同名，不覆盖已有文件` : '无冲突'}</dd></dl>${dupList}${renList}</section>
+      ${importSpeciesHTML(p)}
       ${p.status === 'planned' ? `<label class="switch-row boxed"><span class="sw-text"><b>待定照片一起导入</b><small>关闭后待定照片仍仅在来源中</small></span><input type="checkbox" role="switch" class="switch" id="imp-pending" ${p.include_pending ? 'checked' : ''}></label>` : ''}
       ${p.status === 'planned' ? '' : importResultHTML(p)}
       <footer class="form-foot"><a class="btn ghost" href="#/task/${esc(p.task_id)}/collections">继续 Review</a>
@@ -2098,7 +2099,25 @@
         <dt>未复制</dt><dd>淘汰 ${nc.reject || 0} 张${nc.pending ? ` · 待定 ${nc.pending} 张` : ''}；来源未做任何改动</dd>
         ${p.interruptions ? `<dt>中断</dt><dd>${p.interruptions} 次，已从未完成项继续</dd>` : ''}</dl>
       ${fails.length ? `<p class="ai-fail">${ic('warn')}${g.files_failed} 个文件失败（部分完成，不是成功）：</p><ul class="hist">${fails.map(f => `<li class="mono">${esc(f.path)} · ${esc(f.error)}</li>`).join('')}</ul>` : ''}
-      ${p.status === 'completed' ? '<p class="hint">下一步：继续 Review；待定照片改为选入修图时只更新用途，不移动已导入的文件。</p>' : ''}</section>`;
+      ${p.status === 'completed' ? '<p class="hint">下一步：继续 Review；待定照片改为选入修图时只更新用途，不移动已导入的文件。</p>' : ''}
+      ${p.collection_id ? `<p><a href="#/review/${esc(encodeURIComponent(p.collection_id))}">${ic('check')}本批次已存为 Collection「${esc(p.folder)}」→</a></p>` : g.assets_done && !busyImport(p) ? `<button type="button" class="btn sm" data-action="import-collection" data-id="${esc(p.id)}">存为 Collection</button>` : ''}</section>`;
+  }
+  // 契约修订 7B：完成页的物种统计（新增物种、已有物种补充、待确认候选、唯一记录影响），每项链到本次拍摄的该物种照片。
+  const busyImport = p => ['queued', 'running'].includes(p.status);
+  function importSpeciesHTML(p) {
+    const sp = p.species;
+    if (!sp) return '';
+    const n = sp.counts || {};
+    const nm = x => esc(x.zh || x.common || x.taxon || x.concept);
+    const href = x => `#/species/task/${encodeURIComponent(p.task_id)}/${encodeURIComponent(x.concept)}`;
+    const list = (rows, line) => rows.length ? `<ul class="hist">${rows.map(x => `<li><a href="${esc(href(x))}">${nm(x)}</a> · ${line(x)}</li>`).join('')}</ul>` : '';
+    const sec = (title, k, rows, line) => `<details ${rows.length && k !== 'to_confirm' ? 'open' : ''}><summary>${title} <b>${n[k] || 0}</b></summary>${list(rows, line) || '<p class="hint">无</p>'}</details>`;
+    return `<section class="card"><h3>物种<span class="sub">点物种名查看本次拍摄的照片</span></h3>
+      ${n.sole_left ? `<p class="note warn block">${ic('warn')}${n.sole_left} 张是某物种唯一的照片，但本次不导入：它们仍计入物种卡片，文件只在来源中。</p>` : ''}
+      ${sec('新增物种（库中首次确认）', 'new', sp.new || [], x => `${x.photos} 张已确认，导入 ${x.importing} 张`)}
+      ${sec('已有物种补充', 'added', sp.added || [], x => `本次 ${x.photos} 张，库中原有 ${x.before} 张`)}
+      ${sec('待确认候选（只有模型识别）', 'to_confirm', sp.to_confirm || [], x => `${x.photos} 张`)}
+      ${sec('唯一记录', 'sole', sp.sole || [], x => `${esc(x.name)} · ${useZh(x.use)} · ${x.imported ? '导入' : '<b>不导入，只留在卡片与来源中</b>'}${x.confirmed ? '' : ' · 尚未确认'}`)}</section>`;
   }
   async function importReplan(task, body) {
     const p = await api('POST', `/tasks/${encodeURIComponent(task)}/import-plan`, body);
@@ -2112,6 +2131,10 @@
       const dest = $('#imp-dest').value.trim();
       if (!dest) { $('#imp-err').textContent = '请填写目标根目录（绝对路径）'; return; }
       try { await importReplan(imp.task.id, { dest_root: dest, place: $('#imp-place').value.trim(), include_pending: $('#imp-pending-new').checked }); } catch (e) { $('#imp-err').textContent = errMsg(e); }
+    },
+    'import-collection': async el => {
+      el.disabled = true;
+      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/collection`); setHTML($('#imp-body'), importPlanHTML(imp.plan)); toast('已存为 Collection'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
     },
     'import-run': async el => {
       el.disabled = true;

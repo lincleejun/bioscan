@@ -505,3 +505,22 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - #102 引入按任务的代表版本（`query.IN_TASK_REP`）：一张照片只有当它的代表版本也在同一任务里时，才在该任务里算作版本；否则它就是这个任务自己的照片。
 - 下列按任务的视图采用同一规则：`GET /species?task=`、拍摄段的分配、`GET /encounters?task=`（含“未分段”）、保留此张并淘汰相似帧的同连拍照片（连拍 id 带任务前缀）、导入计划（`not_copied.versions` 只计代表版本也在本任务里的版本）。
 - 全库视图（`GET /species` 总数、清理计划的“最后一张”、`GET /names` 的张数）仍按全局规则，只计代表版本，同一拍摄不重复计数。
+
+## 契约修订 7B：完成页物种统计、导入批次 Collection、交接重试、Lightroom 预设与导出（2026-10-27，#110；PRD §09、§12、FR13）
+
+依据：修订 5D、5E 的“未做”项。本节优先于上文冲突处。
+
+### 完成页物种统计（PRD §09）
+- `ImportPlan.species`（只在 `GET /imports/{id}`、`POST …/import-plan`、`…/run`、`…/collection` 的单个计划中返回；`GET /imports` 列表不带，保持轻量）每次读取时按**当前**识别结论计算，计划生成后才确认的物种立即反映：
+  `{new: [...], added: [...], to_confirm: [...], sole: [...], counts: {new, added, to_confirm, sole, sole_left}}`，各列表最多 200 项。
+- 口径：**本批** = 本任务的代表版本（`query.IN_TASK_REP`，含淘汰）；**图库** = 全部代表版本、不含已在废纸篓的（与物种卡片、清理计划同一口径）。“图库”指已扫描的全部素材，不是已导入的副本。
+  - `new`（新增物种）：本批有人工确认、且本任务之外没有任何人工确认照片的物种。`added`（已有物种补充）：本批有人工确认、本任务之外也有。两者每项 `{concept, taxon, common, zh, photos（本批确认张数）, importing（其中本计划导入的张数）, before（本任务之外的确认张数）}`。
+  - `to_confirm`（待确认候选）：本批中只有模型识别为该物种的照片 `{concept, …, photos, importing}`；不计入物种数。
+  - `sole`（唯一记录）：图库里某物种唯一的一张照片（与卡片“仅 1 张”、清理“最后一张”同口径，含只有候选的物种）且在本批中：`{concept, …, asset_id, name, use, confirmed, imported}`；`imported=false` 即不导入（淘汰或不含待定），照片仍计入物种卡片，文件只在来源中。`counts.sole_left` 为其张数。不导入的排在前面。
+- 界面：确认页与结果页的“物种”卡片，四类各列出物种，点物种名进入 `#/species/task/<task>/<concept>`（本次拍摄中该物种的照片）；有不导入的唯一记录时给警告。
+
+### 导入批次成为 Collection（PRD §09“后续整理”）
+- 计划执行结束（completed / partial）时，把**全部文件都已完成**的素材存为一个手动 Collection：`kind=manual, origin=user, task_id=<任务>`，名称为批次目录名（`YYYY-MM-DD_地点`），说明为“导入批次 N · 目标目录”。`origin=user`，重组永不改动它。`ImportPlan.collection_id` 记录它（列 `import_plans.collection_id`）。
+- 同一计划再次执行（失败项重试）时，新完成的素材加入同一个 Collection（以 `auto` 加入：人移除的成员不会被加回）。人删除了该 Collection 后，执行不再重建；`POST /imports/{id}/collection` 按需新建（还没有已导入的照片 → 400）。
+- 建 Collection 失败不影响导入结果（记日志，可按需再建）。
+- CLI `gardener import collection <id>`；MCP `import_collection`。

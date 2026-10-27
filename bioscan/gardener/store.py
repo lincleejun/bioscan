@@ -26,7 +26,9 @@ TERMINAL = ("completed", "partial", "failed", "stopped", "cancelled")
 ADDED_COLUMNS = (("ai_suggestions", "burst_rank", "INTEGER"), ("ai_suggestions", "burst_size", "INTEGER"),
                  ("tasks", "timezone", "TEXT"), ("collections", "summary", "TEXT"), ("collections", "parent_id", "TEXT"),
                  ("assets", "version_of", "TEXT"), ("assets", "version_reason", "TEXT"),
-                 ("assets", "version_lock", "INTEGER NOT NULL DEFAULT 0"), ("marks", "use", "TEXT"))
+                 ("assets", "version_lock", "INTEGER NOT NULL DEFAULT 0"), ("marks", "use", "TEXT"),
+                 ("import_plans", "collection_id", "TEXT"),                     # 契约修订 7B: the batch collection
+                 ("handoffs", "options", "TEXT"), ("editor_links", "progress", "TEXT"))   # 7B: presets/export, 修图进度
 REVIEW_STATE = {"complete": "completed", "zero": "zeroed", "reopen": "open"}
 # The four uses of a photo (PRD §05, contract revision 5B); NULL in marks.use = pending. marks.flag is derived
 # from it for older clients: record and edit read as pick.
