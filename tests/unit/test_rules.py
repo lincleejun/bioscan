@@ -159,7 +159,7 @@ def test_geo_prior_applies_to_whole_list_before_top_k():
 
     sci = [f"Circus s{i}" for i in range(8)]
     tax = [["Animalia", "Chordata", "Aves", "Accipitriformes", "Accipitridae", "Circus", s] for s in sci]
-    birds = NameList("avilist-2025", "bird", sci, [""] * 8, tax, np.zeros((8, 4), np.float32), ["exact"] * 8,
+    birds = NameList("avilist-2026", "bird", sci, [""] * 8, tax, np.zeros((8, 4), np.float32), ["exact"] * 8,
                      birdnet=[f"{s}_x" for s in sci[:7]] + [""], birdnet_how=["exact"] * 7 + ["none"])
     visual = np.array([0.30, 0.20, 0.15, 0.12, 0.10, 0.08, 0.03, 0.02])   # row 5 is visual rank 6
     birdnet_labels = [f"{s}_x" for s in reversed(sci[:7])]                 # BirdNET's own order

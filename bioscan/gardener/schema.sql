@@ -174,3 +174,54 @@ CREATE TABLE IF NOT EXISTS person_faces (
   source TEXT NOT NULL,          -- face (one face named) | collection (a person group named)
   created_at TEXT NOT NULL, PRIMARY KEY (asset_id, face)
 );
+
+-- Species identity per subject (ADR 0002, contract revision 4). A subject is one animal in a photo with an id
+-- that outlives reruns: a later run's box at IoU >= 0.5 is the same subject. Identifications are only appended.
+CREATE TABLE IF NOT EXISTS subjects (
+  id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id),
+  xyxy TEXT NOT NULL,            -- JSON [x0, y0, x1, y1], 0-1 of the upright image
+  kind TEXT,                     -- bird | mammal | other_animal (BioScan box kind) | NULL
+  origin TEXT NOT NULL,          -- ai (a detector box) | user (drawn by a person)
+  last_run_id TEXT, created_at TEXT NOT NULL,
+  removed_at TEXT                -- an ai-only subject a later run no longer sees; never one a person identified
+);
+CREATE INDEX IF NOT EXISTS subjects_asset ON subjects (asset_id);
+CREATE TABLE IF NOT EXISTS identifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT NOT NULL REFERENCES subjects(id),
+  asset_id TEXT NOT NULL REFERENCES assets(id),
+  concept TEXT,                  -- avibase:<id> | mdd:<id> | name:<scientific>; NULL below species or unconfirmed
+  taxon TEXT, common TEXT,       -- the name shown at `level` (genus/family keep the rolled-up taxon)
+  level TEXT NOT NULL,           -- species | genus | family | unconfirmed | not_animal
+  qualifier TEXT,                -- NULL | slash (one of `candidates`, unresolved)
+  candidates TEXT NOT NULL DEFAULT '[]',   -- JSON [{concept, scientific, common, p}]
+  p REAL,
+  source TEXT NOT NULL,          -- ai | user
+  run_id TEXT, version TEXT,     -- ai: the run and model version
+  batch_id TEXT, actor TEXT, reason TEXT, undone INTEGER NOT NULL DEFAULT 0,   -- user: one action, undoable
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS identifications_subject ON identifications (subject_id, source, id);
+CREATE INDEX IF NOT EXISTS identifications_asset ON identifications (asset_id);
+CREATE INDEX IF NOT EXISTS identifications_concept ON identifications (concept);
+-- Each live subject's current identification: its latest live user row, else its latest ai row.
+-- Derived, so recreated on every start: a changed definition reaches old databases too.
+DROP VIEW IF EXISTS current_ids;
+CREATE VIEW current_ids AS
+SELECT s.asset_id, s.id AS subject_id, s.kind, i.id AS identification_id, i.concept, i.taxon, i.common, i.level,
+       i.source, i.p, i.created_at
+FROM subjects s JOIN identifications i ON i.id = coalesce(
+  (SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'user' AND x.undone = 0),
+  (SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'ai' AND x.undone = 0))
+WHERE s.removed_at IS NULL;
+-- What a person set on a species card (display only: hiding never touches photos or identifications).
+CREATE TABLE IF NOT EXISTS species_prefs (
+  concept TEXT PRIMARY KEY, cover_asset_id TEXT, hidden INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+);
+-- Every name a concept goes by (taxa.py): list names, synonyms, the person's Chinese names; rebuilt when its inputs change.
+CREATE TABLE IF NOT EXISTS taxon_names (
+  concept TEXT NOT NULL, name TEXT NOT NULL, norm TEXT NOT NULL,
+  lang TEXT NOT NULL,            -- sci | en | zh | alias
+  source TEXT NOT NULL,          -- avilist | mdd | synonym | user
+  kind TEXT                      -- bird | mammal
+);
+CREATE INDEX IF NOT EXISTS taxon_names_concept ON taxon_names (concept);

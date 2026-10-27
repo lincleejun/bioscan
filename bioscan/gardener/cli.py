@@ -13,7 +13,8 @@ import urllib.request
 DEFAULT_URL = "http://127.0.0.1:8770"
 API = "/api/v1"
 FILTERS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "ai", "judged", "online",
-           "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "q", "changed_after")
+           "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "concept", "id_state", "q",
+           "changed_after")
 EXIT_OK, EXIT_ERROR, EXIT_SERVICE = 0, 1, 2
 
 
@@ -90,6 +91,10 @@ ASSET_COLS = [("id", "id"), ("文件", "name"), ("媒体", "media"), ("拍摄", 
 COL_COLS = [("id", "id"), ("名称", "name"), ("类型", "kind"), ("分组", "group_kind"), ("张数", "size"),
             ("已判断", "judged"), ("Pick", "picks"), ("审阅", "review.state"), ("新增待审", "review.new_since")]
 CAP_COLS = [("id", "id"), ("名称", "name"), ("状态", "state"), ("版本", "version"), ("原因", "reason")]
+SPECIES_COLS = [("状态", "state"), ("中文", "zh"), ("名称", "common"), ("学名", "taxon"), ("已确认", "confirmed"),
+                ("待确认", "candidates"), ("最近", "last_taken_at"), ("concept", "concept")]
+NAME_COLS = [("中文", "zh"), ("名称", "common"), ("学名", "scientific"), ("命中", "matched"), ("库中", "photos"),
+             ("concept", "concept")]
 
 
 def render(cmd: str, out) -> str:
@@ -115,6 +120,13 @@ def render(cmd: str, out) -> str:
         return table([out], COL_COLS)
     if cmd == "caps":
         return table(out, CAP_COLS)
+    if cmd == "species":
+        rows = [k | {"state": "已确认"} for k in out["species"]] + [k | {"state": "待确认"} for k in out["to_confirm"]]
+        un = out["unresolved"]
+        return (f"已拍到 {out['confirmed_total']} 种（只计人工确认的）\n" + table(rows, SPECIES_COLS)
+                + f"\n待鉴定：属/科 {un['genus_family']} 张，不确定 {un['unconfirmed']} 张")
+    if cmd == "names":
+        return table(out, NAME_COLS)
     if isinstance(out, dict):
         return pairs(out)
     return _cell(out)
@@ -173,6 +185,26 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         return "POST", "/marks", body, None
     if c == "undo":
         return "POST", "/marks/undo", {"batch_id": a.batch_id}, None
+    if c == "species":
+        return "GET", "/species", None, {"task": a.task, "hidden": "1" if a.hidden else "0"}
+    if c == "names":
+        return "GET", "/names", None, {"q": a.q, "limit": a.limit}
+    if c == "identify":
+        claim = ({"accept": True} if a.accept else {"level": "unconfirmed"} if a.unsure else
+                 {"level": "not_animal"} if a.not_animal else
+                 {"level": a.level, "taxon": a.taxon, **({"concept": a.concept, "common": a.common}
+                                                         if a.level == "species" else {})})
+        body = {"subject_ids": a.subjects, "claim": claim, "scope": "burst" if a.burst else "subject",
+                "dry_run": a.dry_run, **({"reason": a.reason} if a.reason else {})}
+        return "POST", "/identifications", body, None
+    if c == "identify-undo":
+        return "POST", "/identifications/undo", {"batch_id": a.batch_id}, None
+    if c == "species-card":
+        body = ({"cover_asset_id": None} if a.no_cover else {"cover_asset_id": a.cover} if a.cover else {}) | \
+            ({"hidden": a.hide} if a.hide is not None else {})
+        if not body:
+            raise SystemExit("species-card: 需要 --cover、--no-cover、--hide 或 --show")
+        return "PATCH", f"/species/{urllib.parse.quote(a.concept, safe=':')}", body, None
     if c == "collections":
         return "GET", "/collections", None, {"task": a.task, "kind": a.kind, "deleted": "1" if a.deleted else "0"}
     if c == "collection":
@@ -257,6 +289,34 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("--reason")
     u = s.add_parser("undo", help="撤销一批标记")
     u.add_argument("batch_id")
+
+    sp = s.add_parser("species", help="物种卡片：已拍到 N 种（人工确认）、待确认、待鉴定")
+    sp.add_argument("--task", help="只看一个任务")
+    sp.add_argument("--hidden", action="store_true", help="包括已隐藏的卡片")
+    nm = s.add_parser("names", help="按学名、英文名、中文名或旧名查物种（得到 identify 需要的 concept）")
+    nm.add_argument("q")
+    nm.add_argument("--limit", type=int, default=20)
+    idf = s.add_parser("identify", help="人工确认或纠正主体的物种（主体 id 见 assets 详情的 subjects）")
+    idf.add_argument("subjects", nargs="+")
+    how = idf.add_mutually_exclusive_group(required=True)
+    how.add_argument("--accept", action="store_true", help="采纳模型当前的结论")
+    how.add_argument("--level", choices=("species", "genus", "family"), help="与 --taxon 一起给出")
+    how.add_argument("--unsure", action="store_true", help="标为不确定")
+    how.add_argument("--not-animal", action="store_true", help="不是动物")
+    idf.add_argument("--taxon", help="学名（种）或属/科名")
+    idf.add_argument("--concept", help="种的 concept（gardener names 查得）")
+    idf.add_argument("--common")
+    idf.add_argument("--burst", action="store_true", help="同一连拍里模型认成同一种的一起改")
+    idf.add_argument("--dry-run", action="store_true", help="只报告影响范围，不写入")
+    idf.add_argument("--reason")
+    iu = s.add_parser("identify-undo", help="撤销一批物种结论")
+    iu.add_argument("batch_id")
+    sc = s.add_parser("species-card", help="物种卡片的封面与隐藏（只影响显示）")
+    sc.add_argument("concept")
+    sc.add_argument("--cover", help="封面照片的 asset id")
+    sc.add_argument("--no-cover", action="store_true", help="取消固定封面")
+    sc.add_argument("--hide", action="store_const", const=True, default=None)
+    sc.add_argument("--show", dest="hide", action="store_const", const=False)
 
     cs = s.add_parser("collections", help="集合列表")
     cs.add_argument("--task")

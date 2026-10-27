@@ -149,8 +149,15 @@ becomes a default moves to the switches (`identify.SWITCHES`).
 _Avoid_: experiment, flag
 
 **Candidate**:
-One ranked name for a box: scientific, common, taxonomy, p_visual, p_geo, posterior.
+One ranked name for a box: scientific, concept, common, taxonomy, p_visual, p_geo, posterior.
 _Avoid_: confusing it with candidate taxa (the option)
+
+**Concept**:
+A taxon's stable id, independent of its names (ADR 0002): `avibase:<Avibase ID>` for AviList birds,
+`mdd:<id>` for MDD mammals, `name:<scientific>` where the list has no stable id (the all-taxa list).
+A rename keeps the concept (*Troglodytes pacificus* → *Nannus pacificus* is `avibase:avibase-CF5B7A9D`
+in both v2025 and v2026); a split makes new ones.
+_Avoid_: taxon id, species key; using the scientific name as identity
 
 **Candidate taxa**:
 The optional `candidates` identify option: scientific names or higher taxa species ranking is restricted

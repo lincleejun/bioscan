@@ -64,7 +64,7 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | **Evaluate**: ground truth from folders or iNaturalist, reports with Wilson intervals, baselines and regression budgets, failure classes, scorecard against the standards | `bioscan eval`, `bioscan bench` | [development.md](docs/development.md), [harness.md](docs/harness.md) |
 | **HTTP API**: `/run` streams NDJSON; `/health`, `/products`, `/apply` (the review page's copy / delete) | `curl 127.0.0.1:8765/run` | [usage.md](docs/usage.md#http-api) |
 
-Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), BirdNET geo (location prior), AviList 2025 and MDD v2.5 name lists, TreeOfLife-200M all-taxa list. Sources and licences: [docs/how-it-works.md](docs/how-it-works.md#pipeline).
+Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), BirdNET geo (location prior), AviList v2026 and MDD v2.5 name lists, TreeOfLife-200M all-taxa list. Sources and licences: [docs/how-it-works.md](docs/how-it-works.md#pipeline).
 
 ## Status
 

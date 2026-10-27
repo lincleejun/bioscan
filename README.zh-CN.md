@@ -64,7 +64,7 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | **评测**：从文件夹或 iNaturalist 建真值，带 Wilson 区间的报告，基线与回归预算，失败分类，对照标准的记分卡 | `bioscan eval`、`bioscan bench` | [development.md](docs/development.md)、[harness.md](docs/harness.md) |
 | **HTTP API**：`/run` 流式返回 NDJSON；`/health`、`/products` | `curl 127.0.0.1:8765/run` | [usage.md](docs/usage.md#http-api) |
 
-模型：SigLIP2（门控、embed）、OWLv2（检测）、BioCLIP 2.5 Huge（物种）、BirdNET geo（地理先验）、AviList 2025 与 MDD v2.5 名单、TreeOfLife-200M 全类群名单。来源和许可：[docs/how-it-works.md](docs/how-it-works.md#pipeline)。
+模型：SigLIP2（门控、embed）、OWLv2（检测）、BioCLIP 2.5 Huge（物种）、BirdNET geo（地理先验）、AviList v2026 与 MDD v2.5 名单、TreeOfLife-200M 全类群名单。来源和许可：[docs/how-it-works.md](docs/how-it-works.md#pipeline)。
 
 ## 现状
 

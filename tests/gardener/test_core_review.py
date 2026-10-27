@@ -108,7 +108,7 @@ def test_manual_split_survives_regroup_and_rerun(env, fakes, tmp_path):
     with env.client() as c:
         t = scanned(c, src)
         group = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json()
-                     if x["group_kind"] == "species")
+                     if x["group_kind"] == "scene")
         members = ids(c, collection=group["id"])
         assert len(members) == 4
         new = c.post(f"{API}/collections/{group['id']}/split", json={"asset_ids": members[:2], "name": "清晨"}).json()
@@ -118,7 +118,7 @@ def test_manual_split_survives_regroup_and_rerun(env, fakes, tmp_path):
         got = c.get(f"{API}/collections/{group['id']}").json()
         assert got["size"] == 2 and got["name"] == "我的分组" and got["user_edited"]
         assert c.get(f"{API}/collections/{new['id']}").json()["size"] == 2
-        same = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "species"]
+        same = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "scene"]
         assert len(same) == 1                           # the suggestion matched the edited one, no duplicate
         r = c.patch(f"{API}/collections/{group['id']}", json={"name": "x", "version": 1})
         assert r.status_code == 409
@@ -188,7 +188,7 @@ def test_delete_restore_keeps_marks_and_deleted_auto_collections_stay_deleted(en
     with env.client() as c:
         t = scanned(c, a)
         cols = c.get(f"{API}/collections", params={"task": t["id"]}).json()
-        scene = next(x for x in cols if x["group_kind"] == "species")
+        scene = next(x for x in cols if x["group_kind"] == "scene")
         first = ids(c, collection=scene["id"])
         c.post(f"{API}/marks", json={"asset_ids": first, "flag": "pick"})
         assert c.delete(f"{API}/collections/{scene['id']}").json()["deleted_at"]
@@ -197,7 +197,7 @@ def test_delete_restore_keeps_marks_and_deleted_auto_collections_stay_deleted(en
         assert ids(c, task=t["id"], flag="pick") == ids(c, task=t["id"])          # marks unchanged
         run = finish(c, c.post(f"{API}/tasks/{t['id']}/sources", json={"paths": [str(b)]}).json()["id"])
         assert run["status"] == "completed" and run["summary"]["groups_skipped_deleted"] >= 1
-        live = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "species"]
+        live = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "scene"]
         assert live == []                                                          # not revived, no duplicate
         kids = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["parent_id"] == scene["id"]]
         assert all(x["size"] == 2 for x in kids)                                   # no new children under a deleted parent
@@ -318,7 +318,7 @@ def test_original_range_reveal_presets_settings(env, fakes, tmp_path):
         assert c.post(f"{API}/tasks/{t['id']}/archive").json()["archived"] is True
         assert c.get(f"{API}/tasks").json() == [] and len(c.get(f"{API}/tasks", params={"archived": "all"}).json()) == 1
         sd = st.Store(env.data)
-        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == "1"
+        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == "2"
 
 
 def test_capability_check_reports_a_model_that_does_not_load(tmp_path, fakes):

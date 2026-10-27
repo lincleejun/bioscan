@@ -238,7 +238,7 @@ def small_lists(bioclip) -> dict:
         return names.NameList(list_id, kind, [t[6] for t in tax], common, tax, matrix, ["none"] * len(recs),
                               sha=f"test-{len(recs)}", **labels, unlabelled=names.LISTS[kind].unlabelled)
 
-    lists = {"bird": build("avilist-2025-test-subset", "bird", "Aves", birds),
+    lists = {"bird": build("avilist-2026-test-subset", "bird", "Aves", birds),
              "mammal": build("mdd-test-subset", "mammal", "Mammalia", mammals)}
     if names.all_taxa_path().is_file():
         other = names.load_all_taxa(tol_files=(Path("/nonexistent"),) * 2)     # from the cache, never built here

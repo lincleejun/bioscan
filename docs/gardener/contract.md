@@ -249,3 +249,76 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - `AssetDetail.caps.people.data.faces[i].person = {id, name, confirmed} | null`：`confirmed` = 用户命名过这张脸；否则为按已命名的脸自动认出。
 - **UI**：人物分组的“编辑”是“给人物命名”（输入时提示已有名字）；素材详情的“人物”卡片列出每张脸，可命名、改名、确认（“是此人”）或取消。
 - **人物分组的稳定性**：分析进行中只建已命名人物的分组；未命名的人脸聚类与“人物 N”编号只在最终分组（`group` 阶段）生成，避免同名“人物 1”出现多份。最终分组时，不再被建议、且没有人动过（未改名、未审阅、无人工加入成员）的未命名聚类分组软删除（`collection_history.detail.reason = superseded_cluster`），其 `auto_key` 加后缀以免挡住以后同键的聚类。
+
+## 契约修订 4：物种身份、主体与识别（2026-10-26，AfterShooting PRD v1 阶段 A，ADR 0002，#106；优先于上文冲突处）
+
+依据：owner 要求按 AfterShooting PRD v1 与调研意见（`docs/research/2026-10-26-wildlife-workflow.md`）落地；PRD §17 的顺序是先统一身份、Collections 与人工决定。
+
+- **概念 ID**：BioScan 每个候选物种带 `concept`（`avibase:<Avibase ID>` | `mdd:<id>` | `name:<学名>`，见 `CONTEXT.md`）。Gardener 以概念为物种身份；学名、俗名只用于显示与检索。旧结果没有 `concept` 时按 `name:<学名>` 处理。
+- **schema 2**：新表 `subjects`（一张照片里的一只动物，id `s_…`）与 `identifications`（对一个主体的一条结论，只追加）。见 `schema.sql`。`schema_version` 1 的库启动时建表，并从全部 `raw:identify` 结果按时间顺序回填 AI 识别，然后记为 2。
+- **主体匹配**：`raw:identify` 的每个框与该素材现有主体按 IoU ≥ 0.5 匹配（一对一，取重叠最大者）；匹配不上就新建主体（`origin=ai`）。本轮没看到、且没有人工结论的 AI 主体记 `removed_at`；有人工结论的主体永远保留。人工画的框是 `origin=user` 的主体（S3）。
+- **AI 识别**：开启 species 时，每个带 `species` 的框写一行 `source=ai`：只有 `level=species` 才有 `concept`；属/科级保留上卷的 `taxon`，`concept` 为空；`candidates` 为前几名 `[{concept, scientific, common, p}]`。species 关闭时只有主体、没有识别。
+- **当前结论**：主体最新一条未撤销的 `source=user` 行，否则最新的 `source=ai` 行。模型重跑只追加 AI 行，不改写、不覆盖人工行。
+- **AssetDetail.subjects**：`[{id, xyxy, kind, origin, current: Identification|null, ai: Identification|null, human: bool}]`；`Identification = {id, concept, taxon, common, level, qualifier, p, candidates, source, run_id, version, actor, at}`。
+- **人工确认与纠错（S3）**：`POST /identifications {subject_ids?, new_subjects?: [{asset_id, xyxy}], claim, scope?: subject|burst, reason?, dry_run?}`。
+  - `claim` 为 `{accept: true}`（采纳该主体当前的 AI 结论）、`{level: species, concept, taxon（学名）, common?}`、`{level: genus|family, taxon}`，或 `{level: unconfirmed|not_animal}`。
+  - `new_subjects` 是人画的框（比例坐标），新建 `origin=user` 的主体。
+  - `scope=burst` 把同一结论写到每个目标所在连拍（`ai_suggestions.burst_id`）的其他照片：那里与目标 AI 结论同一概念的主体，或照片唯一的主体。已有人工结论的主体不改，列入 `skipped`（`reason: human`）。
+  - 响应 `{batch_id, dry_run, changed: [{subject_id, asset_id, via: target|burst, from, to}], skipped: [{subject_id, asset_id, reason}]}`；`dry_run` 只报告影响范围，不写入（PRD §10“先展示影响范围”）。
+  - `POST /identifications/undo {batch_id}` 整批撤销；该批之后有人再改过其中的主体 → 409 `{subjects}`；该批画出的框若再无结论则随之退役。
+  - 拍摄段（Encounter）范围留到阶段 B。
+- **物种卡片（S4）**：
+  - **派生方式**：卡片不落进 `collections` 表，查询时从视图 `current_ids`（每个在用主体的当前结论）派生。PRD §04 规定成员的真值来自物种标注，所以不经过 `grouping.suggest`。
+  - **`GET /species?task=&hidden=0|1`** 返回 `{species: [Card], to_confirm: [Card], confirmed_total, unresolved: {genus_family, unconfirmed}}`：
+    - 只看代表版本，同一拍摄的其他版本不计。
+    - 一个概念一张卡，没有最小张数。
+    - 一张照片无论有几个主体是同一概念，都只算一张（AC03）。
+    - `species` 是至少有一张人工确认的卡，张数即“已拍到 N 种”（PRD §03）；`to_confirm` 是只有 AI 结论的卡，不计入 N。
+    - `unresolved` 是主体只到属/科或未确认的照片数。
+    - Flag、星级、在线状态都不影响计数。
+  - **`Card`** = `{concept, taxon, common, kind, confirmed, candidates, photos, only_one, first_taken_at, last_taken_at, cover_id, cover_pinned, hidden}`：
+    - 名字以人工结论为准，否则取最新的 AI 结论。
+    - 封面：固定的封面仍是成员时用它；否则在已确认的照片里按星级、再按拍摄时间挑，没有已确认照片时在全部成员里挑。
+  - **`PATCH /species/{concept} {cover_asset_id?: id|null, hidden?: bool}`**：只影响显示（表 `species_prefs`）；封面必须是该物种的照片（否则 400），没有该物种的照片则 404。
+  - **`GET /assets` 增加 `concept`、`id_state=confirmed|candidate|unresolved`**：两者同时给出时，须由同一个主体满足。Smart 规则同样可用。
+  - **任务内分组**：本切片仍保留任务内物种分组（`grouping.suggest`），界面切换到物种库（S6）时再去掉。
+- **名字检索（S5）**：
+  - **索引表 `taxon_names`**：名字 → 概念（`taxa.py`）。来源有三类：
+    - AviList/MDD 的学名与英文名、MDD 的其他俗名；
+    - `synonyms.csv` 的别名，包括名录升级前的旧学名；
+    - 用户的中文名 `<数据目录>/names-zh.csv`（`scientific,zh`；没有授权清楚的中文名单可随附，见调研 §3，所以不内置、也不机器翻译）。
+  - **重建时机**：服务启动时对这些文件算哈希，变化才重建（真实名单 18,076 个概念、44,817 个名字，约 0.5 s）；名单缺失则跳过。`create_gardener_app(name_lists=)` 指定名单所在目录，`None` 不碰索引。
+  - **`GET /names?q=&limit=`** 返回 `[{concept, scientific, common, zh, kind, matched, photos}]`：
+    - 排序：名字完全相同在前，再是前缀匹配，再是包含；同一档里库中已有照片的在前。
+    - 拍到过、但不在任何名单里的 `name:` 概念，从识别结果本身检索。
+    - 纠错时用它找到 `claim` 需要的 `concept` 与 `taxon`。
+  - **筛选 `species=`**（包括 Smart 规则）改为按名字索引与主体的当前结论匹配：人工纠正后筛选结果跟着变，旧学名同样命中。
+- **界面（S6）**：
+  - **物种页**：主导航新增“物种”（`#/species`），位于全部素材之后。页面分三区：
+    - 已确认：“已拍到 N 种”；
+    - 待确认：只有模型候选；
+    - 待鉴定：链接到“全部素材”并带上 `id_state=unresolved`。
+  - **物种卡片**：封面、名字、已确认与待确认张数、日期范围；只有一张照片时标“仅 1 张”。按鸟类、哺乳动物、其他动物筛选。
+  - **物种详情**（`#/species/<concept>`）：复用网格与检查器；可把当前照片设为封面，可在物种页隐藏或显示。
+  - **任务内**：“按物种看本次拍摄”（`#/species/task/<task>`）是同一页面按任务过滤的视图。
+  - **检查器“物种”卡片**：
+    - 每个主体一行：框内的缩略图、当前结论与来源（人工确认 / AI 候选与概率）；人工结论与模型不同时，同时显示模型的结论。
+    - 可“确认”“改为…”或标“不确定”。“改为…”调用 `GET /names` 检索，学名、英文名、中文名、旧名都可以。
+    - 有连拍时可勾选“同一连拍一起改”（`scope=burst`），这个界面偏好记在 `idburst`；提示条提供整批撤销。
+  - **任务内自动分组不再生成物种组**：物种只在物种页出现，没有最小张数，因此去掉 `MIN_GROUP` 把稀有物种并入动物大类的冲突。动物照片在任务内按内容大类分组；旧库已有的任务级物种集合原样保留，不再增加成员。
+  - **`AssetItem.species`** 改由主体的当前结论派生（人工确认优先，其次概率最高的 AI 物种结论），并增加 `confirmed`。
+  - **缓存**：UI 静态文件返回 `Cache-Control: no-cache`（靠 ETag 重新校验），升级后不会继续使用旧脚本。
+- **CLI 与 MCP**（PRD §02“MCP 同步可用”）：新接口都有对应的 CLI 命令与 MCP 工具，一律只走 HTTP。
+  - CLI：`gardener species|names|identify|identify-undo|species-card`；`assets` 增加 `--concept`、`--id-state`。
+  - MCP：`list_species`、`search_names`、`identify_species`（说明里要求先 `dry_run`，没看过图像证据不确认）、`undo_identification`、`set_species_card`。
+- **名录升级（S7，第一部分：改名）**：
+  - 改学名不改概念，所以人工结论自动跟随新名字。
+  - 物种卡片、`AssetItem.species` 与主体的 `current`/`ai` 都按概念显示当前名单的学名、英文名和中文名（`zh`，来自 `taxon_names`）。
+  - 识别行里存的名字保持原样不改写；与当前学名不同时，作为 `said: {taxon, common}` 一并返回，界面显示“当时记作 …（名录已更名）”。
+- **后续切片**：S7 第二部分（拆分），见 #106。
+  - 问题：拆分后原概念 ID 可能留给其中一个子种（如 Willet → Saltmarsh Willet 保留 avibase-6D372C9F，Prairie Willet 为新 ID），旧的人工确认会被静默算成那个子种。
+  - 计划：
+    - 提交由 AviList 变更页生成的拆分表；
+    - 名单升级时，受影响的人工结论追加一条 `qualifier=slash` 的待重新确认记录，候选为各子种；
+    - 能按坐标与日期判定的自动选定（eBird 的做法），其余进复核队列；
+    - 整批可撤销。

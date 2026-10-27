@@ -10,7 +10,7 @@ CARIBOU = {"scientific": "Rangifer tarandus", "common": "",
            "p_visual": 0.77, "p_geo": None, "posterior": 0.77}
 
 
-def box(i, kind, level, top, lst="avilist-2025"):
+def box(i, kind, level, top, lst="avilist-2026"):
     return {"id": i, "xyxy": [0.1, 0.1, 0.5, 0.5], "score": 0.84, "kind": kind,
             "quality": {"sharpness": 0.7, "exposure": 0.05},
             "species": {"list": lst, "level": level, "top": top}}
