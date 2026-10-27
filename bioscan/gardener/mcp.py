@@ -97,6 +97,20 @@ TOOLS = [
           "先让用户看过 plan_import 的结果。", {"plan_id": _STR}, ("plan_id",)),
     _tool("get_import", "导入计划的进度与结果：status 为 partial 时 failed 列出失败的文件，不是成功。",
           {"plan_id": _STR}, ("plan_id",)),
+
+    # ---- 契约修订 5E: Lightroom handoff and cleanup plans ----
+    _tool("lightroom_handoff", "把集合（collection_id）、物种（concept）或选中照片（asset_ids）交给 Lightroom Classic：冻结成员快照、"
+          "写出交接文件，插件导入缺少的照片、加入以交接命名的集合、写星级与物种关键词。默认只交 Pick；uses 可指定用途。"
+          "返回的 status 为 written 时插件还没处理；用 get_handoff 看逐张真实结果，不要把 written 说成完成。",
+          {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS, "uses": _IDS, "name": _STR}),
+    _tool("get_handoff", "交接的逐张结果：ok / skipped / failed 与原因，以及因 Lightroom 中已被改过而跳过的字段（conflicts）。",
+          {"id": _STR}, ("id",)),
+    _tool("cleanup_plan", "生成清理计划：范围内（collection_id / concept / asset_ids，缺省全库）淘汰照片的全部文件（含 sidecar）、"
+          "容量、是否某物种的最后一张。只生成计划，不动文件。", {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS}),
+    _tool("get_cleanup_plan", "清理计划与执行结果。", {"id": _STR}, ("id",)),
+    _tool("run_cleanup_plan", "执行清理计划：重新核对每张（仍为淘汰、文件未变），把文件移到废纸篓（可恢复，不释放空间，不永久删除）。"
+          "只有用户看过计划（尤其是最后的物种照片）并明确同意后才调用；confirm 必须为 true。",
+          {"id": _STR, "confirm": {"type": "boolean"}}, ("id", "confirm")),
 ]
 _NAMES = {t["name"] for t in TOOLS}
 
@@ -160,6 +174,16 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
         return "POST", f"/encounters/{args['id']}/split", _pick(args, ("at", "asset_ids")), None
     if name == "preview_rule":
         return "POST", f"/collections/{args['id']}/preview-rule", {"rule": args["rule"]}, None
+    if name == "lightroom_handoff":
+        return "POST", "/handoffs", _pick(args, ("collection_id", "concept", "asset_ids", "uses", "name")), None
+    if name == "get_handoff":
+        return "GET", f"/handoffs/{args['id']}", None, None
+    if name == "cleanup_plan":
+        return "POST", "/cleanup-plans", _pick(args, ("collection_id", "concept", "asset_ids")), None
+    if name == "get_cleanup_plan":
+        return "GET", f"/cleanup-plans/{args['id']}", None, None
+    if name == "run_cleanup_plan":
+        return "POST", f"/cleanup-plans/{args['id']}/run", {"confirm": args["confirm"]}, None
     if name == "capabilities":
         return ("POST", "/capabilities/check", {}, None) if args.get("check") else ("GET", "/capabilities", None, None)
     if name == "plan_import":

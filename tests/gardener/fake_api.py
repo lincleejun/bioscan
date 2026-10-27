@@ -47,6 +47,8 @@ class Fake:
         self.history: list[dict] = []          # mark history rows with batch_id
         self.exports: list[dict] = []
         self.imports: dict[str, dict] = {}     # import plans (契约修订 5D)
+        self.handoffs: dict[str, dict] = {}    # 契约修订 5E
+        self.plans: dict[str, dict] = {}
         self.mark_bodies: list[dict] = []      # every POST /marks body as received (X5: omitted key = unchanged)
         self.presets = [{"id": k, "name": v["name"], "capabilities": list(v["capabilities"]), "builtin": True}
                         for k, v in PRESETS.items()]
@@ -865,6 +867,82 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
     @app.get(P + "/exports")
     def exports():
         return fk.exports
+
+    # ---- 契约修订 5E (Lightroom handoff, cleanup plans): shapes only; behaviour is tested on the real service ----
+    def scope_ids(body: dict) -> list[str]:
+        if body.get("collection_id"):
+            return fk.members(fk.col(body["collection_id"]))
+        if body.get("asset_ids"):
+            return [fk.asset(i)["id"] for i in body["asset_ids"]]
+        return [a["id"] for a in fk.assets.values()]
+
+    @app.post(P + "/handoffs", status_code=201)
+    def handoff_new(body: dict):
+        ids = [i for i in scope_ids(body) if fk.assets[i]["flag"] == "pick" or (body.get("asset_ids") and
+                                                                                  fk.assets[i]["flag"] != "reject")]
+        if not ids:
+            raise Err(400, "范围内没有要交接的照片（默认只交接已 Pick 的）", "bad_request")
+        hid = fk.nid("h")
+        items = [{"asset_id": i, "name": fk.assets[i]["name"], "status": "pending" if fk.assets[i]["online"] else "skipped",
+                  "reason": None if fk.assets[i]["online"] else "offline", "conflicts": [], "sent": None, "result": None}
+                 for i in ids]
+        h = {"id": hid, "name": body.get("name") or "交接", "scope": body, "status": "written",
+             "doc_path": f"/tmp/lr/handoffs/{hid}.json", "result_path": f"/tmp/lr/handoffs/{hid}.result.json",
+             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items,
+             "counts": {k: sum(i["status"] == k for i in items) for k in ("ok", "skipped", "failed", "pending")}
+             | {"conflicts": 0}}
+        fk.handoffs[hid] = h
+        return h
+
+    @app.get(P + "/handoffs")
+    def handoffs():
+        return [{k: v for k, v in h.items() if k != "items"} for h in reversed(list(fk.handoffs.values()))]
+
+    @app.get(P + "/handoffs/{hid}")
+    def handoff_get(hid: str):
+        if hid not in fk.handoffs:
+            raise Err(404, "没有这个交接", "not_found")
+        return fk.handoffs[hid]
+
+    NOTE = "移到废纸篓的文件仍占用磁盘空间，可在废纸篓中恢复；在 Finder 中清空废纸篓后才真正释放。Gardener 不做永久删除。"
+
+    @app.post(P + "/cleanup-plans", status_code=201)
+    def plan_new(body: dict | None = None):
+        ids = [i for i in scope_ids(body or {}) if fk.assets[i]["flag"] == "reject"]
+        items = [{"asset_id": i, "name": fk.assets[i]["name"], "state": "ready", "bytes": 25_000_000, "versions": [],
+                  "species": [], "files": [{"path": f["path"], "role": f["role"], "size": 25_000_000, "exists": True,
+                                            "result": None, "reason": None} for f in fk.assets[i]["files"]]}
+                 for i in ids]
+        pid = fk.nid("p")
+        fk.plans[pid] = {"id": pid, "scope": body or {}, "status": "planned", "actor": "ui", "created_at": fk.now(),
+                         "ran_at": None, "report": None, "items": items, "note": NOTE,
+                         "summary": {"in_scope": len(ids), "rejected": len(ids), "ready": len(ids), "offline": 0,
+                                     "files": sum(len(i["files"]) for i in items), "bytes": 25_000_000 * len(ids),
+                                     "last_species": []}}
+        return fk.plans[pid]
+
+    @app.get(P + "/cleanup-plans")
+    def plans():
+        return [{k: v for k, v in p.items() if k != "items"} for p in reversed(list(fk.plans.values()))]
+
+    @app.get(P + "/cleanup-plans/{pid}")
+    def plan_get(pid: str):
+        if pid not in fk.plans:
+            raise Err(404, "没有这个清理计划", "not_found")
+        return fk.plans[pid]
+
+    @app.post(P + "/cleanup-plans/{pid}/run")
+    def plan_run(pid: str, body: dict):
+        p = plan_get(pid)
+        if body.get("confirm") is not True:
+            raise Err(400, "清理需要人确认：confirm 必须为 true", "bad_request")
+        files = [f for i in p["items"] for f in i["files"]]
+        for f in files:
+            f["result"] = "trashed"
+        p.update(status="ran", ran_at=fk.now(), report={
+            "trashed_files": len(files), "trashed_bytes": sum(f["size"] for f in files), "freed_bytes": 0,
+            "recoverable": True, "failed": [], "skipped": [], "note": NOTE})
+        return p
 
     if static and WEB.is_dir():
         app.mount("/", StaticFiles(directory=WEB, html=True), name="web")

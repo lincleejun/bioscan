@@ -231,6 +231,17 @@ bioscan run DIR --profile wildlife --want identify,embed,aesthetics --json --out
 
 Rerunning the same file adds no duplicates. The plugin and its manual acceptance steps are in `extensions/lightroom/README.md`.
 
+**From Gardener** (same plugin, same install): "在 Lightroom 打开" on a collection, species or selection (or
+`gardener handoff create --collection ID`) writes `~/Library/Application Support/bioscan/lightroom/handoffs/<id>.json`.
+The plugin's watcher (or Library > Plug-in Extras > **bioscan: Apply Gardener handoffs**) finds each photo by path (or by the
+Lightroom id of an earlier handoff, so a repeat never imports twice), adds missing ones in place, puts them in a
+collection named after the handoff under the `Gardener` set, writes your stars (never AI scores) and your confirmed
+species as `Aves|Order|Family|Species` keywords (English and Chinese names as synonyms), and writes
+`<id>.result.json` with ok / skipped / failed per photo. A star or keyword changed in Lightroom since the last
+handoff is skipped and reported, never overwritten; other keywords and develop settings are not touched. Gardener
+reads the result back (`gardener handoff show ID`); until then the handoff is only "written". Lightroom behaviour of
+this flow is unverified until run in Lightroom Classic. Rules: `docs/gardener/contract.md`, 契约修订 5E.
+
 ### HTTP API
 
 ```sh

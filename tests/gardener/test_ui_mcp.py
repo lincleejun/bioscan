@@ -46,7 +46,8 @@ def test_handshake_list_and_errors(svc):
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
-                     "list_encounters", "edit_encounters", "preview_rule", "plan_import", "run_import", "get_import"]
+                     "list_encounters", "edit_encounters", "preview_rule", "plan_import", "run_import", "get_import",
+                     "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -161,3 +162,20 @@ def test_import_tools_map_to_the_revision_5d_endpoints(svc):
     assert not err and p["folder"].endswith("_东滩")
     done, err = tool(url, "run_import", plan_id=p["id"])
     assert not err and done["status"] in ("completed", "partial")
+
+
+def test_handoff_and_cleanup_tools_round_trip(svc):
+    """契约修订 5E: the MCP tools reach the same endpoints as the UI; a cleanup runs only with confirm=true."""
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    h, err = tool(url, "lightroom_handoff", asset_ids=[pick["id"]])
+    assert not err and h["status"] == "written"
+    got, _ = tool(url, "get_handoff", id=h["id"])
+    assert got["items"][0]["asset_id"] == pick["id"]
+    fake.assets[pick["id"]]["flag"] = "reject"
+    plan, _ = tool(url, "cleanup_plan")
+    assert [i["asset_id"] for i in plan["items"]] == [pick["id"]]
+    refused, err = tool(url, "run_cleanup_plan", id=plan["id"], confirm=False)
+    assert err and refused["status"] == 400
+    done, err = tool(url, "run_cleanup_plan", id=plan["id"], confirm=True)
+    assert not err and done["report"]["freed_bytes"] == 0 and done["report"]["recoverable"] is True

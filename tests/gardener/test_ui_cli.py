@@ -218,3 +218,26 @@ def test_import_commands(svc, capsys, tmp_path):
     assert p["status"] == "planned" and p["dest_root"] == str(tmp_path)
     code, out, _ = run(capsys, url, "import", "run", p["id"])
     assert code == 0 and "partial" in out and "源文件不存在或离线" in out and "选入修图" in out
+
+
+def test_handoff_and_cleanup_commands(svc, capsys):
+    """契约修订 5E: handoff create/show and cleanup plan/run (run refuses without --yes)."""
+    url, fake = svc
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("handoff", "create", "--concept", "avibase:x", "--use", "record") == \
+        ("POST", "/handoffs", {"concept": "avibase:x", "uses": ["record"]}, None)
+    assert req("cleanup", "plan") == ("POST", "/cleanup-plans", {}, None)
+    with pytest.raises(SystemExit):
+        req("cleanup", "run", "p_1")
+    col = next(c for c in fake.cols.values() if c["group_kind"] == "all")
+    code, out, err = run(capsys, url, "handoff", "create", "--collection", col["id"])
+    assert code == 0, err
+    assert "等待 Lightroom 插件返回结果" in out
+    hid = next(iter(fake.handoffs))
+    assert run(capsys, url, "handoff", "show", hid)[0] == 0
+    fake.assets[next(iter(fake.assets))]["flag"] = "reject"
+    plan = run_json(capsys, url, "cleanup", "plan")
+    code, out, _ = run(capsys, url, "cleanup", "run", plan["id"], "--yes")
+    assert code == 0 and "可恢复，未释放空间" in out and "清空废纸篓后才真正释放" in out

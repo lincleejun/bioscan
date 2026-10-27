@@ -429,3 +429,70 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **界面**：任务页“完成与导入 →”（`#/import/<task>`）填写目标根目录、地点与“待定照片一起导入”，生成计划后进入确认页（`#/import/<task>/<plan>`）：各用途照片数与默认处理、文件与容量、目标目录、重复与改名、未完成项，按钮“导入 N 张”；之后显示进度与结果（入库数、失败清单、未复制范围、下一步）。确认页切换待定开关即按同一目标重新生成计划。
 - **CLI 与 MCP**：`gardener import plan|run|show|list`；MCP `plan_import`、`run_import`、`get_import`。
 - **未做**：完成页的物种统计（新增物种、已有物种补充、唯一记录影响）；导入批次成为 Collection；Lightroom 交接与清理计划；exFAT 上崩溃留下的半个目标文件只报告为失败（无法证明是自己写的，不删除）。
+## 契约修订 5E：Lightroom 交接与清理计划（2026-10-26，AfterShooting PRD v1 §11、§12、§13，AC14、AC15、AC18；ADR 0003）
+
+依据：owner 2026-10-26 决定——交接通过扩展现有 Lightroom Classic 插件（`extensions/lightroom/bioscan.lrplugin/`）完成，
+Gardener 不为此写入照片目录；清理为经人确认后把计划里的文件移到废纸篓（ADR 0003）。
+
+- **用途适配**：四种选片用途（保留记录 / 选入修图 / 待定 / 淘汰）落地前，`handoff.uses_of(c, asset_ids)` 是唯一换算处：
+  Pick → `record`，Reject → `reject`，其余 → `pending`。交接默认范围 `HANDOFF_USES = ("record",)`（即今天的 Pick）；
+  用途字段上线后改成 `("edit",)`。清理只看 `uses_of == "reject"`。
+- **schema**（不改 `schema_version`，新表 `CREATE IF NOT EXISTS`）：`handoffs`、`handoff_items`、`editor_links`、
+  `cleanup_plans`、`cleanup_files`，见 `schema.sql` 末尾的 5E 段。
+- **交接 `POST /handoffs {collection_id | concept | asset_ids | rule, uses?, name?}`** → 201 `Handoff`：
+  - 冻结此刻的成员：集合与物种按 `uses`（缺省 `HANDOFF_USES`）过滤；`asset_ids` 缺省为除淘汰外全部；没有可交接的照片 400。
+  - 每张的文件按 `managed`（受管理副本，导入单元登记后生效）→ RAW → JPEG → 其他排序，只列磁盘上存在的；一个都不在 →
+    该张 `skipped`（`offline`），不写入交接文件。
+  - 写 `<lightroom_dir>/handoffs/<id>.json`（`create_gardener_app(lightroom_dir=)`，默认
+    `~/Library/Application Support/bioscan/lightroom/`），原子替换；文件写不成则整个交接不落库。
+    文件 `{schema: 2, kind: "gardener-handoff", id, name, collection_set: "Gardener", created_at, photos: [...]}`；每张
+    `{asset_id, paths, uuid, stars, use, keywords: [{chain, synonyms, concept}], baseline: {stars, keywords}}`。
+  - `stars` 只取人工星级，AI 分数不会变成星级。`keywords` 只来自人工的种级结论（`source=user`），层级
+    `Class|Order|Family|学名`（目、科取自 AviList / MDD；名单缺失或 `name:` 概念时为 `Class|学名`），英文名与中文名为同义词。
+  - `uuid` 与 `baseline` 来自 `editor_links`（上次交接的 Lightroom 身份与 Gardener 写过的值）；从未交接过为 `null`。
+- **插件**（`Handoff.lua`、`Decide.lua`，由 `Watch.lua` 每 2 s 轮询，或菜单 Library > Plug-in Extras >
+  “bioscan: Apply Gardener handoffs”）：处理每个还没有 `<id>.result.json` 的交接文件。
+  - 先按路径（`paths` 依次）在目录中找照片，再按 `uuid`；都找不到时就地添加第一个存在的文件（Add，不复制）。
+    重复交接因此不会重复导入。
+  - 加入集合组 `Gardener` 下以交接 `name` 命名的集合。
+  - 写字段前读取 Lightroom 当前值，按冲突规则决定（`handoff.decide_stars` / `decide_keywords`，`Decide.lua` 逐行相同，
+    测试用本机 `lua` 对同一组用例跑两边）：
+    - 星级：Gardener 无星且上次没写过 → 不动；当前值 = 目标 → 不动；没有基线时 Lightroom 无星才写，有星为冲突；
+      有基线时当前值 = 基线才写，否则冲突。
+    - 关键词：基线里有、照片上已没有的链 = 在 Lightroom 里改过 → 冲突；否则添加缺的、移除基线里有而目标里没有的链
+      （物种更正）。只动 Gardener 写过的关键词，不碰其他关键词与显影设置。
+    - 冲突字段跳过并报告，不静默覆盖（P0）。
+  - 结果文件 `{schema: 2, id, photos: [{asset_id, status: ok|skipped|failed, reason, path, imported, photo_id, uuid,
+    stars: {action, value}, keywords: {action, value, added, removed}}]}`，先写 `.tmp` 再改名。
+- **读回 `GET /handoffs/{id}`**（及 `GET /handoffs` 列表）：结果文件出现后第一次读取时入库——逐张状态与原因、
+  `editor_links` 的 Lightroom 身份；字段动作为 `write|same` 时基线更新为写入的值，冲突字段保留旧基线（下次仍报告）。
+  `Handoff.status`：`written`（只写了文件，**不算完成**）→ `applied`（全部 ok）| `partial` | `failed`。
+  `Handoff = {id, name, scope, status, doc_path, result_path, actor, created_at, result_at,
+  counts: {ok, skipped, failed, pending, conflicts}, items: [{asset_id, name, status, reason, conflicts, sent, result}]}`。
+- **清理计划 `POST /cleanup-plans {collection_id | concept | asset_ids | rule}`**（缺省全库淘汰）→ 201 `Plan`：
+  - 范围内 `uses_of == reject` 的素材，每组全部文件：`asset_files` 登记的文件，加上同目录、以其中某个文件命名的 sidecar
+    （`IMG_1.xmp`、`IMG_1.ARW.xmp`；扩展名 `.xmp .dop .pp3`，不区分大小写）。与另一素材同 stem 的 `IMG_1.xmp`
+    （ARW + DNG 各自成素材，契约 §10 X1）不收。
+  - 快照每个文件的大小与 mtime；任何文件缺失 → 该组 `offline`，不进执行。
+  - 每组列出所含物种（当前种级结论，只看代表版本）及计划外还剩几张，`last_photo` = 一张不剩；同一拍摄的其他版本只列出，不收入。
+  - `Plan = {id, scope, status: planned|ran|partial, items: [{asset_id, name, state: ready|offline, bytes, files:
+    [{path, role, size, exists, result, reason}], species: [{concept, taxon, common, zh, photos, photos_left, last_photo}],
+    versions}], summary: {in_scope, rejected, ready, offline, files, bytes, last_species}, report, note}`；物种最后照片排在前面。
+- **执行 `POST /cleanup-plans/{id}/run {confirm: true}`**（缺 `confirm: true` → 400）：见 ADR 0003。
+  - 逐组重新核对：仍为淘汰（`not_rejected`）、文件存在（`offline`）、文件集合与大小/mtime 不变（`changed`），不符则整组跳过。
+  - 通过的文件逐个移到废纸篓（`create_gardener_app(trash=)` 可注入，默认 `cleanup.trash`），每个结果立即落库；
+    文件记为离线，素材 `meta.trashed = {at, plan}`，任何行都不删除。
+  - 再次执行只处理尚未移走的文件。
+  - `report = {trashed_files, trashed_bytes, freed_bytes: 0, recoverable: true, failed: [{asset_id, path, error}],
+    skipped: [{asset_id, reason}], note}`：移到废纸篓的字节可恢复、**未释放**；Gardener 不做永久删除。
+  - `GET /cleanup-plans`、`GET /cleanup-plans/{id}` 返回计划与逐文件结果。
+- **UI**：Review 页、物种详情页“在 Lightroom 打开…”，全部素材页“选中的在 Lightroom 打开…”（对话框内显示逐张结果与
+  “刷新结果”）；Review 页“清理淘汰…”与管理页“清理计划…”进入 `#/cleanup`、`#/cleanup/<id>`：物种最后照片、逐文件
+  列表，执行只经确认对话框，并明示“将修改来源目录”。
+- **CLI / MCP**：`gardener handoff create|show|list`、`gardener cleanup plan|show|list|run --yes`；MCP
+  `lightroom_handoff`、`get_handoff`、`cleanup_plan`、`get_cleanup_plan`、`run_cleanup_plan`（`confirm` 必填）。
+- **未验证**：Lightroom 中的一切行为（插件在 Lightroom Classic 里实际运行之前均未验证）：`findPhotoByUuid`、
+  `getRawMetadata("keywords"|"uuid")`、`removeKeyword`、`createKeyword` 的同义词（已存在的关键词保持原同义词）、
+  `setRawMetadata("rating", nil)`、`LrFileUtils.files` 轮询、插件中的 `io.open` 写结果文件。真实磁盘上的废纸篓只在本机
+  临时文件上试过 `/usr/bin/trash`；外置盘与网络卷未验证。
+- **未做**：被移走照片的物种卡片计数排除（PRD §11）；交接失败项的单独重试（重复交接即可，身份复用）；预设与导出（P1）。
