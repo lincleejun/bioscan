@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from bioscan.gardener import store as st
+from bioscan.gardener.query import IN_TASK_REP
 from bioscan.gardener.store import now
 
 GAP_S = 600            # a pause this long ends an observation
@@ -49,7 +50,7 @@ def assign_encounters(c: Any, task_id: str) -> int:
     placed neighbour in time; a stretch with none becomes a new encounter."""
     rows = sorted(((seconds(r[1]), r[0]) for r in c.execute(
         "SELECT a.id, a.taken_at FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ? "
-        "AND a.version_of IS NULL AND a.taken_at IS NOT NULL", (task_id,))))
+        f"AND {IN_TASK_REP} AND a.taken_at IS NOT NULL", (task_id, task_id))))
     placed = {r[0]: r[1] for r in c.execute("SELECT asset_id, encounter_id FROM encounter_members WHERE task_id = ?",
                                             (task_id,))}
     if all(a in placed for _, a in rows):
@@ -95,10 +96,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     """The encounters of a task and/or of one species (only that species' photos), each with its bursts
     (a burst's representative is its best frame), up to CANDIDATES representative candidates and the
     species it shows; `unassigned` = photos in scope without one (no capture time, or not grouped yet)."""
-    conds, ps = ["a.version_of IS NULL"], []
-    if task_id:
-        conds.append("em.task_id = ?")
-        ps.append(task_id)
+    conds, ps = ([IN_TASK_REP, "em.task_id = ?"], [task_id, task_id]) if task_id else (["a.version_of IS NULL"], [])
     if concept:
         conds.append("EXISTS (SELECT 1 FROM current_ids ci WHERE ci.asset_id = a.id AND ci.concept = ?)")
         ps.append(concept)
@@ -150,10 +148,8 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
         result.append(e | {"start": ms[0]["taken_at"], "end": ms[-1]["taken_at"], "photos": len(ms),
                            "asset_ids": [m["id"] for m in ms], "bursts": bursts, "candidates": cands, "species": sp})
     result.sort(key=lambda e: (e["start"] or "", e["id"]))
-    un_conds, un_ps = ["a.version_of IS NULL"], []
-    if task_id:
-        un_conds.append("a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)")
-        un_ps.append(task_id)
+    un_conds, un_ps = (([IN_TASK_REP, "a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)"], [task_id, task_id])
+                       if task_id else (["a.version_of IS NULL"], []))
     if concept:
         un_conds.append("EXISTS (SELECT 1 FROM current_ids ci WHERE ci.asset_id = a.id AND ci.concept = ?)")
         un_ps.append(concept)
@@ -233,7 +229,8 @@ def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool
         raise st.Error("这张照片不在连拍中")
     sibs = [r[0] for r in c.execute(
         f"SELECT a.id FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE s.id IN ({LATEST}) "
-        "AND s.burst_id = ? AND a.id != ? AND a.version_of IS NULL ORDER BY a.taken_at, a.id", (row[0], asset_id))]
+        f"AND s.burst_id = ? AND a.id != ? AND {IN_TASK_REP} ORDER BY a.taken_at, a.id",   # bursts are per task
+        (row[0], asset_id, row[0].split(":", 1)[0]))]
     marks = {i: st.mark_row(c, i) for i in [asset_id, *sibs]}
     skipped, cand = [], []
     for i in sibs:

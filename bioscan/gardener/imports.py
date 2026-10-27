@@ -119,7 +119,8 @@ def build(store: st.Store, task_id: str, dest_root: str, place: str | None, incl
     rows = store.all("SELECT a.id, a.primary_path, a.taken_at, a.version_of FROM task_assets ta "
                      "JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ? "
                      "AND json_extract(a.meta, '$.merged_into') IS NULL ORDER BY ta.ord", (task_id,))
-    reps = [r for r in rows if r["version_of"] is None]
+    in_task = {r["id"] for r in rows}             # per-task representatives (query.IN_TASK_REP, #102)
+    reps = [r for r in rows if r["version_of"] is None or r["version_of"] not in in_task]
     uses = uses_of(c, [r["id"] for r in reps])
     take = {"record", "edit"} | ({"pending"} if include_pending else set())
     chosen = [r for r in reps if uses[r["id"]] in take]

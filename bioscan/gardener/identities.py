@@ -296,10 +296,15 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
     `candidates` = photos only the model names it on. `species` holds the cards with a confirmation (their
     number is "N species photographed", PRD §03), `to_confirm` the model-only ones; `unresolved` counts
     photos whose subjects stop at genus/family or are unconfirmed. `task_id` narrows it to one task."""
-    scope = "AND a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)" if task_id else ""
+    from bioscan.gardener.query import IN_TASK_REP
+
+    # The library counts each capture once (versions never count); a task counts its own representatives,
+    # which include a version whose representative lies in another task (#102).
+    rule, scope = (IN_TASK_REP, "AND a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)") if task_id \
+        else ("a.version_of IS NULL", "")
     rows = c.execute(f"SELECT ci.*, a.taken_at, coalesce(m.stars, 0) stars FROM current_ids ci JOIN assets a ON "
-                     f"a.id = ci.asset_id LEFT JOIN marks m ON m.asset_id = a.id WHERE a.version_of IS NULL {scope} {GONE} "
-                     f"ORDER BY ci.created_at", [task_id] if task_id else []).fetchall()
+                     f"a.id = ci.asset_id LEFT JOIN marks m ON m.asset_id = a.id WHERE {rule} {scope} {GONE} "
+                     f"ORDER BY ci.created_at", [task_id, task_id] if task_id else []).fetchall()
     prefs = {r["concept"]: r for r in c.execute("SELECT * FROM species_prefs")}
     cards: dict[str, dict[str, Any]] = {}
     unresolved: dict[str, set[str]] = {"genus_family": set(), "unconfirmed": set()}
