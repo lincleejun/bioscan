@@ -17,7 +17,7 @@ from typing import Any
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import query
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
 SCHEMA = Path(__file__).with_name("schema.sql")
 DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
                                     "capability_versions": {}, "cap_status": {}}
@@ -159,6 +159,11 @@ class Store:
                 c.execute("INSERT INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
             elif int(row[0]) > SCHEMA_VERSION:
                 raise RuntimeError(f"{self.db_path} has schema {row[0]}; this Gardener reads {SCHEMA_VERSION}")
+            elif int(row[0]) < 2:
+                from bioscan.gardener import identities
+
+                identities.backfill(c)
+                c.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
             t = now()
             for pid, p in capmod.PRESETS.items():
                 c.execute("INSERT OR IGNORE INTO presets VALUES (?, ?, ?, 1, ?, ?)",
@@ -298,7 +303,10 @@ class Store:
                         for r in self.all("SELECT * FROM mark_history WHERE asset_id = ? ORDER BY id", (asset_id,))]
         tags = self.all("SELECT t.id, t.name, at.source FROM asset_tags at JOIN tags t ON t.id = at.tag_id "
                         "WHERE at.asset_id = ? ORDER BY t.id, at.source", (asset_id,))
-        return items[0] | {"files": files, "meta": loads(a["meta"], {}), "lat": a["lat"], "lon": a["lon"], "caps": caps,
+        from bioscan.gardener import identities
+
+        subjects = identities.subjects(self.conn(), [asset_id])[asset_id]
+        return items[0] | {"subjects": subjects, "files": files, "meta": loads(a["meta"], {}), "lat": a["lat"], "lon": a["lon"], "caps": caps,
                            "ai_history": ai_history, "mark_history": mark_history,
                            "collections": self.collections_of(asset_id), "tags": tags,
                            "original": None if of is None else {"id": of["id"], "name": Path(of["primary_path"]).name,

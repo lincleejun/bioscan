@@ -318,7 +318,7 @@ def test_original_range_reveal_presets_settings(env, fakes, tmp_path):
         assert c.post(f"{API}/tasks/{t['id']}/archive").json()["archived"] is True
         assert c.get(f"{API}/tasks").json() == [] and len(c.get(f"{API}/tasks", params={"archived": "all"}).json()) == 1
         sd = st.Store(env.data)
-        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == "1"
+        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == "2"
 
 
 def test_capability_check_reports_a_model_that_does_not_load(tmp_path, fakes):

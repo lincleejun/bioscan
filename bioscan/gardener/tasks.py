@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan.gardener import capabilities as capmod
+from bioscan.gardener import identities
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
@@ -627,6 +628,8 @@ class RunExec:
     def record_result(self, r: Any) -> None:
         with self.store.tx() as c:
             record(c, r.asset_id, self.id, r.capability, r.status, r.data, r.error, r.version)
+            if r.capability == "raw:identify" and r.status == "done":
+                identities.ingest(c, r.asset_id, self.id, r.version, r.data)
             if r.capability in ("content", "species"):
                 ai_tags(c, r.asset_id, self.id, r.capability, r.data if r.status == "done" else None)
         self.save_counts()

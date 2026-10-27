@@ -174,3 +174,32 @@ CREATE TABLE IF NOT EXISTS person_faces (
   source TEXT NOT NULL,          -- face (one face named) | collection (a person group named)
   created_at TEXT NOT NULL, PRIMARY KEY (asset_id, face)
 );
+
+-- Species identity per subject (ADR 0002, contract revision 4). A subject is one animal in a photo with an id
+-- that outlives reruns: a later run's box at IoU >= 0.5 is the same subject. Identifications are only appended.
+CREATE TABLE IF NOT EXISTS subjects (
+  id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id),
+  xyxy TEXT NOT NULL,            -- JSON [x0, y0, x1, y1], 0-1 of the upright image
+  kind TEXT,                     -- bird | mammal | other_animal (BioScan box kind) | NULL
+  origin TEXT NOT NULL,          -- ai (a detector box) | user (drawn by a person)
+  last_run_id TEXT, created_at TEXT NOT NULL,
+  removed_at TEXT                -- an ai-only subject a later run no longer sees; never one a person identified
+);
+CREATE INDEX IF NOT EXISTS subjects_asset ON subjects (asset_id);
+CREATE TABLE IF NOT EXISTS identifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT NOT NULL REFERENCES subjects(id),
+  asset_id TEXT NOT NULL REFERENCES assets(id),
+  concept TEXT,                  -- avibase:<id> | mdd:<id> | name:<scientific>; NULL below species or unconfirmed
+  taxon TEXT, common TEXT,       -- the name shown at `level` (genus/family keep the rolled-up taxon)
+  level TEXT NOT NULL,           -- species | genus | family | unconfirmed | not_animal
+  qualifier TEXT,                -- NULL | slash (one of `candidates`, unresolved)
+  candidates TEXT NOT NULL DEFAULT '[]',   -- JSON [{concept, scientific, common, p}]
+  p REAL,
+  source TEXT NOT NULL,          -- ai | user
+  run_id TEXT, version TEXT,     -- ai: the run and model version
+  batch_id TEXT, actor TEXT, reason TEXT, undone INTEGER NOT NULL DEFAULT 0,   -- user: one action, undoable
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS identifications_subject ON identifications (subject_id, source, id);
+CREATE INDEX IF NOT EXISTS identifications_asset ON identifications (asset_id);
+CREATE INDEX IF NOT EXISTS identifications_concept ON identifications (concept);

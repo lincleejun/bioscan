@@ -57,7 +57,7 @@ def test_create_scan_completes_with_previews_results_groups_and_summary(env, tmp
         r = c.get(f"{API}/assets/{pair['id']}/thumb")
         assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
         h = c.get(f"{API}/health").json()
-        assert h["status"] == "ok" and h["schema_version"] == 1 and h["worker"]["state"] == "idle"
+        assert h["status"] == "ok" and h["schema_version"] == 2 and h["worker"]["state"] == "idle"
         assert not any(p.name.endswith(".jpg") and "thumb" in p.name for p in src.rglob("*"))   # nothing written in src
         assert sorted(os.listdir(src)) == ["IMG_0000.jpg", "IMG_0001.jpg", "IMG_0002.jpg", "clip.mov", "notes.txt", "sub"]
 

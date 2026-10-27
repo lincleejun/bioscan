@@ -350,7 +350,7 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
     # ---- 6.1 ----
     @app.get(P + "/health")
     def health():
-        return {"status": "ok", "version": "0.1.0", "schema_version": 1, "data_dir": "/tmp/gardener",
+        return {"status": "ok", "version": "0.1.0", "schema_version": 2, "data_dir": "/tmp/gardener",
                 "cache_dir": "/tmp/gardener/cache", "worker": {"state": "idle", "run_id": None, "task_id": None},
                 "device": "cpu", "models_loaded": []}
 
