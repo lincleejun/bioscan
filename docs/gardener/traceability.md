@@ -79,6 +79,12 @@
 | R71 | 清理计划：真实文件组、sidecar、最后物种照片、预计容量（PRD §11，AC15） | `cleanup.create`、`POST /cleanup-plans` | `test_core_cleanup.py::test_a_plan_lists_*`、`test_a_stem_sidecar_*` | 已由测试证实 |
 | R72 | 执行前重新核对；移到废纸篓与真正释放分开报告；离线不算删除；失败只重试失败项（PRD §11，AC15，ADR 0003） | `cleanup.run`、`POST /cleanup-plans/{id}/run` | `test_core_cleanup.py::test_running_needs_confirm_*`、`test_a_failed_move_*` | 已由测试证实（注入的废纸篓）；真实废纸篓只在本机临时文件试过 |
 | R73 | UI、CLI、MCP 同一交接与清理接口，清理需确认（PRD §13，AC16 部分） | `web/app.js`（openHandoff、vCleanup、vCleanupPlan）、`cli.py`、`mcp.py` | `test_ui_web.py`、`test_ui_cli.py::test_handoff_and_cleanup_commands`、`test_ui_mcp.py::test_handoff_and_cleanup_tools_*` | 部分验证：页面在 headless Chrome 中对 fake API 渲染过（#/cleanup、计划页、Review 按钮）；对话框未点击，无自动化浏览器测试 |
+| U4-R01 | RAW 原像素细节与预览同一画幅：裁到相机默认裁切，按 `sizes.flip` 映射（契约修订 5C、7D，AC06） | `detail.camera_crop`、`detail.upright_crop`、`detail._decode_raw` | `test_media_detail.py::test_camera_crop_maps_through_the_flip`、`test_raw_detail_is_cut_to_the_camera_crop`；两张真实 A1 ARW 的区块对齐（中心 0 px） | 已由测试与真实文件证实；边缘的机内畸变校正（≤ 约 45 px）未消除 |
+| U4-R02 | RAW 细节耗时有真实基线（PRD §14，契约修订 5C） | `scripts/gardener_detail_bench.py --photos` | 真实 ARW：首次 1.2–1.9 s、缓存后 20 % 区域中位 12 ms、整幅→2048 px 中位 134 ms | 已测（系统页缓存热，非冷盘） |
+| U4-R03 | 导入到 exFAT 外置盘：校验、崩溃恢复、断开后继续（PRD §06，契约修订 5D、7D） | `imports.Runner`、`export._copy`；断开时的失败原因 | 真实 exFAT 映像：kill -9 后恢复且不重复复制、sha256 一致、强制卸下后 partial 再执行完成；`test_core_imports.py::test_a_destination_that_goes_offline_fails_the_rest_plainly_and_resumes` | 已在真实 exFAT 映像上证实；网络卷未验证 |
+| U4-R04 | 外置盘上的清理进该卷的废纸篓、可恢复、离线跳过（PRD §11，ADR 0003，契约修订 5E、7D） | `cleanup.trash`、`cleanup.run` | 真实 exFAT 映像：5 个文件进 `.Trashes/501`，报告字节与卷空间一致，移回逐字节相同；卸下后 `skipped: offline` | 已在真实 exFAT 映像上证实；网络卷未验证 |
+| U4-R05 | 鸟群 `FLOCK_MIN = 5` 在真实照片上的表现（契约修订 4、7D） | `identities.FLOCK_MIN`、`identities.flock` | 300 张 iNat 鸟（写入 GPS）：5 框以上 18 张全部按属/未确认记，3–4 框照常命名 | 已在真实照片上测量；保留 5 |
+| U4-R06 | 拆分后按位置自动选定子种，其余留给人；独立批次可撤销（契约修订 4 S7、7D） | `identities.resolve_splits`、`tasks.split_prior`、`tasks.RunExec.resolve_splits` | `test_core_splits_flock.py::test_a_place_where_only_one_daughter_lives_*`、`test_an_unclear_place_*`、`test_a_photo_without_gps_*`、`test_a_run_with_the_location_prior_loaded_*`；真实引擎上 14 组地点 | 规则已由测试证实；真实 BirdNET geo 3.0 下 35 个拆分中 34 个的子种共用一个标签，实际选不出 |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。
