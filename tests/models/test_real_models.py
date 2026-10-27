@@ -640,3 +640,40 @@ def test_album_report_compares_and_scores(album):
     assert c["verdict"] == "ok" and c["plugin_metrics"]["quality"]["all"]["keepers_lost"]["delta"] == 0
     sc = bench.scorecard(rep, bench.read_standards(bench.STANDARDS_TOML), "album")
     assert sc["rows"] and all(r["status"] != "n/a" for r in sc["rows"] if r["scope"] == "all")
+
+
+def test_facing_on_the_album_photos(run, album):
+    """#27 step 2, opt-in (the album profile leaves facing out): the album photos again with the album
+    profile plus the facing stage, on the same engine. The real OWLv2 finds a head or an eye in at least
+    half the subject boxes and gives some a side; burst + select then run the no_lead_room rule, and the
+    records equal the album run's but for flags (a flag changes no status, rank or keep)."""
+    from fastapi.testclient import TestClient
+
+    from bioscan import cull, profile
+    from bioscan.service.app import create_app
+
+    _gt, _events, engine = run
+    rows, album_evs, _ = album
+    res = profile.resolve(profile.builtin(), "album")
+    assert "facing" not in res.want
+    with TestClient(create_app(engine, decode_pool=ThreadPoolExecutor(4), chunk=16)) as c:
+        resp = c.post("/run", json={"inputs": [{"path": r["path"], "taken_at": r["taken_at"]} for r in rows],
+                                    "profile": "album", "want": [*res.want, "facing"]})
+        assert resp.status_code == 200, resp.text
+    evs = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    results = [e for e in evs if e["type"] == "result"]
+    assert len(results) == len(rows) and not [e for e in evs if e["type"] == "error"]
+    assert list(results[0]["products"])[-1] == "facing" and "facing" in results[0]["engine"]["plugins"]
+    boxed = [e["products"]["facing"] for e in results if e["products"]["facing"]["box"] is not None]
+    found = sum(f["head"] is not None or f["eye"] is not None for f in boxed)
+    sides = sum(f["side"] in ("left", "right") for f in boxed)
+    print(f"facing: {len(boxed)} subject boxes, head or eye in {found}, a side for {sides}")
+    assert boxed and found >= len(boxed) / 2 and sides > 0
+    with_facing = {r["path"]: r for r in cull.records(cull.apply(evs, res.reducer_run()))}
+    without = {r["path"]: r for r in cull.records(cull.apply(album_evs, res.reducer_run()))}
+    assert all(set(r["flags"]) <= set(cull.FLAGS) for r in with_facing.values())
+    assert not any("no_lead_room" in r["flags"] for r in without.values())          # no facing, no flag
+    drop = lambda recs: {p: {k: v for k, v in r.items() if k != "flags"} for p, r in recs.items()}  # noqa: E731
+    assert drop(with_facing) == drop(without)
+    print(f"facing: no_lead_room on {sum('no_lead_room' in r['flags'] for r in with_facing.values())} "
+          f"of {len(with_facing)} photos")

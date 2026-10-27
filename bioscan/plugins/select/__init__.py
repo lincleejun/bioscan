@@ -8,10 +8,10 @@ from bioscan.plugin import Manifest
 
 MANIFEST = Manifest(
     name="select",
-    version=4,
+    version=5,
     description="Best of each burst (not rejected, subject sharpness, not cut off, exposure, aesthetic if "
                 "present), then the top per_category of each scene category, near-duplicates skipped.",
-    reads=("quality", "scene", "burst", "embed"),
+    reads=("quality", "scene", "burst", "embed", "facing"),
     options={"per_category": {"type": "integer", "minimum": 0, "default": 10, "description": "0 = no limit"},
              "dup_cosine": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.95,
                             "description": "a keeper this alike (frame vectors) to a pick is a duplicate"},
@@ -30,7 +30,12 @@ MANIFEST = Manifest(
              "headroom_min": {"type": "number", "minimum": 0, "maximum": 1, "default": cull.HEADROOM_MIN,
                               "description": "the subject's box starting less than this share of the frame height "
                                              "below the frame top (and filling under half the frame) gets the "
-                                             "tight_headroom flag (never a reject); 0 turns it off"}},
+                                             "tight_headroom flag (never a reject); 0 turns it off"},
+             "lead_room_min": {"type": "number", "minimum": 0, "maximum": 1, "default": cull.LEAD_ROOM_MIN,
+                               "description": "the subject facing (the facing stage) the nearer side edge with less "
+                                              "than this share of the frame width in front of its box (and filling "
+                                              "under half the frame) gets the no_lead_room flag (never a reject); "
+                                              "0 turns it off"}},
     output={"status": "|".join(cull.STATUSES), "keep": "bool: status pick", "reasons": "quality's reasons, "
             "minus waived", "waived": "[reason]", "flags": f"[{'|'.join(cull.FLAGS)}]: notes that change no status, "
             "rank or keep", "category": "scene group or label (by) | uncategorised",

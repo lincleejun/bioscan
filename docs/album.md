@@ -104,6 +104,25 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   In `aesthetic score`'s CSV and HTML the scene column shows the label with its group, e.g. `coast (landscape)`.
 - **Bursts** (`burst`): frames of one camera (EXIF Make and Model) at most 1.5 s apart, using the sub-second capture
   time, whose frame vectors have cosine at least 0.92.
+- **Facing** (`facing`, **off by default**): which way the subject (identify's best box) looks, for the
+  `no_lead_room` flag. OWLv2 is asked once more, on the subject box's crop, for the kind's head and eye (`bird head` /
+  `bird eye`, `mammal …`, `animal …` for other animals); the head's centre (the eye's when no head is found) at least
+  0.15 of the box width left or right of the box centre gives `side`; nearer the centre (at the camera or away) or
+  with neither found it is null. The album profile leaves it out because of its cost: one more OWLv2 forward per
+  photo with a box, about 118 ms per photo on the owner's Mac (MPS, 95 smoke photos, 2026-10-22): `aesthetic score`
+  took 25.6 s with it against 14.5 s without (+77%), for a flag that fired on 2 of the 95. To turn it on for
+  `aesthetic score` and `bioscan cull`, list it in the album profile's stages in a `bioscan.toml` (project, user or
+  `$BIOSCAN_CONFIG`; `bioscan config show --profile album` shows the stages in use):
+
+  ```toml
+  [profile.album]
+  stages = ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
+  ```
+
+  or, for one `bioscan run`, `--profile album --want identify,embed,aesthetics,quality,scene,facing`. On the smoke
+  photos it found a head or an eye in 82 of 91 subject boxes and gave a side to 65; of the 45 a person could call
+  left or right it got 40 right, none the wrong way. The prompts and thresholds are constants in
+  `bioscan/plugins/facing/stage.py` and in the stage's fingerprint; guesses, unverified until #28's labelled trips.
 - **Selection** (`select`): the best frame of each burst: not rejected, subject sharpness (within 0.03 of the sharpest
   counts as equal), not cut off, exposure within ±0.2, then the aesthetic score when a run has one (it only reorders,
   never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category (`by`: the
@@ -115,7 +134,10 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   horizon tilts more than `horizon_flag_deg` (default 3°) either way; `tight_headroom` when the subject (identify's
   best box by score) starts less than `headroom_min` (default 0.02, a share of the frame height; 0 turns it off)
   below the frame top and is not a fill-the-frame portrait (box under half the frame). It reads the existing boxes, no
-  extra model call; a box within 1% of the top is also quality's `subject_cut` reject. Both thresholds are guesses,
+  extra model call; a box within 1% of the top is also quality's `subject_cut` reject. `no_lead_room` when the
+  subject faces (the `facing` stage's side) the nearer side edge with less than `lead_room_min` (default 0.1, a share
+  of the frame width; 0 turns it off) in front of its box and is not a fill-the-frame portrait; it needs the `facing`
+  stage, which the album profile leaves out (see Facing above), so by default no photo gets it. All three thresholds are guesses,
   unverified until #28's labelled trips exist. `aesthetic score` runs the album profile's reducers too
   (`[profile.album.options.select] horizon_flag_deg = 5` applies to its CSV column and card badge); XMP gets nothing. A
   preds file from before flags reads as no flags.
