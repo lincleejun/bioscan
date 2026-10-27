@@ -250,8 +250,8 @@ A handoff can also apply a develop preset and then export (`--preset UUID`, `--e
 Lightroom, `gardener handoff preview` shows the count, representative photos and the preset remembered for that
 species or collection). The plugin reports per photo whether the preset was applied and where the export went;
 Gardener marks a photo exported only from that result. A photo whose develop settings changed in Lightroom after
-Gardener applied a preset is skipped and reported, never overwritten. Presets and export are unverified until run in Lightroom
-Classic (契约修订 7B). Rules: `docs/gardener/contract.md`, 契约修订 5E.
+Gardener applied a preset is skipped and reported, never overwritten. Export takes a Hard Drive export preset (a preset of
+another plug-in's export service is refused). Checked in Lightroom Classic 14.2 (契约修订 7B). Rules: `docs/gardener/contract.md`, 契约修订 5E.
 
 ### HTTP API
 

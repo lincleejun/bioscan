@@ -554,7 +554,15 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 每张结果增加 `develop: {action: applied|same|conflict|failed|none, preset, preset_name, fingerprint, reason}`、`export: {action: exported|skipped|failed, path, reason}`。步骤出错时记为该步 `failed` 并写出结果，不会无限重试。
 - **修图进度**（列 `editor_links.progress`，`AssetDetail.lightroom = {photo_id, uuid, path, handoff_id, progress}`）：只在读回结果时按逐张真实结果推进，**从不因写出交接文件或发出命令而改变**：`in_lightroom`（status ok）→ `preset_applied`（develop 为 applied 或 same）→ `exported`（export 为 exported 且有路径，记 `exported_path`、`exported_at`）；不倒退。`Handoff.counts` 增加 `preset_applied`、`exported`；显影冲突计入 `conflicts`（`conflicts` 含 `"develop"`）。`Handoff.status` 的含义不变（照片是否送达）。
 - **CLI / MCP**：`gardener handoff create … --preset UUID [--preset-name] [--export-preset PATH --export-dir DIR --overwrite rename|skip|overwrite] [--no-remember]`、`gardener handoff preview`、`gardener handoff presets`；MCP `lightroom_handoff` 的 `develop`、`export`、`remember`，`preview_handoff`、`lightroom_presets`。
-- **未验证**（插件在 Lightroom Classic 里实际运行之前）：SDK 6.0 参考里有的 `developPresetByUuid`、`developPresetFolders`、`getDevelopPresets`、`applyDevelopPreset`、`getDevelopSettings`（文档标为实验性）、`LrExportSession`、`doExportOnCurrentTask`、`waitForRender` 的实际行为；写入门结束后立即读到的显影设置是否已含预设；插件环境里的 `loadstring` / `setfenv` 读 `.lrtemplate`；`LR_export_destinationType`、`LR_export_destinationPathPrefix`、`LR_export_useSubfolder`、`LR_collisionHandling` 的取值（尤其 `skip`）；导出预设的目录位置。
+- **在 Lightroom Classic 14.2 里实测（2026-10-27，测试目录，4 张照片含一张 Sony A1 ARW）**：
+  - 插件每分钟写出预设清单（实测 393 个显影预设、8 个导出预设）。
+  - 显影预设 “bear” 应用 4/4；再次交接同一预设为 `same`。
+  - 用“硬盘”导出预设导出 4/4：ARW 导出为长边 2048 的 JPEG，小于 2048 的 JPEG 按“不放大”保持原尺寸。Gardener 只凭结果里的真实路径把修图进度记为 `exported`。
+  - 实测发现并修复两处：
+    - Lightroom 的 Lua 没有 `setfenv`，每次导出都失败。`.lrtemplate` 现在由 `Decide.templateSettings` 当表达式读取（`s =` 改成 `return`），不再需要 `setfenv`。
+    - 第三方插件的导出服务（DxO PureRAW、LRTimelapse）不再被调用，该张照片报告原因“请选硬盘导出预设”。
+  - 测试：`test_export_templates_are_read_without_setfenv_and_only_hard_drive_exports_are_used`。
+- **仍未验证**：`LR_collisionHandling` 的 `skip` 与 `overwrite`（实测只用了 `rename`）；预设应用后立即读到的显影设置指纹在更多预设上的稳定性。
 - **未做**：按单张照片选不同预设；Smart Collection 的“是否已修图”条件（`progress` 已可查，规则字段未加）；导出模板以外的导出参数编辑；双向同步与逐字段合并（FR13 其余部分）。
 ## 契约修订 7D：真实设备上的核对——RAW 细节、exFAT 外置盘、鸟群、拆分按位置选定（2026-10-27，#110；优先于上文冲突处）
 

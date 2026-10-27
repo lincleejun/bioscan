@@ -98,4 +98,26 @@ function Decide.fingerprint(settings)
   return string.format("%08x-%d", h, #text)
 end
 
+-- An export preset's settings from the text of its .lrtemplate (a Lua file `s = { ..., value = { settings } }`).
+-- Lightroom's Lua has no setfenv, so the file is read as an expression: `s =` becomes `return`. Only the built-in
+-- "Hard Drive" export is accepted; a preset of another plug-in's export service would run that plug-in instead.
+-- Returns the settings table, or nil and the reason.
+Decide.FILE_EXPORT = "com.adobe.ag.export.file"
+function Decide.templateSettings(text)
+  local body, n = (text or ""):gsub("^%s*s%s*=%s*", "return ", 1)
+  if n ~= 1 then return nil, "not an export template" end
+  local chunk, err = (loadstring or load)(body)   -- Lightroom: Lua 5.1 loadstring; tests: 5.4 load
+  if not chunk then return nil, "export preset: " .. tostring(err) end
+  local ran, s = pcall(chunk)
+  if not ran or type(s) ~= "table" or type(s.value) ~= "table" then return nil, "not an export template" end
+  local service = s.value.exportServiceProvider
+  if service ~= nil and service ~= Decide.FILE_EXPORT then
+    return nil, "export preset uses another plug-in (" .. tostring(s.value.exportServiceProviderTitle or service) ..
+      "); choose a Hard Drive export preset"
+  end
+  local settings = {}
+  for k, v in pairs(s.value) do settings[k] = v end
+  return settings
+end
+
 return Decide
