@@ -115,6 +115,11 @@ TOOLS = [
 _NAMES = {t["name"] for t in TOOLS}
 
 
+def _seg(v) -> str:
+    """One URL path segment: percent-encoded, so a non-ASCII or '/' id stays one segment."""
+    return urllib.parse.quote(str(v), safe="")
+
+
 def _pick(args: dict, keys) -> dict:
     return {k: args[k] for k in keys if k in args}
 
@@ -127,18 +132,18 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "list_tasks":
         return "GET", "/tasks", None, {"archived": args.get("archived", "0")}
     if name == "get_task":
-        return "GET", f"/tasks/{args['id']}", None, None
+        return "GET", f"/tasks/{_seg(args['id'])}", None, None
     if name == "control_task":
         tid, act = args["id"], args["action"]
         if act == "append":
-            return "POST", f"/tasks/{tid}/sources", {"paths": args.get("paths") or []}, None
+            return "POST", f"/tasks/{_seg(tid)}/sources", {"paths": args.get("paths") or []}, None
         if act in ("rescan", "retry"):
-            return "POST", f"/tasks/{tid}/{act}", _pick(args, ("capabilities", "asset_ids")), None
-        return "POST", f"/tasks/{tid}/{act.replace('_', '-')}", {}, None
+            return "POST", f"/tasks/{_seg(tid)}/{act}", _pick(args, ("capabilities", "asset_ids")), None
+        return "POST", f"/tasks/{_seg(tid)}/{act.replace('_', '-')}", {}, None
     if name == "query_assets":
         return "GET", "/assets", None, _pick(args, (*FILTERS, "order", "limit", "offset"))
     if name == "get_asset":
-        return "GET", f"/assets/{args['id']}", None, None
+        return "GET", f"/assets/{_seg(args['id'])}", None, None
     if name == "set_marks":
         return "POST", "/marks", _pick(args, ("asset_ids", "use", "flag", "stars", "reason")), None
     if name == "list_collections":
@@ -146,7 +151,7 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "review_collection":
         cid, act = args["id"], args["action"]
         body = _pick(args, ("note",)) if act == "complete" else _pick(args, ("resolution",)) if act == "zero" else {}
-        return "POST", f"/collections/{cid}/{act}", body, None
+        return "POST", f"/collections/{_seg(cid)}/{act}", body, None
     if name == "export":
         return "POST", "/export", _pick(args, ("collection_id", "asset_ids", "rule", "scope", "dest_dir", "copy",
                                                "conflict")), None
@@ -242,8 +247,13 @@ def serve(inp=sys.stdin, out=sys.stdout, url: str = DEFAULT_URL) -> int:
         except ValueError:
             reply = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:
-            reply = handle(msg, url) if isinstance(msg, dict) else {
-                "jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request"}}
+            try:
+                reply = handle(msg, url) if isinstance(msg, dict) else {
+                    "jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request"}}
+            except Exception as e:  # noqa: BLE001 - one bad request must not end the server
+                mid = msg.get("id") if isinstance(msg, dict) else None
+                reply = None if isinstance(msg, dict) and "id" not in msg else {
+                    "jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": f"internal error: {e}"}}
         if reply is not None:
             out.write(json.dumps(reply, ensure_ascii=False) + "\n")
             out.flush()

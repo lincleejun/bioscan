@@ -114,6 +114,18 @@ def test_gardener_mcp_subprocess(svc):
     assert len(json.loads(replies[1]["result"]["content"][0]["text"])) == 2
 
 
+def test_non_ascii_id_is_encoded_and_a_failing_request_does_not_end_the_server(svc, monkeypatch):
+    url, _ = svc
+    assert mcp.route("get_task", {"id": "测试任务/x"})[1] == "/tasks/%E6%B5%8B%E8%AF%95%E4%BB%BB%E5%8A%A1%2Fx"
+    out, _ = tool(url, "get_task", id="测试任务")
+    assert "status" in out or out
+    monkeypatch.setattr(mcp, "call", lambda *a, **k: 1 / 0)
+    replies = converse(url, {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                             "params": {"name": "get_task", "arguments": {"id": "t"}}},
+                       {"jsonrpc": "2.0", "id": 2, "method": "ping"})
+    assert replies[0]["error"]["code"] == -32603 and replies[1] == {"jsonrpc": "2.0", "id": 2, "result": {}}
+
+
 def test_species_tools_map_to_the_revision_4_endpoints():
     from bioscan.gardener.mcp import route
 

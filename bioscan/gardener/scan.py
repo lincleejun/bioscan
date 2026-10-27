@@ -45,6 +45,7 @@ class Discovered:
 class Skipped:
     path: str
     reason: str        # unsupported | sidecar | hidden | unreadable | symlink (a linked folder, not followed)
+    #                     | unsafe_name (a line break in the file name)
 
 
 def _role(ext: str) -> str | None:
@@ -89,6 +90,9 @@ def discover(root: str) -> tuple[list[Discovered], list[Skipped]]:
                 continue
             if name.startswith("."):
                 skipped.append(Skipped(path, "hidden"))
+                continue
+            if "\n" in name or "\r" in name:   # a line break would split exiftool's argfile (preview.py)
+                skipped.append(Skipped(path, "unsafe_name"))
                 continue
             role = _role(ext)
             if role is None:
