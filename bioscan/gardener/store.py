@@ -17,7 +17,8 @@ from typing import Any
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import query
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
+                                   # 3: four uses replace Pick/Reject (marks.use) + encounters (contract revision 5B)
 SCHEMA = Path(__file__).with_name("schema.sql")
 DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
                                     "capability_versions": {}, "cap_status": {}}
@@ -25,8 +26,12 @@ TERMINAL = ("completed", "partial", "failed", "stopped", "cancelled")
 ADDED_COLUMNS = (("ai_suggestions", "burst_rank", "INTEGER"), ("ai_suggestions", "burst_size", "INTEGER"),
                  ("tasks", "timezone", "TEXT"), ("collections", "summary", "TEXT"), ("collections", "parent_id", "TEXT"),
                  ("assets", "version_of", "TEXT"), ("assets", "version_reason", "TEXT"),
-                 ("assets", "version_lock", "INTEGER NOT NULL DEFAULT 0"))
+                 ("assets", "version_lock", "INTEGER NOT NULL DEFAULT 0"), ("marks", "use", "TEXT"))
 REVIEW_STATE = {"complete": "completed", "zero": "zeroed", "reopen": "open"}
+# The four uses of a photo (PRD §05, contract revision 5B); NULL in marks.use = pending. marks.flag is derived
+# from it for older clients: record and edit read as pick.
+USES = ("record", "edit", "pending", "reject")
+FLAG_OF_USE = {"record": "pick", "edit": "pick", "reject": "reject", None: None}
 
 
 class Error(Exception):
@@ -159,6 +164,17 @@ class Store:
                 c.execute("INSERT INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
             elif int(row[0]) > SCHEMA_VERSION:
                 raise RuntimeError(f"{self.db_path} has schema {row[0]}; this Gardener reads {SCHEMA_VERSION}")
+            elif int(row[0]) < SCHEMA_VERSION:
+                if int(row[0]) < 2:
+                    from bioscan.gardener import identities
+
+                    identities.backfill(c)
+                migrate_uses(c)
+                from bioscan.gardener import review
+
+                for t in c.execute("SELECT id FROM tasks").fetchall():
+                    review.assign_encounters(c, t[0])
+                c.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
             t = now()
             for pid, p in capmod.PRESETS.items():
                 c.execute("INSERT OR IGNORE INTO presets VALUES (?, ?, ?, 1, ?, ?)",
@@ -195,7 +211,7 @@ class Store:
                      "JOIN asset_files f ON f.asset_id = ta.asset_id WHERE ta.task_id = ?", (task_id,))
         judged = self.one("SELECT count(*) n FROM task_assets ta JOIN marks m ON m.asset_id = ta.asset_id "
                           f"JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ? AND {query.IN_TASK_REP} "
-                          "AND (m.flag IS NOT NULL OR m.stars > 0)", (task_id, task_id))["n"]
+                          "AND (m.use IS NOT NULL OR m.stars > 0)", (task_id, task_id))["n"]
         acts = [r["act"] for r in self.all(
             "SELECT (SELECT r.action FROM collection_reviews r WHERE r.collection_id = c.id ORDER BY r.id DESC LIMIT 1) act "
             "FROM collections c WHERE c.task_id = ? AND c.deleted_at IS NULL", (task_id,))]
@@ -230,7 +246,7 @@ class Store:
         out: dict[str, dict[str, Any]] = {}
         for part in chunks(ids):
             q = marks_in(part)
-            rows = self.all(f"SELECT a.*, m.flag, coalesce(m.stars, 0) stars, coalesce(m.version, 0) mark_version "
+            rows = self.all(f"SELECT a.*, m.flag, m.use, coalesce(m.stars, 0) stars, coalesce(m.version, 0) mark_version "
                             f"FROM assets a LEFT JOIN marks m ON m.asset_id = a.id WHERE a.id IN ({q})", part)
             ai = {r["asset_id"]: r for r in self.all(
                 f"SELECT * FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions WHERE asset_id IN ({q}) "
@@ -248,6 +264,20 @@ class Store:
                 tasks.setdefault(r["asset_id"], []).append(r["task_id"])
             versions = {r["version_of"]: r["n"] for r in self.all(
                 f"SELECT version_of, count(*) n FROM assets WHERE version_of IN ({q}) GROUP BY version_of", part)}
+            named: dict[str, dict[str, Any]] = {}            # the photo's species shown on its tile (revision 4)
+            for r in self.all(f"SELECT asset_id, concept, taxon, common, source, p FROM current_ids WHERE asset_id IN "
+                              f"({q}) AND level = 'species' AND concept IS NOT NULL", part):
+                key = (r["source"] == "user", r["p"] or 0.0)
+                if r["asset_id"] not in named or key > named[r["asset_id"]]["_key"]:
+                    named[r["asset_id"]] = {"taxon": r["taxon"], "common": r["common"], "p": r["p"],
+                                            "confirmed": r["source"] == "user", "_key": key, "_concept": r["concept"]}
+            from bioscan.gardener import taxa
+
+            shown = taxa.display(self.conn(), [n["_concept"] for n in named.values()])
+            for n in named.values():
+                cur = shown.get(n.pop("_concept")) or {}
+                n.update(taxon=cur.get("scientific") or n["taxon"], common=cur.get("common") or n["common"],
+                         zh=cur.get("zh"))
             for a in rows:
                 s = ai.get(a["id"])
                 content = data.get((a["id"], "content")) or {}
@@ -257,12 +287,14 @@ class Store:
                     "id": a["id"], "media": a["media"], "name": Path(a["primary_path"]).name, "taken_at": a["taken_at"],
                     "camera": a["camera"], "width": a["width"], "height": a["height"], "duration_s": a["duration_s"],
                     "online": bool(a["online"]), "preview": a["preview_status"], "flag": a["flag"], "stars": a["stars"],
-                    "mark_version": a["mark_version"], "judged": a["flag"] is not None or a["stars"] > 0,
+                    "use": a["use"] or "pending",
+                    "mark_version": a["mark_version"], "judged": a["use"] is not None or a["stars"] > 0,
                     "ai": None if s is None else {"verdict": s["verdict"], "score": s["score"],
                                                   "reasons": loads(s["reasons"], [])},
                     "content_label_zh": content.get("label_zh"),
-                    "species": None if not sp else {"taxon": sp.get("taxon"), "common": sp.get("common"),
-                                                    "p": sp.get("p")},
+                    "species": ({k: v for k, v in named[a["id"]].items() if k != "_key"} if a["id"] in named else
+                                None if not sp else {"taxon": sp.get("taxon"), "common": sp.get("common"),
+                                                     "p": sp.get("p"), "confirmed": False}),
                     "burst": None if s is None or s["burst_id"] is None else
                     {"id": s["burst_id"], "rank": s["burst_rank"], "size": s["burst_size"]},
                     "analysis": analysis_state(states.get(a["id"], []), in_run),
@@ -298,7 +330,10 @@ class Store:
                         for r in self.all("SELECT * FROM mark_history WHERE asset_id = ? ORDER BY id", (asset_id,))]
         tags = self.all("SELECT t.id, t.name, at.source FROM asset_tags at JOIN tags t ON t.id = at.tag_id "
                         "WHERE at.asset_id = ? ORDER BY t.id, at.source", (asset_id,))
-        return items[0] | {"files": files, "meta": loads(a["meta"], {}), "lat": a["lat"], "lon": a["lon"], "caps": caps,
+        from bioscan.gardener import identities
+
+        subjects = identities.subjects(self.conn(), [asset_id])[asset_id]
+        return items[0] | {"subjects": subjects, "files": files, "meta": loads(a["meta"], {}), "lat": a["lat"], "lon": a["lon"], "caps": caps,
                            "ai_history": ai_history, "mark_history": mark_history,
                            "collections": self.collections_of(asset_id), "tags": tags,
                            "original": None if of is None else {"id": of["id"], "name": Path(of["primary_path"]).name,
@@ -389,14 +424,15 @@ class Store:
             new_batch, t = new_id("b"), now()
             for a in last:
                 cur = mark_row(c, a)
-                vals = {"flag": cur["flag"], "stars": cur["stars"]}
+                vals = {"use": cur["use"], "stars": cur["stars"]}
                 for r in rows:
-                    if r["asset_id"] == a:
-                        vals[r["field"]] = loads(r["old"])
+                    if r["asset_id"] == a:          # a "flag" row predates the four uses (schema < 3)
+                        vals["use" if r["field"] == "flag" else r["field"]] = (
+                            USE_OF_FLAG.get(loads(r["old"])) if r["field"] == "flag" else loads(r["old"]))
                         c.execute("INSERT INTO mark_history (batch_id, asset_id, field, old, new, actor, reason, undone, at) "
                                   "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
                                   (new_batch, a, r["field"], r["new"], r["old"], actor, f"撤销 {batch_id}", t))
-                write_mark(c, a, vals["flag"], vals["stars"], cur["version"] + 1, t)
+                write_mark(c, a, vals["use"], vals["stars"], cur["version"] + 1, t)
             c.execute("UPDATE mark_history SET undone = 1 WHERE batch_id = ?", (batch_id,))
             return {"undone": len(last), "batch_id": new_batch}
 
@@ -493,20 +529,28 @@ def analysis_state(states: list[str], in_run: bool) -> str:
 
 
 def mark_row(c: sqlite3.Connection, asset_id: str) -> dict[str, Any]:
-    r = c.execute("SELECT flag, stars, version FROM marks WHERE asset_id = ?", (asset_id,)).fetchone()
-    return {"flag": None, "stars": 0, "version": 0} if r is None else dict(r)
+    r = c.execute("SELECT use, stars, version FROM marks WHERE asset_id = ?", (asset_id,)).fetchone()
+    return {"use": None, "stars": 0, "version": 0} if r is None else dict(r)
 
 
-def write_mark(c: sqlite3.Connection, asset_id: str, flag: str | None, stars: int, version: int, t: str) -> None:
-    c.execute("INSERT INTO marks (asset_id, flag, stars, updated_at, version) VALUES (?, ?, ?, ?, ?) "
-              "ON CONFLICT(asset_id) DO UPDATE SET flag = excluded.flag, stars = excluded.stars, "
-              "updated_at = excluded.updated_at, version = excluded.version", (asset_id, flag, stars, t, version))
+USE_OF_FLAG = {"pick": "record", "reject": "reject", None: None}
+
+
+def write_mark(c: sqlite3.Connection, asset_id: str, use: str | None, stars: int, version: int, t: str) -> None:
+    """The only writer of marks: `flag` is derived from `use` here, so the two never disagree."""
+    c.execute("INSERT INTO marks (asset_id, use, flag, stars, updated_at, version) VALUES (?, ?, ?, ?, ?, ?) "
+              "ON CONFLICT(asset_id) DO UPDATE SET use = excluded.use, flag = excluded.flag, stars = excluded.stars, "
+              "updated_at = excluded.updated_at, version = excluded.version",
+              (asset_id, use, FLAG_OF_USE[use], stars, t, version))
     c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, asset_id))
 
 
 def apply_marks(c: sqlite3.Connection, ids: list[str], fields: dict[str, Any], *, actor: str,
-                reason: str | None = None, expect: dict[str, int] | None = None) -> dict[str, Any]:
-    """Set flag and/or stars on `ids` as one batch; Conflict when an `expect`ed version is stale."""
+                reason: str | None = None, expect: dict[str, int] | None = None,
+                batch: str | None = None) -> dict[str, Any]:
+    """Set use (record|edit|reject|None = pending) and/or stars on `ids` as one batch (`batch` joins an
+    existing one); Conflict when an `expect`ed version is stale. `flag` is the older form: pick = record
+    (an edit photo stays edit), reject = reject, None = pending."""
     ids = list(dict.fromkeys(ids))
     found = {r[0] for part in chunks(ids) for r in c.execute(
         f"SELECT id FROM assets WHERE id IN ({marks_in(part)})", part)}
@@ -518,21 +562,41 @@ def apply_marks(c: sqlite3.Connection, ids: list[str], fields: dict[str, Any], *
                  if i in cur and cur[i]["version"] != v]
     if conflicts:
         raise Conflict("素材已被其他客户端修改", conflicts=conflicts)
-    batch, t = new_id("b"), now()
+    batch, t = batch or new_id("b"), now()
     out = []
     for i in ids:
         old = cur[i]
-        new = {"flag": fields.get("flag", old["flag"]) if "flag" in fields else old["flag"],
-               "stars": fields["stars"] if "stars" in fields else old["stars"]}
-        changed = [f for f in ("flag", "stars") if new[f] != old[f]]
+        use = old["use"]
+        if "use" in fields:
+            use = fields["use"]
+        elif "flag" in fields:
+            use = old["use"] if fields["flag"] == "pick" and old["use"] in ("record", "edit") else \
+                USE_OF_FLAG[fields["flag"]]
+        new = {"use": use, "stars": fields["stars"] if "stars" in fields else old["stars"]}
+        changed = [f for f in ("use", "stars") if new[f] != old[f]]
         version = old["version"] + (1 if changed else 0)
         if changed:
             for f in changed:
                 c.execute("INSERT INTO mark_history (batch_id, asset_id, field, old, new, actor, reason, at) "
                           "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch, i, f, dumps(old[f]), dumps(new[f]), actor, reason, t))
-            write_mark(c, i, new["flag"], new["stars"], version, t)
-        out.append({"id": i, "flag": new["flag"], "stars": new["stars"], "version": version})
+            write_mark(c, i, new["use"], new["stars"], version, t)
+        out.append({"id": i, "use": new["use"] or "pending", "flag": FLAG_OF_USE[new["use"]], "stars": new["stars"],
+                    "version": version})
     return {"batch_id": batch, "assets": out}
+
+
+def migrate_uses(c: sqlite3.Connection) -> int:
+    """Schema 3 (PRD §15): a Pick becomes record, a Reject reject, the rest stay pending; each change is a
+    system mark_history row (reason migrate:flag) in one batch, so where a use came from stays visible."""
+    batch, t, n = new_id("b"), now(), 0
+    for r in c.execute("SELECT asset_id, flag FROM marks WHERE use IS NULL AND flag IS NOT NULL").fetchall():
+        use = USE_OF_FLAG[r["flag"]]
+        c.execute("UPDATE marks SET use = ? WHERE asset_id = ?", (use, r["asset_id"]))
+        c.execute("INSERT INTO mark_history (batch_id, asset_id, field, old, new, actor, reason, at) "
+                  "VALUES (?, ?, 'use', NULL, ?, 'system', ?, ?)", (batch, r["asset_id"], dumps(use),
+                                                                     f"migrate:flag:{r['flag']}", t))
+        n += 1
+    return n
 
 
 def collection_history(c: sqlite3.Connection, cid: str, action: str, detail: dict[str, Any], actor: str) -> None:

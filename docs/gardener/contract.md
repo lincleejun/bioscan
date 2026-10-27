@@ -51,7 +51,7 @@ PHOTO_EXT: frozenset[str]   # .jpg .jpeg .png .tif .tiff .heic? + bioscan.format
 VIDEO_EXT: frozenset[str]   # .mov .mp4 .m4v .avi .mts .mkv
 @dataclass class FileInfo: path: str; role: str; ext: str; size: int; mtime_ns: int   # role: raw|jpeg|image|video
 @dataclass class Discovered: pair_key: str; media: str; primary: str; files: list[FileInfo]  # media: photo|video
-@dataclass class Skipped: path: str; reason: str      # unsupported | sidecar | hidden | unreadable
+@dataclass class Skipped: path: str; reason: str      # unsupported | sidecar | hidden | unreadable | symlink | unsafe_name（文件名含换行）
 def discover(root: str) -> tuple[list[Discovered], list[Skipped]]   # 递归、排序稳定；同目录同 stem(小写) 的 RAW+JPEG 为一个素材，primary=JPEG
 def quick_hash(path: str) -> str        # sha256(size + 首 1 MiB + 尾 1 MiB)，文件身份用
 def is_online(path: str) -> bool
@@ -249,3 +249,253 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - `AssetDetail.caps.people.data.faces[i].person = {id, name, confirmed} | null`：`confirmed` = 用户命名过这张脸；否则为按已命名的脸自动认出。
 - **UI**：人物分组的“编辑”是“给人物命名”（输入时提示已有名字）；素材详情的“人物”卡片列出每张脸，可命名、改名、确认（“是此人”）或取消。
 - **人物分组的稳定性**：分析进行中只建已命名人物的分组；未命名的人脸聚类与“人物 N”编号只在最终分组（`group` 阶段）生成，避免同名“人物 1”出现多份。最终分组时，不再被建议、且没有人动过（未改名、未审阅、无人工加入成员）的未命名聚类分组软删除（`collection_history.detail.reason = superseded_cluster`），其 `auto_key` 加后缀以免挡住以后同键的聚类。
+
+## 契约修订 4：物种身份、主体与识别（2026-10-26，AfterShooting PRD v1 阶段 A，ADR 0002，#106；优先于上文冲突处）
+
+依据：owner 要求按 AfterShooting PRD v1 与调研意见（`docs/research/2026-10-26-wildlife-workflow.md`）落地；PRD §17 的顺序是先统一身份、Collections 与人工决定。
+
+- **概念 ID**：BioScan 每个候选物种带 `concept`（`avibase:<Avibase ID>` | `mdd:<id>` | `name:<学名>`，见 `CONTEXT.md`）。Gardener 以概念为物种身份；学名、俗名只用于显示与检索。旧结果没有 `concept` 时按 `name:<学名>` 处理。
+- **schema 2**：新表 `subjects`（一张照片里的一只动物，id `s_…`）与 `identifications`（对一个主体的一条结论，只追加）。见 `schema.sql`。`schema_version` 1 的库启动时建表，并从全部 `raw:identify` 结果按时间顺序回填 AI 识别，然后记为 2。
+- **主体匹配**：`raw:identify` 的每个框与该素材现有主体按 IoU ≥ 0.5 匹配（一对一，取重叠最大者）；匹配不上就新建主体（`origin=ai`）。本轮没看到、且没有人工结论的 AI 主体记 `removed_at`；有人工结论的主体永远保留。人工画的框是 `origin=user` 的主体（S3）。
+- **AI 识别**：开启 species 时，每个带 `species` 的框写一行 `source=ai`：只有 `level=species` 才有 `concept`；属/科级保留上卷的 `taxon`，`concept` 为空；`candidates` 为前几名 `[{concept, scientific, common, p}]`。species 关闭时只有主体、没有识别。
+- **当前结论**：主体最新一条未撤销的 `source=user` 行，否则最新的 `source=ai` 行。模型重跑只追加 AI 行，不改写、不覆盖人工行。
+- **AssetDetail.subjects**：`[{id, xyxy, kind, origin, current: Identification|null, ai: Identification|null, human: bool}]`；`Identification = {id, concept, taxon, common, level, qualifier, p, candidates, source, run_id, version, actor, reason, batch_id, at}`（`reason`：人工批次的理由，或 AI 行的 `flock`；`batch_id`：人工批次，可撤销）。
+- **人工确认与纠错（S3）**：`POST /identifications {subject_ids?, new_subjects?: [{asset_id, xyxy}], claim, scope?: subject|burst, reason?, dry_run?}`。
+  - `claim` 为 `{accept: true}`（采纳该主体当前的 AI 结论）、`{level: species, concept, taxon（学名）, common?}`、`{level: genus|family, taxon}`，或 `{level: unconfirmed|not_animal}`。
+  - `new_subjects` 是人画的框（比例坐标），新建 `origin=user` 的主体。
+  - `scope=burst` 把同一结论写到每个目标所在连拍（`ai_suggestions.burst_id`）的其他照片：那里与目标 AI 结论同一概念的主体，或照片唯一的主体。已有人工结论的主体不改，列入 `skipped`（`reason: human`）。
+  - 响应 `{batch_id, dry_run, changed: [{subject_id, asset_id, via: target|burst, from, to}], skipped: [{subject_id, asset_id, reason}]}`；`dry_run` 只报告影响范围，不写入（PRD §10“先展示影响范围”）。
+  - `POST /identifications/undo {batch_id}` 整批撤销；该批之后有人再改过其中的主体 → 409 `{subjects}`；该批画出的框若再无结论则随之退役。
+  - 拍摄段（Encounter）范围留到阶段 B。
+- **物种卡片（S4）**：
+  - **派生方式**：卡片不落进 `collections` 表，查询时从视图 `current_ids`（每个在用主体的当前结论）派生。PRD §04 规定成员的真值来自物种标注，所以不经过 `grouping.suggest`。
+  - **`GET /species?task=&hidden=0|1`** 返回 `{species: [Card], to_confirm: [Card], confirmed_total, to_reconfirm, unresolved: {genus_family, unconfirmed}}`（`to_reconfirm` 见 S7 第二部分）：
+    - 只看代表版本，同一拍摄的其他版本不计。
+    - 一个概念一张卡，没有最小张数。
+    - 一张照片无论有几个主体是同一概念，都只算一张（AC03）。
+    - `species` 是至少有一张人工确认的卡，张数即“已拍到 N 种”（PRD §03）；`to_confirm` 是只有 AI 结论的卡，不计入 N。
+    - `unresolved` 是主体只到属/科或未确认的照片数。
+    - Flag、星级、在线状态都不影响计数。
+  - **`Card`** = `{concept, taxon, common, kind, confirmed, candidates, photos, only_one, first_taken_at, last_taken_at, cover_id, cover_pinned, hidden}`：
+    - 名字以人工结论为准，否则取最新的 AI 结论。
+    - 封面：固定的封面仍是成员时用它；否则在已确认的照片里按星级、再按拍摄时间挑，没有已确认照片时在全部成员里挑。
+  - **`PATCH /species/{concept} {cover_asset_id?: id|null, hidden?: bool}`**：只影响显示（表 `species_prefs`）；封面必须是该物种的照片（否则 400），没有该物种的照片则 404。
+  - **`GET /assets` 增加 `concept`、`id_state=confirmed|candidate|unresolved|reconfirm`**：两者同时给出时，须由同一个主体满足。Smart 规则同样可用。
+  - **任务内分组**：本切片仍保留任务内物种分组（`grouping.suggest`），界面切换到物种库（S6）时再去掉。
+- **名字检索（S5）**：
+  - **索引表 `taxon_names`**：名字 → 概念（`taxa.py`）。来源有三类：
+    - AviList/MDD 的学名与英文名、MDD 的其他俗名；
+    - `synonyms.csv` 的别名，包括名录升级前的旧学名；
+    - 用户的中文名 `<数据目录>/names-zh.csv`（`scientific,zh`；没有授权清楚的中文名单可随附，见调研 §3，所以不内置、也不机器翻译）。
+  - **重建时机**：服务启动时对这些文件算哈希，变化才重建（真实名单 18,076 个概念、44,817 个名字，约 0.5 s）；名单缺失则跳过。`create_gardener_app(name_lists=)` 指定名单所在目录，`None` 不碰索引。
+  - **`GET /names?q=&limit=`** 返回 `[{concept, scientific, common, zh, kind, matched, photos}]`：
+    - 排序：名字完全相同在前，再是前缀匹配，再是包含；同一档里库中已有照片的在前。
+    - 拍到过、但不在任何名单里的 `name:` 概念，从识别结果本身检索。
+    - 纠错时用它找到 `claim` 需要的 `concept` 与 `taxon`。
+  - **筛选 `species=`**（包括 Smart 规则）改为按名字索引与主体的当前结论匹配：人工纠正后筛选结果跟着变，旧学名同样命中。
+- **界面（S6）**：
+  - **物种页**：主导航新增“物种”（`#/species`），位于全部素材之后。页面分三区：
+    - 已确认：“已拍到 N 种”；
+    - 待确认：只有模型候选；
+    - 待鉴定：链接到“全部素材”并带上 `id_state=unresolved`。
+  - **物种卡片**：封面、名字、已确认与待确认张数、日期范围；只有一张照片时标“仅 1 张”。按鸟类、哺乳动物、其他动物筛选。
+  - **物种详情**（`#/species/<concept>`）：复用网格与检查器；可把当前照片设为封面，可在物种页隐藏或显示。
+  - **任务内**：“按物种看本次拍摄”（`#/species/task/<task>`）是同一页面按任务过滤的视图。
+  - **检查器“物种”卡片**：
+    - 每个主体一行：框内的缩略图、当前结论与来源（人工确认 / AI 候选与概率）；人工结论与模型不同时，同时显示模型的结论。
+    - 可“确认”“改为…”或标“不确定”。“改为…”调用 `GET /names` 检索，学名、英文名、中文名、旧名都可以。
+    - 有连拍时可勾选“同一连拍一起改”（`scope=burst`），这个界面偏好记在 `idburst`；提示条提供整批撤销。
+  - **任务内自动分组不再生成物种组**：物种只在物种页出现，没有最小张数，因此去掉 `MIN_GROUP` 把稀有物种并入动物大类的冲突。动物照片在任务内按内容大类分组；旧库已有的任务级物种集合原样保留，不再增加成员。
+  - **`AssetItem.species`** 改由主体的当前结论派生（人工确认优先，其次概率最高的 AI 物种结论），并增加 `confirmed`。
+  - **缓存**：UI 静态文件返回 `Cache-Control: no-cache`（靠 ETag 重新校验），升级后不会继续使用旧脚本。
+- **CLI 与 MCP**（PRD §02“MCP 同步可用”）：新接口都有对应的 CLI 命令与 MCP 工具，一律只走 HTTP。
+  - CLI：`gardener species|names|identify|identify-undo|species-card`；`assets` 增加 `--concept`、`--id-state`。
+  - MCP：`list_species`、`search_names`、`identify_species`（说明里要求先 `dry_run`，没看过图像证据不确认）、`undo_identification`、`set_species_card`。
+- **名录升级（S7，第一部分：改名）**：
+  - 改学名不改概念，所以人工结论自动跟随新名字。
+  - 物种卡片、`AssetItem.species` 与主体的 `current`/`ai` 都按概念显示当前名单的学名、英文名和中文名（`zh`，来自 `taxon_names`）。
+  - 识别行里存的名字保持原样不改写；与当前学名不同时，作为 `said: {taxon, common}` 一并返回，界面显示“当时记作 …（名录已更名）”。
+- **名录升级（S7，第二部分：拆分）**：
+  - 问题：拆分后旧的人工确认要么挂在一个新名单里已不存在的概念上（还算作“已拍到”的一种），要么在原 ID 留给某个子种时被静默算成那个子种。AviList v2026 的 35 个拆分实际都是前一种：亲本的种级 Avibase ID 全部退役，子种用的是原来的亚种 ID（如 Willet 在 v2025 是 `avibase-E7A14E91`；Saltmarsh Willet 的 `avibase-6D372C9F` 在 v2025 是指名亚种 *T. s. semipalmata*）。两种情况同样处理。
+  - **拆分表** `data/names/avilist_splits.csv`（`scripts/build_splits.py` 由 AviList 变更页生成，见 `data/README.md`）：每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。
+  - **何时生效**：名字索引同步（`taxa.sync`，服务启动时）时，对还没处理过的名录版本，若索引里已有它的全部子种（即已加载该版本名单）就处理一次；已处理的版本及其撤销批次记在 `meta.splits_applied`（`{版本: batch_id|null}`），之后不再重复。
+  - **怎么改**：当前结论是人工（`source=user`）种级、概念为某个亲本的主体，追加一条 `source=user, actor=system, reason=split:<版本>` 的识别：`level=species`、`qualifier=slash`、`concept` 为空、`taxon/common` 保留原来记的名字、`candidates` 为各子种 `[{concept, scientific, common, p: null}]`。同一版本一个 `batch_id`，可用 `POST /identifications/undo` 整批撤销。AI 结论不动（不计入已拍到的种数）。
+  - **不自动选定**：按坐标判定子种需要 BioScan 引擎里的 BirdNET 位置先验（`bioscan/service/geo.py`，要加载模型），名字索引同步时拿不到，所以全部留给人选，不做近似判断。
+  - **效果**：
+    - 这些主体不计入任何物种卡片，也不计入“已拍到 N 种”；`GET /species` 增加 `to_reconfirm`（这样的照片数）。
+    - `GET /assets` 的 `id_state` 增加 `reconfirm`；`confirmed` 只算有概念的人工结论。视图 `current_ids` 增加 `qualifier` 列。
+    - `AssetItem.species` 不取这类结论（退回模型的照片级结论）。`Identification` 增加 `reason`、`batch_id`。
+    - 人用普通的 `POST /identifications` 选定一个子种（或任意物种）即解决。
+  - **界面**：主体一行显示“待重新确认：A / B”和“名录拆分：原记作 …”，每个子种一个按钮；物种页在待确认与待鉴定之间增加“待重新确认”区，链接到 `id_state=reconfirm`；全部素材的“物种结论”筛选增加同一项。CLI `gardener species` 多打一行，MCP `list_species` 说明里写明 `to_reconfirm`。
+- **标出漏掉的动物（S3 的界面）**：检查器“物种”卡片（照片有预览时总是显示，没有主体时提示“模型没有标出动物”或“还没有主体框”）增加“标出漏掉的动物”：
+  - 在大图上按住拖出一个框（Esc 取消；“主体放大”会先关掉）。大图已按 EXIF 摆正，`xyxy` 是摆正后图像的 0–1 比例；图按 contain 显示，换算时只算图像实际显示的区域，不算留白。
+  - 松开后打开与“改为…”相同的名字检索，选中即 `POST /identifications {new_subjects: [{asset_id, xyxy}], claim, scope: subject}`；也可“只标出，不确定是什么”（`claim: {level: unconfirmed}`）。画的框不按连拍范围扩散。提示条可整批撤销，撤销后这个框随之退役。
+- **鸟群不逐只命名**：一张照片里同一 `kind` 的带物种结果的框达到 `identities.FLOCK_MIN`（5）个时，按 Merlin 的克制做法不逐只命名：
+  - 这些框的 AI 识别改记为所有框首选答案共同的属（`level=genus`），没有共同属时取共同的科（需要候选带 `taxonomy`），都没有则 `unconfirmed`；`concept`、`common`、`p` 为空，`candidates` 保留每个框原来的候选，`reason=flock`。
+  - 原因：一群鸟里分类器逐只猜测，往往给出几种不同的近缘种，每种都会变成物种库里的一张卡片（实测一张雨燕群照片出了三种雨燕）。
+  - 人工结论不受影响（当前结论仍是人的）；少于 `FLOCK_MIN` 个的照片照常逐只命名。重跑与 schema 1 回填都经过同一规则。
+  - 界面在该主体下显示“鸟群：不逐只命名”（哺乳为“兽群”，其他为“成群”）。
+  - 照片级的 `species` 能力结果（`AssetItem.species` 在没有种级主体结论时的退路）不在本规则内。
+- **后续切片**：S7 第二部分（拆分），见 #106。
+  - 问题：拆分后原概念 ID 可能留给其中一个子种（如 Willet → Saltmarsh Willet 保留 avibase-6D372C9F，Prairie Willet 为新 ID），旧的人工确认会被静默算成那个子种。
+  - 计划：
+    - 提交由 AviList 变更页生成的拆分表；
+    - 名单升级时，受影响的人工结论追加一条 `qualifier=slash` 的待重新确认记录，候选为各子种；
+    - 能按坐标与日期判定的自动选定（eBird 的做法），其余进复核队列；
+    - 整批可撤销。
+
+## 契约修订 5B：四种用途、拍摄段、Smart 规则预览（2026-10-26，AfterShooting PRD v1 阶段 B；优先于上文冲突处）
+
+依据：PRD §05 状态轴、§07 第二级、§08 决定与批量动作、§04 Smart Collection 第一版（AC13）、§15 迁移。
+
+- **schema 3**：`marks.use`（`record | edit | reject`，NULL = 待定）与表 `encounters`、`encounter_members`。`schema_version` 2 的库启动时迁移：旧 Pick → `record`，Reject → `reject`，其余待定；每个改动写一行 `mark_history`（`field=use`、`actor=system`、`reason=migrate:flag:<旧值>`，同一 batch），并给每个已有任务分拍摄段。
+- **四种用途取代 Pick/Reject**（PRD §05、§08）：
+  - 保留记录 `record`、选入修图 `edit`、待定 `pending`（缺省）、淘汰 `reject`。按素材全局共享，与星级分开；模型不写用途；淘汰只是决定，不触发文件操作。
+  - `POST /marks {asset_ids, use?: record|edit|pending|reject, flag?, stars?, reason?, expect?}`；`use` 与 `flag` 不能同时给（400）。`flag` 是旧写法：`pick` → `record`（已是 `edit` 的保持 `edit`），`reject` → `reject`，`null` → 待定。
+  - `marks.flag` 保留为派生列，只由 `store.write_mark` 按用途写入（`record|edit` → `pick`，`reject` → `reject`）。所以旧客户端、`flag=` 筛选、`Collection.picks/rejects`、本组不留（`picks` = 记录或修图）、覆盖检查、导出 `scope=picked` 与导出 XML 的 `flag` 照旧可用。
+  - 响应与 `AssetItem` 增加 `use`（永远是四个值之一）；`judged` = 用途不是待定或有星级。标记历史的字段从此是 `use`；撤销旧的 `flag` 历史行时按上面的映射还原为用途。
+  - 筛选（含 Smart 规则）增加 `use=record|edit|pending|reject`。
+  - 导出 XML 的 `<asset>` 增加 `use` 属性（`flag` 照旧）。
+  - **保留此张并淘汰相似帧**：`POST /marks/keep-best {asset_id, keep_use?: record|edit（缺省 record）, dry_run?, expect?}` → `{dry_run, burst_id, keep: {id, use}, reject: [id], skipped: [{id, reason: human|only_record, concepts?}], expect: {id: version}, batch_id}`。
+    - 范围是该照片所在连拍（`ai_suggestions.burst_id`）的其他代表版本；已是淘汰的不再列出。
+    - 跳过 `human`：已有人工决定（记录、修图或星级）。
+    - 跳过 `only_record`：淘汰后某个物种（当前结论，种级）在全库不再有未淘汰的照片；显示该物种的帧全部保留，`concepts` 列出物种。
+    - 保留与淘汰同一 batch，`POST /marks/undo` 一次撤销。`dry_run` 不写入，返回的 `expect` 原样带回执行；期间被改过 → 409。不在连拍中 → 400。
+  - **界面键盘**：R 保留记录、E 选入修图、U 待定、X 淘汰、1–5 星级（0 清除）、⌘/Ctrl+Z 撤销；P 不再使用。输入框内不触发。
+- **拍摄段 Encounter**（PRD §03、§07）：
+  - 任务内一次连续观察；同一照片在每个任务里属于一个拍摄段；只收有拍摄时间的代表版本。
+  - 建议规则（`review.assign_encounters`）：按拍摄时间（相机本地，不换算）排序。停顿超过 600 s 断开；停顿超过 120 s 且前后照片的物种（当前种级结论）没有交集也断开；同一连拍内永不断开。
+  - 持久化：只有还没有拍摄段的照片会被机器放置（`group` 阶段与迁移时）。一段内已有放置的照片时，新照片并入时间上最近的那张的拍摄段；否则新建一段。已放置的照片机器永不移动，所以人的拆合在重扫、追加后保持，重扫不会静默恢复旧分组。
+  - `GET /encounters?task=&concept=`（至少一个）→ `{encounters: [Encounter], unassigned: [asset_id]}`。
+    - `Encounter = {id, task_id, origin: auto|user, start, end, photos, asset_ids, bursts: [{id|null, size, rep, asset_ids}], candidates: [≤3 asset_id], species: [{concept, taxon, common, zh}]}`。
+    - 给 `concept` 时只列该物种的照片。
+    - 连拍代表 `rep`：人工选入修图 > 保留记录 > 星级 > 连拍名次 > 美学分；`candidates` 是各连拍（与单张）代表中排名前三的。
+    - `unassigned` = 范围内没有拍摄段的照片（无拍摄时间，或扫描尚未到分组阶段）。
+  - `POST /encounters/{id}/split {at: asset_id | asset_ids: [..]}` → 201 `{id（新段）, from}`：`at` 把这张及之后的照片拆为新的一段（`origin=user`），`asset_ids` 恰好拆出这些。两段都要有照片，否则 400；已被合并的段 400。
+  - `POST /encounters/merge {ids}` → `{id}`：并入第一个，其余记 `merged_into`；须同一任务、两个以上。
+  - 放置、拆、合都更新所涉照片的 `assets.updated_at`（§10 X7），轮询 `changed_after` 的客户端据此重新取拍摄段。
+  - 本版没有拍摄段的撤销接口：拆与合互为逆操作。
+  - **识别范围**：`POST /identifications` 的 `scope` 增加 `encounter`。同一结论写到目标所在拍摄段的其他照片，选主体的规则与 `burst` 相同；`changed[].via = encounter`。
+  - **界面**：
+    - 任务 Preview 与物种详情的网格按拍摄段分组，可在工具栏切换“按拍摄段 / 不分段”（界面偏好 `enc`）。
+    - 每段有标题行：时间、张数、连拍数、物种。收起时只显示代表候选，可“展开全部”，也可“与上一段合并”。当前照片可“从这张起拆为新拍摄段”。
+    - 段内仍按连拍折叠；在连拍中的照片可用“保留此张并淘汰相似帧…”，先看影响范围再确认。
+    - 任务内“按物种看本次拍摄” → 物种卡片 → `#/species/task/<task>/<concept>`：本任务内的物种详情，即物种 → 拍摄段 → 连拍。
+- **Smart 规则预览**（PRD §04，AC13）：`POST /collections/{id}/preview-rule {rule}` → `{total, current, added_count, removed_count, added: [≤200 id], removed: [≤200 id]}`，不保存；非 Smart 集合 400；规则校验与保存时相同。Smart 集合目前没有人工加入或排除，所以成员 = 规则命中。界面编辑 Smart 集合时，规则改动先显示命中数与增减，再点一次“保存”才写入。
+- **CLI 与 MCP**：
+  - CLI：`mark --use`、`assets --use`、`keep-best ID [--edit] [--dry-run]`、`encounters --task|--concept`、`encounter split ID --at|--assets`、`encounter merge IDS`、`collection preview-rule ID --rule JSON`、`identify --encounter`。
+  - MCP：`set_marks` 增加 `use`；新工具 `keep_best`、`undo_marks`、`list_encounters`、`edit_encounters`、`preview_rule`；`identify_species` 的 `scope` 可为 `encounter`。
+## 契约修订 5C：快速比较 RAW、原像素细节（2026-10-26，AfterShooting PRD §08 第三级、§14、AC06；优先于上文冲突处）
+
+依据：PRD 要求“切换优先显示嵌入预览，再异步加载细节”，并明确标记“快速预览 / 原像素细节加载中 / 原像素细节可用”，不能把 1600 px 预览的放大称为真实 RAW 100%。**RAW 部分未在真实 RAW 文件上验证**（开发机上没有 RAW，测试用假 rawpy）。
+
+- **`GET /assets/{id}/detail?xyxy=x0,y0,x1,y1&max=2048`**（`detail.py`）：
+  - 返回原像素裁切的 JPEG（q92）。`xyxy` 是**直立画面**的 0–1 比例（与 `subjects.xyxy`、预览同一坐标），缺省整幅；`max` 是返回图长边上限（64–4096），只缩小、不放大。
+  - 读哪个文件：素材有在线的 RAW（RAW+JPEG 对里的 RAW）就读 RAW，否则读 primary。
+  - RAW：LibRaw 全尺寸解码（`postprocess(use_camera_wb=True, output_bps=8)`，不用 half_size），由 LibRaw 按 `sizes.flip` 转正，与 BioScan 识别用的解码同一方向，主体框对得上。JPEG/PNG/TIFF：Pillow 按 EXIF 方向转正后裁切。
+  - 响应头说明它是什么：`X-Detail-Source: original`、`X-Detail-File: raw|image`、`X-Detail-Decoder: libraw-full|pillow`、`X-Detail-Orientation`（已转正的 EXIF 方向）、`X-Detail-Full: W×H`（原图直立尺寸）、`X-Detail-Crop: x0,y0,x1,y1`（原像素框）、`X-Detail-Size`、`X-Detail-Scale`（返回像素 / 原像素，1 = 未缩小）、`X-Detail-Cache: hit|miss|none`、`X-Detail-Ms`。
+  - 错误：`xyxy`/`max` 不合法 400；视频 400；原片离线 404（“只有快速预览”）；解码失败 404 并附原因；被取代 409；超时 503。
+- **不阻塞**：解码在独立的 2 线程池里跑；等待中的细节请求只占一个请求线程（UI 每个视图同时最多一个），网格与标记不排在解码后面（`test_marks_do_not_wait_for_a_decode`）。若以后需要，可改为 async 路由 + `asyncio.wait_for(wrap_future)`，等待时不占线程；rawpy 0.27 在 `unpack`/`dcraw_process` 期间释放 GIL（已查其 `_rawpy.pyx`）。同一素材有更新的请求时，仍在排队的旧请求直接返回 409；等待上限 90 s，超时时还在排队的请求被取消，已经开始的解码继续完成并写入缓存，重试即命中。UI 换图、缩放、平移或点“取消”都会中止上一个请求。
+- **缓存**：RAW 的全尺寸解码存为 `cache/detail/<id[2:4]>/<id>.<size>-<mtime>.o<方向>.npy`（未压缩，内存映射，之后任何裁切都是毫秒级），总量上限 2 GiB，按最近使用淘汰；文件大小或修改时间变化即重新解码。JPEG 等不复制（文件本身就是原像素）。`POST /storage/clear-cache` 与 `GET /storage` 一并覆盖它；原片目录从不写入。
+- **界面**（`web/app.js` 的 dv* 函数）：
+  - 大图（放大查看）与并排比较用同一个查看器：先显示 1600 px 快速预览；放大到预览会被拉伸时，按可见区域外加 25 % 余量请求原像素，叠在画面的同一位置。
+  - 状态只有“快速预览”“原像素细节加载中”（可取消）“原像素细节可用（RAW 全尺寸解码 / 原图）· 原像素 N%”“原像素细节不可用：原因”。只有原像素可用时才给比例；预览放大写“预览放大 ×N（不是原像素）”。
+  - 放大查看里左右换图保留缩放与位置，便于连拍逐张看同一处。
+  - 并排比较：默认“同步缩放与平移”，两边保持**同一原像素比例**（偏好 `cmpsync`，可关闭后各自操作）。点画面中的动物框即放大到那只；同步时另一侧对准离它最近的动物。默认显示整幅，**不自动选检测分最高的框**。底部是两张所在连拍的胶片条，点缩略图替换高亮的一侧。
+- **测量**（`scripts/gardener_detail_bench.py`，进程内 HTTP，不含网络与浏览器解码；2026-10-26，macOS 26.6.2 arm64，16 核，合成 6000×4000 JPEG 12 张，热缓存）：
+  - 预览切换（large）中位 1.0 ms，P95 1.1 ms，达到 PRD §14 的 P95 ≤ 150 ms（只是服务端部分）。
+  - JPEG 细节，20 % 区域：中位 69 ms，P95 74 ms（每次完整解码原图）。整幅缩到 2048 px：中位 168 ms，P95 176 ms。
+  - RAW 解码耗时**未测**：用 `--photos <真实目录>` 在 owner 的 Mac 上补测。
+- **未做**：四图以上比较（PRD 允许后置）；眼部裁切建议（没有眼部检测）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与同拍 JPEG 若尺寸略有不同，比例坐标会有几个像素的偏差（未在真实文件上核对）。
+## 契约修订 5D：正式导入（2026-10-26，AfterShooting PRD v1 §06“正式导入”、§09、AC10、AC11；优先于上文冲突处）
+
+依据：PRD §06 要求 Review 后先生成导入计划、再复制并核对，§09 要求完成页能核对目标、待定、重复、容量与失败项后再“导入 N 张”。
+
+- **用途**：导入按每张照片的用途选择：保留记录 `record`、选入修图 `edit`、待定 `pending`、淘汰 `reject`（`marks.use`，契约修订 5B）；只在 `imports.uses_of(c, asset_ids)` 一处读取，没有标记即待定。`imports.decided_since` 判断计划生成后决定是否又变过。
+- **计划** `POST /tasks/{id}/import-plan {dest_root, place?, include_pending?: true}` → 201 `ImportPlan`：
+  - 范围：本任务的代表版本；同一拍摄的其他版本不另复制（`not_copied.versions`），因为它们是同一次拍摄的副本或导出图。默认复制 record + edit + pending，`include_pending=false` 时待定不复制（`not_copied.pending`，界面提醒“仍仅在来源中”）；淘汰永不复制。
+  - 文件组：素材的全部文件（RAW、同拍 JPEG）加上旁边的 sidecar（`scan.sidecars`：同目录、`<stem>.<ext>` 或 `<文件名>.<ext>`，不区分大小写，扩展名为 `SIDECAR_EXT` 加 `.acr`）。`discover()` 仍跳过 sidecar，发现语义不变。
+  - 目录：`dest_root/YYYY-MM-DD_地点`；跨日为 `YYYY-MM-DD~YYYY-MM-DD_地点`；未填地点为“未标注地点”。日期取相机本地拍摄日，没有拍摄时间的素材取文件修改日。全部文件平铺在这一个目录。
+  - 同名：目标名被不同内容占用（不区分大小写），或被本计划另一组占用时，整组文件加批次后缀 `_B<seq>`（再冲突为 `_B<seq>-2`…），RAW、JPEG 与 sidecar 保持同一 stem；从不覆盖。`seq` 是全部导入计划的批次号。
+  - 精确重复（每个文件的 `action`）：`copy`；`identical` = 目标同名文件内容相同（sha256）；`reuse` = 同一来源文件此前已导入且大小、修改时间未变、副本仍在；`duplicate` = 其他路径的同内容文件已在库中（大小 + quick hash 命中后再比 sha256；sidecar 没有指纹，不参与）。后三种都不复制。连拍相似永远不算重复。
+  - 目标路径在计划中冻结，执行时不再重新推导。目标位于任何任务来源目录之内 → 400。
+- **`ImportPlan`** = `{id, task_id, seq, status: planned|queued|running|completed|partial|failed, dest_root, folder, dest_dir, place, include_pending, created_at, started_at, finished_at, error, interruptions, stale, uses: {record, edit, pending, reject, total}, not_copied: {reject, pending, versions}, unfinished: {offline, analysis_pending, scan_active}, assets, files, bytes, sidecars, copy_files, copy_bytes, needed_bytes, free_bytes, enough_space, duplicates: {identical, reuse, duplicate, items}, renamed: {files, items}, progress: {files_total, files_done, files_failed, bytes_total, bytes_done, assets_total, assets_done, assets_failed}, failed: [{asset_id, path, error}]}`（列表最多 200 项）。`GET /imports?task=`、`GET /imports/{id}`。
+- **执行** `POST /imports/{id}/run`：
+  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
+  - 每个文件：核对来源大小与计划一致，经 `export._copy` 复制（临时文件 + sha256 回读 + 硬链接或 O_EXCL 发布，从不覆盖），再核对字节数，然后立即提交为 `done` 并登记到 `managed_files`。目标已存在时：内容相同即算完成，否则列为失败，不覆盖。
+  - 幂等与恢复：已完成的文件不再复制；重启时 running → queued（`interruptions` + 1）、copying → pending，并清理本目录中崩溃留下的 `.gardener-part` 临时文件。同一来源再生成计划得到 `reuse`，不复制、不新建素材。
+  - 结果：有任何失败文件 → `partial`（全部失败为 `failed`），`failed` 逐项列出；不得称为成功。来源只读，不删除、不写入。
+- **受管理副本**：表 `managed_files(asset_id, path, source_path, role, size, source_mtime_ns, quick_hash, sha256, plan_id, imported_at)`。素材 id 不变，`asset_files` 仍只记来源文件；`AssetDetail.managed` 列出已校验的副本。
+- **界面**：任务页“完成与导入 →”（`#/import/<task>`）填写目标根目录、地点与“待定照片一起导入”，生成计划后进入确认页（`#/import/<task>/<plan>`）：各用途照片数与默认处理、文件与容量、目标目录、重复与改名、未完成项，按钮“导入 N 张”；之后显示进度与结果（入库数、失败清单、未复制范围、下一步）。确认页切换待定开关即按同一目标重新生成计划。
+- **CLI 与 MCP**：`gardener import plan|run|show|list`；MCP `plan_import`、`run_import`、`get_import`。
+- **未做**：完成页的物种统计（新增物种、已有物种补充、唯一记录影响）；导入批次成为 Collection；Lightroom 交接与清理计划；exFAT 上崩溃留下的半个目标文件只报告为失败（无法证明是自己写的，不删除）。
+## 契约修订 5E：Lightroom 交接与清理计划（2026-10-26，AfterShooting PRD v1 §11、§12、§13，AC14、AC15、AC18；ADR 0003）
+
+依据：owner 2026-10-26 决定——交接通过扩展现有 Lightroom Classic 插件（`extensions/lightroom/bioscan.lrplugin/`）完成，
+Gardener 不为此写入照片目录；清理为经人确认后把计划里的文件移到废纸篓（ADR 0003）。
+
+- **用途**：`handoff.uses_of(c, asset_ids)` 读 `marks.use`（契约修订 5B）。交接默认范围 `HANDOFF_USES = ("edit",)`：只交选入修图（PRD §12）。清理只看用途为淘汰的照片。
+- **与导入（5D）的衔接**：每张的文件列表包括 `managed_files` 里已核验的受管理副本（角色 `managed`），交接时排在最前，清理时与原片、sidecar 一起移到废纸篓。
+- **与物种计数（修订 4）的衔接**：一张照片的全部文件都被确认过的清理计划移到废纸篓（`assets.meta.trashed`，且没有任何文件在线）后，不再计入物种卡片；离线只改在线状态，永远不改计数（AC12）。
+- **schema**（不改 `schema_version`，新表 `CREATE IF NOT EXISTS`）：`handoffs`、`handoff_items`、`editor_links`、
+  `cleanup_plans`、`cleanup_files`，见 `schema.sql` 末尾的 5E 段。
+- **交接 `POST /handoffs {collection_id | concept | asset_ids | rule, uses?, name?}`** → 201 `Handoff`：
+  - 冻结此刻的成员：集合与物种按 `uses`（缺省 `HANDOFF_USES`）过滤；`asset_ids` 缺省为除淘汰外全部；没有可交接的照片 400。
+  - 每张的文件按 `managed`（受管理副本，导入单元登记后生效）→ RAW → JPEG → 其他排序，只列磁盘上存在的；一个都不在 →
+    该张 `skipped`（`offline`），不写入交接文件。
+  - 写 `<lightroom_dir>/handoffs/<id>.json`（`create_gardener_app(lightroom_dir=)`，默认
+    `~/Library/Application Support/bioscan/lightroom/`），原子替换；文件写不成则整个交接不落库。
+    文件 `{schema: 2, kind: "gardener-handoff", id, name, collection_set: "Gardener", created_at, photos: [...]}`；每张
+    `{asset_id, paths, uuid, stars, use, keywords: [{chain, synonyms, concept}], baseline: {stars, keywords}}`。
+  - `stars` 只取人工星级，AI 分数不会变成星级。`keywords` 只来自人工的种级结论（`source=user`），层级
+    `Class|Order|Family|学名`（目、科取自 AviList / MDD；名单缺失或 `name:` 概念时为 `Class|学名`），英文名与中文名为同义词。
+  - `uuid` 与 `baseline` 来自 `editor_links`（上次交接的 Lightroom 身份与 Gardener 写过的值）；从未交接过为 `null`。
+- **插件**（`Handoff.lua`、`Decide.lua`，由 `Watch.lua` 每 2 s 轮询，或菜单 Library > Plug-in Extras >
+  “bioscan: Apply Gardener handoffs”）：处理每个还没有 `<id>.result.json` 的交接文件。
+  - 先按路径（`paths` 依次）在目录中找照片，再按 `uuid`；都找不到时就地添加第一个存在的文件（Add，不复制）。
+    重复交接因此不会重复导入。
+  - 加入集合组 `Gardener` 下以交接 `name` 命名的集合。
+  - 写字段前读取 Lightroom 当前值，按冲突规则决定（`handoff.decide_stars` / `decide_keywords`，`Decide.lua` 逐行相同，
+    测试用本机 `lua` 对同一组用例跑两边）：
+    - 星级：Gardener 无星且上次没写过 → 不动；当前值 = 目标 → 不动；没有基线时 Lightroom 无星才写，有星为冲突；
+      有基线时当前值 = 基线才写，否则冲突。
+    - 关键词：基线里有、照片上已没有的链 = 在 Lightroom 里改过 → 冲突；否则添加缺的、移除基线里有而目标里没有的链
+      （物种更正）。只动 Gardener 写过的关键词，不碰其他关键词与显影设置。
+    - 冲突字段跳过并报告，不静默覆盖（P0）。
+  - 结果文件 `{schema: 2, id, photos: [{asset_id, status: ok|skipped|failed, reason, path, imported, photo_id, uuid,
+    stars: {action, value}, keywords: {action, value, added, removed}}]}`，先写 `.tmp` 再改名。
+- **读回 `GET /handoffs/{id}`**（及 `GET /handoffs` 列表）：结果文件出现后第一次读取时入库——逐张状态与原因、
+  `editor_links` 的 Lightroom 身份；字段动作为 `write|same` 时基线更新为写入的值，冲突字段保留旧基线（下次仍报告）。
+  `Handoff.status`：`written`（只写了文件，**不算完成**）→ `applied`（全部 ok）| `partial` | `failed`。
+  `Handoff = {id, name, scope, status, doc_path, result_path, actor, created_at, result_at,
+  counts: {ok, skipped, failed, pending, conflicts}, items: [{asset_id, name, status, reason, conflicts, sent, result}]}`。
+- **清理计划 `POST /cleanup-plans {collection_id | concept | asset_ids | rule}`**（缺省全库淘汰）→ 201 `Plan`：
+  - 范围内 `uses_of == reject` 的素材，每组全部文件：`asset_files` 登记的文件，加上同目录、以其中某个文件命名的 sidecar
+    （`IMG_1.xmp`、`IMG_1.ARW.xmp`；扩展名 `.xmp .dop .pp3`，不区分大小写）。与另一素材同 stem 的 `IMG_1.xmp`
+    （ARW + DNG 各自成素材，契约 §10 X1）不收。
+  - 快照每个文件的大小与 mtime；任何文件缺失 → 该组 `offline`，不进执行。
+  - 每组列出所含物种（当前种级结论，只看代表版本）及计划外还剩几张，`last_photo` = 一张不剩；同一拍摄的其他版本只列出，不收入。
+  - `Plan = {id, scope, status: planned|ran|partial, items: [{asset_id, name, state: ready|offline, bytes, files:
+    [{path, role, size, exists, result, reason}], species: [{concept, taxon, common, zh, photos, photos_left, last_photo}],
+    versions}], summary: {in_scope, rejected, ready, offline, files, bytes, last_species}, report, note}`；物种最后照片排在前面。
+- **执行 `POST /cleanup-plans/{id}/run {confirm: true}`**（缺 `confirm: true` → 400）：见 ADR 0003。
+  - 逐组重新核对：仍为淘汰（`not_rejected`）、文件存在（`offline`）、文件集合与大小/mtime 不变（`changed`），不符则整组跳过。
+  - 通过的文件逐个移到废纸篓（`create_gardener_app(trash=)` 可注入，默认 `cleanup.trash`），每个结果立即落库；
+    文件记为离线，素材 `meta.trashed = {at, plan}`，任何行都不删除。
+  - 每组移动之前在一个短事务里再核对一次（仍为淘汰、文件大小与 mtime 不变）：执行耗时较长时，人在这期间改回保留的照片不会被移走，记 `not_rejected` 跳过。
+  - 同一计划同一时间只执行一次：正在执行时再次请求 → 409；已移到废纸篓的文件结果不会被之后的失败覆盖。
+  - 物种“最后一张”的判断不计已在废纸篓里的照片，与物种卡片口径相同。
+  - 再次执行只处理尚未移走的文件。
+  - `report = {trashed_files, trashed_bytes, freed_bytes: 0, recoverable: true, failed: [{asset_id, path, error}],
+    skipped: [{asset_id, reason}], note}`：移到废纸篓的字节可恢复、**未释放**；Gardener 不做永久删除。
+  - `GET /cleanup-plans`、`GET /cleanup-plans/{id}` 返回计划与逐文件结果。
+- **UI**：Review 页、物种详情页“在 Lightroom 打开…”，全部素材页“选中的在 Lightroom 打开…”（对话框内显示逐张结果与
+  “刷新结果”）；Review 页“清理淘汰…”与管理页“清理计划…”进入 `#/cleanup`、`#/cleanup/<id>`：物种最后照片、逐文件
+  列表，执行只经确认对话框，并明示“将修改来源目录”。
+- **CLI / MCP**：`gardener handoff create|show|list`、`gardener cleanup plan|show|list|run --yes`；MCP
+  `lightroom_handoff`、`get_handoff`、`cleanup_plan`、`get_cleanup_plan`、`run_cleanup_plan`（`confirm` 必填）。
+- **未验证**：Lightroom 中的一切行为（插件在 Lightroom Classic 里实际运行之前均未验证）：`findPhotoByUuid`、
+  `getRawMetadata("keywords"|"uuid")`、`removeKeyword`、`createKeyword` 的同义词（已存在的关键词保持原同义词）、
+  `setRawMetadata("rating", nil)`、`LrFileUtils.files` 轮询、插件中的 `io.open` 写结果文件。真实磁盘上的废纸篓只在本机
+  临时文件上试过 `/usr/bin/trash`；外置盘与网络卷未验证。
+- **未做**：被移走照片的物种卡片计数排除（PRD §11）；交接失败项的单独重试（重复交接即可，身份复用）；预设与导出（P1）。

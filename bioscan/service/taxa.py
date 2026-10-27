@@ -32,6 +32,9 @@ KIND_CHECK = ("bird", "mammal", "other_animal")
 # of an 11k or 7k list, so it would pull bird and mammal boxes to itself. An other_animal box may
 # still move to bird or mammal: the size effect only works against that move.
 ONE_WAY = ("other_animal",)
+# Genera never offered as a species, in any name list or candidate set (names.wildlife drops their
+# rows when a list loads): MDD lists Homo sapiens, and a person is not wildlife (issue #86).
+NOT_WILDLIFE = ("Homo",)
 
 # gate class -> {prompt: first-pass floor}
 VOCAB: dict[str, dict[str, float]] = {

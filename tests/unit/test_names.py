@@ -5,6 +5,7 @@ import time
 import numpy as np
 import torch
 
+from bioscan import contract
 from bioscan.service import names
 
 AVI_HEADER = ["Sequence", "Taxon_rank", "Order", "Family", "Scientific_name", "English_name_AviList"]
@@ -67,6 +68,28 @@ def test_tol_text_matches_treeoflife_format():
     assert names.tol_text(tax, "") == "an image of Animalia Chordata Aves Passeriformes Corvidae Corvus corax."
 
 
+def test_read_avilist_v2026_headers_match_v2025(tmp_path):
+    from bioscan.cli import bench
+    v2026 = ["#", "RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST"]
+    write_csv(tmp_path / "v2025.csv", AVI_HEADER, AVI_ROWS)
+    write_csv(tmp_path / "v2026.csv", v2026, AVI_ROWS)
+    assert names.read_avilist(tmp_path / "v2026.csv") == names.read_avilist(tmp_path / "v2025.csv")
+    assert bench.read_name_list(tmp_path / "v2026.csv") == {"corvus corax": "Corvidae", "megascops kennicottii": "Strigidae"}
+
+
+def test_concept_ids_from_avibase_and_mdd_else_the_name(tmp_path):
+    write_csv(tmp_path / "avi.csv", ["RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST", "AVIBASE ID"],
+              [["species", "Passeriformes", "Troglodytidae", "Nannus pacificus", "Pacific Wren", "avibase-5D1A2DC4"],
+               ["species", "Passeriformes", "Corvidae", "Corvus corax", "Northern Raven", ""]])
+    write_csv(tmp_path / "mdd.csv", MDD_HEADER + ["id"], [MDD_ROWS[0] + ["1003456"]])
+    assert [r[3] for r in names.read_avilist(tmp_path / "avi.csv")] == ["avibase:avibase-5D1A2DC4", ""]
+    assert [r[3] for r in names.read_mdd(tmp_path / "mdd.csv")] == ["mdd:1003456"]
+    nl = names.NameList("b", "bird", ["Nannus pacificus", "Corvus corax"], ["", ""], [[""] * 7] * 2,
+                        np.zeros((2, 4), np.float32), ["exact"] * 2, concept=["avibase:x", ""])
+    assert [names.concept_of(nl, i) for i in (0, 1)] == ["avibase:x", ""]
+    assert contract.candidate("Corvus corax", None, [], 0.5, None, 0.5, "")["concept"] == "name:Corvus corax"
+
+
 def test_match_tol_class_and_family():
     birds = [("Corvus corax", "", ["", "", "Aves", "", "Corvidae", "", ""]),
              ("Megascops kennicottii", "", ["", "", "Aves", "", "Strigidae", "", ""])]
@@ -81,7 +104,7 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
     lists = names.load_lists(FakeModel(), tok, "cpu", cache, data_dir=data, tol_files=tol)
 
     bird, mammal = lists["bird"], lists["mammal"]
-    assert bird.list_id == "avilist-2025" and mammal.list_id == "mdd-2025"
+    assert bird.list_id == "avilist-2026" and mammal.list_id == "mdd-2025"
     assert bird.scientific == ["Corvus corax", "Megascops kennicottii"]  # subspecies/order rows dropped
     assert bird.taxonomy[0] == ["Animalia", "Chordata", "Aves", "Passeriformes", "Corvidae", "Corvus", "Corvus corax"]
     assert mammal.scientific == ["Rangifer tarandus", "Alces alces"] and mammal.common == ["Reindeer", "Moose"]
@@ -95,7 +118,7 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
     ])
     how = {"exact": 1, "synonym": 0, "none": 1}
     assert names.stats(lists) == {
-        "bird": {"list_id": "avilist-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
+        "bird": {"list_id": "avilist-2026", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
                  "tol": how, "birdnet": None},
         "mammal": {"list_id": "mdd-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
                    "tol": how, "birdnet": None},
@@ -189,6 +212,54 @@ def test_loaded_lists_are_finished_and_frozen(tmp_path):
     assert fresh["bird"].birdnet == ["", "Megascops kennicottii_WSO"] and fresh["bird"].birdnet_how == ["none", "exact"]
     with pytest.raises(dataclasses.FrozenInstanceError):
         fresh["bird"].birdnet = []
+
+
+def test_a_person_is_never_named_as_a_species(tmp_path):
+    """Issue #86: MDD lists Homo sapiens. A crop that looks most like it (a skier gated mammal) gets
+    the next mammal, never Human, and Homo is no candidate either; the other rows keep their
+    vectors and labels."""
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from bioscan.service import candidates, pipeline
+
+    data, tol, vecs = setup(tmp_path)
+    write_csv(data / "mdd" / "mdd.csv", MDD_HEADER,
+              [["Homo_sapiens", "Human", "Primates", "Hominidae", "Homo", "sapiens"], *MDD_ROWS])
+    write_csv(data / "names" / "mdd_map.csv", ["scientific", "common", "order", "family", "birdnet_label", "birdnet_how"],
+              [["Homo sapiens", "Human", "Primates", "Hominidae", "Homo sapiens_Human", "exact"],
+               ["Rangifer tarandus", "Reindeer", "Artiodactyla", "Cervidae", "Rangifer tarandus_Reindeer", "exact"]])
+    lists = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", tmp_path / "cache", data_dir=data, tol_files=tol)
+    mammal = lists["mammal"]
+    assert mammal.scientific == ["Rangifer tarandus", "Alces alces"] and mammal.matrix.shape == (2, names.DIM)
+    np.testing.assert_allclose(mammal.matrix[0], vecs[:, 3], rtol=1e-5)
+    assert mammal.birdnet == ["Rangifer tarandus_Reindeer", ""] and mammal.tol_how == ["exact", "none"]
+    assert candidates.unknown(lists, ["Homo sapiens", "Homo"]) == ["Homo sapiens", "Homo"]
+
+    human = names.tol_text(["Animalia", "Chordata", "Mammalia", "Primates", "Hominidae", "Homo", "Homo sapiens"], "Human")
+    look = FakeModel().encode_text(FakeTokenizer()([human])).numpy()[0]     # Homo's own vector: it would rank first
+    look /= np.linalg.norm(look)
+    full = names.NameList("mdd-2025", "mammal", ["Homo sapiens", *mammal.scientific], ["Human", *mammal.common],
+                          [["Animalia", "Chordata", "Mammalia", "Primates", "Hominidae", "Homo", "Homo sapiens"],
+                           *mammal.taxonomy], np.vstack([look, mammal.matrix]), ["none", *mammal.tol_how])
+
+    def scores(feats, m):
+        z = np.exp(8.0 * (np.asarray(feats) @ np.asarray(m).T))
+        return z / z.sum(axis=1, keepdims=True)
+
+    tops = []
+    for nl in (full, names.wildlife(full)):
+        engine = SimpleNamespace(names={"mammal": nl}, priors={},
+                                 bioclip=SimpleNamespace(encode_images=lambda crops: np.array([look] * len(crops)),
+                                                         probs=scores))
+        boxes = [{"kind": "mammal"}]
+        pipeline._species(engine, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], None, None, None,
+                          {"geo": False, "top_k": 3, "kind_check": False})
+        tops.append([c["scientific"] for c in boxes[0]["species"]["top"]])
+    assert tops[0][0] == "Homo sapiens"                                      # the fake does rank Homo first
+    assert sorted(tops[1]) == ["Alces alces", "Rangifer tarandus"]          # the next mammal, Homo nowhere
+    assert names.wildlife(mammal) is mammal                                 # nothing to drop: the same list
 
 
 def test_label_map_is_list_data_not_a_kind_check(tmp_path, monkeypatch):
@@ -361,3 +432,12 @@ def test_build_name_map_refuses_to_overwrite_without_force(tmp_path, monkeypatch
     assert target.read_text() == "committed\n" and target.stat().st_mtime_ns == before
     bnm.refuse_overwrite([target], force=True)                   # --force: the guard lets it through
     bnm.refuse_overwrite([tmp_path / "absent.csv"], force=False)  # nothing to overwrite
+
+
+def test_leaving_homo_out_keeps_each_concept_on_its_row():
+    tax = [["Animalia", "Chordata", "Mammalia", "Primates", "Hominidae", g, f"{g} {e}"]
+           for g, e in (("Gorilla", "gorilla"), ("Homo", "sapiens"), ("Pan", "troglodytes"))]
+    nl = names.NameList("m", "mammal", [t[6] for t in tax], ["", "", ""], tax, np.zeros((3, 4), np.float32),
+                        ["exact"] * 3, concept=["mdd:1", "mdd:2", "mdd:3"])
+    out = names.wildlife(nl)
+    assert out.scientific == ["Gorilla gorilla", "Pan troglodytes"] and out.concept == ["mdd:1", "mdd:3"]

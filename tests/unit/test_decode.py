@@ -1,3 +1,4 @@
+import pytest
 from PIL import Image
 
 from bioscan.service import decode
@@ -26,6 +27,61 @@ def test_gps_from_ifd():
 def test_taken_at_offset():
     assert decode.taken_at_from({0x9003: "2025:12:24 16:41:44", 0x9011: "-07:00"}, {}) == "2025-12-24T16:41:44-07:00"
     assert decode.taken_at_from({}, {}) is None
+
+
+def test_gps_null_island_and_void_fix_are_none():
+    """(0, 0) is what cameras write without a fix, 'V' marks a void one: neither is a place."""
+    zero = {1: "N", 2: (0.0, 0.0, 0.0), 3: "E", 4: (0.0, 0.0, 0.0)}
+    assert decode.gps_from_ifd(zero) == (None, None)
+    here = {1: "N", 2: (37.0, 30.0, 0.0), 3: "W", 4: (122.0, 15.0, 0.0)}
+    assert decode.gps_from_ifd({**here, 9: "V"}) == (None, None)
+    assert decode.gps_from_ifd({**here, 9: "A"}) == (37.5, -122.25)
+    assert decode.gps_from_ifd({**zero, 4: (0.0, 0.0, 1.0)})[0] == 0.0     # only exactly (0, 0)
+
+
+def test_blank_or_zero_date_falls_back_to_ifd0_with_its_offset():
+    base = {0x0132: "2026:05:01 07:59:59"}
+    for junk in ("    :  :     :  :  ", "0000:00:00 00:00:00", "2026:00:00 00:00:00", "garbage-garbage-garbage"):
+        assert decode.taken_at_from({0x9003: junk, 0x9011: "-07:00", 0x9010: "+01:00"}, base) \
+            == "2026-05-01T07:59:59+01:00", junk                      # IFD0 DateTime pairs with OffsetTime
+        assert decode.taken_at_from({0x9003: junk}, {0x0132: junk}) is None
+    assert decode.taken_at_from({0x9003: "2026:05:01 08:00:00\x00"}, {}) == "2026-05-01T08:00:00"
+    # only IFD0 DateTime and OffsetTimeOriginal: the offset is still used
+    assert decode.taken_at_from({0x9011: "-07:00"}, base) == "2026-05-01T07:59:59-07:00"
+
+
+@pytest.mark.parametrize("raw", ["2026-05-01 08:00:00", "2026/05/01 08:00:00", "2026:05:01T08:00:00",
+                                 "2026-05-01T08:00:00+02:00", "  2026:05:01 08:00:00  "])
+def test_non_exif_date_separators_still_read(raw):
+    """Writers that use '-', '/' or 'T' gave a time before the blank/zero check; they still do."""
+    assert decode.taken_at_from({0x9003: raw, 0x9011: "-07:00"}, {}) == "2026-05-01T08:00:00-07:00"
+
+
+def test_16_bit_greyscale_keeps_its_range(tmp_path):
+    """convert('RGB') on I;16 clips every value over 255 to white; the ramp must stay a ramp."""
+    import numpy as np
+
+    ramp = np.linspace(0, 65535, 4 * 256).reshape(4, 256).astype(np.uint16)
+    for ext in ("png", "tif"):
+        p = tmp_path / f"ramp.{ext}"
+        Image.fromarray(ramp).save(p)
+        with Image.open(p) as im:
+            assert im.mode.startswith("I")
+        px = np.asarray(decode.decode(str(p)).image)
+        assert px.min() == 0 and px.max() == 255 and (px == 255).mean() < 0.01, ext
+        assert abs(int(px[0, 128, 0]) - 32) <= 1, ext          # mid-row value scaled by 1/256, not clipped
+
+
+def test_32_bit_greyscale_with_8_bit_values_is_not_darkened(tmp_path):
+    import numpy as np
+
+    ramp = np.tile(np.arange(256, dtype=np.int32), (4, 1))
+    p = tmp_path / "ramp.tif"
+    Image.fromarray(ramp).save(p)
+    with Image.open(p) as im:
+        assert im.mode == "I"
+    px = np.asarray(decode.decode(str(p)).image)
+    assert px.min() == 0 and px.max() == 255 and int(px[0, 128, 0]) == 128
 
 
 def test_small_image_not_upscaled():

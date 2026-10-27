@@ -48,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="数据库、预览缓存、默认导出与日志所在目录（默认 $GARDENER_HOME，否则 ~/.gardener）")
     ap.add_argument("--host", default=HOST, help=f"只允许本机地址（默认 {HOST}）")
     ap.add_argument("--port", type=int, default=PORT, help=f"默认 {PORT}")
+    ap.add_argument("--lightroom-dir", type=Path, default=None,
+                    help="Lightroom 交接文件目录（插件读取；默认 ~/Library/Application Support/bioscan/lightroom）")
     ap.add_argument("--allow-root", action="append", default=[],
                     help="任务来源必须位于这些目录之内（可重复；默认不限制）")
     a = ap.parse_args(argv)
@@ -68,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from bioscan.gardener.api import create_gardener_app
 
-    app = create_gardener_app(data_dir, allow_roots=a.allow_root)
+    app = create_gardener_app(data_dir, allow_roots=a.allow_root, lightroom_dir=a.lightroom_dir)
     logging.getLogger("gardener").info("data_dir=%s url=http://%s:%d/", data_dir, a.host, a.port)
     uvicorn.run(app, host=a.host, port=a.port, workers=1)
     held.close()

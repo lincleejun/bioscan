@@ -104,6 +104,7 @@ class Quality(TypedDict):
 
 class Candidate(TypedDict):
     scientific: str
+    concept: str                 # stable id: avibase:<id> | mdd:<id>; name:<scientific> when the list has none
     common: str | None
     taxonomy: list[str]          # 7 ranks: kingdom phylum class order family genus species
     p_visual: float
@@ -112,7 +113,7 @@ class Candidate(TypedDict):
 
 
 class Species(TypedDict):
-    list: str                    # name list id: avilist-2025 | mdd-2025 | tol200m-animalia
+    list: str                    # name list id: avilist-2026 | mdd-2025 | tol200m-animalia
     level: Level
     taxon: str | None            # the name at `level`: the species, or the genus / family that rolled up; None unconfirmed
     top: list[Candidate]         # by posterior, highest first; a range-vetoed first may cede to a congener
@@ -144,9 +145,9 @@ def quality(sharpness: float, exposure: float) -> Quality:
 
 
 def candidate(scientific: str, common: str | None, taxonomy: list[str], p_visual: float, p_geo: float | None,
-              posterior: float) -> Candidate:
-    return {"scientific": scientific, "common": common, "taxonomy": taxonomy, "p_visual": p_visual, "p_geo": p_geo,
-            "posterior": posterior}
+              posterior: float, concept: str = "") -> Candidate:
+    return {"scientific": scientific, "concept": concept or f"name:{scientific}", "common": common,
+            "taxonomy": taxonomy, "p_visual": p_visual, "p_geo": p_geo, "posterior": posterior}
 
 
 def species(list_id: str, level: Level, taxon: str | None, top: list[Candidate]) -> Species:
@@ -191,6 +192,38 @@ def top_of(sp: dict[str, Any] | None) -> list[dict[str, Any]]:
     return (sp or {}).get("top") or []
 
 
+# taxonomy index of the name at each level
+LEVEL_RANK = {"species": 6, "genus": 5, "family": 4}
+
+
+def taxon(sp: dict[str, Any] | None) -> str | None:
+    """The taxon a box counts under: the service's `taxon` (the species, or the genus or family that rolled
+    up); None when unconfirmed. A preds file written before the service carried it: the first candidate's
+    name at the box's level."""
+    if sp and "taxon" in sp:
+        return sp["taxon"]
+    top, level = top_of(sp), level_of(sp)
+    if not top or level not in LEVEL_RANK:
+        return None
+    if level == "species":
+        return top[0]["scientific"]
+    tax = top[0].get("taxonomy") or []
+    return tax[LEVEL_RANK[level]] if len(tax) > LEVEL_RANK[level] else None
+
+
+def mass(sp: dict[str, Any] | None) -> float | None:
+    """The box's confidence in its taxon: the first candidate's posterior at species, the summed posterior of
+    the listed candidates inside the taxon at genus or family; None when unconfirmed."""
+    name, level = taxon(sp), level_of(sp)
+    if not name:
+        return None
+    top = top_of(sp)
+    if level == "species":
+        return top[0]["posterior"]
+    k = LEVEL_RANK[level]
+    return sum(c["posterior"] for c in top if len(c.get("taxonomy") or []) > k and c["taxonomy"][k] == name)
+
+
 def _problems(obj: Any, cls: Any, where: str) -> list[str]:
     if not isinstance(obj, dict):
         return [f"{where.rstrip('.') or 'identify'}: not an object"]
@@ -233,4 +266,5 @@ IDENTIFY_OUTPUT: dict[str, Any] = {
                "score": "float", "kind": "bird|mammal|other_animal",
                "quality": {"sharpness": "float", "exposure": "float, mean luma - 0.5"},
                "species": "null | {list, level: species|genus|family|unconfirmed, taxon: the name at level or null, "
-                          "top: [{scientific, common, taxonomy[7], p_visual, p_geo, posterior}]}"}]}
+                          "top: [{scientific, concept: avibase:id|mdd:id|name:scientific, common, taxonomy[7], p_visual, "
+                          "p_geo, posterior}]}"}]}

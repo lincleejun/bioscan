@@ -96,7 +96,7 @@ def test_a_task_over_part_of_a_folder_keeps_the_wider_tasks_versions_and_shows_i
             assert ids(c, task=b["id"]) == [cam] and ids(c, task=b["id"], versions="only") == []
             got = c.get(f"{API}/tasks/{b['id']}").json()
             assert got["counts"]["versions"] == 0 and got["review"]["total"] == 1
-            assert cam in members(c, b["id"], "all") and cam in members(c, b["id"], "species")
+            assert cam in members(c, b["id"], "all") and cam in members(c, b["id"], "scene")
             [item] = c.get(f"{API}/assets", params={"task": b["id"]}).json()["items"]   # analysed in B itself
             assert item["species"]["taxon"] == "Megascops asio" and item["ai"] and item["analysis"] == "done"
             assert ids(c, task=b["id"], species="Megascops") == [cam] and ids(c, task=b["id"], ai="pick") == [cam]

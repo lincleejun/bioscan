@@ -46,4 +46,4 @@ def test_products_come_from_the_plugin_manifests():
     from bioscan.plugins import BUILTIN
 
     assert contract.PRODUCTS == tuple(m.name for m in BUILTIN) == ("identify", "embed", "jpg", "geotag", "aesthetics",
-                                                                   "quality", "scene")
+                                                                   "quality", "scene", "facing")

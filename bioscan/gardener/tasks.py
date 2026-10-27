@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import query
+from bioscan.gardener import identities, query, review
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
@@ -36,7 +36,7 @@ MODEL_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages or c.local)
 BIOSCAN_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages)
 VIDEO_NA = "视频首版只做元数据、封面、播放与人工标记；图像分析不适用"
 # what a group kind needs switched on, any of them ((): always; "other" = videos and photos with no subject information)
-GROUP_NEEDS = {"species": ("species",), "person": ("people", "content"), "animal": ("content", "species"),
+GROUP_NEEDS = {"person": ("people", "content"), "animal": ("content", "species"),
                "scene": ("content",), "other": (), "place": ("place_event",)}
 SUBJECT_CAPS = ("content", "species", "people")
 PEOPLE_EVERY = 64            # regroup after this many people results
@@ -635,6 +635,8 @@ class RunExec:
     def record_result(self, r: Any) -> None:
         with self.store.tx() as c:
             record(c, r.asset_id, self.id, r.capability, r.status, r.data, r.error, r.version)
+            if r.capability == "raw:identify" and r.status == "done":
+                identities.ingest(c, r.asset_id, self.id, r.version, r.data)
             if r.capability in ("content", "species"):
                 ai_tags(c, r.asset_id, self.id, r.capability, r.data if r.status == "done" else None)
         self.save_counts()
@@ -649,6 +651,8 @@ class RunExec:
             rows = self.raw_rows()
             if caps and rows:
                 self.save_suggestions(self.analyzer.reduce(rows, caps))
+        with self.store.tx() as c:          # encounters (contract revision 5B): only unplaced photos join
+            review.assign_encounters(c, self.task_id)
         self.regroup(final=True)
 
     def raw_rows(self) -> list[dict[str, Any]]:
@@ -811,8 +815,8 @@ def content_changed(c: Any, asset_id: str, meta: dict[str, Any]) -> None:
     """Same path, new content (§10 X4): same asset id, Flag/Star cleared as an undoable system batch,
     previews and capabilities back to pending; the old results stay as history."""
     m = st.mark_row(c, asset_id)
-    if m["flag"] is not None or m["stars"]:
-        st.apply_marks(c, [asset_id], {"flag": None, "stars": 0}, actor="system", reason="content_changed")
+    if m["use"] is not None or m["stars"]:
+        st.apply_marks(c, [asset_id], {"use": None, "stars": 0}, actor="system", reason="content_changed")
     t = now()
     meta["content_changed_at"] = t
     c.execute("UPDATE assets SET preview_status = 'pending', preview_method = NULL, preview_error = NULL, "
@@ -968,7 +972,7 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
     latest: dict[tuple[str, str], Any] = {(r["asset_id"], r["capability"]): loads(r["data"]) for r in store.all(
         "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(x.id) FROM results x "
         "JOIN task_assets ta ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability IN "
-        "('content', 'species') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)", (task_id,))}
+        "('content') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)", (task_id,))}
     rows = store.all("SELECT a.id, a.taken_at, a.lat, a.lon, a.media, a.version_of FROM task_assets ta JOIN assets a "
                      "ON a.id = ta.asset_id WHERE ta.task_id = ? ORDER BY ta.ord", (task_id,))
     subject_caps = [c for c in SUBJECT_CAPS if c in enabled]
@@ -997,10 +1001,11 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
             own["taken_at"] = own["taken_at"] or v["taken_at"]
             if own["lat"] is None or own["lon"] is None:
                 own["lat"], own["lon"] = v["lat"], v["lon"]
-        ct, sp = latest.get((a["id"], "content")), latest.get((a["id"], "species"))
+        ct = latest.get((a["id"], "content"))
+        # Species never make task groups (contract revision 4, S6): the library's species cards, derived from
+        # identifications, are the species view, with no minimum size; a task groups animals by kind.
         assets.append(own | {"content": {"group": ct.get("group"), "label": ct.get("label")} if ct else None,
-                             "species": {"taxon": sp.get("taxon"), "common": sp.get("common"), "level": sp.get("level")}
-                             if sp and sp.get("taxon") else None,
+                             "species": None,
                              "people": people.get(a["id"]), "settled": a["id"] not in unsettled})
     if not assets:
         return 0

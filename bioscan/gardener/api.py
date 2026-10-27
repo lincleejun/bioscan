@@ -18,15 +18,17 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Body, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import people, query, tasks
+from bioscan.gardener import cleanup, detail, handoff, identities, imports, people, query, tasks, taxa
+from bioscan.gardener import review as rv
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
+from bioscan.naming import DATA_DIR
 
 log = logging.getLogger("bioscan.gardener")
 BUILTIN_DEFAULT = "photo"      # the default preset when the configured one is gone
@@ -35,6 +37,7 @@ WEB_DIR = Path(__file__).with_name("web")
 BODY = Body(...)
 OPT_BODY = Body(default={})
 LIMIT200, LIMIT100, OFFSET = Query(200, ge=1, le=1000), Query(100, ge=1, le=1000), Query(0, ge=0)
+PREVIEW_IDS = 200      # asset ids listed per side of a rule preview (the counts are always whole)
 ACTOR = Header("api", alias="X-Gardener-Actor")     # who wrote it: ui | cli | mcp | api (history rows)
 
 
@@ -59,22 +62,32 @@ def text(body: dict[str, Any], key: str, *, required: bool = False, default: str
 
 def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: tasks.Toolkit | None = None,
                         allow_roots: list[str] | None = None, start_worker: bool = True,
-                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS) -> FastAPI:
+                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS, name_lists: Path | None = DATA_DIR,
+                        lightroom_dir: Path | None = None, trash: Any = None) -> FastAPI:
     """`engine`: a BioScan Engine (tests pass one built on fake Loaders); None = created on first analysis.
     `toolkit`: unit 2's scanner/Analyzer functions (default: the real modules). `allow_roots`: task sources
-    must lie inside one of them (none = any directory)."""
+    must lie inside one of them (none = any directory). `name_lists`: the folder holding avilist/, mdd/ and
+    names/ the name index is built from (taxa.py); None = leave the index as it is. `lightroom_dir`: where handoff
+    files go for the Lightroom plugin (default handoff.default_dir()); `trash`: moves one file to the Trash
+    (default cleanup.trash; tests inject one)."""
     store = st.Store(data_dir)
+    if name_lists is not None:
+        taxa.sync(store, name_lists)
     tk = toolkit or tasks.Toolkit.default()
     holder = tasks.EngineHolder(engine)
     worker = tasks.Worker(store, tk, holder.get)
+    importer = imports.Runner(store, store.task_roots)        # 契约修订 5D: imports run beside the scan queue
     roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
+    details = detail.Details(store.cache_dir)       # contract revision 5C: original-pixel detail
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         job = asyncio.create_task(worker.run_forever()) if start_worker else None
+        await asyncio.to_thread(importer.start)
         try:
             yield
         finally:
+            await asyncio.to_thread(importer.close)
             worker.shutdown = True
             worker.wake()
             if job is not None:
@@ -82,10 +95,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                     await asyncio.wait_for(job, 60)
                 except (Exception, asyncio.CancelledError):  # noqa: BLE001 - shutting down never raises
                     log.exception("worker did not stop cleanly")
+            details.close()
             store.close()
 
     app = FastAPI(title="gardener", lifespan=lifespan)
     app.state.store, app.state.worker, app.state.toolkit, app.state.engine = store, worker, tk, holder
+    app.state.importer = importer
 
     @app.middleware("http")
     async def local_only(request: Request, call_next: Any) -> Any:
@@ -326,8 +341,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         for d, _, names in os.walk(store.cache_dir):
             for n in names:
                 p = os.path.join(d, n)
-                freed += os.path.getsize(p)
-                os.remove(p)
+                try:                  # a running preview may rename or drop its .part meanwhile
+                    size = os.path.getsize(p)
+                    os.remove(p)
+                except FileNotFoundError:
+                    continue
+                freed += size
                 removed += 1
         with store.tx() as c:
             c.execute("UPDATE assets SET preview_status = 'pending', preview_method = NULL, preview_error = NULL, "
@@ -420,9 +439,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             c.execute("INSERT OR IGNORE INTO asset_tags SELECT asset_id, ?, source, run_id, confidence, created_at "
                       "FROM asset_tags WHERE tag_id = ?", (into, tid))
             c.execute("DELETE FROM asset_tags WHERE tag_id = ?", (tid,))
-            c.execute("UPDATE tags SET parent_id = ? WHERE parent_id = ? AND id != ?", (into, tid, into))
-            if target["parent_id"] == tid:               # merging into a child: it takes the merged tag's place
+            below = {r[0] for r in c.execute(
+                "WITH RECURSIVE d(id) AS (SELECT id FROM tags WHERE parent_id = ? "
+                "UNION SELECT t.id FROM tags t JOIN d ON t.parent_id = d.id) SELECT id FROM d", (tid,))}
+            if into in below:          # merging into a descendant: it takes the merged tag's place first
                 c.execute("UPDATE tags SET parent_id = ? WHERE id = ?", (src["parent_id"], into))
+            c.execute("UPDATE tags SET parent_id = ? WHERE parent_id = ? AND id != ?", (into, tid, into))
             c.execute("UPDATE tags SET merged_into = ?, active = 0, updated_at = ? WHERE id = ?", (into, t, tid))
             tag_history(c, tid, "merge", {"into": into})
             tag_history(c, into, "merged_from", {"from": tid})
@@ -624,7 +646,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     @r.get("/assets/{aid}")
     def get_asset(aid: str) -> dict[str, Any]:
-        return store.asset_detail(aid)
+        return store.asset_detail(aid) | {"managed": imports.managed(store, aid)}
 
     def preview_file(aid: str, which: int) -> FileResponse:
         a = asset_or_404(aid)
@@ -654,6 +676,32 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         return FileResponse(a["primary_path"], media_type=mimetypes.guess_type(a["primary_path"])[0]
                             or "application/octet-stream")
 
+    # ---- contract revision 5C: original-pixel detail (detail.py) ----
+    @r.get("/assets/{aid}/detail")
+    def asset_detail_crop(aid: str, xyxy: str = "0,0,1,1",
+                          edge: int = Query(detail.DEFAULT_EDGE, ge=64, le=detail.MAX_EDGE, alias="max")) -> Response:
+        """A JPEG crop of the original pixels (the RAW of a RAW+JPEG pair) for `xyxy` (0-1 of the upright
+        image), long edge <= `max`; X-Detail-* headers say what it is. Off the request threads' work:
+        decoded on the detail pool, superseded by a newer request for the same asset, time-limited."""
+        box = detail.parse_xyxy(xyxy)
+        a = asset_or_404(aid)
+        if a["media"] != "photo":
+            raise Error("只有照片有原像素细节")
+        files = store.all("SELECT path, role FROM asset_files WHERE asset_id = ?", (aid,))
+        path = next((f["path"] for f in files if f["role"] == "raw" and os.path.isfile(f["path"])), a["primary_path"])
+        if not os.path.isfile(path):
+            raise NotFound("原片离线或已不存在：只有快速预览")
+        try:
+            got = details.get(aid, path, box, edge)
+        except detail.Superseded:
+            raise Conflict("已被同一素材更新的细节请求取代") from None
+        except TimeoutError:
+            raise st.Unavailable("原像素解码超时，可稍后重试（解码完成后会缓存）") from None
+        except Exception as exc:  # noqa: BLE001 - an unreadable original is a reason, not a crash
+            raise NotFound(f"无法读取原像素：{type(exc).__name__}: {exc}") from None
+        return Response(got.jpeg, media_type="image/jpeg", headers=got.headers())
+    # ---- end revision 5C ----
+
     @r.post("/assets/{aid}/reveal")
     def reveal(aid: str) -> dict[str, Any]:
         a = asset_or_404(aid)
@@ -677,6 +725,10 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def post_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         ids = strs(body.get("asset_ids"), "asset_ids")
         fields: dict[str, Any] = {}
+        if "use" in body:              # contract revision 5B: the four uses; `flag` is the older form
+            if body["use"] not in st.USES or "flag" in body:
+                raise Error("use must be record|edit|pending|reject (and not sent with flag)")
+            fields["use"] = None if body["use"] == "pending" else body["use"]
         if "flag" in body:             # omitted = unchanged, null = clear (§10 X5)
             if body["flag"] not in ("pick", "reject", None):
                 raise Error("flag must be pick|reject|null")
@@ -686,7 +738,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 raise Error("stars must be 0..5")
             fields["stars"] = body["stars"]
         if not ids or not fields:
-            raise Error("asset_ids and flag or stars are required")
+            raise Error("asset_ids and use, flag or stars are required")
         expect = body.get("expect")
         if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
             raise Error("expect must be {asset_id: version}")
@@ -697,6 +749,123 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     @r.post("/marks/undo")
     def undo_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         return store.undo(text(body, "batch_id", required=True), actor)
+
+    @r.post("/identifications")
+    def post_identifications(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """A person's species claim on subjects (contract revision 4, S3)."""
+        sids = strs(body.get("subject_ids") or [], "subject_ids")
+        new = body.get("new_subjects") or []
+        if not isinstance(new, list) or not all(
+                isinstance(n, dict) and isinstance(n.get("asset_id"), str) and isinstance(n.get("xyxy"), list)
+                and len(n["xyxy"]) == 4 and all(isinstance(v, (int, float)) for v in n["xyxy"])
+                and 0 <= n["xyxy"][0] < n["xyxy"][2] <= 1 and 0 <= n["xyxy"][1] < n["xyxy"][3] <= 1 for n in new):
+            raise Error("new_subjects must be [{asset_id, xyxy: [x0, y0, x1, y1] within 0..1}]")
+        if not sids and not new:
+            raise Error("subject_ids or new_subjects is required")
+        claim = body.get("claim")
+        if not isinstance(claim, dict):
+            raise Error("claim is required")
+        if not claim.get("accept"):
+            level = claim.get("level")
+            if level not in identities.LEVELS:
+                raise Error(f"claim.level must be one of {', '.join(identities.LEVELS)}, or claim.accept")
+            if level == "species" and not (isinstance(claim.get("concept"), str) and isinstance(claim.get("taxon"), str)):
+                raise Error("a species claim needs concept and taxon (the scientific name)")
+            if level in ("genus", "family") and not isinstance(claim.get("taxon"), str):
+                raise Error(f"a {level} claim needs taxon")
+            if level not in ("species", "genus", "family"):
+                claim = {"level": level, "concept": None, "taxon": None, "common": None}
+            elif level != "species":
+                claim = claim | {"concept": None, "common": None}
+        scope = body.get("scope", "subject")
+        if scope not in ("subject", "burst", "encounter"):
+            raise Error("scope must be subject|burst|encounter")
+        reason = body.get("reason")
+        with store.tx() as c:
+            for n in new:
+                if not c.execute("SELECT 1 FROM assets WHERE id = ?", (n["asset_id"],)).fetchone():
+                    raise NotFound(f"no asset {n['asset_id']}")
+            return identities.identify(c, sids, new, claim, scope=scope, actor=actor,
+                                       reason=reason if isinstance(reason, str) else None,
+                                       dry_run=bool(body.get("dry_run")))
+
+    @r.post("/identifications/undo")
+    def undo_identifications(body: dict[str, Any] = BODY) -> dict[str, Any]:
+        with store.tx() as c:
+            return identities.undo(c, text(body, "batch_id", required=True))
+
+    @r.get("/species")
+    def get_species(task: str | None = None, hidden: str = "0") -> dict[str, Any]:
+        """Species cards derived from identifications (contract revision 4, S4); task= narrows to one task."""
+        if task is not None:
+            task_or_404(task)
+        return identities.species(store.conn(), task, include_hidden=hidden == "1")
+
+    @r.get("/names")
+    def get_names(q: str = "", limit: int = LIMIT100) -> list[dict[str, Any]]:
+        """Taxa by any of their names (scientific, English, synonyms, replaced names, the person's Chinese)."""
+        return taxa.search(store.conn(), q, min(limit, 100))
+
+    @r.patch("/species/{concept}")
+    def patch_species(concept: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        kw: dict[str, Any] = {}
+        if "cover_asset_id" in body:
+            cover = body["cover_asset_id"]
+            if cover is not None and not store.one("SELECT 1 FROM current_ids WHERE asset_id = ? AND concept = ?",
+                                                   (cover, concept)):
+                raise Error("cover_asset_id must be a photo of this species (or null)")
+            kw["cover_asset_id"] = cover
+        if "hidden" in body:
+            if not isinstance(body["hidden"], bool):
+                raise Error("hidden must be true|false")
+            kw["hidden"] = body["hidden"]
+        if not kw:
+            raise Error("cover_asset_id or hidden is required")
+        with store.tx() as c:
+            identities.set_prefs(c, concept, **kw)
+            card = next((x for k in ("species", "to_confirm") for x in identities.species(c, include_hidden=True)[k]
+                         if x["concept"] == concept), None)
+            if card is None:                                  # raised inside: the prefs row rolls back
+                raise NotFound(f"no photo of {concept}")
+        return card
+
+    # ---- contract revision 5B: keep-best, encounters ----
+    @r.post("/marks/keep-best")
+    def keep_best(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """保留此张并淘汰相似帧: dry_run first shows the reach (rejected and skipped frames)."""
+        use = body.get("keep_use", "record")
+        if use not in ("record", "edit"):
+            raise Error("keep_use must be record|edit")
+        expect = body.get("expect")
+        if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
+            raise Error("expect must be {asset_id: version}")
+        with store.tx() as c:
+            return rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
+                                    dry_run=bool(body.get("dry_run")), expect=expect)
+
+    @r.get("/encounters")
+    def get_encounters(task: str | None = None, concept: str | None = None) -> dict[str, Any]:
+        if not task and not concept:
+            raise Error("task or concept is required")
+        if task:
+            task_or_404(task)
+        return rv.encounters(store.conn(), task_id=task, concept=concept)
+
+    @r.post("/encounters/{eid}/split", status_code=201)
+    def split_encounter(eid: str, body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """{at: asset_id} moves that photo and the later ones, {asset_ids} exactly those, to a new encounter."""
+        at = body.get("at")
+        ids = strs(body["asset_ids"], "asset_ids") if body.get("asset_ids") is not None else None
+        if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
+            raise Error("one of at (asset id) or asset_ids is required")
+        with store.tx() as c:
+            new = rv.split_encounter(c, eid, at=at, asset_ids=ids, actor=actor)
+        return {"id": new, "from": eid}
+
+    @r.post("/encounters/merge")
+    def merge_encounters(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        with store.tx() as c:
+            return {"id": rv.merge_encounters(c, strs(body.get("ids"), "ids"), actor=actor)}
 
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,
@@ -720,6 +889,18 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if query.cycle(store, rule, self_id):
             raise Error("规则引用的集合形成循环（或嵌套过深）")
         return rule
+
+    @r.post("/collections/{cid}/preview-rule")
+    def preview_rule(cid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        """Contract revision 5B (PRD AC13): what a changed rule would hold, against the current members."""
+        if col_or_404(cid)["kind"] != "smart":
+            raise Error("only a smart collection has a rule")
+        rule = check_rule(body.get("rule"), cid)
+        current, hits = store.ids_where({"collection": cid}), store.ids_where(rule)
+        now_set, hit_set = set(current), set(hits)
+        added, removed = [i for i in hits if i not in now_set], [i for i in current if i not in hit_set]
+        return {"total": len(hits), "current": len(current), "added_count": len(added), "removed_count": len(removed),
+                "added": added[:PREVIEW_IDS], "removed": removed[:PREVIEW_IDS]}
 
     @r.get("/collections")
     def get_collections(task: str | None = None, kind: str | None = None, deleted: str = "0") -> list[dict[str, Any]]:
@@ -944,7 +1125,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         batch = None
         with store.tx() as c:
             if picks and resolution == "clear_picks":
-                batch = st.apply_marks(c, picks, {"flag": None}, actor=actor, reason=f"zero:{cid}")["batch_id"]
+                batch = st.apply_marks(c, picks, {"use": None}, actor=actor, reason=f"zero:{cid}")["batch_id"]
             review(c, cid, "zero", ids, col["review"]["unhandled"], actor, resolution=resolution,
                    note=text(body, "note") or None)
         return store.collection(cid) | {"batch_id": batch}
@@ -1037,9 +1218,124 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         return [{"id": x["id"], "created_at": x["created_at"], "request": loads(x["request"]),
                  "report": loads(x["report"])} for x in store.all("SELECT * FROM exports ORDER BY created_at DESC")]
 
+    # ---- import (契约修订 5D, PRD §06 正式导入 / §09) ----
+    @r.post("/tasks/{tid}/import-plan", status_code=201)
+    def import_plan(tid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        task_or_404(tid)
+        place = text(body, "place").strip() or None
+        pending = body.get("include_pending", True)
+        if not isinstance(pending, bool):
+            raise Error("include_pending must be true or false")
+        pid = imports.build(store, tid, body.get("dest_root"), place, pending, store.task_roots())
+        return imports.plan_json(store, pid)
+
+    @r.get("/imports")
+    def get_imports(task: str | None = None) -> list[dict[str, Any]]:
+        return imports.plans(store, task)
+
+    @r.get("/imports/{pid}")
+    def get_import(pid: str) -> dict[str, Any]:
+        return imports.plan_json(store, pid)
+
+    @r.post("/imports/{pid}/run")
+    def run_import(pid: str) -> dict[str, Any]:
+        return imports.start(store, importer, pid, store.task_roots())
+
+    # ---- 契约修订 5E: Lightroom handoff and cleanup plans (handoff.py, cleanup.py) ----
+    lr_dir = Path(lightroom_dir) if lightroom_dir is not None else handoff.default_dir()
+    trash_fn = trash or cleanup.trash
+
+    def scope_of(body: dict[str, Any]) -> tuple[dict[str, Any], list[str], str]:
+        """(scope as recorded, asset ids, a name for it) from collection_id | concept | asset_ids | rule."""
+        if body.get("collection_id"):
+            col = store.collection(body["collection_id"])
+            return {"collection_id": col["id"]}, store.ids_where({"collection": col["id"]}), col["name"]
+        if body.get("concept"):
+            k = text(body, "concept", required=True)
+            ids = store.ids_where({"concept": k})
+            shown = taxa.display(store.conn(), [k]).get(k) or {}
+            row = store.one("SELECT taxon, common FROM current_ids WHERE concept = ? LIMIT 1", (k,)) or {}
+            return {"concept": k}, ids, shown.get("zh") or shown.get("common") or row.get("common") or row.get("taxon") or k
+        if body.get("asset_ids") is not None:
+            ids = strs(body["asset_ids"], "asset_ids")
+            check_assets(ids)
+            return {"asset_ids": ids}, ids, f"选中的 {len(ids)} 张"
+        if body.get("rule") is not None:
+            rule = check_rule(body["rule"])
+            return {"rule": rule}, store.ids_where(rule), "筛选结果"
+        return {}, [], ""
+
+    @r.post("/handoffs", status_code=201)
+    def post_handoff(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """Freeze a collection, species or selection for Lightroom and write its handoff file (PRD §12)."""
+        scope, ids, name = scope_of(body)
+        if not scope:
+            raise Error("one of collection_id, concept, asset_ids, rule is required")
+        uses = body.get("uses")
+        if uses is not None:
+            uses = tuple(strs(uses, "uses"))
+        elif "asset_ids" not in scope:
+            uses = handoff.HANDOFF_USES
+        name = text(body, "name") or name
+        with store.tx() as c:
+            hid = handoff.create(c, ids, name=name, scope=scope | {"uses": uses}, uses=uses, actor=actor,
+                                 lightroom_dir=lr_dir, lists_dir=name_lists)
+            return handoff.get(c, hid)
+
+    @r.get("/handoffs")
+    def get_handoffs(limit: int = LIMIT100) -> list[dict[str, Any]]:
+        with store.tx() as c:
+            ids = [x[0] for x in c.execute("SELECT id FROM handoffs ORDER BY created_at DESC LIMIT ?", (limit,))]
+            for hid in ids:
+                handoff.ingest(c, hid)
+            return [{k: v for k, v in handoff.get(c, hid).items() if k != "items"} for hid in ids]
+
+    @r.get("/handoffs/{hid}")
+    def get_handoff(hid: str) -> dict[str, Any]:
+        """The handoff with each photo's real result once the plugin wrote one (read back on request)."""
+        with store.tx() as c:
+            if c.execute("SELECT 1 FROM handoffs WHERE id = ?", (hid,)).fetchone():
+                handoff.ingest(c, hid)
+            return handoff.get(c, hid)
+
+    @r.post("/cleanup-plans", status_code=201)
+    def post_cleanup_plan(body: dict[str, Any] = OPT_BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """The rejected assets in a scope (default: the whole library) with every file and species impact."""
+        scope, ids, _ = scope_of(body)
+        if not scope:
+            ids = store.ids_where({"flag": "reject"})
+        with store.tx() as c:
+            return cleanup.get(c, cleanup.create(c, ids, scope=scope, actor=actor))
+
+    @r.get("/cleanup-plans")
+    def get_cleanup_plans(limit: int = LIMIT100) -> list[dict[str, Any]]:
+        rows = store.all("SELECT id FROM cleanup_plans ORDER BY created_at DESC LIMIT ?", (limit,))
+        return [{k: v for k, v in cleanup.get(store.conn(), x["id"]).items() if k != "items"} for x in rows]
+
+    @r.get("/cleanup-plans/{pid}")
+    def get_cleanup_plan(pid: str) -> dict[str, Any]:
+        return cleanup.get(store.conn(), pid)
+
+    @r.post("/cleanup-plans/{pid}/run")
+    def run_cleanup_plan(pid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        """Move the plan's files to the Trash after a person confirmed, re-checking every item first."""
+        if body.get("confirm") is not True:
+            raise Error("清理需要人确认：confirm 必须为 true")
+        report = cleanup.run(store, pid, trash_fn)
+        return cleanup.get(store.conn(), pid) | {"report": report}
+    # ---- end 契约修订 5E ----
+
     app.include_router(r)
     if (WEB_DIR / "index.html").exists():
         from fastapi.staticfiles import StaticFiles
+
+        @app.middleware("http")
+        async def revalidate_ui(request: Request, call_next: Any) -> Any:
+            """The UI files revalidate (ETag) on every load, so an upgraded service never runs a stale app.js."""
+            response = await call_next(request)
+            if not request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-cache"
+            return response
 
         app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
     return app
