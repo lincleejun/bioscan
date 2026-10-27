@@ -46,7 +46,7 @@ def test_handshake_list_and_errors(svc):
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
-                     "list_encounters", "edit_encounters", "preview_rule", "plan_import", "run_import", "get_import",
+                     "list_encounters", "edit_encounters", "split_burst", "preview_rule", "plan_import", "run_import", "get_import",
                      "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
@@ -191,3 +191,14 @@ def test_handoff_and_cleanup_tools_round_trip(svc):
     assert err and refused["status"] == 400
     done, err = tool(url, "run_cleanup_plan", id=plan["id"], confirm=True)
     assert not err and done["report"]["freed_bytes"] == 0 and done["report"]["recoverable"] is True
+
+
+def test_revision_7a_tools_route_to_burst_split_and_encounter_undo(svc):
+    from bioscan.gardener.mcp import route
+
+    assert route("split_burst", {"at": "a_2"}) == ("POST", "/bursts/split", {"at": "a_2"}, None)
+    assert route("edit_encounters", {"action": "undo", "batch_id": "b_1"}) == \
+        ("POST", "/encounters/undo", {"batch_id": "b_1"}, None)
+    url, _ = svc
+    r, err = tool(url, "split_burst", asset_ids=["a_0007"])
+    assert not err and r["moved"] == ["a_0007"]

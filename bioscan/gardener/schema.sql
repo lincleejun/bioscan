@@ -309,3 +309,18 @@ CREATE TABLE IF NOT EXISTS cleanup_files (
   result TEXT,                   -- NULL | trashed | failed | skipped
   reason TEXT, at TEXT, PRIMARY KEY (plan_id, path)
 );
+
+-- ---- 契约修订 7A: a person's burst split, undoable encounter split/merge (review.py) ----
+-- A frame a person split off its burst: on every later run the reducer's burst for it is replaced by this id, so
+-- the split survives rescans (the reducer re-derives ai_suggestions.burst_id each run). Only moved frames have rows.
+CREATE TABLE IF NOT EXISTS burst_overrides (
+  task_id TEXT NOT NULL REFERENCES tasks(id), asset_id TEXT NOT NULL REFERENCES assets(id),
+  burst_id TEXT NOT NULL,        -- <task>:<machine burst>~<part>
+  actor TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (task_id, asset_id)
+);
+-- One encounter split or merge, so it can be undone as one batch: detail = the moves and the state right after.
+CREATE TABLE IF NOT EXISTS encounter_history (
+  batch_id TEXT PRIMARY KEY, action TEXT NOT NULL,   -- split | merge
+  detail TEXT NOT NULL,          -- JSON {moves: [[asset_id, from, to, source]], created?, merged?, after: {eid: members}}
+  actor TEXT NOT NULL, at TEXT NOT NULL, undone INTEGER NOT NULL DEFAULT 0
+);

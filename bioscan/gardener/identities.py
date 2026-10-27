@@ -328,6 +328,7 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
         if r["source"] == "user":
             k["confirmed"].add(r["asset_id"])
         k["seen"][r["asset_id"]] = (r["taken_at"], r["stars"])
+    encs = _species_encounters(c, rule, scope, task_id)          # 契约修订 7A
     out: dict[str, list[dict[str, Any]]] = {"species": [], "to_confirm": []}
     for concept, k in cards.items():
         pref = prefs.get(concept)
@@ -343,7 +344,7 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
                 "photos": len(k["seen"]), "only_one": len(k["seen"]) == 1,
                 "first_taken_at": times[0] if times else None, "last_taken_at": times[-1] if times else None,
                 "cover_id": pref["cover_asset_id"] if pinned else best, "cover_pinned": pinned,
-                "hidden": bool(pref is not None and pref["hidden"])}
+                "hidden": bool(pref is not None and pref["hidden"]), "encounters": encs.get(concept, 0)}
         out["species" if k["confirmed"] else "to_confirm"].append(card)
     from bioscan.gardener import taxa
 
@@ -355,6 +356,16 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
         v.sort(key=lambda x: (x["last_taken_at"] or "", x["concept"]), reverse=True)
     return out | {"confirmed_total": len(out["species"]), "to_reconfirm": len(reconfirm),
                   "unresolved": {k: len(v) for k, v in unresolved.items()}}
+
+
+def _species_encounters(c: Any, rule: str, scope: str, task_id: str | None) -> dict[str, int]:
+    """concept -> how many encounters hold a photo of it (契约修订 7A): the same photos the cards count, and with
+    `task_id` only that task's encounters. Library-wide, a photo in two tasks counts once per task's encounter."""
+    em = "AND em.task_id = ?" if task_id else ""
+    return {r[0]: r[1] for r in c.execute(
+        "SELECT ci.concept, count(DISTINCT em.encounter_id) FROM current_ids ci JOIN assets a ON a.id = ci.asset_id "
+        f"JOIN encounter_members em ON em.asset_id = a.id WHERE {rule} {scope} {GONE} {em} AND ci.level = 'species' "
+        "AND ci.concept IS NOT NULL GROUP BY ci.concept", [task_id] * 3 if task_id else [])}
 
 
 def set_prefs(c: Any, concept: str, *, cover_asset_id: Any = ..., hidden: bool | None = None) -> None:

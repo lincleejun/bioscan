@@ -241,3 +241,15 @@ def test_handoff_and_cleanup_commands(svc, capsys):
     plan = run_json(capsys, url, "cleanup", "plan")
     code, out, _ = run(capsys, url, "cleanup", "run", plan["id"], "--yes")
     assert code == 0 and "可恢复，未释放空间" in out and "清空废纸篓后才真正释放" in out
+
+
+def test_revision_7a_commands_split_bursts_undo_encounters_and_show_other_collections(svc, capsys):
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("burst", "split", "--at", "a_2") == ("POST", "/bursts/split", {"at": "a_2"}, None)
+    assert req("burst", "split", "--assets", "a_2", "a_3")[2] == {"asset_ids": ["a_2", "a_3"]}
+    assert req("encounter", "undo", "b_1") == ("POST", "/encounters/undo", {"batch_id": "b_1"}, None)
+    url, _ = svc
+    assert cli.main(["--url", url, "keep-best", "a_0006", "--dry-run"]) == 0
+    assert "也在集合" in capsys.readouterr().out
