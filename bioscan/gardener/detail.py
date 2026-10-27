@@ -5,8 +5,13 @@ judge focus beyond the 1600 px preview. Only reads originals; anything written g
 so `POST /storage/clear-cache` and `GET /storage` cover it.
 
 - RAW: a full LibRaw demosaic. LibRaw turns it upright by `sizes.flip` itself, the same as BioScan's
-  decode, so the subject boxes line up. The result is kept as an uncompressed .npy (memory-mapped:
-  every later crop of that photo takes milliseconds), capped at DETAIL_CACHE_BYTES, oldest first.
+  decode. LibRaw returns the whole active area (a Sony A1: 8660x5784); the camera's own JPEG, which the
+  preview shows, is the DNG default crop of it (8640x5760 from 12,12). The decode is cut to that crop
+  (DefaultCropOrigin/Size via exiftool; none without them), so a region of the preview is the same region
+  of the RAW. What remains is the in-camera lens distortion correction of that JPEG, which LibRaw does
+  not apply: 0 at the centre, tens of pixels at the edges of a wide-angle frame (contract revision 7D).
+  The result is kept as an uncompressed .npy (memory-mapped: every later crop of that photo takes
+  milliseconds), capped at DETAIL_CACHE_BYTES, oldest first.
 - JPEG / PNG / TIFF: Pillow, upright by EXIF orientation, decoded on each request (no copy needed:
   the file already is the original pixels).
 
@@ -18,8 +23,11 @@ from __future__ import annotations
 
 import io
 import itertools
+import json
 import math
 import os
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -92,13 +100,54 @@ def _encode(region: Image.Image, edge: int) -> tuple[bytes, tuple[int, int]]:
     return buf.getvalue(), region.size
 
 
+def camera_crop(path: str) -> tuple[int, int, int, int] | None:
+    """The camera's default crop of the sensor frame (DefaultCropOrigin x y, DefaultCropSize w h), None without
+    exiftool or the tags."""
+    exiftool = shutil.which("exiftool")
+    if exiftool is None:
+        return None
+    try:
+        p = subprocess.run([exiftool, "-json", "-n", "-q", "-DefaultCropOrigin", "-DefaultCropSize", "--", path],
+                           capture_output=True, timeout=30)
+        r = (json.loads(p.stdout or b"[]") or [{}])[0]
+        x, y = (round(float(v)) for v in str(r["DefaultCropOrigin"]).split()[:2])
+        w, h = (round(float(v)) for v in str(r["DefaultCropSize"]).split()[:2])
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
+        return None
+    return x, y, w, h
+
+
+def upright_crop(crop: tuple[int, int, int, int] | None, w: int, h: int, flip: int) -> tuple[int, int, int, int] | None:
+    """A crop (x, y, cw, ch) of the w x h sensor frame as a box (x0, y0, x1, y1) of the frame LibRaw turned
+    upright by `flip`; None when there is nothing to cut."""
+    if crop is None:
+        return None
+    x, y, cw, ch = crop
+    x, y = max(0, x), max(0, y)
+    cw, ch = min(cw, w - x), min(ch, h - y)
+    if cw <= 0 or ch <= 0 or (cw, ch) == (w, h):
+        return None
+    if flip == 3:                          # 180: (sx, sy) -> (w-1-sx, h-1-sy)
+        x, y = w - x - cw, h - y - ch
+    elif flip == 5:                        # orientation 8: (sx, sy) -> (sy, w-1-sx)
+        x, y, cw, ch = y, w - x - cw, ch, cw
+    elif flip == 6:                        # orientation 6: (sx, sy) -> (h-1-sy, sx)
+        x, y, cw, ch = h - y - ch, x, ch, cw
+    return x, y, x + cw, y + ch
+
+
 def _decode_raw(path: str) -> tuple[np.ndarray, int]:
-    """Full demosaic, upright (LibRaw applies sizes.flip), and the orientation that was applied."""
+    """Full demosaic, upright (LibRaw applies sizes.flip), cut to the camera's default crop, and the
+    orientation that was applied."""
     import rawpy
 
     with rawpy.imread(path) as raw:
-        orientation = FLIP_TO_ORIENTATION.get(raw.sizes.flip, 1)
-        return raw.postprocess(use_camera_wb=True, output_bps=8), orientation
+        flip, w, h = raw.sizes.flip, raw.sizes.width, raw.sizes.height
+        pixels = raw.postprocess(use_camera_wb=True, output_bps=8)
+    box = upright_crop(camera_crop(path), w, h, flip)
+    if box is not None:
+        pixels = pixels[box[1]:box[3], box[0]:box[2]]
+    return pixels, FLIP_TO_ORIENTATION.get(flip, 1)
 
 
 class Details:
@@ -126,24 +175,40 @@ class Details:
             fut.cancel()        # still queued: never runs; already decoding: finishes and fills the cache
             raise
 
-    def _run(self, asset_id: str, token: int, path: str, xyxy: tuple[float, float, float, float],
-             edge: int) -> Detail:
-        if self._latest.get(asset_id) != token:
-            raise Superseded(asset_id)
-        t0 = time.perf_counter()
+    def region(self, asset_id: str, path: str, xyxy: tuple[float, float, float, float],
+               timeout: float | None = None) -> tuple[Image.Image, str]:
+        """The original pixels of `xyxy` and the file read (raw | image), on the same pool and RAW cache as
+        get() but never superseded by, nor superseding, the viewer's requests (contract revision 7C)."""
+        fut = self.pool.submit(self._region, asset_id, path, xyxy)
+        try:
+            region, file, *_ = fut.result(timeout=DETAIL_TIMEOUT_S if timeout is None else timeout)
+        except TimeoutError:
+            fut.cancel()
+            raise
+        return region, file
+
+    def _region(self, asset_id: str, path: str, xyxy: tuple[float, float, float, float]
+                ) -> tuple[Image.Image, str, str, int, tuple[int, int], tuple[int, int, int, int], str]:
+        """(region, file, decoder, orientation, upright size, pixel box, cache)."""
         if is_raw(path):
             pixels, orientation, cache = self._raw_pixels(asset_id, path)
             h, w = pixels.shape[:2]
             box = pixel_box(xyxy, w, h)
             region = Image.fromarray(np.ascontiguousarray(pixels[box[1]:box[3], box[0]:box[2]]))
-            file, decoder = "raw", "libraw-full"
-        else:
-            with Image.open(path) as im:
-                orientation = int(im.getexif().get(0x0112, 1) or 1)
-                upright = ImageOps.exif_transpose(im)
-            w, h = upright.size
-            box = pixel_box(xyxy, w, h)
-            region, file, decoder, cache = upright.crop(box), "image", "pillow", "none"
+            return region, "raw", "libraw-full", orientation, (w, h), box, cache
+        with Image.open(path) as im:
+            orientation = int(im.getexif().get(0x0112, 1) or 1)
+            upright = ImageOps.exif_transpose(im)
+        w, h = upright.size
+        box = pixel_box(xyxy, w, h)
+        return upright.crop(box), "image", "pillow", orientation, (w, h), box, "none"
+
+    def _run(self, asset_id: str, token: int, path: str, xyxy: tuple[float, float, float, float],
+             edge: int) -> Detail:
+        if self._latest.get(asset_id) != token:
+            raise Superseded(asset_id)
+        t0 = time.perf_counter()
+        region, file, decoder, orientation, (w, h), box, cache = self._region(asset_id, path, xyxy)
         jpeg, out = _encode(region, edge)
         return Detail(jpeg, file, decoder, orientation, (w, h), box, out, cache,
                       round((time.perf_counter() - t0) * 1000))
@@ -153,7 +218,7 @@ class Details:
         decoded now and stored. One decode per asset at a time: a second request waits and hits."""
         st = os.stat(path)
         d = self.dir / asset_id[2:4]
-        stem = f"{asset_id}.{st.st_size:x}-{st.st_mtime_ns:x}"
+        stem = f"{asset_id}.{st.st_size:x}-{st.st_mtime_ns:x}.c"     # .c: cut to the camera crop (older: re-decode)
         with self._lock:
             asset_lock = self._asset_locks[asset_id]
         with asset_lock:

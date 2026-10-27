@@ -320,7 +320,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - **拆分表** `data/names/avilist_splits.csv`（`scripts/build_splits.py` 由 AviList 变更页生成，见 `data/README.md`）：每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。
   - **何时生效**：名字索引同步（`taxa.sync`，服务启动时）时，对还没处理过的名录版本，若索引里已有它的全部子种（即已加载该版本名单）就处理一次；已处理的版本及其撤销批次记在 `meta.splits_applied`（`{版本: batch_id|null}`），之后不再重复。
   - **怎么改**：当前结论是人工（`source=user`）种级、概念为某个亲本的主体，追加一条 `source=user, actor=system, reason=split:<版本>` 的识别：`level=species`、`qualifier=slash`、`concept` 为空、`taxon/common` 保留原来记的名字、`candidates` 为各子种 `[{concept, scientific, common, p: null}]`。同一版本一个 `batch_id`，可用 `POST /identifications/undo` 整批撤销。AI 结论不动（不计入已拍到的种数）。
-  - **不自动选定**：按坐标判定子种需要 BioScan 引擎里的 BirdNET 位置先验（`bioscan/service/geo.py`，要加载模型），名字索引同步时拿不到，所以全部留给人选，不做近似判断。
+  - **不在名字同步时选定**：按坐标判定子种需要 BioScan 引擎里的 BirdNET 位置先验（`bioscan/service/adapters/geo.py`，要加载模型），名字索引同步时拿不到。引擎可用时（一次运行的分析之后）按位置自动选定，见契约修订 7D。
   - **效果**：
     - 这些主体不计入任何物种卡片，也不计入“已拍到 N 种”；`GET /species` 增加 `to_reconfirm`（这样的照片数）。
     - `GET /assets` 的 `id_state` 增加 `reconfirm`；`confirmed` 只算有概念的人工结论。视图 `current_ids` 增加 `qualifier` 列。
@@ -336,6 +336,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 人工结论不受影响（当前结论仍是人的）；少于 `FLOCK_MIN` 个的照片照常逐只命名。重跑与 schema 1 回填都经过同一规则。
   - 界面在该主体下显示“鸟群：不逐只命名”（哺乳为“兽群”，其他为“成群”）。
   - 照片级的 `species` 能力结果（`AssetItem.species` 在没有种级主体结论时的退路）不在本规则内。
+  - 真实照片上的测量与保留 5 的理由见契约修订 7D。
 - **后续切片**：S7 第二部分（拆分），见 #106。
   - 问题：拆分后原概念 ID 可能留给其中一个子种（如 Willet → Saltmarsh Willet 保留 avibase-6D372C9F，Prairie Willet 为新 ID），旧的人工确认会被静默算成那个子种。
   - 计划：
@@ -387,12 +388,12 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - MCP：`set_marks` 增加 `use`；新工具 `keep_best`、`undo_marks`、`list_encounters`、`edit_encounters`、`preview_rule`；`identify_species` 的 `scope` 可为 `encounter`。
 ## 契约修订 5C：快速比较 RAW、原像素细节（2026-10-26，AfterShooting PRD §08 第三级、§14、AC06；优先于上文冲突处）
 
-依据：PRD 要求“切换优先显示嵌入预览，再异步加载细节”，并明确标记“快速预览 / 原像素细节加载中 / 原像素细节可用”，不能把 1600 px 预览的放大称为真实 RAW 100%。**RAW 部分未在真实 RAW 文件上验证**（开发机上没有 RAW，测试用假 rawpy）。
+依据：PRD 要求“切换优先显示嵌入预览，再异步加载细节”，并明确标记“快速预览 / 原像素细节加载中 / 原像素细节可用”，不能把 1600 px 预览的放大称为真实 RAW 100%。RAW 部分 2026-10-27 已在两张真实 Sony A1 ARW 上测过（契约修订 7D）；单元测试仍用假 rawpy。
 
 - **`GET /assets/{id}/detail?xyxy=x0,y0,x1,y1&max=2048`**（`detail.py`）：
   - 返回原像素裁切的 JPEG（q92）。`xyxy` 是**直立画面**的 0–1 比例（与 `subjects.xyxy`、预览同一坐标），缺省整幅；`max` 是返回图长边上限（64–4096），只缩小、不放大。
   - 读哪个文件：素材有在线的 RAW（RAW+JPEG 对里的 RAW）就读 RAW，否则读 primary。
-  - RAW：LibRaw 全尺寸解码（`postprocess(use_camera_wb=True, output_bps=8)`，不用 half_size），由 LibRaw 按 `sizes.flip` 转正，与 BioScan 识别用的解码同一方向，主体框对得上。JPEG/PNG/TIFF：Pillow 按 EXIF 方向转正后裁切。
+  - RAW：LibRaw 全尺寸解码（`postprocess(use_camera_wb=True, output_bps=8)`，不用 half_size），由 LibRaw 按 `sizes.flip` 转正，与 BioScan 识别用的解码同一方向；再裁到相机的默认裁切（`DefaultCropOrigin/Size`，exiftool 读取；没有这两项则不裁），与相机 JPEG、预览同一画幅（契约修订 7D）。JPEG/PNG/TIFF：Pillow 按 EXIF 方向转正后裁切。
   - 响应头说明它是什么：`X-Detail-Source: original`、`X-Detail-File: raw|image`、`X-Detail-Decoder: libraw-full|pillow`、`X-Detail-Orientation`（已转正的 EXIF 方向）、`X-Detail-Full: W×H`（原图直立尺寸）、`X-Detail-Crop: x0,y0,x1,y1`（原像素框）、`X-Detail-Size`、`X-Detail-Scale`（返回像素 / 原像素，1 = 未缩小）、`X-Detail-Cache: hit|miss|none`、`X-Detail-Ms`。
   - 错误：`xyxy`/`max` 不合法 400；视频 400；原片离线 404（“只有快速预览”）；解码失败 404 并附原因；被取代 409；超时 503。
 - **不阻塞**：解码在独立的 2 线程池里跑；等待中的细节请求只占一个请求线程（UI 每个视图同时最多一个），网格与标记不排在解码后面（`test_marks_do_not_wait_for_a_decode`）。若以后需要，可改为 async 路由 + `asyncio.wait_for(wrap_future)`，等待时不占线程；rawpy 0.27 在 `unpack`/`dcraw_process` 期间释放 GIL（已查其 `_rawpy.pyx`）。同一素材有更新的请求时，仍在排队的旧请求直接返回 409；等待上限 90 s，超时时还在排队的请求被取消，已经开始的解码继续完成并写入缓存，重试即命中。UI 换图、缩放、平移或点“取消”都会中止上一个请求。
@@ -405,8 +406,10 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **测量**（`scripts/gardener_detail_bench.py`，进程内 HTTP，不含网络与浏览器解码；2026-10-26，macOS 26.6.2 arm64，16 核，合成 6000×4000 JPEG 12 张，热缓存）：
   - 预览切换（large）中位 1.0 ms，P95 1.1 ms，达到 PRD §14 的 P95 ≤ 150 ms（只是服务端部分）。
   - JPEG 细节，20 % 区域：中位 69 ms，P95 74 ms（每次完整解码原图）。整幅缩到 2048 px：中位 168 ms，P95 176 ms。
+  - RAW（2026-10-27，同一台机器，Apple M4 Max，64 GB；两张 Sony A1 ARW，8640×5760，107/111 MB，刚复制过、在系统页缓存里，不是冷盘读取）：第一次请求（LibRaw 全尺寸解码约 0.9–1.1 s + exiftool + 写 150 MB 的 .npy）1.2–1.9 s；之后同一张的 20 % 区域中位 12 ms，P95 21 ms；整幅缩到 2048 px 中位 134 ms，P95 152 ms；缩到 4096 px 340–391 ms。预览切换中位 1.6 ms，P95 2.1 ms。
+- **未做**：四图以上比较（PRD 允许后置）；眼部裁切建议（没有眼部检测）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与相机 JPEG 的对齐：常量偏移已由默认裁切消除，剩下相机 JPEG 的机内畸变校正（LibRaw 不做），中心 0 px、画面边缘最多约 45 px（见 7D）。
   - RAW 解码耗时**未测**：用 `--photos <真实目录>` 在 owner 的 Mac 上补测。
-- **未做**：四图以上比较（PRD 允许后置）；眼部裁切建议（没有眼部检测）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与同拍 JPEG 若尺寸略有不同，比例坐标会有几个像素的偏差（未在真实文件上核对）。
+- **未做**：四图以上比较（PRD 允许后置；四图比较与头部 / 眼部建议见修订 7C）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与同拍 JPEG 若尺寸略有不同，比例坐标会有几个像素的偏差（未在真实文件上核对）。
 ## 契约修订 5D：正式导入（2026-10-26，AfterShooting PRD v1 §06“正式导入”、§09、AC10、AC11；优先于上文冲突处）
 
 依据：PRD §06 要求 Review 后先生成导入计划、再复制并核对，§09 要求完成页能核对目标、待定、重复、容量与失败项后再“导入 N 张”。
@@ -496,7 +499,14 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   `lightroom_handoff`、`get_handoff`、`cleanup_plan`、`get_cleanup_plan`、`run_cleanup_plan`（`confirm` 必填）。
 - **未验证**：Lightroom 中的一切行为（插件在 Lightroom Classic 里实际运行之前均未验证）：`findPhotoByUuid`、
   `getRawMetadata("keywords"|"uuid")`、`removeKeyword`、`createKeyword` 的同义词（已存在的关键词保持原同义词）、
-  `setRawMetadata("rating", nil)`、`LrFileUtils.files` 轮询、插件中的 `io.open` 写结果文件。真实磁盘上的废纸篓只在本机
+  `setRawMetadata("rating", nil)`、`LrFileUtils.files` 轮询、插件中的 `io.open` 写结果文件。真实废纸篓：本机临时文件，以及
+  一个 exFAT 磁盘映像上的真实清理（文件进入该卷的 `.Trashes/<uid>`，可恢复，见契约修订 7D）；网络卷未验证。
+- **在 Lightroom Classic 14.2 里实测（2026-10-27，新建的测试目录，4 张照片含一张 Sony A1 ARW）**：
+  - 轮询器自动处理交接文件、按路径就地导入、在 `Gardener` 集合组下建集合、写星级、写 `Aves|目|科|种` 层级关键词及英文名同义词、写结果文件：4/4 成功。
+  - 同一批再交接：不重复导入，只有星级变了的那张写入，其余 `same`。
+  - 在 Lightroom 里手动改过星级的照片再交接：星级字段跳过并报告 `conflicts: ["stars"]`，Lightroom 的值保留。
+  - 实测发现并修复：dkjson 默认给解析出的数组挂元表，SDK 对 `createKeyword` 的同义词报 `Assertion failed: packed`；插件的 `json.decode` 现在都显式不挂元表（测试 `test_the_plugin_decodes_json_into_plain_tables`）。
+- **仍未验证**：`findPhotoByUuid`（路径不变时用不到）、`removeKeyword`（物种更正）、`setRawMetadata("rating", nil)`（清除星级）、已存在关键词的同义词。真实磁盘上的废纸篓只在本机
   临时文件上试过 `/usr/bin/trash`；外置盘与网络卷未验证。
 - **未做**：被移走照片的物种卡片计数排除（PRD §11）；交接失败项的单独重试（修订 7B 已做）；预设与导出（P1；修订 7B 已做，Lightroom 内未验证）。
 
@@ -546,3 +556,69 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **CLI / MCP**：`gardener handoff create … --preset UUID [--preset-name] [--export-preset PATH --export-dir DIR --overwrite rename|skip|overwrite] [--no-remember]`、`gardener handoff preview`、`gardener handoff presets`；MCP `lightroom_handoff` 的 `develop`、`export`、`remember`，`preview_handoff`、`lightroom_presets`。
 - **未验证**（插件在 Lightroom Classic 里实际运行之前）：SDK 6.0 参考里有的 `developPresetByUuid`、`developPresetFolders`、`getDevelopPresets`、`applyDevelopPreset`、`getDevelopSettings`（文档标为实验性）、`LrExportSession`、`doExportOnCurrentTask`、`waitForRender` 的实际行为；写入门结束后立即读到的显影设置是否已含预设；插件环境里的 `loadstring` / `setfenv` 读 `.lrtemplate`；`LR_export_destinationType`、`LR_export_destinationPathPrefix`、`LR_export_useSubfolder`、`LR_collisionHandling` 的取值（尤其 `skip`）；导出预设的目录位置。
 - **未做**：按单张照片选不同预设；Smart Collection 的“是否已修图”条件（`progress` 已可查，规则字段未加）；导出模板以外的导出参数编辑；双向同步与逐字段合并（FR13 其余部分）。
+## 契约修订 7D：真实设备上的核对——RAW 细节、exFAT 外置盘、鸟群、拆分按位置选定（2026-10-27，#110；优先于上文冲突处）
+
+依据：#110 的后续项要求在 owner 的 Mac 上用真实文件核对 5C、5D、5E 与修订 4 的鸟群规则，并补上 S7 第二部分留下的“按位置选定子种”。机器：macOS 26.6.2 arm64，Apple M4 Max，16 核，64 GB；真实模型（MPS）。
+
+- **RAW 细节（5C）**：两张 Sony A1（ILCE-1，FE 16-35mm F2.8 GM）ARW，`_DSC1725`（方向 1，16 mm）与 `_DSC2286`（方向 8，24 mm）。
+  - 方向：`_DSC2286` 的 `X-Detail-Orientation: 8`、`X-Detail-Full: 5760x8640`，`/large` 为 1067×1600 竖图；与素材的 `width/height` 一致。
+  - 画幅：LibRaw 给出整个有效区 8660×5784，相机 JPEG（`JpgFromRaw`，即预览的来源）是 DNG 默认裁切 8640×5760、起点 (12,12)。修订前细节因此比预览偏 12 px（竖图转正后为 12/8 px）。这里 LibRaw 的边距为 0，裁切起点按 LibRaw 画幅解释；只在 Sony A1 上核对过，其他机身（LibRaw 报出非零边距时）未验证。**已修复**：`detail.camera_crop` 用 exiftool 读 `DefaultCropOrigin/Size`，`detail.upright_crop` 按 `sizes.flip` 映射到转正后的画面再裁；旧的未裁缓存文件名不同，会重新解码。
+  - 对齐（5×5 个 384 px 区块，高通后的对数亮度做归一化互相关，±60 px 搜索）：裁切后中心区块 0,0（`_DSC2286`，相关峰 0.88）与 +2,+1（`_DSC1725`，夜景、纹理少）。其余是相机 JPEG 的机内畸变校正（`DistortionCorrection: 1`，LibRaw 不做）：24 mm 的那张在 10 %/90 % 处最多 ±27 px（横）、±37 px（纵），16 mm 的那张最多 ±45 px，约为长边的 0.5 %。没有相机的校正模型就不能消除，所以 UI 叠放的原像素细节在画面边缘会与预览错开这么多。
+  - 嵌入的 `PreviewImage`（exiftool `-b -PreviewImage`）是 1616×1080 的屏幕缩略图，宽高比 1.496，竖图也按横图存储且没有方向标记；预览不用它，不参与对齐。
+  - 耗时写在 5C“测量”。
+  - 未改：BioScan 识别的解码（`bioscan/service/decode.py`，half_size 的 LibRaw 画幅）仍是未裁的 8660×5784，主体框与预览、细节最多差 12 px（长边的 0.14 %）。改它会移动识别几何，须先跑 `bioscan bench compare`。
+- **exFAT 外置盘（5D、5E）**：`hdiutil create -size 2g -fs ExFAT -volname GTEST`，挂在 `/Volumes/GTEST`（macOS 的 fskit exFAT）；实际服务（端口 8782，数据目录在临时目录）。
+  - 导入：19 个文件 858 MB（8 个 ARW 变体、10 个 JPEG、1 个 xmp）。在已完成 11 个文件时 `kill -9` 服务，重启后 `interruptions` = 1，已完成的 12 个文件 inode 与修改时间不变（没有重复复制），崩溃留下的 `.gardener-part`（连同其 `._` AppleDouble 文件）被清理，19/19 完成，sha256 全部与来源及记录一致。exFAT 没有硬链接，`_copy` 改走 O_EXCL 复制发布，正常。exFAT 的修改时间精度是 10 ms，副本的 `mtime_ns` 与来源不同（如 …250000000 对 …255051479），不影响：`reuse` 比的是来源的修改时间，同一来源再生成计划得到 `reuse` 19、复制 0。macOS 在每个副本旁写 `._*`（`com.apple.provenance`）；扫描跳过点文件，sidecar 与清理也不收它们。
+  - 离线：`hdiutil detach -force` 会等写入中的文件完成才卸下（在完成 2 个时执行，6/6 仍完成、校验一致），不算中途断开。`diskutil unmount force` 在完成 1 个时执行：计划 `partial`，3 完成、5 失败，导入线程仍在；失败原因原来是临时文件的 `FileNotFoundError` 或 `Errno 5`，**已改为**“目标目录不可用（磁盘已断开？）：<目录>；重新连接后再执行一次即可继续”（`imports.Runner.execute`：失败时计划目录已不存在）。重新挂载后再执行：全部完成，sha256 一致，断开时留下的 15 MB 临时文件被清理。断开时没有出现“发布到一半的目标文件”（5D 未做项），仍未在真实卷上见到。
+  - 清理：卷上的 4 张淘汰（3 张 JPEG、1 个 ARW 及其 xmp），真实 `cleanup.trash`（`/usr/bin/trash`）把 5 个文件 107,317,780 B 移到 `/Volumes/GTEST/.Trashes/501/`（`._*` 跟着走）；报告 `trashed_files: 5`、`trashed_bytes: 107317780`、`freed_bytes: 0`、`recoverable: true`；卷的可用空间不变（未释放，与报告一致）。废纸篓里的 ARW 与原文件 sha256 相同；手动移回一张 JPEG，与原文件逐字节相同。卷卸下后执行另一个计划：`partial`，`skipped: offline`，`trashed_files: 0`；卸下时生成的计划 `ready: 0, offline: 1`；重新挂载后文件仍在。
+  - `GARDENER_EXFAT_TEST=1` 的导出测试（`test_media_export_exfat.py`）6 项通过。
+  - 映像在结束时卸下并删除。
+- **鸟群（修订 4，`FLOCK_MIN = 5`）**：`data/inat` 中 11 个常成群的鸟种各 25 张（绿头鸭、加拿大雁、美洲骨顶、西美鸥、褐鹈鹕、角鸬鹚、雪鹭、大白鹭、短嘴鸦、橡树啄木鸟、红头美洲鹫）加随机 25 张鸟，共 300 张，复制后按 `groundtruth-inat.csv` 写入 GPS 与日期（照片本身没有），真实服务、`subject + species`。
+  - 每张照片带物种结果的鸟框数：0 框 4 张，1 框 197，2 框 46，3 框 27，4 框 8，5 框以上 18。
+  - 5 框以上的 18 张全部按鸟群记：属 16（鹈鹕属 7、黑雁属 4、鸦属 2、骨顶属 2、反嘴鹬属 1），`unconfirmed` 2（框的首选答案跨科）；没有一张逐只命名。其中 6 张的逐框首选不止一种，4 张会在一张照片里出两张以上种级物种卡（如加拿大雁群里 7 框记作小美洲黑雁）。另 12 张逐框一致，11 张正确、1 张错（14 只加拿大雁都记作美洲反嘴鹬）。
+  - 3–4 框的 35 张照常逐只命名：4 张会出第二张卡，31 张逐框一致。
+  - 没有 GPS 时（同一组照片）：5 框以上混杂 7 张（6 张会多出卡），3–4 框混杂 8 张（6 张）。
+  - **决定：保留 5**。降到 3 能多挡住 4 张照片的错卡，却让 31 张逐框一致（多数正确）的照片失去种名；升到 6 只影响 5 框的 5 张（其中 2 张混杂）。代价是 5 框以上逐框一致的 11 张正确照片也只记到属，人确认一次即可（连拍范围可一起改）。“逐框一致的鸟群保留种名”是否值得做，由 owner 决定（未做）。
+- **拆分按位置选定（修订 4 S7 第二部分的后续）**：
+  - `identities.resolve_splits(c, p_geo_of)`：对当前结论仍是 `split:<版本>` 待重新确认、照片有 GPS 的主体，问 `p_geo_of(子种概念, lat, lon, taken_at)`（只返回位置先验直接标注的子种）。恰好一个子种 `p_geo ≥ RANGE_TAU`（0.05，BioScan 的“在分布区”线），其余都 `< RANGE_EPS`（0.01，“不在这里”线）时，追加一条 `source=user, actor=system, reason=split-geo:<版本>` 的识别：`level=species`、该子种的 `concept/taxon/common`、`candidates` 为各子种并带上 `p`（p_geo），本次调用一个 `batch_id`，可用 `POST /identifications/undo` 撤销。这里 `candidates[].p` 是位置先验 p_geo，不是视觉后验概率。否则不动，留给人选。
+  - 每个主体每次拆分只尝试一次：撤销 `split-geo` 批次后不会再被自动选定。之后若撤销原来的 `split:<版本>` 批次，会因为其后有人工行而 409（与撤销规则一致，不特殊处理）。
+  - 何时运行：一次运行的 BioScan 分析之后（`tasks.RunExec.resolve_splits`），只在引擎已加载 BioCLIP、因而有鸟类位置先验时（`tasks.split_prior`：`engine.priors["bird"]` 与 `engine.names["bird"].concept`）；全库范围；出错只记日志，不影响运行；名字同步（`taxa.sync`）不变。
+  - **真实先验的结果**：BirdNET geo 3.0 用的是拆分前的分类。AviList v2026 的 35 个拆分中 34 个的所有子种都映射到同一个 BirdNET 标签（亲本，`birdnet_how=synonym`），p_geo 完全相同，所以一个也选不出；在 14 组地点上核对过（如 Willet 在新泽西海岸与北达科他、Great Horned Owl 在加州与利马、European Robin 在伦敦与特内里费），全部留给人选。第 35 个（Mixornis bornensis）在拆分表里只有一个子种、亲本概念不同。等位置先验认得这些子种（或给子种单独的标签映射）之后，这一步才会真正起作用。
+## 契约修订 7C：四图比较、头部 / 眼部裁切建议（2026-10-27，AfterShooting PRD §08 第三级“提供眼部或主体裁切建议”、AC06，#110；优先于上文冲突处）
+
+- **比较 2–4 张**（`web/app.js` 的 dvCompare）：
+  - 选中 2–4 张后按 C 或点“比较”。两张时仍是原来的并排比较（默认不变）；3、4 张为 2×2 网格，每格左上角有格号。
+  - 每格各自标明“快速预览 / 原像素细节加载中 / 原像素细节可用 · 原像素 N% / 不可用：原因”（同 5C）。
+  - “同步缩放与平移”（偏好 `cmpsync`）对所有格生效：各格保持同一原像素比例。点动物框时，其余各格对准离它最近的动物；点“看头部 / 看眼部”时，其余各格保持同一比例，各自对准自己找到的同一部位（没找到的格不动）。
+  - 按 1–4 选中一格（高亮），点胶片条缩略图替换这一格。比较打开时数字键不改星级。
+  - 前两张不比两图比较慢：第 3、4 格的原像素请求要等前两格不在“加载中”时才发出（细节池只有 2 个线程）。快速预览照常并行加载。
+- **`GET /assets/{id}/parts?subject=<subject id>`**（`parts.py`）：
+  - 返回 `{asset_id, subject, kind, file: raw|image, parts: [{name: head|eye, xyxy, score}], floor: {head, eye}, ms}`，`xyxy` 是直立画面的 0–1 比例（与 `subjects.xyxy` 同一坐标）。
+  - 做法：没有眼部检测模型，用 identify 已加载的 OWLv2（开放词表）。在主体框的**原像素**裁切上（RAW 用 5C 的全尺寸解码与缓存，走细节池，但不与查看器的请求互相取代；裁切长边超过 960 px 先缩小），按主体种类用 facing 阶段的提示词（`bird head` / `bird eye`，`mammal …`，其他与人画的框用 `animal …`）。每个部位只留最高分的一个，分数 ≥ 0.2，且面积不超过主体框的 60 %（否则就是整只动物）。都没有时 `parts` 为空，界面如实说“没有足够确定的头部 / 眼部”，不放大。
+  - 只在按需时运行：不改 identify，不写库，BioScan 的识别结果与契约测试的 golden 都不变，所以不需要 `bench compare`。
+  - 错误：缺 `subject` 400；主体不存在或已移除、原片离线 404；视频 400；原像素解码超时、OWLv2 加载失败 503（附原因）。
+- **设备锁**：同一台 Mac 上两个线程同时在 MPS 上跑模型会使进程直接中止（torch 2.14 实测：`failed assertion _status < MTLCommandBufferStatusCommitted`）。所以 `Engine.device_lock`（可重入）由 RunQueue 的模型线程（每个阶段每批一次）、`Engine.ensure`（加载模型时也要把权重拷到设备上）与 parts 路由共同持有。分析进行中请求头部 / 眼部时，会等当前阶段的这一批跑完（实测最长 2.7 s），不会出错。BioScan 服务只有一条模型线程，结果不变。
+- **测量**（2026-10-27，owner 的 Mac，MPS；脚本与原始数据在 agent 草稿目录，未入库）：
+  - 鸟类：iNat 照片 50 张（42 个种，`data/inat`），49 张有主体框。按最高分的主体框统计：头部 34/49（69 %），眼部 20/49（41 %），头部或眼部 36/49。按全部 65 个框统计：头部 42，眼部 26。头部中位面积为主体框的 8 %；另有 2 个高分“头部”超过 60 % 而被去掉。
+  - 抽查 12 张联系表：分数 ≥ 0.2 的头部 12/12 位置正确，眼部 6/6 正确。被下限挡掉的眼部（0.03–0.16）多半是错的，例如蜂鸟的“眼部”0.05 框住了整个身体。
+  - 哺乳动物：iNat 20 张。头部 6/20，眼部 11/20。头部分数普遍偏低（0.14–0.19 时多半也对，但臭鼬、野兔各错一次），所以下限不降。抽查 12 张：眼部 ≥ 0.2 的 11 个里 10 个正确（臭鼬那个错）。
+  - 提示词：facing 的短提示词好于任务建议的长提示词（`the head of a bird` 的中位面积为主体框的 95 %，几乎就是整只鸟）。
+  - 每个框一次 OWLv2 约 130 ms（Gardener 路由实测中位 131 ms，42 次调用），首次调用要加载模型。
+  - **局限**：iNat 照片长边只有 500 px，主体框中位 137 px，眼部只有几个像素，所以眼部召回偏低可能部分是分辨率所致。这次测量分不出原像素与 2048 px 画面的差别。真实 RAW（`/Volumes/Media`）被 macOS 拒绝读取，没有测，RAW 路径只在假 rawpy 上测过。眼部按同一下限保留：命中率不高，但达到下限的基本都对。
+- **未做**：胶片条只能替换，不能往比较里加一格（先在网格里多选）；头部 / 眼部不进分析、不缓存（每次打开视图第一次点时都会请求一次）；没有对焦判断，只是放大到那里。
+
+## 契约修订 7A：Review 收尾——一起改的范围、拆分错误连拍、拍摄段撤销（2026-10-27，#110；AfterShooting PRD §05、§07、AC07；优先于上文冲突处）
+
+- **schema**（不改 `schema_version`，新表 `CREATE IF NOT EXISTS`，见 `schema.sql` 末尾 7A 段）：`burst_overrides`、`encounter_history`。
+- **一起改的范围**（检查器“物种”卡片）：下拉框“仅此主体 / 同一连拍（N 张）/ 同一拍摄段（M 张）”，只列出当前照片实际有的范围；选择记在界面偏好 `idscope`（取代 `idburst`，缺省 `burst`；记的范围当前照片没有时退回同一连拍，再退回仅此主体）。画出的框仍只改它自己。`AssetDetail` 增加 `encounters: [{id, task_id, photos}]`，界面据此判断有没有拍摄段。
+- **拆分错误连拍**（AC07）：`POST /bursts/split {at: asset_id | asset_ids: [..]}` → 201 `{burst_id（新连拍，只剩一帧时为 null）, from, moved}`。
+  - `at`：这帧及之后（按拍摄时间）的帧；`asset_ids`：恰好这些帧。都须在同一个连拍里，两边都要有帧，否则 400。
+  - 持久：被拆出的帧写入 `burst_overrides(task_id, asset_id, burst_id)`（`burst_id` = `<原连拍>~p_<hex>`，仍以任务 id 开头）。连拍 reducer 每次运行都重新推导 `ai_suggestions.burst_id`，所以每次保存建议之后由 `review.apply_burst_overrides` 把这些帧改到人的连拍，并重新给受影响的连拍排名次、计张数；一帧的连拍记为不在连拍中（与 reducer 相同）。只有 reducer 放进某个连拍的帧才会被移动，关掉连拍能力的运行不凭空造出连拍。
+  - 当下的显示：拆分时为原连拍的每一帧追加一行 `ai_suggestions`（`run_id = user`，复制最新一行的建议，只改连拍字段），所以所有读最新建议的地方（网格、拍摄段、保留此张并淘汰相似帧、`scope=burst`）不用改动；`AssetDetail.ai_history` 不列这类行。
+  - 物种身份按主体记录，拆连拍不碰识别与物种卡片（AC07 “不创建重复集合”）。
+  - 已知上限：之后追加的帧若被 reducer 归入这个连拍，会落在机器那一半；需要时再拆一次。本版没有连拍拆分的撤销。
+- **拍摄段撤销**：`POST /encounters/{id}/split` 的响应增加 `batch_id`，`POST /encounters/merge` 返回 `{id, batch_id}`。`POST /encounters/undo {batch_id}` → `{undone（移回的照片数）, action}`：照片回到原拍摄段（连同原来的 `source`）；拆分新建的段记为 `merged_into` 原段，合并掉的段恢复。所涉拍摄段在这一批之后又有变化（成员或合并状态，包括重扫并入的新照片）→ 409 `{encounters}`；未知或已撤销的批次 404。更新所涉照片的 `assets.updated_at`。修订 5B 的“本版没有拍摄段的撤销接口”作废。
+- **保留此张并淘汰相似帧**：响应增加 `collections: [{id, name, asset_ids}]`——要淘汰的帧所在的、人建的集合（手动按成员，Smart 按规则；不含自动分组），PRD §05“批量淘汰前提示是否涉及其他集合”。界面在预览对话框里列出（不含当前正在看的集合）；CLI `keep-best` 多打“也在集合…”。
+- **物种卡片**：`Card` 增加 `encounters`：含该物种照片的拍摄段数，与卡片同一口径（只计代表版本，不计已移到废纸篓的）；`task=` 时只数该任务的拍摄段。全库视图里同一照片在两个任务中时，每个任务的拍摄段各算一次。界面在日期后显示“N 个拍摄段”。
+- **用词**：界面不再出现 Pick / Reject，按四种用途说（保留记录、选入修图、待定、淘汰）；接口字段 `picks`、`flag` 不变。
+- **CLI 与 MCP**：CLI `burst split --at ID | --assets IDS`、`encounter undo BATCH`；MCP 新工具 `split_burst`，`edit_encounters` 的 `action` 增加 `undo`（`batch_id`）。

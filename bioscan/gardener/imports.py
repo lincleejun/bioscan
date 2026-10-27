@@ -461,6 +461,8 @@ class Runner:
                 err = None
             except (OSError, ValueError) as exc:
                 sha, err = None, str(exc) if isinstance(exc, ImportFailure) else f"{type(exc).__name__}: {exc}"
+                if not isinstance(exc, ImportFailure) and not os.path.isdir(folder):    # an unplugged disk (7D)
+                    err = f"目标目录不可用（磁盘已断开？）：{folder}；重新连接后再执行一次即可继续"
             with self.store.tx() as c:
                 t = now()
                 c.execute("UPDATE import_items SET state = ?, sha256 = ?, error = ?, done_at = ? "

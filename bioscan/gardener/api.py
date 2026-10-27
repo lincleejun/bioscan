@@ -9,8 +9,9 @@ import logging
 import mimetypes
 import os
 import re
+import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -23,7 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import cleanup, detail, handoff, identities, imports, people, query, tasks, taxa
+from bioscan.gardener import cleanup, detail, handoff, identities, imports, parts, people, query, tasks, taxa
 from bioscan.gardener import review as rv
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
@@ -678,13 +679,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                             or "application/octet-stream")
 
     # ---- contract revision 5C: original-pixel detail (detail.py) ----
-    @r.get("/assets/{aid}/detail")
-    def asset_detail_crop(aid: str, xyxy: str = "0,0,1,1",
-                          edge: int = Query(detail.DEFAULT_EDGE, ge=64, le=detail.MAX_EDGE, alias="max")) -> Response:
-        """A JPEG crop of the original pixels (the RAW of a RAW+JPEG pair) for `xyxy` (0-1 of the upright
-        image), long edge <= `max`; X-Detail-* headers say what it is. Off the request threads' work:
-        decoded on the detail pool, superseded by a newer request for the same asset, time-limited."""
-        box = detail.parse_xyxy(xyxy)
+    def original_of(aid: str) -> str:
+        """The file detail reads: the asset's online RAW, else its primary. 400 for a video, 404 offline."""
         a = asset_or_404(aid)
         if a["media"] != "photo":
             raise Error("只有照片有原像素细节")
@@ -692,6 +688,16 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         path = next((f["path"] for f in files if f["role"] == "raw" and os.path.isfile(f["path"])), a["primary_path"])
         if not os.path.isfile(path):
             raise NotFound("原片离线或已不存在：只有快速预览")
+        return path
+
+    @r.get("/assets/{aid}/detail")
+    def asset_detail_crop(aid: str, xyxy: str = "0,0,1,1",
+                          edge: int = Query(detail.DEFAULT_EDGE, ge=64, le=detail.MAX_EDGE, alias="max")) -> Response:
+        """A JPEG crop of the original pixels (the RAW of a RAW+JPEG pair) for `xyxy` (0-1 of the upright
+        image), long edge <= `max`; X-Detail-* headers say what it is. Off the request threads' work:
+        decoded on the detail pool, superseded by a newer request for the same asset, time-limited."""
+        box = detail.parse_xyxy(xyxy)
+        path = original_of(aid)
         try:
             got = details.get(aid, path, box, edge)
         except detail.Superseded:
@@ -702,6 +708,38 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             raise NotFound(f"无法读取原像素：{type(exc).__name__}: {exc}") from None
         return Response(got.jpeg, media_type="image/jpeg", headers=got.headers())
     # ---- end revision 5C ----
+
+    # ---- contract revision 7C: head / eye crop suggestions (parts.py) ----
+    @r.get("/assets/{aid}/parts")
+    def asset_parts(aid: str, subject: str) -> dict[str, Any]:
+        """OWLv2's head and eye inside one live subject box, on its original pixels; only hits at or above
+        parts.FLOOR. On demand: nothing is stored and identify does not change."""
+        t0 = time.perf_counter()
+        path = original_of(aid)
+        row = store.one("SELECT xyxy, kind FROM subjects WHERE id = ? AND asset_id = ? AND removed_at IS NULL",
+                        (subject, aid))
+        if row is None:
+            raise NotFound(f"no live subject {subject} on asset {aid}")
+        box = [float(x) for x in loads(row["xyxy"])]
+        try:
+            crop, file = details.region(aid, path, tuple(box))
+        except TimeoutError:
+            raise st.Unavailable("原像素解码超时，可稍后重试（解码完成后会缓存）") from None
+        except Exception as exc:  # noqa: BLE001
+            raise NotFound(f"无法读取原像素：{type(exc).__name__}: {exc}") from None
+        try:
+            eng = holder.get()
+        except Exception as exc:  # noqa: BLE001 - no engine: the reason is the answer
+            raise st.Unavailable(f"OWLv2 不可用：{type(exc).__name__}: {exc}") from None
+        with getattr(eng, "device_lock", None) or nullcontext():      # never two model callers on the device
+            try:
+                eng.ensure(["owlv2"])
+            except Exception as exc:  # noqa: BLE001 - no detector: the reason is the answer
+                raise st.Unavailable(f"OWLv2 不可用：{type(exc).__name__}: {exc}") from None
+            found = parts.find(eng.owlv2, crop, box, row["kind"])
+        return {"asset_id": aid, "subject": subject, "kind": row["kind"], "file": file, "parts": found,
+                "floor": parts.FLOOR, "ms": round((time.perf_counter() - t0) * 1000)}
+    # ---- end revision 7C ----
 
     @r.post("/assets/{aid}/reveal")
     def reveal(aid: str) -> dict[str, Any]:
@@ -841,8 +879,15 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
             raise Error("expect must be {asset_id: version}")
         with store.tx() as c:
-            return rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
-                                    dry_run=bool(body.get("dry_run")), expect=expect)
+            out = rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
+                               dry_run=bool(body.get("dry_run")), expect=expect)
+        cols: dict[str, dict[str, Any]] = {}            # 7A: the person's collections the rejects are in (PRD §05)
+        auto = {r["id"] for r in store.all("SELECT id FROM collections WHERE origin = 'auto'")} if out["reject"] else set()
+        for i in out["reject"]:
+            for col in store.collections_of(i):
+                if col["id"] not in auto:
+                    cols.setdefault(col["id"], col | {"asset_ids": []})["asset_ids"].append(i)
+        return out | {"collections": list(cols.values())}
 
     @r.get("/encounters")
     def get_encounters(task: str | None = None, concept: str | None = None) -> dict[str, Any]:
@@ -860,13 +905,33 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
             raise Error("one of at (asset id) or asset_ids is required")
         with store.tx() as c:
-            new = rv.split_encounter(c, eid, at=at, asset_ids=ids, actor=actor)
-        return {"id": new, "from": eid}
+            new, batch = rv.logged(c, "split", [eid], lambda: rv.split_encounter(c, eid, at=at, asset_ids=ids,
+                                                                                 actor=actor), actor=actor)
+        return {"id": new, "from": eid, "batch_id": batch}
 
     @r.post("/encounters/merge")
     def merge_encounters(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        eids = list(dict.fromkeys(strs(body.get("ids"), "ids")))
         with store.tx() as c:
-            return {"id": rv.merge_encounters(c, strs(body.get("ids"), "ids"), actor=actor)}
+            kept, batch = rv.logged(c, "merge", eids, lambda: rv.merge_encounters(c, eids, actor=actor), actor=actor)
+        return {"id": kept, "batch_id": batch}
+
+    # ---- contract revision 7A: undo an encounter split/merge, split a wrong burst ----
+    @r.post("/encounters/undo")
+    def undo_encounters(body: dict[str, Any] = BODY) -> dict[str, Any]:
+        with store.tx() as c:
+            return rv.undo_encounters(c, text(body, "batch_id", required=True))
+
+    @r.post("/bursts/split", status_code=201)
+    def split_burst(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """{at: asset_id} moves that frame and the later ones, {asset_ids} exactly those, to a new burst that
+        survives rescans."""
+        at = body.get("at")
+        ids = strs(body["asset_ids"], "asset_ids") if body.get("asset_ids") is not None else None
+        if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
+            raise Error("one of at (asset id) or asset_ids is required")
+        with store.tx() as c:
+            return rv.split_burst(c, at=at, asset_ids=ids, actor=actor)
 
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,

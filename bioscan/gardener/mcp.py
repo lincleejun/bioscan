@@ -82,9 +82,11 @@ TOOLS = [
     _tool("list_encounters", "拍摄段（一次连续观察）：每段的连拍（代表帧 rep）、代表候选 candidates 与物种。task 或 concept "
           "至少给一个；concept 只看该物种的照片。", {"task": _STR, "concept": _STR}),
     _tool("edit_encounters", "人工拆合拍摄段（重扫不会恢复旧分组）：action=split 时给 id 和 at（这张及之后）或 asset_ids；"
-          "action=merge 时给 ids（并入第一个）。",
-          {"action": {"type": "string", "enum": ["split", "merge"]}, "id": _STR, "at": _STR, "asset_ids": _IDS,
-           "ids": _IDS}, ("action",)),
+          "action=merge 时给 ids（并入第一个）；两者都返回 batch_id，action=undo 时给 batch_id 整批撤销（之后又改过则冲突）。",
+          {"action": {"type": "string", "enum": ["split", "merge", "undo"]}, "id": _STR, "at": _STR, "asset_ids": _IDS,
+           "ids": _IDS, "batch_id": _STR}, ("action",)),
+    _tool("split_burst", "拆分错误的连拍（如混入两只鸟，契约修订 7A）：at（这张及之后，按拍摄时间）或 asset_ids 拆为新连拍；"
+          "重扫后保持，物种结论不变。", {"at": _STR, "asset_ids": _IDS}),
     _tool("preview_rule", "Smart Collection 规则改动的预览：命中数 total、当前成员数 current、增减 added/removed（各至多 200 个 id）；"
           "不保存。", {"id": _STR, "rule": {"type": "object"}}, ("id", "rule")),
     # ---- import (契约修订 5D) ----
@@ -192,7 +194,11 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "edit_encounters":
         if args["action"] == "merge":
             return "POST", "/encounters/merge", {"ids": args["ids"]}, None
+        if args["action"] == "undo":
+            return "POST", "/encounters/undo", {"batch_id": args["batch_id"]}, None
         return "POST", f"/encounters/{args['id']}/split", _pick(args, ("at", "asset_ids")), None
+    if name == "split_burst":
+        return "POST", "/bursts/split", _pick(args, ("at", "asset_ids")), None
     if name == "preview_rule":
         return "POST", f"/collections/{args['id']}/preview-rule", {"rule": args["rule"]}, None
     if name == "lightroom_handoff":

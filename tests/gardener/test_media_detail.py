@@ -1,7 +1,7 @@
 """Original-pixel detail (contract revision 5C, PRD §08 第三级 / AC06): crops of the original pixels in
 upright coordinates (EXIF orientation 6 / 8 JPEGs, a RAW through a fake rawpy that turns its pixels the
 way LibRaw does), the decoded-RAW cache under cache/detail, supersession, the time limit, and marks that
-never wait for a decode. Unverified on real RAW files: rawpy is faked."""
+never wait for a decode. rawpy is faked here; two real Sony A1 ARWs were measured by hand (contract revision 7D)."""
 from __future__ import annotations
 
 import sys
@@ -118,9 +118,33 @@ class FakeLibRaw:
         return np.ascontiguousarray(np.rot90(self.stored, k))
 
 
-def fake_rawpy(monkeypatch, flip=6, **kw):
+def fake_rawpy(monkeypatch, flip=6, crop=None, **kw):
     FakeLibRaw.calls = 0
     monkeypatch.setitem(sys.modules, "rawpy", types.SimpleNamespace(imread=lambda path: FakeLibRaw(flip, **kw)))
+    monkeypatch.setattr(detail, "camera_crop", lambda path: crop)
+
+
+@pytest.mark.parametrize("flip", [0, 3, 5, 6])
+def test_camera_crop_maps_through_the_flip(flip):
+    """The camera's default crop is given in the sensor frame; cut from LibRaw's upright decode it must be the
+    same pixels as the sensor crop turned upright (real A1 RAWs: centre offset 12,12 -> 0,0, contract 7D)."""
+    sensor = np.arange(30 * 40).reshape(30, 40)                       # h 30, w 40
+    k = {0: 0, 6: -1, 5: 1, 3: 2}[flip]                               # LibRaw's turn (FakeLibRaw)
+    x, y, cw, ch = 3, 2, 30, 25
+    box = detail.upright_crop((x, y, cw, ch), 40, 30, flip)
+    assert np.array_equal(np.rot90(sensor, k)[box[1]:box[3], box[0]:box[2]], np.rot90(sensor[y:y + ch, x:x + cw], k))
+    assert detail.upright_crop((0, 0, 40, 30), 40, 30, flip) is None and detail.upright_crop(None, 40, 30, flip) is None
+
+
+def test_raw_detail_is_cut_to_the_camera_crop(tmp_path, monkeypatch):
+    fake_rawpy(monkeypatch, 6, crop=(10, 20, 380, 270))      # sensor 400 x 300 (flip 6 stores the portrait turned)
+    (tmp_path / "x.ARW").write_bytes(b"raw")
+    d = Details(tmp_path / "cache")
+    try:
+        out = d.get("as01", str(tmp_path / "x.ARW"), (0, 0, 1, 1))
+        assert out.full == (270, 380) and out.orientation == 6
+    finally:
+        d.close()
 
 
 @pytest.mark.parametrize("flip,orientation", [(6, 6), (5, 8), (0, 1)])

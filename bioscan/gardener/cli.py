@@ -139,7 +139,8 @@ def render(cmd: str, out) -> str:
     if cmd == "keep-best":
         skipped = "；".join(f"{x['id']}（{SKIP_WHY.get(x['reason'], x['reason'])}）" for x in out["skipped"]) or "无"
         return (f"{'预览（未写入）' if out['dry_run'] else 'batch_id: ' + str(out['batch_id'])}\n保留 {out['keep']['id']}"
-                f"（{out['keep']['use']}）\n淘汰 {len(out['reject'])} 张：{' '.join(out['reject']) or '无'}\n跳过：{skipped}")
+                f"（{out['keep']['use']}）\n淘汰 {len(out['reject'])} 张：{' '.join(out['reject']) or '无'}\n跳过：{skipped}"
+                + "".join(f"\n也在集合「{x['name']}」：{len(x['asset_ids'])} 张" for x in out.get("collections") or []))
     if cmd == "import list":
         return table(out, IMPORT_COLS)
     if cmd.startswith("import "):
@@ -334,8 +335,12 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
     if c == "encounter":
         if sub == "merge":
             return "POST", "/encounters/merge", {"ids": a.ids}, None
+        if sub == "undo":            # contract revision 7A
+            return "POST", "/encounters/undo", {"batch_id": a.batch_id}, None
         body = {"at": a.at} if a.at else {"asset_ids": a.assets}
         return "POST", f"/encounters/{a.id}/split", body, None
+    if c == "burst":                 # contract revision 7A
+        return "POST", "/bursts/split", {"at": a.at} if a.at else {"asset_ids": a.assets}, None
     if c == "handoff":
         if sub == "create":
             body = _scope_5e(a) | ({"uses": a.use} if a.use else {}) | ({"name": a.name} if a.name else {})
@@ -509,6 +514,11 @@ def parser() -> argparse.ArgumentParser:
     how_split.add_argument("--assets", nargs="+", help="恰好这些照片拆为新的一段")
     em = eo.add_parser("merge", help="合并为第一个拍摄段")
     em.add_argument("ids", nargs="+")
+    eo.add_parser("undo", help="撤销一次拆分或合并（之后又改过则拒绝）").add_argument("batch_id")
+    bs = s.add_parser("burst", help="拆分混入不同个体的错误连拍（重扫后保持）").add_subparsers(dest="sub", required=True)
+    how_b = bs.add_parser("split", help="拆出一个新连拍").add_mutually_exclusive_group(required=True)
+    how_b.add_argument("--at", help="这张及之后（按拍摄时间）的帧拆为新连拍")
+    how_b.add_argument("--assets", nargs="+", help="恰好这些帧拆为新连拍")
 
     cs = s.add_parser("collections", help="集合列表")
     cs.add_argument("--task")

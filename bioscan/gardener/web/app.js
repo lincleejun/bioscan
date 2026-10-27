@@ -69,6 +69,7 @@
   const KIND_ZH = { bird: '鸟类', mammal: '哺乳动物', other_animal: '其他动物' };
   const FLOCK_ZH = { bird: '鸟群：不逐只命名', mammal: '兽群：不逐只命名', other: '成群：不逐只命名' };
   const ID_NOTE = '物种按动物主体记录：人工确认优先，模型重跑只追加新的建议，不覆盖人的结论。';
+  const CMP_MAX = 4;                      // 比较最多四张（契约修订 7C）
   const PREVIEW_NOTE = '低分辨率预览（含 RAW 内嵌预览）只用于浏览，不代表完整 RAW 解码或对焦验证。';
   const XML_NOTE = 'Gardener XML 只供 Gardener 使用：它不是 XMP，Lightroom 不能直接读取。导出不会移动、改名或删除任何原片。';
 
@@ -536,7 +537,7 @@
       <button type="button" class="btn sm ghost" data-action="batch" data-v="pending" data-key="b-pending">待定</button>
       <button type="button" class="btn sm reject" data-action="batch" data-v="reject" data-key="b-reject">${ic('x')}淘汰</button>
       <label class="batch-stars"><span class="sr-only">批量星级</span><select class="input sm" data-action-change="batch-stars" aria-label="批量星级"><option value="">星级…</option>${[0, 1, 2, 3, 4, 5].map(i => `<option value="${i}">${i ? i + ' 星' : '清除星级'}</option>`).join('')}</select></label>
-      <button type="button" class="btn sm ghost" data-action="compare" data-key="b-cmp" ${n === 2 ? '' : 'disabled title="选择 2 张时可并排比较"'}>${ic('compare')}比较</button>
+      <button type="button" class="btn sm ghost" data-action="compare" data-key="b-cmp" ${n <= CMP_MAX ? '' : `disabled title="选择 2–${CMP_MAX} 张时可比较"`}>${ic('compare')}比较</button>
       <button type="button" class="btn sm ghost" data-action="add-to-col" data-key="b-add">加入集合…</button>
       ${manual ? '<button type="button" class="btn sm ghost" data-action="split-col" data-key="b-split">拆分为新集合…</button><button type="button" class="btn sm ghost" data-action="remove-from-col" data-key="b-rm">移出本组</button>' : ''}
       <button type="button" class="btn sm ghost" data-action="clear-sel" data-key="b-clear">取消选择</button>`;
@@ -618,17 +619,26 @@
     const a = ws.current && A(ws.current);
     if (!a) return '';
     const e = encOn(ws) && ws.enc.by.get(a.id);
-    return (a.burst && a.burst.size > 1 ? `<button type="button" class="btn sm ghost" data-action="keep-best" data-id="${esc(a.id)}" data-key="b-keep">保留此张并淘汰相似帧…</button>` : '')
+    const sibs = a.burst && a.burst.size > 1 ? ws.all.map(A).filter(x => x && x.burst && x.burst.id === a.burst.id)
+      .sort((x, y) => ((x.taken_at || '') + x.id < (y.taken_at || '') + y.id ? -1 : 1)) : [];   // 7A: split a wrong burst
+    return (sibs.length > 1 && sibs[0].id !== a.id ? `<button type="button" class="btn sm ghost" data-action="burst-split" data-id="${esc(a.id)}">从这张起拆为新连拍</button>` : '')
+      + (a.burst && a.burst.size > 1 ? `<button type="button" class="btn sm ghost" data-action="keep-best" data-id="${esc(a.id)}" data-key="b-keep">保留此张并淘汰相似帧…</button>` : '')
       + (e && e.asset_ids.indexOf(a.id) > 0 ? `<button type="button" class="btn sm ghost" data-action="enc-split" data-id="${esc(e.id)}" data-at="${esc(a.id)}" data-key="b-split-enc">从这张起拆为新拍摄段</button>` : '');
   }
   const SKIP_WHY = { human: '已有人工决定', only_record: '唯一的物种记录' };
+  // 契约修订 7A：拍摄段的拆、合各是一批，可整批撤销；之后又改过则服务拒绝（409）
+  const encUndo = (ws, batch) => (batch ? { action: { label: '撤销', run: async () => {
+    try { await api('POST', '/encounters/undo', { batch_id: batch }); toast('已撤销'); await loadEnc(ws); } catch (e) { toast(e.status === 409 ? '这些拍摄段之后又被修改过，无法撤销' : errMsg(e)); }
+  } } } : undefined);
   async function keepBest(id) {
     let r;
     try { r = await api('POST', '/marks/keep-best', { asset_id: id, dry_run: true }); } catch (e) { toast(errMsg(e)); return; }
     const skipped = r.skipped.map(x => `<li>${esc((A(x.id) || { name: x.id }).name)} · ${esc(SKIP_WHY[x.reason] || x.reason)}</li>`).join('');
+    const cols = (r.collections || []).filter(x => !ui.ws || x.id !== ui.ws.colId);     // 7A: PRD §05
+    const also = cols.length ? `<p class="note warn block">${ic('warn')}要淘汰的帧也在其他集合：${cols.map(x => `${esc(x.name)}（${x.asset_ids.length} 张）`).join('、')}。用途是全局的，这些集合里会同样显示为淘汰。</p>` : '';
     dialog({
       title: '保留此张并淘汰相似帧',
-      body: `<p>保留「${esc((A(id) || { name: id }).name)}」，同一连拍里另外 <b>${r.reject.length}</b> 张标为淘汰。</p>${skipped ? `<p class="hint">不会改动：</p><ul class="conf-list">${skipped}</ul>` : ''}<p class="hint">淘汰只是决定，不删除或移动任何文件；整批可撤销。</p>`,
+      body: `<p>保留「${esc((A(id) || { name: id }).name)}」，同一连拍里另外 <b>${r.reject.length}</b> 张标为淘汰。</p>${also}${skipped ? `<p class="hint">不会改动：</p><ul class="conf-list">${skipped}</ul>` : ''}<p class="hint">淘汰只是决定，不删除或移动任何文件；整批可撤销。</p>`,
       actions: [{ label: '保留记录并淘汰其余', value: 'record', kind: 'primary' }, { label: '选入修图并淘汰其余', value: 'edit' }],
       onSubmit: async v => {
         try {
@@ -689,7 +699,7 @@
     const ae = d && d.caps && d.caps.aesthetic;
     if (!a.ai) {
       const st = ae ? ae.state : null;
-      if (st === 'not_enabled') return '<p class="hint">本任务未启用「美学与选择建议」，因此没有 AI Pick/Reject 建议。</p>';
+      if (st === 'not_enabled') return '<p class="hint">本任务未启用「美学与选择建议」，因此没有 AI 保留/舍弃建议。</p>';
       if (st === 'failed') return `<p class="ai-fail">${ic('warn')}分析失败：${esc(ae.error || '原因未知')}</p><button type="button" class="btn sm" data-action="retry-asset" data-id="${esc(a.id)}">${ic('retry')}重试此项</button>`;
       if (st === 'unavailable') return `<p class="ai-fail">${ic('warn')}能力不可用：${esc(ae.error || '原因未知')}</p>`;
       if (st === 'running') return '<p class="hint">正在分析…</p>';
@@ -705,7 +715,7 @@
     if (f.online) return pill('在线', 'ok');
     return d.meta && d.meta.missing ? pill('文件缺失', 'fail') : pill('来源离线', 'wait');
   }
-  // 服务替人清空过的判断（内容变化、本组不留清 Pick）：说明原因并可整批恢复
+  // 服务替人清空过的判断（内容变化、本组不留清除保留记录 / 选入修图）：说明原因并可整批恢复
   function restoreHTML(hist, meta) {
     const seen = new Set(), out = [];
     hist.slice().reverse().forEach(h => {
@@ -714,7 +724,7 @@
       const zeroed = typeof h.reason === 'string' && h.reason.startsWith('zero:');
       if (!changed && !zeroed) return;
       seen.add(h.batch_id);
-      out.push(`<div class="note ${changed ? 'warn' : 'info'} block restore-row"><span>${ic('warn')}${changed ? '内容已变化，旧判断已清空' : '「本组不留」清除了 Pick'}（${esc(fmtTime(h.at))}）</span><button type="button" class="btn sm" data-action="restore-batch" data-id="${esc(h.batch_id)}" data-label="${changed ? '恢复旧判断' : '恢复 Pick'}">${changed ? '恢复旧判断' : '恢复 Pick'}</button></div>`);
+      out.push(`<div class="note ${changed ? 'warn' : 'info'} block restore-row"><span>${ic('warn')}${changed ? '内容已变化，旧判断已清空' : '「本组不留」清除了保留记录 / 选入修图'}（${esc(fmtTime(h.at))}）</span><button type="button" class="btn sm" data-action="restore-batch" data-id="${esc(h.batch_id)}" data-label="${changed ? '恢复旧判断' : '恢复保留决定'}">${changed ? '恢复旧判断' : '恢复保留决定'}</button></div>`);
     });
     if (!out.length && meta.content_changed_at) out.push(`<p class="note warn block">${ic('warn')}内容已变化（${esc(fmtTime(meta.content_changed_at))}），旧判断见历史。</p>`);
     return out.join('');
@@ -779,7 +789,7 @@
       return `background-image:url('${mediaUrl(a.id, 'large')}');background-size:${100 / w}% ${100 / h}%;background-position:${w < 1 ? (x0 / (1 - w)) * 100 : 0}% ${h < 1 ? (y0 / (1 - h)) * 100 : 0}%`;
     };
     const btn = (act, s, label) => `<button type="button" class="btn sm ghost" data-action="${act}" data-id="${esc(a.id)}" data-subject="${esc(s.id)}">${label}</button>`;
-    const burst = a.burst && a.burst.size > 1;
+    const scopes = idScopes(a, d), scope = idScope(a, d);
     return `<section class="card"><h3>物种<span class="sub">${esc(ID_NOTE)}</span></h3><ul class="faces subjects">${ss.map((s, i) => {
       const cur = s.current, ai = s.ai;
       const src = !cur ? '' : s.human ? '<small class="pill p-ok">人工确认</small>' : `<small class="hint">AI 候选${cur.p != null ? ' · ' + esc(fmtScore(cur.p)) : ''}</small>`;
@@ -792,7 +802,19 @@
       return `<li><span class="face subj" style="${esc(crop(s))}" role="img" aria-label="动物 ${i + 1}"></span>
         <span><b>${esc(idText(cur))}</b>${src}${aiDiff}${said}${why}</span>
         <span class="face-acts">${picks}${!s.human && ai && ai.level === 'species' ? btn('id-accept', s, '确认') : ''}${btn('id-change', s, '改为…')}${btn('id-unsure', s, '不确定')}</span></li>`;
-    }).join('') || `<li class="hint">${(d.caps.subject || {}).state === 'done' ? '模型没有标出动物。' : '还没有主体框（未分析或未启用主体检测）。'}</li>`}</ul>${a.media === 'photo' && a.preview === 'ready' ? `<button type="button" class="btn sm ghost" data-action="id-draw" data-id="${esc(a.id)}">标出漏掉的动物</button>` : ''}${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
+    }).join('') || `<li class="hint">${(d.caps.subject || {}).state === 'done' ? '模型没有标出动物。' : '还没有主体框（未分析或未启用主体检测）。'}</li>`}</ul>${a.media === 'photo' && a.preview === 'ready' ? `<button type="button" class="btn sm ghost" data-action="id-draw" data-id="${esc(a.id)}">标出漏掉的动物</button>` : ''}${scopes.length > 1 ? `<label class="check-row">确认或改为时一起改：<select class="input sm" data-pref="idscope" aria-label="物种结论一起改的范围">${scopes.map(([v, t]) => `<option value="${v}" ${v === scope ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label><p class="hint">连拍或拍摄段里只改模型认成同一种的主体（或照片唯一的主体）；已有人工结论的不改。</p>` : ''}</section>`;
+  }
+  // 契约修订 7A：物种结论一起改的范围——仅此主体 / 同一连拍 / 同一拍摄段，界面偏好 idscope
+  function idScopes(a, d) {
+    const out = [['subject', '仅此主体']];
+    if (a && a.burst && a.burst.size > 1) out.push(['burst', `同一连拍（${a.burst.size} 张）`]);
+    const e = d && (d.encounters || []).find(x => x.photos > 1);
+    if (e) out.push(['encounter', `同一拍摄段（${e.photos} 张）`]);
+    return out;
+  }
+  function idScope(a, d) {
+    const have = idScopes(a, d).map(x => x[0]), want = prefs.get('idscope', 'burst');
+    return have.includes(want) ? want : have.includes('burst') ? 'burst' : 'subject';
   }
   // 同一拍摄的其他版本：只在代表版本出现；“不是同一张”由人确认后永不再自动合并
   function versionsHTML(d) {
@@ -948,13 +970,13 @@
   async function identify(el, claim, label) {
     const a = A(el.dataset.id);
     const drawn = el.dataset.xyxy ? JSON.parse(el.dataset.xyxy) : null;     // a box a person drew: no burst scope
-    const scope = !drawn && a && a.burst && a.burst.size > 1 && prefs.get('idburst', '1') === '1' ? 'burst' : 'subject';
+    const scope = drawn ? 'subject' : idScope(a, S.details.get(el.dataset.id));
     try {
       const r = await api('POST', '/identifications', Object.assign(drawn ? { new_subjects: [{ asset_id: el.dataset.id, xyxy: drawn }] }
         : { subject_ids: [el.dataset.subject] }, { claim, scope }));
       const n = r.changed.length, skip = r.skipped.filter(x => x.reason === 'human').length;
       S.details.clear();
-      toast(`${label}${n > 1 ? `（${n} 只，含同一连拍）` : ''}${skip ? `；${skip} 张已有人工结论，未改` : ''}`, r.batch_id ? { action: { label: '撤销', run: async () => {
+      toast(`${label}${n > 1 ? `（${n} 只，含${scope === 'encounter' ? '同一拍摄段' : '同一连拍'}）` : ''}${skip ? `；${skip} 张已有人工结论，未改` : ''}`, r.batch_id ? { action: { label: '撤销', run: async () => {
         try { await api('POST', '/identifications/undo', { batch_id: r.batch_id }); S.details.clear(); toast('已撤销'); renderInspector(); } catch (e) { toast(e.status === 409 ? '之后又被人工修改过，无法撤销' : errMsg(e)); }
       } } } : undefined);
       renderInspector();
@@ -985,7 +1007,7 @@
   }
   function colNotes(c) {
     const w = [];
-    if (c.review.state === 'zeroed') w.push(c.picks ? `<span class="note warn">${ic('warn')}已标记本组不留，但含 ${c.picks} 张 Pick</span>` : '<span class="note muted">已明确零选</span>');
+    if (c.review.state === 'zeroed') w.push(c.picks ? `<span class="note warn">${ic('warn')}已标记本组不留，但含 ${c.picks} 张保留记录或选入修图</span>` : '<span class="note muted">已明确零选</span>');
     else if (c.size && !c.picks) w.push(`<span class="note warn">${ic('warn')}尚无人工入选</span>`);
     if (c.low_score) w.push('<span class="note">AI 整组评分偏低 · 全部候选仍可审阅</span>');
     if (c.review.new_since) w.push(`<span class="note info">新增 ${c.review.new_since} 张待审</span>`);
@@ -1125,7 +1147,7 @@
       <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy">
       <span class="sp-name"><b>${esc(k.zh || k.common || k.taxon)}</b>${k.zh && k.common ? `<small>${esc(k.common)}</small>` : ''}<i>${esc(k.taxon)}</i></span>
       <span class="sp-meta">${k.confirmed ? `已确认 ${k.confirmed}` : ''}${k.confirmed && k.candidates ? ' · ' : ''}${k.candidates ? `待确认 ${k.candidates}` : ''}${k.only_one ? ' · <b class="pill p-wait">仅 1 张</b>' : ''}</span>
-      <span class="sp-meta mono">${esc(when)}</span></a>`;
+      <span class="sp-meta mono">${esc(when)}${k.encounters ? ` · ${k.encounters} 个拍摄段` : ''}</span></a>`;
   }
   async function vSpecies(p) {
     const lib = await api('GET', '/species', null, { task: p.task });
@@ -1291,7 +1313,7 @@
   }
   function openCompare() {
     const ws = ui.ws;
-    if (!ws || ws.sel.size !== 2) { toast('请先选择 2 张（⌘/Ctrl 或 Shift 多选）后再比较'); return; }
+    if (!ws || ws.sel.size < 2 || ws.sel.size > CMP_MAX) { toast(`请先选择 2–${CMP_MAX} 张（⌘/Ctrl 或 Shift 多选）后再比较`); return; }
     const ids = Array.from(ws.sel);
     dvCompare(ids);
   }
@@ -1302,6 +1324,7 @@
   // 缩放、平移、换图或“取消”都会放弃上一个请求。比例只在原像素可用时给出，快速预览只说“预览放大 ×N（不是原像素）”。
   const DV_LABEL = { preview: '快速预览', loading: '原像素细节加载中', ready: '原像素细节可用', failed: '原像素细节不可用' };
   const DV_MAX_RATIO = 4;                 // 最多放大到一个原像素占 4 个屏幕像素
+  const PART_ZH = { head: '头部', eye: '眼部' };
   const dvLive = new Set();
   const dpr = () => window.devicePixelRatio || 1;
   const clamp01 = x => Math.max(0, Math.min(1, x));
@@ -1317,7 +1340,7 @@
   function dvHTML(a) {
     return `<div class="dv"><div class="dv-frame"><img class="dv-prev" src="${esc(mediaUrl(a.id, 'large'))}" alt="${esc(a.name)}" decoding="async" draggable="false"><img class="dv-det" alt="" hidden draggable="false"><div class="dv-subjs"></div></div>
       <div class="dv-bar"><span class="dv-state" aria-live="polite"></span><button type="button" class="btn sm dark" data-dv-do="cancel" hidden>取消</button>
-      <span class="dv-tools"><button type="button" class="btn sm dark" data-dv-do="boxes" aria-pressed="true">动物框</button><button type="button" class="btn sm dark" data-dv-do="fit">适合</button><button type="button" class="btn sm dark" data-dv-do="one" title="一个原像素对应一个屏幕像素">原像素 1:1</button><button type="button" class="btn sm dark" data-dv-do="out" aria-label="缩小">−</button><button type="button" class="btn sm dark" data-dv-do="in" aria-label="放大">＋</button></span></div></div>`;
+      <span class="dv-tools"><button type="button" class="btn sm dark" data-dv-do="head" hidden title="OWLv2 在动物框内找头部，放大到原像素">看头部</button><button type="button" class="btn sm dark" data-dv-do="eye" hidden title="OWLv2 在动物框内找眼部，放大到原像素">看眼部</button><button type="button" class="btn sm dark" data-dv-do="boxes" aria-pressed="true">动物框</button><button type="button" class="btn sm dark" data-dv-do="fit">适合</button><button type="button" class="btn sm dark" data-dv-do="one" title="一个原像素对应一个屏幕像素">原像素 1:1</button><button type="button" class="btn sm dark" data-dv-do="out" aria-label="缩小">−</button><button type="button" class="btn sm dark" data-dv-do="in" aria-label="放大">＋</button></span></div></div>`;
   }
   function dvGeom(v) {
     const cw = v.el.clientWidth, ch = v.el.clientHeight, fw = Math.min(cw, ch * v.ar);
@@ -1371,6 +1394,7 @@
   }
   function dvSubjects(v, d) {
     v.subjects = ((d && d.subjects) || []).filter(s => Array.isArray(s.xyxy));
+    $$('[data-dv-do="head"], [data-dv-do="eye"]', v.el).forEach(b => { b.hidden = !v.subjects.some(s => s.id); });
     $('.dv-subjs', v.el).innerHTML = v.subjects.map((s, i) => {
       const [x0, y0, x1, y1] = s.xyxy;
       return `<button type="button" class="dv-subj" data-dv-subj="${i}" style="left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%" aria-label="放大看动物 ${i + 1}：${esc(idText(s.current))}" title="${esc(idText(s.current))}"></button>`;
@@ -1382,13 +1406,36 @@
     dvWant(v);
     const delta = [v.cx - v.pc[0], v.cy - v.pc[1]];
     v.pc = [v.cx, v.cy];
-    if (v.onView) v.onView(v, kind, kind === 'subject' ? extra : delta);
+    if (v.onView) v.onView(v, kind, kind === 'subject' || kind === 'part' ? extra : delta);
   }
-  function dvFocus(v, xyxy) {
-    const g = dvGeom(v), [x0, y0, x1, y1] = xyxy, m = 1.6;
-    v.z = Math.min(g.cw / (Math.max(x1 - x0, 0.01) * g.fw * m), g.ch / (Math.max(y1 - y0, 0.01) * g.fh * m));
+  function dvFocus(v, xyxy, part) {
+    const g = dvGeom(v), [x0, y0, x1, y1] = xyxy, m = part ? 3 : 1.6;     // 头部 / 眼部多留一圈上下文
+    v.z = Math.min(g.cw / (Math.max(x1 - x0, 0.002) * g.fw * m), g.ch / (Math.max(y1 - y0, 0.002) * g.fh * m));
     v.cx = (x0 + x1) / 2; v.cy = (y0 + y1) / 2;
-    dvChanged(v, 'subject', xyxy);
+    dvChanged(v, part ? 'part' : 'subject', part || xyxy);
+  }
+  // 头部 / 眼部建议（契约修订 7C）：按需向 /assets/{id}/parts 要当前动物（点过的那只，否则第一只）框内的部位；
+  // 只有分数达到下限的才放大过去，否则如实说没找到。结果按动物缓存在这个视图里。
+  async function dvPartOf(v, name) {
+    const s = v.subjects[v.focus || 0] || v.subjects.find(x => x.id);
+    if (!s || !s.id) return null;
+    v.parts = v.parts || {};
+    if (!v.parts[s.id]) {
+      const b = $(`[data-dv-do="${name}"]`, v.el);
+      b.setAttribute('aria-busy', 'true');              // 不禁用：禁用会把焦点丢到 body
+      try { v.parts[s.id] = api('GET', `/assets/${encodeURIComponent(v.id)}/parts`, null, { subject: s.id }); await v.parts[s.id]; }
+      catch (e) { delete v.parts[s.id]; throw e; }
+      finally { b.removeAttribute('aria-busy'); }
+    }
+    const r = await v.parts[s.id];
+    return { part: r.parts.find(x => x.name === name) || null, floor: (r.floor || {})[name] };
+  }
+  async function dvPart(v, name) {
+    let got;
+    try { got = await dvPartOf(v, name); } catch (e) { toast(`找${PART_ZH[name]}失败：${errMsg(e)}`); return; }
+    if (!got || !dvLive.has(v)) return;
+    if (!got.part) { toast(`这只动物上没有足够确定的${PART_ZH[name]}（OWLv2 分数低于 ${got.floor}），保持原样`); return; }
+    dvFocus(v, got.part.xyxy, name);
   }
   function dvZoomAt(v, z, e) {
     const g = dvGeom(v), r = v.el.getBoundingClientRect();
@@ -1402,6 +1449,7 @@
   function dvDo(v, what) {
     const g = dvGeom(v);
     if (what === 'cancel') { if (v.ctl) v.ctl.abort(); v.ctl = null; clearTimeout(v.timer); v.state = v.box ? 'ready' : 'preview'; dvLabel(v); return; }
+    if (what === 'head' || what === 'eye') { dvPart(v, what); return; }
     if (what === 'boxes') { const b = $('[data-dv-do="boxes"]', v.el), on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', String(on)); v.el.classList.toggle('no-boxes', !on); return; }
     if (what === 'fit') v.z = 1;
     else if (what === 'one') v.z = v.W / (g.fw * dpr());
@@ -1415,7 +1463,7 @@
       const b = e.target.closest('[data-dv-do]');
       if (b) { dvDo(v, b.dataset.dvDo); return; }
       const s = e.target.closest('[data-dv-subj]');
-      if (s && !v.dragged) dvFocus(v, v.subjects[Number(s.dataset.dvSubj)].xyxy);
+      if (s && !v.dragged) { v.focus = Number(s.dataset.dvSubj); dvFocus(v, v.subjects[v.focus].xyxy); }
     });
     el.addEventListener('dblclick', e => { if (!e.target.closest('.dv-bar, .dv-subj')) dvZoomAt(v, v.z * 2, e); });
     el.addEventListener('wheel', e => { e.preventDefault(); dvZoomAt(v, v.z * Math.exp(-e.deltaY * 0.0015), e); }, { passive: false });
@@ -1441,6 +1489,7 @@
   async function dvFetch(v) {
     const g = dvGeom(v);
     if (!g.fw || !v.pw || !dvLive.has(v)) return;
+    if (v.after && v.after()) { dvWant(v); return; }         // 第 3、4 张等前两张的原像素先到
     const shown = g.fw * v.z * dpr();                         // 整幅画面此刻占的设备像素宽
     if (shown <= v.pw * 1.05) {                               // 快速预览已经够清楚：不取原像素
       if (v.ctl) v.ctl.abort();
@@ -1492,40 +1541,56 @@
     ui.lbView = dvMount(ph, a, keep, null);
     return true;
   }
-  // 并排比较：两张同一原像素比例；可同步缩放平移，也可各自点选动物；底部是同一连拍的胶片条
+  // 比较（2–4 张，契约修订 5C / 7C）：各张同一原像素比例；可同步缩放平移，也可各自点选动物；1–4 键选中要被
+  // 胶片条替换的一格；第 3、4 张的原像素在前两张之后才取，所以前两张不比两图比较慢。底部是所在连拍的胶片条。
   function dvCompare(ids) {
-    const ws = ui.ws, panes = [];
-    let active = 1;
+    const ws = ui.ws, panes = [], n = ids.length;
+    let active = n - 1;
     const sync = () => prefs.get('cmpsync', '1') === '1';
-    const d = dialog({ title: '并排比较', cls: 'compare', onClose: () => panes.forEach(dvDrop),
-      body: `<div class="cmp-grid">${ids.map((id, i) => `<figure class="cmp-item" data-pane="${i}"><div class="cmp-view"></div><figcaption data-cmp="${esc(id)}">${cmpCapHTML(id)}</figcaption></figure>`).join('')}</div>
-        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（两边同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；拖动平移，滚轮或双击放大。可以两张都保留、都舍弃或都不标记。${PREVIEW_NOTE}</span></div>
-        <div class="cmp-strip" role="group" aria-label="同一连拍：点缩略图替换高亮的一侧"></div>` });
+    const onKey = e => {                                        // 1–4：选中胶片条要替换的一格（焦点可能在 body 上）
+      if (!d.open || isField(e.target) || e.metaKey || e.ctrlKey || e.altKey || !/^[1-4]$/.test(e.key) || Number(e.key) > n) return;
+      e.preventDefault();
+      active = Number(e.key) - 1;
+      strip();
+    };
+    const d = dialog({ title: n === 2 ? '并排比较' : `${n} 张比较`, cls: 'compare', onClose: () => { panes.forEach(dvDrop); document.removeEventListener('keydown', onKey); },
+      body: `<div class="cmp-grid n${n}">${ids.map((id, i) => `<figure class="cmp-item" data-pane="${i}"><span class="cmp-slot" aria-hidden="true">${i + 1}</span><div class="cmp-view"></div><figcaption data-cmp="${esc(id)}">${cmpCapHTML(id)}</figcaption></figure>`).join('')}</div>
+        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（${n === 2 ? '两边' : '各张'}同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；“看头部 / 看眼部”放大到 OWLv2 找到的部位（同步时其余各张对准各自的同一部位）；拖动平移，滚轮或双击放大；按 1–${n} 选中一格，点胶片条缩略图替换它。可以全部保留、全部舍弃或都不标记。${PREVIEW_NOTE}</span></div>
+        <div class="cmp-strip" role="group" aria-label="同一连拍：点缩略图替换高亮的一格"></div>` });
     function onView(v, kind, extra) {
-      const o = panes.find(p => p && p !== v);
-      if (!sync() || !o) return;
-      const g = dvGeom(v), go = dvGeom(o);
-      o.z = v.W && o.W ? (g.fw * v.z / v.W) * o.W / go.fw : v.z;   // 同一原像素比例
-      if (kind === 'subject') {
-        const c = [(extra[0] + extra[2]) / 2, (extra[1] + extra[3]) / 2];
-        const near = o.subjects.map(s => [(s.xyxy[0] + s.xyxy[2]) / 2, (s.xyxy[1] + s.xyxy[3]) / 2])
-          .sort((p, q) => Math.hypot(p[0] - c[0], p[1] - c[1]) - Math.hypot(q[0] - c[0], q[1] - c[1]))[0];
-        [o.cx, o.cy] = near && Math.hypot(near[0] - c[0], near[1] - c[1]) < 0.25 ? near : c;
-      } else { o.cx += extra[0]; o.cy += extra[1]; }
-      dvLayout(o); dvWant(o);
-      o.pc = [o.cx, o.cy];
+      if (!sync()) return;
+      const g = dvGeom(v);
+      panes.filter(o => o && o !== v).forEach(o => {
+        const go = dvGeom(o);
+        o.z = v.W && o.W ? (g.fw * v.z / v.W) * o.W / go.fw : v.z;   // 同一原像素比例
+        if (kind === 'subject') {
+          const c = [(extra[0] + extra[2]) / 2, (extra[1] + extra[3]) / 2];
+          const near = o.subjects.map(s => [(s.xyxy[0] + s.xyxy[2]) / 2, (s.xyxy[1] + s.xyxy[3]) / 2])
+            .sort((p, q) => Math.hypot(p[0] - c[0], p[1] - c[1]) - Math.hypot(q[0] - c[0], q[1] - c[1]))[0];
+          [o.cx, o.cy] = near && Math.hypot(near[0] - c[0], near[1] - c[1]) < 0.25 ? near : c;
+        } else if (kind === 'part') {                              // 同一比例，各自对准自己的头部 / 眼部
+          dvPartOf(o, extra).then(r => {
+            if (!r || !r.part || !dvLive.has(o)) return;
+            o.cx = (r.part.xyxy[0] + r.part.xyxy[2]) / 2; o.cy = (r.part.xyxy[1] + r.part.xyxy[3]) / 2;
+            dvLayout(o); dvWant(o); o.pc = [o.cx, o.cy];
+          }).catch(() => {});
+        } else { o.cx += extra[0]; o.cy += extra[1]; }
+        dvLayout(o); dvWant(o);
+        o.pc = [o.cx, o.cy];
+      });
     }
     function strip() {
       const bursts = new Set(panes.map(p => p && (A(p.id).burst || {}).id).filter(Boolean));
       const sib = ws.all.filter(id => A(id).burst && bursts.has(A(id).burst.id))
         .sort((x, y) => (A(x).burst.id < A(y).burst.id ? -1 : A(x).burst.id > A(y).burst.id ? 1 : A(x).burst.rank - A(y).burst.rank));
-      $('.cmp-strip', d).innerHTML = sib.length > 2 ? sib.map(id => `<button type="button" class="cmp-thumb" data-cmp-pick="${esc(id)}" aria-pressed="${panes.some(p => p && p.id === id)}" aria-label="${esc(A(id).name)}">${photo(A(id), 'thumb')}</button>`).join('') : '';
+      $('.cmp-strip', d).innerHTML = sib.length > n ? sib.map(id => `<button type="button" class="cmp-thumb" data-cmp-pick="${esc(id)}" aria-pressed="${panes.some(p => p && p.id === id)}" aria-label="${esc(A(id).name)}">${photo(A(id), 'thumb')}</button>`).join('') : '';
       $$('.cmp-item', d).forEach(f => f.classList.toggle('is-active', Number(f.dataset.pane) === active));
     }
     function mount(i, id) {
       dvDrop(panes[i]);
-      const o = sync() && panes[1 - i];                        // 同步时新换上的一张沿用另一侧的视图
-      panes[i] = dvMount($(`[data-pane="${i}"] .cmp-view`, d), A(id), o ? { z: o.z, cx: o.cx, cy: o.cy } : null, onView);
+      const o = sync() && panes.find((p, j) => p && j !== i && dvLive.has(p));   // 同步时新换上的一张沿用另一格的视图
+      const v = panes[i] = dvMount($(`[data-pane="${i}"] .cmp-view`, d), A(id), o ? { z: o.z, cx: o.cx, cy: o.cy } : null, onView);
+      if (i >= 2) v.after = () => panes.slice(0, 2).some(p => p && p.state === 'loading');
       const cap = $(`[data-pane="${i}"] figcaption`, d);
       cap.dataset.cmp = id;
       swap(cap, cmpCapHTML(id));
@@ -1535,6 +1600,7 @@
     d.addEventListener('pointerdown', e => { const f = e.target.closest('.cmp-item'); if (f) { active = Number(f.dataset.pane); strip(); } });
     d.addEventListener('click', e => { const t = e.target.closest('[data-cmp-pick]'); if (t && !panes.some(p => p.id === t.dataset.cmpPick)) mount(active, t.dataset.cmpPick); });
     d.addEventListener('change', e => { if (e.target.matches('[data-cmp-sync]')) prefs.set('cmpsync', e.target.checked ? '1' : '0'); });
+    document.addEventListener('keydown', onKey);
   }
   // ---------- 原像素细节查看器 结束 ----------
   function openEditCol(id) {
@@ -1582,7 +1648,7 @@
     const c = ui.col;
     dialog({
       title: '完成本组？',
-      body: `<p>本组 ${c.size} 张中，${c.judged} 张已判断，<b>${c.review.unhandled} 张未逐张处理</b>。</p><p class="hint">未处理的素材保持原状，<b>不会被自动 Reject</b>。之后若有新成员加入，会标记为「新增待审」，历史完成记录保留。</p>
+      body: `<p>本组 ${c.size} 张中，${c.judged} 张已判断，<b>${c.review.unhandled} 张未逐张处理</b>。</p><p class="hint">未处理的素材保持原状，<b>不会被自动淘汰</b>。之后若有新成员加入，会标记为「新增待审」，历史完成记录保留。</p>
         <div class="field"><label for="cp-note">备注（可选）</label><input id="cp-note" class="input" maxlength="200"></div>`,
       actions: [{ label: '完成本组', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => {
@@ -1597,13 +1663,13 @@
   async function zero(c, resolution) {
     const r = await api('POST', `/collections/${encodeURIComponent(c.id)}/zero`, resolution ? { resolution } : {});
     await refreshCol(); await refreshCols();
-    if (r.batch_id) toast(`已清除 Pick，「${c.name}」记为本组不留`, { action: { label: '撤销清除', run: () => undoBatch(r.batch_id, '本组不留清除的 Pick') } });
+    if (r.batch_id) toast(`已把保留记录 / 选入修图改回待定，「${c.name}」记为本组不留`, { action: { label: '撤销清除', run: () => undoBatch(r.batch_id, '本组不留清除的保留决定') } });
     else toast(`「${c.name}」已记为本组不留`);
     pollNow();
   }
   function openZero() {
     const c = ui.col;
-    confirmDialog('本组不留？', `<p>将「${esc(c.name)}」记为明确零选。</p><p class="hint">不会 Reject、移动或删除任何素材；若本组含已 Pick 的素材，会先请你选择如何处理。</p>`, '确认本组不留', 'primary', async () => {
+    confirmDialog('本组不留？', `<p>将「${esc(c.name)}」记为明确零选。</p><p class="hint">不会淘汰、移动或删除任何素材；若本组含保留记录或选入修图的照片，会先请你选择如何处理。</p>`, '确认本组不留', 'primary', async () => {
       try { await zero(c); } catch (e) {
         if (e.status !== 409 || !e.body.picks) throw e;
         setTimeout(() => openZeroConflict(c, e.body.picks), 0);
@@ -1613,9 +1679,9 @@
   function openZeroConflict(c, picks) {
     const list = picks.map(p => { const a = A(p.id) || { id: p.id, name: p.id, preview: 'ready', online: true }; return `<li class="conf-item">${photo(a, 'thumb')}<span><b>${esc(a.name)}</b><span class="hint">${p.collections.length ? '也在：' + p.collections.map(x => esc(x.name)).join('、') : '仅在本组'}</span></span></li>`; }).join('');
     dialog({
-      title: `本组含 ${picks.length} 张已 Pick 的素材`, cls: 'conflict',
-      body: `<p class="note warn block">${ic('warn')}「本组不留」与现有 Pick 冲突。Pick 是全局判断，会同时影响这些素材所在的其他集合，因此不会被静默修改。</p><ul class="conf-list">${list}</ul><p class="hint">请选择处理方式（清除后可撤销）：</p>`,
-      actions: [{ label: '保留 Pick，仅完成本组', value: 'keep_picks', kind: 'primary' }, { label: `清除这 ${picks.length} 张的 Pick 并记为不留`, value: 'clear_picks', kind: 'danger' }],
+      title: `本组含 ${picks.length} 张保留记录或选入修图的照片`, cls: 'conflict',
+      body: `<p class="note warn block">${ic('warn')}「本组不留」与这些照片的用途冲突。保留记录、选入修图是全局决定，会同时影响这些照片所在的其他集合，因此不会被静默修改。</p><ul class="conf-list">${list}</ul><p class="hint">请选择处理方式（清除后可撤销）：</p>`,
+      actions: [{ label: '保留它们的用途，仅完成本组', value: 'keep_picks', kind: 'primary' }, { label: `把这 ${picks.length} 张改回待定并记为不留`, value: 'clear_picks', kind: 'danger' }],
       onSubmit: v => (v ? zero(c, v) : undefined),
     });
   }
@@ -1940,8 +2006,9 @@
     burst: el => { const ws = ui.ws, b = el.dataset.id; if (ws.expanded.has(b)) ws.expanded.delete(b); else ws.expanded.add(b); recompute(); },
     'enc-mode': () => { const ws = ui.ws; ws.encMode = !ws.encMode; prefs.set('enc', ws.encMode ? '1' : '0'); const b = $('[data-action="enc-mode"]'); b.setAttribute('aria-pressed', String(ws.encMode)); b.textContent = ws.encMode ? '按拍摄段' : '不分段'; recompute(); },
     'enc-toggle': el => { const o = ui.ws.enc.open, id = el.dataset.id; if (o.has(id)) o.delete(id); else o.add(id); recompute(); },
-    'enc-split': async el => { const ws = ui.ws; try { await api('POST', `/encounters/${encodeURIComponent(el.dataset.id)}/split`, { at: el.dataset.at }); toast('已拆为新拍摄段；重新扫描不会恢复旧分段'); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
-    'enc-merge': async el => { const ws = ui.ws; try { await api('POST', '/encounters/merge', { ids: [el.dataset.id, el.dataset.other] }); toast('已合并拍摄段'); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'enc-split': async el => { const ws = ui.ws; try { const r = await api('POST', `/encounters/${encodeURIComponent(el.dataset.id)}/split`, { at: el.dataset.at }); toast('已拆为新拍摄段；重新扫描不会恢复旧分段', encUndo(ws, r.batch_id)); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'enc-merge': async el => { const ws = ui.ws; try { const r = await api('POST', '/encounters/merge', { ids: [el.dataset.id, el.dataset.other] }); toast('已合并拍摄段', encUndo(ws, r.batch_id)); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'burst-split': async el => { const ws = ui.ws; try { const r = await api('POST', '/bursts/split', { at: el.dataset.id }); toast(`已从这张起拆出 ${r.moved.length} 张为新连拍；重新扫描不会恢复，物种结论不变`); await pollNow(); if (encOn(ws)) await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
     'keep-best': el => keepBest(el.dataset.id),
     'burst-collapse': () => { const ws = ui.ws; ws.collapse = !ws.collapse; prefs.set('burst', ws.collapse ? '1' : '0'); const b = $('[data-action="burst-collapse"]'); b.setAttribute('aria-pressed', String(ws.collapse)); b.textContent = ws.collapse ? '连拍已折叠' : '连拍已展开'; recompute(); },
     'grid-size': () => { const n = prefs.get('grid', 'm') === 'm' ? 'l' : 'm'; prefs.set('grid', n); const w = $('.ws'); w.classList.remove('grid-m', 'grid-l'); w.classList.add('grid-' + n); },
@@ -1996,8 +2063,8 @@
       try {
         const rows = await api('GET', '/coverage', null, { task: el.dataset.id || undefined });
         const ST = { covered: ['已覆盖', 'ok'], zeroed: ['明确不留', 'muted'], uncovered: ['未覆盖', 'fail'] };
-        dialog({ title: '覆盖检查', cls: 'wide', body: `<p class="hint">只检查已扫描素材形成的事件/地点/场景/物种集合；没有拍到的地点系统无从得知。「未覆盖」= 尚无人工 Pick 且未明确不留，不强制每组保留一张。</p>
-          <table class="tbl"><thead><tr><th>集合</th><th>类型</th><th>张数</th><th>Pick</th><th>状态</th></tr></thead><tbody>${rows.map(r => `<tr><td><a href="#/review/${esc(r.collection_id)}">${esc(r.name)}</a></td><td>${esc(GROUP[r.group_kind] || r.group_kind)}</td><td>${esc(r.size)}</td><td>${esc(r.picks)}</td><td>${pill((ST[r.state] || [r.state])[0], (ST[r.state] || [0, 'muted'])[1])}</td></tr>`).join('') || '<tr><td colspan="5" class="hint">还没有可检查的集合。</td></tr>'}</tbody></table>` });
+        dialog({ title: '覆盖检查', cls: 'wide', body: `<p class="hint">只检查已扫描素材形成的事件/地点/场景/物种集合；没有拍到的地点系统无从得知。「未覆盖」= 尚无保留记录或选入修图、且未明确不留，不强制每组保留一张。</p>
+          <table class="tbl"><thead><tr><th>集合</th><th>类型</th><th>张数</th><th>保留</th><th>状态</th></tr></thead><tbody>${rows.map(r => `<tr><td><a href="#/review/${esc(r.collection_id)}">${esc(r.name)}</a></td><td>${esc(GROUP[r.group_kind] || r.group_kind)}</td><td>${esc(r.size)}</td><td>${esc(r.picks)}</td><td>${pill((ST[r.state] || [r.state])[0], (ST[r.state] || [0, 'muted'])[1])}</td></tr>`).join('') || '<tr><td colspan="5" class="hint">还没有可检查的集合。</td></tr>'}</tbody></table>` });
       } catch (e) { toast(errMsg(e)); }
     },
     'lib-clear': () => { ui.lib = {}; route(true); },
@@ -2260,7 +2327,8 @@
     } else if (t.dataset.actionChange === 'batch-stars' && t.value !== '') {
       const n = Number(t.value);
       doMark(Array.from(ui.ws.sel), { stars: n }, n ? `批量 ${n} 星` : '批量清除星级');
-    } else if (t.dataset.pref === 'advance' || t.dataset.pref === 'idburst') prefs.set(t.dataset.pref, t.checked ? '1' : '0');
+    } else if (t.dataset.pref === 'advance') prefs.set(t.dataset.pref, t.checked ? '1' : '0');
+    else if (t.dataset.pref === 'idscope') prefs.set('idscope', t.value);
     else if (t.name === 'def-mode' || t.name === 'def-preset') {
       try { S.settings = await api('PUT', '/settings', t.name === 'def-mode' ? { run_mode: t.value } : { default_preset: t.value }); toast('默认设置已保存'); } catch (err) { toast(errMsg(err)); }
     }

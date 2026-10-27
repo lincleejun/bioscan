@@ -46,8 +46,8 @@ def test_handshake_list_and_errors(svc):
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
-                     "list_encounters", "edit_encounters", "preview_rule", "plan_import", "run_import", "get_import",
-                     "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan",
+                     "list_encounters", "edit_encounters", "split_burst", "preview_rule", "plan_import", "run_import",
+                     "get_import", "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan",
                      "import_collection", "retry_handoff", "lightroom_presets", "preview_handoff"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
@@ -235,3 +235,14 @@ def test_preset_and_export_tools(svc):
     assert not err and pv["representatives"] == [pick["id"]]
     h, err = tool(url, "lightroom_handoff", asset_ids=[pick["id"]], develop={"uuid": "P-WARM", "name": "Bird warm"})
     assert not err and h["options"]["develop"]["uuid"] == "P-WARM"
+
+
+def test_revision_7a_tools_route_to_burst_split_and_encounter_undo(svc):
+    from bioscan.gardener.mcp import route
+
+    assert route("split_burst", {"at": "a_2"}) == ("POST", "/bursts/split", {"at": "a_2"}, None)
+    assert route("edit_encounters", {"action": "undo", "batch_id": "b_1"}) == \
+        ("POST", "/encounters/undo", {"batch_id": "b_1"}, None)
+    url, _ = svc
+    r, err = tool(url, "split_burst", asset_ids=["a_0007"])
+    assert not err and r["moved"] == ["a_0007"]
