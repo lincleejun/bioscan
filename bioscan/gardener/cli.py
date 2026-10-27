@@ -124,7 +124,8 @@ def render(cmd: str, out) -> str:
         rows = [k | {"state": "已确认"} for k in out["species"]] + [k | {"state": "待确认"} for k in out["to_confirm"]]
         un = out["unresolved"]
         return (f"已拍到 {out['confirmed_total']} 种（只计人工确认的）\n" + table(rows, SPECIES_COLS)
-                + f"\n待鉴定：属/科 {un['genus_family']} 张，不确定 {un['unconfirmed']} 张")
+                + f"\n待鉴定：属/科 {un['genus_family']} 张，不确定 {un['unconfirmed']} 张"
+                + (f"\n待重新确认（名录拆分）：{out['to_reconfirm']} 张" if out.get("to_reconfirm") else ""))
     if cmd == "names":
         return table(out, NAME_COLS)
     if isinstance(out, dict):
