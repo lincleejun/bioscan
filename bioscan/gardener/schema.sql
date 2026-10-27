@@ -225,3 +225,38 @@ CREATE TABLE IF NOT EXISTS taxon_names (
   kind TEXT                      -- bird | mammal
 );
 CREATE INDEX IF NOT EXISTS taxon_names_concept ON taxon_names (concept);
+
+-- ---- 契约修订 5E: Lightroom handoff and cleanup plans (handoff.py, cleanup.py) ----
+-- A handoff freezes its members when it is made; each item's state comes only from the plugin's result file.
+CREATE TABLE IF NOT EXISTS handoffs (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, scope TEXT NOT NULL,   -- JSON: what the person handed off
+  doc_path TEXT NOT NULL,        -- the handoff file the Lightroom plugin reads
+  status TEXT NOT NULL,          -- written | applied | partial | failed (never "applied" before a result)
+  actor TEXT NOT NULL, created_at TEXT NOT NULL, result_at TEXT
+);
+CREATE TABLE IF NOT EXISTS handoff_items (
+  handoff_id TEXT NOT NULL REFERENCES handoffs(id), asset_id TEXT NOT NULL REFERENCES assets(id), ord INTEGER NOT NULL,
+  sent TEXT,                     -- JSON: the photo entry as written (NULL = not sent, e.g. offline)
+  status TEXT NOT NULL,          -- pending | ok | skipped | failed
+  reason TEXT, result TEXT,      -- result: the plugin's per-photo JSON
+  PRIMARY KEY (handoff_id, asset_id)
+);
+-- The editor's identity of an asset and the field values Gardener last wrote there (the sync baseline, PRD §15).
+CREATE TABLE IF NOT EXISTS editor_links (
+  asset_id TEXT NOT NULL REFERENCES assets(id), editor TEXT NOT NULL,   -- lightroom
+  photo_id TEXT, uuid TEXT, path TEXT, baseline TEXT NOT NULL DEFAULT '{}',   -- JSON {stars, keywords}
+  handoff_id TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (asset_id, editor)
+);
+-- A cleanup plan: the rejected assets in a scope with every file of each (snapshot size/mtime), run only on confirm.
+CREATE TABLE IF NOT EXISTS cleanup_plans (
+  id TEXT PRIMARY KEY, scope TEXT NOT NULL, plan TEXT NOT NULL,   -- JSON: items with species impact, summary
+  status TEXT NOT NULL,          -- planned | ran | partial
+  actor TEXT NOT NULL, created_at TEXT NOT NULL, ran_at TEXT, report TEXT
+);
+CREATE TABLE IF NOT EXISTS cleanup_files (
+  plan_id TEXT NOT NULL REFERENCES cleanup_plans(id), asset_id TEXT NOT NULL REFERENCES assets(id),
+  path TEXT NOT NULL, role TEXT NOT NULL,    -- raw | jpeg | image | video | sidecar | ...
+  size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL,
+  result TEXT,                   -- NULL | trashed | failed | skipped
+  reason TEXT, at TEXT, PRIMARY KEY (plan_id, path)
+);

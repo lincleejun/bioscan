@@ -23,7 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import identities, people, query, tasks, taxa
+from bioscan.gardener import cleanup, handoff, identities, people, query, tasks, taxa
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
@@ -60,11 +60,14 @@ def text(body: dict[str, Any], key: str, *, required: bool = False, default: str
 
 def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: tasks.Toolkit | None = None,
                         allow_roots: list[str] | None = None, start_worker: bool = True,
-                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS, name_lists: Path | None = DATA_DIR) -> FastAPI:
+                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS, name_lists: Path | None = DATA_DIR,
+                        lightroom_dir: Path | None = None, trash: Any = None) -> FastAPI:
     """`engine`: a BioScan Engine (tests pass one built on fake Loaders); None = created on first analysis.
     `toolkit`: unit 2's scanner/Analyzer functions (default: the real modules). `allow_roots`: task sources
     must lie inside one of them (none = any directory). `name_lists`: the folder holding avilist/, mdd/ and
-    names/ the name index is built from (taxa.py); None = leave the index as it is."""
+    names/ the name index is built from (taxa.py); None = leave the index as it is. `lightroom_dir`: where handoff
+    files go for the Lightroom plugin (default handoff.default_dir()); `trash`: moves one file to the Trash
+    (default cleanup.trash; tests inject one)."""
     store = st.Store(data_dir)
     if name_lists is not None:
         taxa.sync(store, name_lists)
@@ -1119,6 +1122,90 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def exports() -> list[dict[str, Any]]:
         return [{"id": x["id"], "created_at": x["created_at"], "request": loads(x["request"]),
                  "report": loads(x["report"])} for x in store.all("SELECT * FROM exports ORDER BY created_at DESC")]
+
+    # ---- 契约修订 5E: Lightroom handoff and cleanup plans (handoff.py, cleanup.py) ----
+    lr_dir = Path(lightroom_dir) if lightroom_dir is not None else handoff.default_dir()
+    trash_fn = trash or cleanup.trash
+
+    def scope_of(body: dict[str, Any]) -> tuple[dict[str, Any], list[str], str]:
+        """(scope as recorded, asset ids, a name for it) from collection_id | concept | asset_ids | rule."""
+        if body.get("collection_id"):
+            col = store.collection(body["collection_id"])
+            return {"collection_id": col["id"]}, store.ids_where({"collection": col["id"]}), col["name"]
+        if body.get("concept"):
+            k = text(body, "concept", required=True)
+            ids = store.ids_where({"concept": k})
+            shown = taxa.display(store.conn(), [k]).get(k) or {}
+            row = store.one("SELECT taxon, common FROM current_ids WHERE concept = ? LIMIT 1", (k,)) or {}
+            return {"concept": k}, ids, shown.get("zh") or shown.get("common") or row.get("common") or row.get("taxon") or k
+        if body.get("asset_ids") is not None:
+            ids = strs(body["asset_ids"], "asset_ids")
+            check_assets(ids)
+            return {"asset_ids": ids}, ids, f"选中的 {len(ids)} 张"
+        if body.get("rule") is not None:
+            rule = check_rule(body["rule"])
+            return {"rule": rule}, store.ids_where(rule), "筛选结果"
+        return {}, [], ""
+
+    @r.post("/handoffs", status_code=201)
+    def post_handoff(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """Freeze a collection, species or selection for Lightroom and write its handoff file (PRD §12)."""
+        scope, ids, name = scope_of(body)
+        if not scope:
+            raise Error("one of collection_id, concept, asset_ids, rule is required")
+        uses = body.get("uses")
+        if uses is not None:
+            uses = tuple(strs(uses, "uses"))
+        elif "asset_ids" not in scope:
+            uses = handoff.HANDOFF_USES
+        name = text(body, "name") or name
+        with store.tx() as c:
+            hid = handoff.create(c, ids, name=name, scope=scope | {"uses": uses}, uses=uses, actor=actor,
+                                 lightroom_dir=lr_dir, lists_dir=name_lists)
+            return handoff.get(c, hid)
+
+    @r.get("/handoffs")
+    def get_handoffs(limit: int = LIMIT100) -> list[dict[str, Any]]:
+        with store.tx() as c:
+            ids = [x[0] for x in c.execute("SELECT id FROM handoffs ORDER BY created_at DESC LIMIT ?", (limit,))]
+            for hid in ids:
+                handoff.ingest(c, hid)
+            return [{k: v for k, v in handoff.get(c, hid).items() if k != "items"} for hid in ids]
+
+    @r.get("/handoffs/{hid}")
+    def get_handoff(hid: str) -> dict[str, Any]:
+        """The handoff with each photo's real result once the plugin wrote one (read back on request)."""
+        with store.tx() as c:
+            if c.execute("SELECT 1 FROM handoffs WHERE id = ?", (hid,)).fetchone():
+                handoff.ingest(c, hid)
+            return handoff.get(c, hid)
+
+    @r.post("/cleanup-plans", status_code=201)
+    def post_cleanup_plan(body: dict[str, Any] = OPT_BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """The rejected assets in a scope (default: the whole library) with every file and species impact."""
+        scope, ids, _ = scope_of(body)
+        if not scope:
+            ids = store.ids_where({"flag": "reject"})
+        with store.tx() as c:
+            return cleanup.get(c, cleanup.create(c, ids, scope=scope, actor=actor))
+
+    @r.get("/cleanup-plans")
+    def get_cleanup_plans(limit: int = LIMIT100) -> list[dict[str, Any]]:
+        rows = store.all("SELECT id FROM cleanup_plans ORDER BY created_at DESC LIMIT ?", (limit,))
+        return [{k: v for k, v in cleanup.get(store.conn(), x["id"]).items() if k != "items"} for x in rows]
+
+    @r.get("/cleanup-plans/{pid}")
+    def get_cleanup_plan(pid: str) -> dict[str, Any]:
+        return cleanup.get(store.conn(), pid)
+
+    @r.post("/cleanup-plans/{pid}/run")
+    def run_cleanup_plan(pid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        """Move the plan's files to the Trash after a person confirmed, re-checking every item first."""
+        if body.get("confirm") is not True:
+            raise Error("清理需要人确认：confirm 必须为 true")
+        report = cleanup.run(store, pid, trash_fn)
+        return cleanup.get(store.conn(), pid) | {"report": report}
+    # ---- end 契约修订 5E ----
 
     app.include_router(r)
     if (WEB_DIR / "index.html").exists():
