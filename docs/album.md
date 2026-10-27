@@ -30,24 +30,31 @@ The `aesthetics` stage gives each frame an aesthetic score from a small linear *
 
 ## Scoring a folder: `bioscan aesthetic score`
 
-The ranking on its own, without the cull reducers: score a folder with the `album` profile and export it in any of
-three forms at once, so the same run can be looked at and kept as data.
+The ranking with the cull's verdict alongside: score a folder with the `album` profile, run its reducers (`burst`,
+`select`, as `bioscan cull` does), and export it in any of three forms at once, so the same run can be looked at and
+kept as data. Reject reasons, waived reasons, flags and status (pick / spare / duplicate / reject) come from `select`,
+so a night photo that `cull` waives `underexposed` for reads the same on the score page.
 
 ```sh
 bioscan aesthetic score ~/Pictures/2026-05-trip -r --export json,csv,html --out ~/Pictures/2026-05-trip/aesthetic
 bioscan aesthetic score --preds aesthetic.ndjson --export html --out aesthetic      # again, offline
 bioscan aesthetic score ~/Pictures/2026-05-trip --species --export json,csv,html --out aes   # ... and name the animals
+bioscan aesthetic score ~/Pictures/2026-05-trip --species --lat 37.87 --lon -122.25 --out aes   # photos without GPS
 ```
 
 `--export` takes `json` (default), `csv`, `html`, comma-separated; `--out` is a prefix. `--species` turns the album
 profile's species naming on (BioCLIP loads; the location prior applies as in `bioscan run`): each photo carries the
 name of its surest box (species, or genus / family when only that held up, as `bioscan summarize` counts it).
+`--lat/--lon` (both or neither) is the batch coordinate for the photos whose EXIF has no GPS, as in `bioscan run`:
+a photo's own GPS still wins. It goes into the service request, so `--preds` (no service call) refuses it.
+The scan leaves out `<out>-files/` (the page's own copies from an earlier run). The printed summary gives scored /
+named / failed, the score range and star cuts, the top taxa (common name, count) and the scene-group counts.
 
 | file | what |
 |---|---|
-| `<out>.ndjson` | the run's events with a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
-| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, flags, sharpness, taken_at (the three name columns are empty without `--species`; `common` is the English name at every level: "Lesser Goldfinch", or "a vireo" / "a hawk or eagle" for a genus or family, from the common names of the taxon's candidates); failed decodes last |
-| `<out>.html` | the review page: a photo grid (score, stars, name, reject reason and flags on each card), an overview panel (marks progress, the score cut of each star) and a **taxon tree** (class → order → family → genus → species, with counts; click a branch to see only it, ⇢ merges one name into another). Search, sort (default: stars, then time taken, so a burst stays in shooting order within a star band; also score, name, date, species) and filters (stars, marks, reject reason, scene, species, folder) live in the toolbar's popovers; active filters show as chips. **Marks**: click selects a card, shift-click a range, ⌘-click adds, ⌘A all shown; a floating bar keeps / drops / unmarks the selection, the group header does the same for everything in view (the branch or filter), <kbd>K</kbd> / <kbd>X</kbd> / <kbd>U</kbd> work on the selection and in the lightbox. Marks stay in the browser. **Export keeps…** (overview panel) asks for a destination path (remembered) and copies the kept originals and their XMP sidecars there, files already there left as is; **Delete drops…** asks for confirmation and removes the dropped originals and sidecars from disk. Both go through the running bioscan service (`POST /apply` on the `--url` the page was made with, gated by the token in `~/.cache/bioscan/serve-token` that `aesthetic score` bakes into the page), so keep `bioscan serve` running while you review; the paths must be inside its `--allow-root`s. Without a service the page falls back to the browser's directory picker (Chrome, Edge: it asks for the photo folder once and remembers it); elsewhere save the decisions file from the ⋯ menu and run `bioscan aesthetic apply`. The **lightbox** (double-click, ↵ or the corner button) shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
+| `<out>.ndjson` | the run's events (with `products.burst` and `products.select`) and a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
+| `<out>.csv` | one row per photo, best first: rank, path, score, stars, status, scene, species, common, level, reject_reasons, waived, flags, sharpness, taken_at (the three name columns are empty without `--species`; `common` is the English name at every level: "Lesser Goldfinch", or "a vireo" / "a hawk or eagle" for a genus or family, from the common names of the taxon's candidates; status, reject_reasons and waived are `select`'s); failed decodes last |
+| `<out>.html` | the review page: a photo grid (score, stars, name, reject reason, cull status and flags on each card), an overview panel (marks progress, the score cut of each star) and a **taxon tree** (class → order → family → genus → species, with counts; click a branch to see only it, ⇢ merges one name into another). Search, sort (default: stars, then time taken, so a burst stays in shooting order within a star band; also score, name, date, species) and filters (stars, marks, reject reason, scene, species, folder) live in the toolbar's popovers; active filters show as chips. **Marks**: click selects a card, shift-click a range, ⌘-click adds, ⌘A all shown; a floating bar keeps / drops / unmarks the selection, the group header does the same for everything in view (the branch or filter), <kbd>K</kbd> / <kbd>X</kbd> / <kbd>U</kbd> work on the selection and in the lightbox. Marks stay in the browser. **Export keeps…** (overview panel) asks for a destination path (remembered) and copies the kept originals and their XMP sidecars there, files already there left as is; **Delete drops…** asks for confirmation and removes the dropped originals and sidecars from disk. Both go through the running bioscan service (`POST /apply` on the `--url` the page was made with, gated by the token in `~/.cache/bioscan/serve-token` that `aesthetic score` bakes into the page), so keep `bioscan serve` running while you review; the paths must be inside its `--allow-root`s. Without a service the page falls back to the browser's directory picker (Chrome, Edge: it asks for the photo folder once and remembers it); elsewhere save the decisions file from the ⋯ menu and run `bioscan aesthetic apply`. The **lightbox** (double-click, ↵ or the corner button) shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
 
 `bioscan aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
 **copied** to `--keep-to` (originals and their XMP sidecars), the drops **moved** to `--drop-to`; `--dry-run` only
@@ -109,8 +116,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   best box by score) starts less than `headroom_min` (default 0.02, a share of the frame height; 0 turns it off)
   below the frame top and is not a fill-the-frame portrait (box under half the frame). It reads the existing boxes, no
   extra model call; a box within 1% of the top is also quality's `subject_cut` reject. Both thresholds are guesses,
-  unverified until #28's labelled trips exist. `aesthetic score` reads the same options from the album profile
-  (`[profile.album.options.select] horizon_flag_deg = 5`) for its CSV column and card badge; XMP gets nothing. A
+  unverified until #28's labelled trips exist. `aesthetic score` runs the album profile's reducers too
+  (`[profile.album.options.select] horizon_flag_deg = 5` applies to its CSV column and card badge); XMP gets nothing. A
   preds file from before flags reads as no flags.
 - **Outputs**: `--csv` (one row per photo: status, keep, category, rank, reasons, waived, flags, burst, burst rank, duplicate of,
   sharpness, aesthetic, capture time; failed photos too), `--link-dir` (a symlink per pick in `<dir>/<category>/`,
