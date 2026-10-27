@@ -738,3 +738,8 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .id-hits .btn { width: 100%; justify-content: flex-start; text-align: left; }
 .page-head .seg .seg-btn { white-space: nowrap; }
 .page-head .seg { flex: none; }
+
+/* 标出漏掉的动物：检视器大图上拖框 */
+.ph.is-drawing { cursor: crosshair; touch-action: none; }
+.ph.is-drawing img { pointer-events: none; }
+.draw-box { position: absolute; border: 2px solid var(--accent, #3a7); background: rgba(255, 255, 255, .12); pointer-events: none; }

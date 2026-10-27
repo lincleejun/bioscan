@@ -64,6 +64,7 @@
   const REVIEW = { open: '审阅中', completed: '已完成', zeroed: '本组不留' };
   const LEVEL_ZH = { species: '种', genus: '属', family: '科', unconfirmed: '不确定', not_animal: '不是动物' };
   const KIND_ZH = { bird: '鸟类', mammal: '哺乳动物', other_animal: '其他动物' };
+  const FLOCK_ZH = { bird: '鸟群：不逐只命名', mammal: '兽群：不逐只命名', other: '成群：不逐只命名' };
   const ID_NOTE = '物种按动物主体记录：人工确认优先，模型重跑只追加新的建议，不覆盖人的结论。';
   const PREVIEW_NOTE = '低分辨率预览（含 RAW 内嵌预览）只用于浏览，不代表完整 RAW 解码或对焦验证。';
   const XML_NOTE = 'Gardener XML 只供 Gardener 使用：它不是 XMP，Lightroom 不能直接读取。导出不会移动、改名或删除任何原片。';
@@ -695,12 +696,13 @@
   // 照片里的动物（主体）：每只一行，人工确认优先；确认或改名可同时作用于同一连拍（契约修订 4）
   function idText(x) {
     if (!x) return '未识别';
+    if (x.qualifier === 'slash') return `待重新确认：${(x.candidates || []).map(c => c.common || c.scientific).join(' / ')}`;
     if (x.level === 'species') return [x.zh, x.common, x.taxon].filter(Boolean).join(' · ');
     return x.taxon ? `${x.taxon}（${LEVEL_ZH[x.level]}）` : LEVEL_ZH[x.level] || x.level;
   }
   function subjectsHTML(a, d) {
-    const ss = d && d.subjects;
-    if (!ss || !ss.length) return '';
+    const ss = (d && d.subjects) || [];
+    if (!d || (!ss.length && (a.media !== 'photo' || a.preview !== 'ready'))) return '';
     const crop = s => {
       const [x0, y0, x1, y1] = s.xyxy, w = Math.max(x1 - x0, 0.01), h = Math.max(y1 - y0, 0.01);
       return `background-image:url('${mediaUrl(a.id, 'large')}');background-size:${100 / w}% ${100 / h}%;background-position:${w < 1 ? (x0 / (1 - w)) * 100 : 0}% ${h < 1 ? (y0 / (1 - h)) * 100 : 0}%`;
@@ -712,10 +714,14 @@
       const src = !cur ? '' : s.human ? '<small class="pill p-ok">人工确认</small>' : `<small class="hint">AI 候选${cur.p != null ? ' · ' + esc(fmtScore(cur.p)) : ''}</small>`;
       const aiDiff = s.human && ai && ai.concept !== cur.concept ? `<small class="hint">模型：${esc(idText(ai))}</small>` : '';
       const said = cur && cur.said ? `<small class="hint">当时记作 ${esc(cur.said.taxon)}（名录已更名）</small>` : '';
+      const slash = cur && cur.qualifier === 'slash';
+      const why = slash ? `<small class="hint">名录拆分：原记作 ${esc(cur.common || cur.taxon)}，请选其中一种</small>`
+        : cur && cur.reason === 'flock' ? `<small class="hint">${esc(FLOCK_ZH[s.kind] || FLOCK_ZH.other)}</small>` : '';
+      const picks = slash ? (cur.candidates || []).map(c => `<button type="button" class="btn sm ghost" data-action="id-pick" data-id="${esc(a.id)}" data-subject="${esc(s.id)}" data-concept="${esc(c.concept)}" data-taxon="${esc(c.scientific || '')}" data-common="${esc(c.common || '')}">${esc(c.common || c.scientific)}</button>`).join('') : '';
       return `<li><span class="face subj" style="${esc(crop(s))}" role="img" aria-label="动物 ${i + 1}"></span>
-        <span><b>${esc(idText(cur))}</b>${src}${aiDiff}${said}</span>
-        <span class="face-acts">${!s.human && ai && ai.level === 'species' ? btn('id-accept', s, '确认') : ''}${btn('id-change', s, '改为…')}${btn('id-unsure', s, '不确定')}</span></li>`;
-    }).join('')}</ul>${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
+        <span><b>${esc(idText(cur))}</b>${src}${aiDiff}${said}${why}</span>
+        <span class="face-acts">${picks}${!s.human && ai && ai.level === 'species' ? btn('id-accept', s, '确认') : ''}${btn('id-change', s, '改为…')}${btn('id-unsure', s, '不确定')}</span></li>`;
+    }).join('') || '<li class="hint">模型没有标出动物。</li>'}</ul>${a.media === 'photo' && a.preview === 'ready' ? `<button type="button" class="btn sm ghost" data-action="id-draw" data-id="${esc(a.id)}">标出漏掉的动物</button>` : ''}${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
   }
   // 同一拍摄的其他版本：只在代表版本出现；“不是同一张”由人确认后永不再自动合并
   function versionsHTML(d) {
@@ -826,11 +832,55 @@
       else toast(errMsg(e));
     }
   }
+  // 标出漏掉的动物（契约修订 4 S3 new_subjects）：在检视器大图上拖一个框，再选物种。大图已按 EXIF 摆正，
+  // xyxy 是摆正后图像的 0–1 比例；图按 contain 放进舞台，所以按图像实际显示的区域换算，不算留白。
+  function shownRect(img) {
+    const r = img.getBoundingClientRect(), nw = img.naturalWidth, nh = img.naturalHeight;
+    const k = Math.min(r.width / nw, r.height / nh), w = nw * k, h = nh * k;
+    return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
+  }
+  function startDraw(id) {
+    if (ui.zoom) { ui.zoom = false; renderInspector(); }
+    const ph = $('#inspector .insp-photo .ph'), img = ph && $('img', ph);
+    if (!img || !img.naturalWidth || !ui.ws || ui.ws.current !== id) { toast('大图还没载入，稍后再试'); return; }
+    const clamp = v => Math.min(1, Math.max(0, v));
+    const at = e => { const r = shownRect(img); return [clamp((e.clientX - r.x) / r.w), clamp((e.clientY - r.y) / r.h)]; };
+    const box = ph.appendChild(Object.assign(document.createElement('div'), { className: 'draw-box', hidden: true }));
+    let p0 = null;
+    const show = (p, q) => {
+      const r = shownRect(img), o = ph.getBoundingClientRect();
+      Object.assign(box.style, { left: `${r.x - o.left + Math.min(p[0], q[0]) * r.w}px`, top: `${r.y - o.top + Math.min(p[1], q[1]) * r.h}px`,
+        width: `${Math.abs(q[0] - p[0]) * r.w}px`, height: `${Math.abs(q[1] - p[1]) * r.h}px` });
+      box.hidden = false;
+    };
+    const stop = () => {
+      ph.classList.remove('is-drawing'); box.remove();
+      ph.removeEventListener('pointerdown', down); ph.removeEventListener('pointermove', move); ph.removeEventListener('pointerup', up);
+      document.removeEventListener('keydown', esc, true);
+    };
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); stop(); toast('已取消标框'); } };
+    const down = e => { if (e.button !== 0) return; e.preventDefault(); p0 = at(e); show(p0, p0); ph.setPointerCapture(e.pointerId); };
+    const move = e => { if (p0) show(p0, at(e)); };
+    const up = e => {
+      if (!p0) return;
+      const q = at(e), xyxy = [Math.min(p0[0], q[0]), Math.min(p0[1], q[1]), Math.max(p0[0], q[0]), Math.max(p0[1], q[1])];
+      p0 = null;
+      if (xyxy[2] - xyxy[0] < 0.01 || xyxy[3] - xyxy[1] < 0.01) { box.hidden = true; toast('框太小，请再拖一次'); return; }
+      stop();
+      ACTIONS['id-change']({ dataset: { id, xyxy: JSON.stringify(xyxy.map(v => Math.round(v * 1e4) / 1e4)) } });
+    };
+    ph.classList.add('is-drawing');
+    ph.addEventListener('pointerdown', down); ph.addEventListener('pointermove', move); ph.addEventListener('pointerup', up);
+    document.addEventListener('keydown', esc, true);
+    toast('在大图上按住拖出动物所在的框；Esc 取消');
+  }
   async function identify(el, claim, label) {
     const a = A(el.dataset.id);
-    const scope = a && a.burst && a.burst.size > 1 && prefs.get('idburst', '1') === '1' ? 'burst' : 'subject';
+    const drawn = el.dataset.xyxy ? JSON.parse(el.dataset.xyxy) : null;     // a box a person drew: no burst scope
+    const scope = !drawn && a && a.burst && a.burst.size > 1 && prefs.get('idburst', '1') === '1' ? 'burst' : 'subject';
     try {
-      const r = await api('POST', '/identifications', { subject_ids: [el.dataset.subject], claim, scope });
+      const r = await api('POST', '/identifications', Object.assign(drawn ? { new_subjects: [{ asset_id: el.dataset.id, xyxy: drawn }] }
+        : { subject_ids: [el.dataset.subject] }, { claim, scope }));
       const n = r.changed.length, skip = r.skipped.filter(x => x.reason === 'human').length;
       S.details.clear();
       toast(`${label}${n > 1 ? `（${n} 只，含同一连拍）` : ''}${skip ? `；${skip} 张已有人工结论，未改` : ''}`, r.batch_id ? { action: { label: '撤销', run: async () => {
@@ -1017,6 +1067,7 @@
         <div class="seg" role="group" aria-label="类别">${[['', '全部'], ['bird', '鸟类'], ['mammal', '哺乳动物'], ['other_animal', '其他动物']].map(([v, l]) => `<button type="button" class="seg-btn" data-action="sp-kind" data-kind="${v}" aria-pressed="${kind === v}">${l}</button>`).join('')}</div></header>
       <section><h2>已确认<span class="hint"> · ${lib.species.length} 种 · 每个物种一组，跨任务与日期累积，一张照片也单独成组</span></h2>${grid(lib.species)}</section>
       <section><h2>待确认<span class="hint"> · ${lib.to_confirm.length} 种 · 只有模型候选</span></h2>${grid(lib.to_confirm)}</section>
+      ${lib.to_reconfirm ? `<section><h2>待重新确认</h2><p class="hint">名录把你确认过的物种拆成了几个种：<a href="#/library" data-action="lib-preset" data-filter="id_state" data-value="reconfirm">${lib.to_reconfirm} 张</a>要从拆分后的种里重新选一个，选之前不计入已拍到的种数。</p></section>` : ''}
       <section><h2>待鉴定</h2><p class="hint">只识别到属或科：<a href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved">${un.genus_family + un.unconfirmed} 张</a>（属/科 ${un.genus_family} · 不确定 ${un.unconfirmed}）。可以照常保留、修图和导出，不需要先鉴定。</p></section>
     </div>`;
   }
@@ -1049,7 +1100,7 @@
     ['online', '原片', [['', '不限'], ['1', '在线'], ['0', '离线']]],
     ['analysis', '分析状态', [['', '不限'], ['pending', '等待中'], ['done', '已分析'], ['failed', '失败'], ['unavailable', '不可用']]],
     ['has_gps', 'GPS', [['', '不限'], ['1', '有'], ['0', '无']]],
-    ['id_state', '物种结论', [['', '不限'], ['confirmed', '已确认'], ['candidate', '模型候选'], ['unresolved', '待鉴定（属/科/不确定）']]],
+    ['id_state', '物种结论', [['', '不限'], ['confirmed', '已确认'], ['candidate', '模型候选'], ['unresolved', '待鉴定（属/科/不确定）'], ['reconfirm', '待重新确认（名录拆分）']]],
     ['tag', '标签', 'sel'],
     ['order', '排序', [['time', '拍摄时间'], ['discovered', '发现顺序'], ['path', '文件名'], ['score', 'AI 分数']]],
   ];
@@ -1454,9 +1505,10 @@
     'id-accept': el => identify(el, { accept: true }, '已确认'),
     'id-unsure': el => identify(el, { level: 'unconfirmed' }, '已标为不确定'),
     'id-change': el => {
+      const ref = el.dataset.xyxy ? `data-xyxy="${esc(el.dataset.xyxy)}"` : `data-subject="${esc(el.dataset.subject)}"`;
       const d = dialog({
-        title: '改为哪个物种', focus: '#idq',
-        body: '<div class="field"><label for="idq">学名、英文名、中文名或旧名</label><input id="idq" class="input" maxlength="80" autocomplete="off"></div><ul class="id-hits" id="id-hits" aria-live="polite"></ul><p class="hint">中文名来自你放在数据目录的 names-zh.csv；没有的物种用学名或英文名查。</p>',
+        title: el.dataset.xyxy ? '框里是什么动物' : '改为哪个物种', focus: '#idq',
+        body: `<div class="field"><label for="idq">学名、英文名、中文名或旧名</label><input id="idq" class="input" maxlength="80" autocomplete="off"></div><ul class="id-hits" id="id-hits" aria-live="polite"></ul><p class="hint">中文名来自你放在数据目录的 names-zh.csv；没有的物种用学名或英文名查。</p>${el.dataset.xyxy ? `<button type="button" class="btn sm ghost" data-action="id-pick" data-id="${esc(el.dataset.id)}" ${ref} data-level="unconfirmed">只标出，不确定是什么</button>` : ''}`,
         actions: [],
       });
       let seq = 0;
@@ -1464,13 +1516,15 @@
         const q = e.target.value.trim(), my = ++seq;
         const hits = q ? await api('GET', '/names', null, { q, limit: 12 }).catch(() => []) : [];
         if (my !== seq) return;
-        $('#id-hits', d).innerHTML = hits.map(h => `<li><button type="button" class="btn sm ghost" data-action="id-pick" data-id="${esc(el.dataset.id)}" data-subject="${esc(el.dataset.subject)}" data-concept="${esc(h.concept)}" data-taxon="${esc(h.scientific || '')}" data-common="${esc(h.common || '')}"><b>${esc(h.zh || h.common || h.scientific)}</b> <i>${esc(h.scientific)}</i>${h.photos ? ` <small class="hint">库中 ${h.photos} 张</small>` : ''}${h.matched !== h.scientific && h.matched !== h.common && h.matched !== h.zh ? ` <small class="hint">（${esc(h.matched)}）</small>` : ''}</button></li>`).join('') || (q ? '<li class="hint">没有找到</li>' : '');
+        $('#id-hits', d).innerHTML = hits.map(h => `<li><button type="button" class="btn sm ghost" data-action="id-pick" data-id="${esc(el.dataset.id)}" ${ref} data-concept="${esc(h.concept)}" data-taxon="${esc(h.scientific || '')}" data-common="${esc(h.common || '')}"><b>${esc(h.zh || h.common || h.scientific)}</b> <i>${esc(h.scientific)}</i>${h.photos ? ` <small class="hint">库中 ${h.photos} 张</small>` : ''}${h.matched !== h.scientific && h.matched !== h.common && h.matched !== h.zh ? ` <small class="hint">（${esc(h.matched)}）</small>` : ''}</button></li>`).join('') || (q ? '<li class="hint">没有找到</li>' : '');
       });
     },
     'id-pick': el => {
       const dd = el.closest('dialog'); if (dd) dd.close();
+      if (el.dataset.level) { identify(el, { level: el.dataset.level }, '已标出'); return; }
       identify(el, { level: 'species', concept: el.dataset.concept, taxon: el.dataset.taxon, common: el.dataset.common || null }, `已改为 ${el.dataset.common || el.dataset.taxon}`);
     },
+    'id-draw': el => startDraw(el.dataset.id),
     'sp-kind': el => { ui.spKind = el.dataset.kind; rerender(); },
     'lib-preset': el => { ui.lib = { [el.dataset.filter]: el.dataset.value }; location.hash = '#/library'; },
     'sp-cover': async () => {
