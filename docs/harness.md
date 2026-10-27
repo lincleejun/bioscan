@@ -371,8 +371,8 @@ bioscan bench scorecard runs/album/report.json                       # tier albu
 ```
 
 CI does the same in `tests/models` on 24 smoke photos (scene truth `wildlife`), writes `models-report-album.json`
-and `models.yml` compares it with `baselines/ci-album.json` under `baselines/budget-album.toml` (no baseline yet:
-it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =====` markers).
+and `models.yml` compares it with `baselines/ci-album.json` under `baselines/budget-album.toml`: a regression over budget fails the job (without that file it
+prints the candidate between `===== BEGIN bioscan-report ci-album candidate =====` markers).
 
 | Plugin | Metric (kind) | Scopes | Definition |
 |---|---|---|---|

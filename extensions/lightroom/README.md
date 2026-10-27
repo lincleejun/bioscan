@@ -54,6 +54,26 @@ What it does to each photo:
 - **Fields.** `bioscan species`, `bioscan level`, `bioscan score`, `bioscan stars`, `bioscan run` in
   the Metadata panel (read-only; species and level are searchable, e.g. for smart collections).
 
+## Gardener handoffs (unverified in Lightroom)
+
+`Handoff.lua` applies Gardener's handoff files (`~/Library/Application Support/bioscan/lightroom/handoffs/<id>.json`,
+schema 2; `latest.json` above is schema 1 and unchanged). The watcher applies every file that has no `<id>.result.json`
+yet; Library > Plug-in Extras > **bioscan: Apply Gardener handoffs** does it now. Per photo: find it by each path, then
+by the `uuid` an earlier handoff recorded; otherwise add the first existing path in place. Add it to the collection
+named after the handoff inside the `Gardener` set. Stars and keywords follow `Decide.lua` (the same rules as
+`bioscan/gardener/handoff.py`, tested against each other with a plain `lua`): a field Lightroom changed since the
+baseline Gardener sends is skipped and reported as a conflict; only keywords a handoff wrote are ever removed. The
+result file lists ok / skipped / failed with a reason, the Lightroom `photo_id` and `uuid`, and each field's action.
+
+Manual check (not done yet): hand off a collection of 3 photos, one already in the catalog; all 3 end in the
+collection, nothing is imported twice on a repeat; change one star in Lightroom and hand off again: that star is
+reported as a conflict and kept; correct a species in Gardener and hand off: the old species keyword is replaced,
+other keywords stay.
+
+Additional SDK calls (from the SDK reference, unverified in Lightroom): `LrCatalog:findPhotoByUuid`,
+`LrPhoto:getRawMetadata("keywords" | "uuid")`, `LrPhoto:removeKeyword`, `LrKeyword:getParent`, `LrFileUtils.files`,
+`LrFileUtils.move` / `delete`, and Lua `io.open` for writing the result file.
+
 ## Acceptance checklist (manual, on the owner's Mac)
 
 1. Pick a folder with about 10 photos, some with animals and one without, and one already rated by hand.
@@ -84,7 +104,8 @@ which catches syntax errors but not 5.4-only features, so review for those by ha
 
 Files: `Info.lua` (manifest), `Metadata.lua` (fields), `Apply.lua` (module doing the work),
 `ApplyMenu.lua` (menu item: starts an async task and calls `Apply.apply`), `Watch.lua` (init script
-that polls `latest.json`), `dkjson.lua`.
+that polls `latest.json` and the Gardener handoffs folder), `Handoff.lua`, `Decide.lua` (pure Lua conflict rules),
+`HandoffMenu.lua`, `dkjson.lua`.
 
 ## dkjson
 
