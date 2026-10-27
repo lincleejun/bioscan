@@ -355,6 +355,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - `marks.flag` 保留为派生列，只由 `store.write_mark` 按用途写入（`record|edit` → `pick`，`reject` → `reject`）。所以旧客户端、`flag=` 筛选、`Collection.picks/rejects`、本组不留（`picks` = 记录或修图）、覆盖检查、导出 `scope=picked` 与导出 XML 的 `flag` 照旧可用。
   - 响应与 `AssetItem` 增加 `use`（永远是四个值之一）；`judged` = 用途不是待定或有星级。标记历史的字段从此是 `use`；撤销旧的 `flag` 历史行时按上面的映射还原为用途。
   - 筛选（含 Smart 规则）增加 `use=record|edit|pending|reject`。
+  - 导出 XML 的 `<asset>` 增加 `use` 属性（`flag` 照旧）。
   - **保留此张并淘汰相似帧**：`POST /marks/keep-best {asset_id, keep_use?: record|edit（缺省 record）, dry_run?, expect?}` → `{dry_run, burst_id, keep: {id, use}, reject: [id], skipped: [{id, reason: human|only_record, concepts?}], expect: {id: version}, batch_id}`。
     - 范围是该照片所在连拍（`ai_suggestions.burst_id`）的其他代表版本；已是淘汰的不再列出。
     - 跳过 `human`：已有人工决定（记录、修图或星级）。
