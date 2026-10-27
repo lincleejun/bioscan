@@ -1,7 +1,7 @@
 """Original-pixel detail (contract revision 5C, PRD §08 第三级 / AC06): crops of the original pixels in
 upright coordinates (EXIF orientation 6 / 8 JPEGs, a RAW through a fake rawpy that turns its pixels the
 way LibRaw does), the decoded-RAW cache under cache/detail, supersession, the time limit, and marks that
-never wait for a decode. Unverified on real RAW files: rawpy is faked."""
+never wait for a decode. rawpy is faked here; two real Sony A1 ARWs were measured by hand (contract revision 7D)."""
 from __future__ import annotations
 
 import sys
