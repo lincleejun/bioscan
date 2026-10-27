@@ -79,6 +79,10 @@
 | R71 | 清理计划：真实文件组、sidecar、最后物种照片、预计容量（PRD §11，AC15） | `cleanup.create`、`POST /cleanup-plans` | `test_core_cleanup.py::test_a_plan_lists_*`、`test_a_stem_sidecar_*` | 已由测试证实 |
 | R72 | 执行前重新核对；移到废纸篓与真正释放分开报告；离线不算删除；失败只重试失败项（PRD §11，AC15，ADR 0003） | `cleanup.run`、`POST /cleanup-plans/{id}/run` | `test_core_cleanup.py::test_running_needs_confirm_*`、`test_a_failed_move_*` | 已由测试证实（注入的废纸篓）；真实废纸篓只在本机临时文件试过 |
 | R73 | UI、CLI、MCP 同一交接与清理接口，清理需确认（PRD §13，AC16 部分） | `web/app.js`（openHandoff、vCleanup、vCleanupPlan）、`cli.py`、`mcp.py` | `test_ui_web.py`、`test_ui_cli.py::test_handoff_and_cleanup_commands`、`test_ui_mcp.py::test_handoff_and_cleanup_tools_*` | 部分验证：页面在 headless Chrome 中对 fake API 渲染过（#/cleanup、计划页、Review 按钮）；对话框未点击，无自动化浏览器测试 |
+| U3-R1 | 比较 2–4 张：同一原像素比例、可同步缩放平移，每格如实标明快速预览 / 原像素细节；1–4 键选中胶片条要替换的一格；两张时默认不变（PRD §08 第三级，AC06；修订 7C） | `web/app.js`（dvCompare、openCompare，`CMP_MAX`）、`styles.css`（`.cmp-grid.n3/.n4`、`.cmp-slot`） | `test_media_parts.py::test_ui_compare_up_to_four_and_part_buttons`、`test_ui_web.py`；Chrome 对真实服务（iNat 照片）走查 2、3、4 张，按 1、2 键切换格，看眼部时其余格对准各自的眼部 | 部分验证：无自动化浏览器测试；胶片条替换未在有连拍的数据上走查 |
+| U3-R2 | 前两张不比两图比较慢：第 3、4 格的原像素在前两格之后请求 | `dvFetch` 的 `v.after` | `test_ui_compare_up_to_four_and_part_buttons`（代码存在）；走查中 3、4 格在 1、2 格之后变为“原像素细节可用” | 部分验证：未测时间 |
+| U3-R3 | 头部 / 眼部裁切建议：OWLv2 在主体框的原像素内找头部与眼部，分数 ≥ 0.2、不超过框的 60 %，否则如实说没找到（PRD §08“提供眼部或主体裁切建议”；修订 7C） | `parts.py`、`GET /assets/{id}/parts`、`detail.Details.region`；`web/app.js`（dvPart、dvPartOf，“看头部 / 看眼部”） | `test_media_parts.py::test_find_maps_a_shrunk_crop_back_to_the_frame`、`test_parts_endpoint_reads_the_subjects_original_pixels`；真实模型实测（iNat 鸟 50 张：头部 34/49、眼部 20/49；抽查 12 张，达到下限的全部正确） | 头部已在真实照片上实测；眼部召回低（41 %），且只在 500 px 照片上测过；RAW 未在真实文件上测 |
+| U3-R4 | 按需调用模型不与分析抢设备：`Engine.device_lock` 由 RunQueue 模型线程与 parts 路由共同持有 | `engine.py`、`run.py`（`_on_device`）、`api.py`（`asset_parts`） | `test_media_parts.py::test_run_queue_model_work_holds_the_device_lock`；真实引擎：分析 32 张时调用 parts 42 次，无中止（无锁时双线程 MPS 复现了进程中止） | 已在本机真实模型上证实 |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

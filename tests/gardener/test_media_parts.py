@@ -94,3 +94,21 @@ def test_run_queue_model_work_holds_the_device_lock():
     q = RunQueue(SimpleNamespace(device_lock=lock), decode_pool=ThreadPoolExecutor(1))
     assert q._on_device(lambda: lock.locked()) is True and not lock.locked()
     assert RunQueue(SimpleNamespace(), decode_pool=ThreadPoolExecutor(1))._on_device(lambda: 7) == 7
+
+
+def test_ui_compare_up_to_four_and_part_buttons():
+    """Revision 7C in the viewer: compare takes 2-4 photos, keys 1-4 pick the slot the filmstrip replaces,
+    slots 3-4 fetch original pixels after the first two, and 看头部 / 看眼部 ask the parts route (fake §6 mirror)."""
+    from fake_api import create_app
+    from fastapi.testclient import TestClient
+    from test_ui_web import text
+
+    js = text("app.js")
+    assert "const CMP_MAX = 4;" in js and "ws.sel.size > CMP_MAX" in js
+    assert "/^[1-4]$/.test(e.key)" in js and "v.after = () => panes.slice(0, 2)" in js
+    assert "api('GET', `/assets/${encodeURIComponent(v.id)}/parts`, null, { subject: s.id })" in js
+    assert "看头部" in js and "看眼部" in js and "没有足够确定的" in js
+    c = TestClient(create_app(static=False))
+    aid = c.get("/api/v1/assets").json()["items"][0]["id"]
+    r = c.get(f"/api/v1/assets/{aid}/parts", params={"subject": "s1"})
+    assert r.status_code == 200 and r.json()["parts"][0]["name"] == "head"

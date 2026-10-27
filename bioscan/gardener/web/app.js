@@ -69,6 +69,7 @@
   const KIND_ZH = { bird: '鸟类', mammal: '哺乳动物', other_animal: '其他动物' };
   const FLOCK_ZH = { bird: '鸟群：不逐只命名', mammal: '兽群：不逐只命名', other: '成群：不逐只命名' };
   const ID_NOTE = '物种按动物主体记录：人工确认优先，模型重跑只追加新的建议，不覆盖人的结论。';
+  const CMP_MAX = 4;                      // 比较最多四张（契约修订 7C）
   const PREVIEW_NOTE = '低分辨率预览（含 RAW 内嵌预览）只用于浏览，不代表完整 RAW 解码或对焦验证。';
   const XML_NOTE = 'Gardener XML 只供 Gardener 使用：它不是 XMP，Lightroom 不能直接读取。导出不会移动、改名或删除任何原片。';
 
@@ -536,7 +537,7 @@
       <button type="button" class="btn sm ghost" data-action="batch" data-v="pending" data-key="b-pending">待定</button>
       <button type="button" class="btn sm reject" data-action="batch" data-v="reject" data-key="b-reject">${ic('x')}淘汰</button>
       <label class="batch-stars"><span class="sr-only">批量星级</span><select class="input sm" data-action-change="batch-stars" aria-label="批量星级"><option value="">星级…</option>${[0, 1, 2, 3, 4, 5].map(i => `<option value="${i}">${i ? i + ' 星' : '清除星级'}</option>`).join('')}</select></label>
-      <button type="button" class="btn sm ghost" data-action="compare" data-key="b-cmp" ${n === 2 ? '' : 'disabled title="选择 2 张时可并排比较"'}>${ic('compare')}比较</button>
+      <button type="button" class="btn sm ghost" data-action="compare" data-key="b-cmp" ${n <= CMP_MAX ? '' : `disabled title="选择 2–${CMP_MAX} 张时可比较"`}>${ic('compare')}比较</button>
       <button type="button" class="btn sm ghost" data-action="add-to-col" data-key="b-add">加入集合…</button>
       ${manual ? '<button type="button" class="btn sm ghost" data-action="split-col" data-key="b-split">拆分为新集合…</button><button type="button" class="btn sm ghost" data-action="remove-from-col" data-key="b-rm">移出本组</button>' : ''}
       <button type="button" class="btn sm ghost" data-action="clear-sel" data-key="b-clear">取消选择</button>`;
@@ -1291,7 +1292,7 @@
   }
   function openCompare() {
     const ws = ui.ws;
-    if (!ws || ws.sel.size !== 2) { toast('请先选择 2 张（⌘/Ctrl 或 Shift 多选）后再比较'); return; }
+    if (!ws || ws.sel.size < 2 || ws.sel.size > CMP_MAX) { toast(`请先选择 2–${CMP_MAX} 张（⌘/Ctrl 或 Shift 多选）后再比较`); return; }
     const ids = Array.from(ws.sel);
     dvCompare(ids);
   }
@@ -1302,6 +1303,7 @@
   // 缩放、平移、换图或“取消”都会放弃上一个请求。比例只在原像素可用时给出，快速预览只说“预览放大 ×N（不是原像素）”。
   const DV_LABEL = { preview: '快速预览', loading: '原像素细节加载中', ready: '原像素细节可用', failed: '原像素细节不可用' };
   const DV_MAX_RATIO = 4;                 // 最多放大到一个原像素占 4 个屏幕像素
+  const PART_ZH = { head: '头部', eye: '眼部' };
   const dvLive = new Set();
   const dpr = () => window.devicePixelRatio || 1;
   const clamp01 = x => Math.max(0, Math.min(1, x));
@@ -1317,7 +1319,7 @@
   function dvHTML(a) {
     return `<div class="dv"><div class="dv-frame"><img class="dv-prev" src="${esc(mediaUrl(a.id, 'large'))}" alt="${esc(a.name)}" decoding="async" draggable="false"><img class="dv-det" alt="" hidden draggable="false"><div class="dv-subjs"></div></div>
       <div class="dv-bar"><span class="dv-state" aria-live="polite"></span><button type="button" class="btn sm dark" data-dv-do="cancel" hidden>取消</button>
-      <span class="dv-tools"><button type="button" class="btn sm dark" data-dv-do="boxes" aria-pressed="true">动物框</button><button type="button" class="btn sm dark" data-dv-do="fit">适合</button><button type="button" class="btn sm dark" data-dv-do="one" title="一个原像素对应一个屏幕像素">原像素 1:1</button><button type="button" class="btn sm dark" data-dv-do="out" aria-label="缩小">−</button><button type="button" class="btn sm dark" data-dv-do="in" aria-label="放大">＋</button></span></div></div>`;
+      <span class="dv-tools"><button type="button" class="btn sm dark" data-dv-do="head" hidden title="OWLv2 在动物框内找头部，放大到原像素">看头部</button><button type="button" class="btn sm dark" data-dv-do="eye" hidden title="OWLv2 在动物框内找眼部，放大到原像素">看眼部</button><button type="button" class="btn sm dark" data-dv-do="boxes" aria-pressed="true">动物框</button><button type="button" class="btn sm dark" data-dv-do="fit">适合</button><button type="button" class="btn sm dark" data-dv-do="one" title="一个原像素对应一个屏幕像素">原像素 1:1</button><button type="button" class="btn sm dark" data-dv-do="out" aria-label="缩小">−</button><button type="button" class="btn sm dark" data-dv-do="in" aria-label="放大">＋</button></span></div></div>`;
   }
   function dvGeom(v) {
     const cw = v.el.clientWidth, ch = v.el.clientHeight, fw = Math.min(cw, ch * v.ar);
@@ -1371,6 +1373,7 @@
   }
   function dvSubjects(v, d) {
     v.subjects = ((d && d.subjects) || []).filter(s => Array.isArray(s.xyxy));
+    $$('[data-dv-do="head"], [data-dv-do="eye"]', v.el).forEach(b => { b.hidden = !v.subjects.some(s => s.id); });
     $('.dv-subjs', v.el).innerHTML = v.subjects.map((s, i) => {
       const [x0, y0, x1, y1] = s.xyxy;
       return `<button type="button" class="dv-subj" data-dv-subj="${i}" style="left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%" aria-label="放大看动物 ${i + 1}：${esc(idText(s.current))}" title="${esc(idText(s.current))}"></button>`;
@@ -1382,13 +1385,36 @@
     dvWant(v);
     const delta = [v.cx - v.pc[0], v.cy - v.pc[1]];
     v.pc = [v.cx, v.cy];
-    if (v.onView) v.onView(v, kind, kind === 'subject' ? extra : delta);
+    if (v.onView) v.onView(v, kind, kind === 'subject' || kind === 'part' ? extra : delta);
   }
-  function dvFocus(v, xyxy) {
-    const g = dvGeom(v), [x0, y0, x1, y1] = xyxy, m = 1.6;
-    v.z = Math.min(g.cw / (Math.max(x1 - x0, 0.01) * g.fw * m), g.ch / (Math.max(y1 - y0, 0.01) * g.fh * m));
+  function dvFocus(v, xyxy, part) {
+    const g = dvGeom(v), [x0, y0, x1, y1] = xyxy, m = part ? 3 : 1.6;     // 头部 / 眼部多留一圈上下文
+    v.z = Math.min(g.cw / (Math.max(x1 - x0, 0.002) * g.fw * m), g.ch / (Math.max(y1 - y0, 0.002) * g.fh * m));
     v.cx = (x0 + x1) / 2; v.cy = (y0 + y1) / 2;
-    dvChanged(v, 'subject', xyxy);
+    dvChanged(v, part ? 'part' : 'subject', part || xyxy);
+  }
+  // 头部 / 眼部建议（契约修订 7C）：按需向 /assets/{id}/parts 要当前动物（点过的那只，否则第一只）框内的部位；
+  // 只有分数达到下限的才放大过去，否则如实说没找到。结果按动物缓存在这个视图里。
+  async function dvPartOf(v, name) {
+    const s = v.subjects[v.focus || 0] || v.subjects.find(x => x.id);
+    if (!s || !s.id) return null;
+    v.parts = v.parts || {};
+    if (!v.parts[s.id]) {
+      const b = $(`[data-dv-do="${name}"]`, v.el);
+      b.setAttribute('aria-busy', 'true');              // 不禁用：禁用会把焦点丢到 body
+      try { v.parts[s.id] = api('GET', `/assets/${encodeURIComponent(v.id)}/parts`, null, { subject: s.id }); await v.parts[s.id]; }
+      catch (e) { delete v.parts[s.id]; throw e; }
+      finally { b.removeAttribute('aria-busy'); }
+    }
+    const r = await v.parts[s.id];
+    return { part: r.parts.find(x => x.name === name) || null, floor: (r.floor || {})[name] };
+  }
+  async function dvPart(v, name) {
+    let got;
+    try { got = await dvPartOf(v, name); } catch (e) { toast(`找${PART_ZH[name]}失败：${errMsg(e)}`); return; }
+    if (!got || !dvLive.has(v)) return;
+    if (!got.part) { toast(`这只动物上没有足够确定的${PART_ZH[name]}（OWLv2 分数低于 ${got.floor}），保持原样`); return; }
+    dvFocus(v, got.part.xyxy, name);
   }
   function dvZoomAt(v, z, e) {
     const g = dvGeom(v), r = v.el.getBoundingClientRect();
@@ -1402,6 +1428,7 @@
   function dvDo(v, what) {
     const g = dvGeom(v);
     if (what === 'cancel') { if (v.ctl) v.ctl.abort(); v.ctl = null; clearTimeout(v.timer); v.state = v.box ? 'ready' : 'preview'; dvLabel(v); return; }
+    if (what === 'head' || what === 'eye') { dvPart(v, what); return; }
     if (what === 'boxes') { const b = $('[data-dv-do="boxes"]', v.el), on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', String(on)); v.el.classList.toggle('no-boxes', !on); return; }
     if (what === 'fit') v.z = 1;
     else if (what === 'one') v.z = v.W / (g.fw * dpr());
@@ -1415,7 +1442,7 @@
       const b = e.target.closest('[data-dv-do]');
       if (b) { dvDo(v, b.dataset.dvDo); return; }
       const s = e.target.closest('[data-dv-subj]');
-      if (s && !v.dragged) dvFocus(v, v.subjects[Number(s.dataset.dvSubj)].xyxy);
+      if (s && !v.dragged) { v.focus = Number(s.dataset.dvSubj); dvFocus(v, v.subjects[v.focus].xyxy); }
     });
     el.addEventListener('dblclick', e => { if (!e.target.closest('.dv-bar, .dv-subj')) dvZoomAt(v, v.z * 2, e); });
     el.addEventListener('wheel', e => { e.preventDefault(); dvZoomAt(v, v.z * Math.exp(-e.deltaY * 0.0015), e); }, { passive: false });
@@ -1441,6 +1468,7 @@
   async function dvFetch(v) {
     const g = dvGeom(v);
     if (!g.fw || !v.pw || !dvLive.has(v)) return;
+    if (v.after && v.after()) { dvWant(v); return; }         // 第 3、4 张等前两张的原像素先到
     const shown = g.fw * v.z * dpr();                         // 整幅画面此刻占的设备像素宽
     if (shown <= v.pw * 1.05) {                               // 快速预览已经够清楚：不取原像素
       if (v.ctl) v.ctl.abort();
@@ -1492,40 +1520,56 @@
     ui.lbView = dvMount(ph, a, keep, null);
     return true;
   }
-  // 并排比较：两张同一原像素比例；可同步缩放平移，也可各自点选动物；底部是同一连拍的胶片条
+  // 比较（2–4 张，契约修订 5C / 7C）：各张同一原像素比例；可同步缩放平移，也可各自点选动物；1–4 键选中要被
+  // 胶片条替换的一格；第 3、4 张的原像素在前两张之后才取，所以前两张不比两图比较慢。底部是所在连拍的胶片条。
   function dvCompare(ids) {
-    const ws = ui.ws, panes = [];
-    let active = 1;
+    const ws = ui.ws, panes = [], n = ids.length;
+    let active = n - 1;
     const sync = () => prefs.get('cmpsync', '1') === '1';
-    const d = dialog({ title: '并排比较', cls: 'compare', onClose: () => panes.forEach(dvDrop),
-      body: `<div class="cmp-grid">${ids.map((id, i) => `<figure class="cmp-item" data-pane="${i}"><div class="cmp-view"></div><figcaption data-cmp="${esc(id)}">${cmpCapHTML(id)}</figcaption></figure>`).join('')}</div>
-        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（两边同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；拖动平移，滚轮或双击放大。可以两张都保留、都舍弃或都不标记。${PREVIEW_NOTE}</span></div>
-        <div class="cmp-strip" role="group" aria-label="同一连拍：点缩略图替换高亮的一侧"></div>` });
+    const onKey = e => {                                        // 1–4：选中胶片条要替换的一格（焦点可能在 body 上）
+      if (!d.open || isField(e.target) || e.metaKey || e.ctrlKey || e.altKey || !/^[1-4]$/.test(e.key) || Number(e.key) > n) return;
+      e.preventDefault();
+      active = Number(e.key) - 1;
+      strip();
+    };
+    const d = dialog({ title: n === 2 ? '并排比较' : `${n} 张比较`, cls: 'compare', onClose: () => { panes.forEach(dvDrop); document.removeEventListener('keydown', onKey); },
+      body: `<div class="cmp-grid n${n}">${ids.map((id, i) => `<figure class="cmp-item" data-pane="${i}"><span class="cmp-slot" aria-hidden="true">${i + 1}</span><div class="cmp-view"></div><figcaption data-cmp="${esc(id)}">${cmpCapHTML(id)}</figcaption></figure>`).join('')}</div>
+        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（${n === 2 ? '两边' : '各张'}同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；“看头部 / 看眼部”放大到 OWLv2 找到的部位（同步时其余各张对准各自的同一部位）；拖动平移，滚轮或双击放大；按 1–${n} 选中一格，点胶片条缩略图替换它。可以全部保留、全部舍弃或都不标记。${PREVIEW_NOTE}</span></div>
+        <div class="cmp-strip" role="group" aria-label="同一连拍：点缩略图替换高亮的一格"></div>` });
     function onView(v, kind, extra) {
-      const o = panes.find(p => p && p !== v);
-      if (!sync() || !o) return;
-      const g = dvGeom(v), go = dvGeom(o);
-      o.z = v.W && o.W ? (g.fw * v.z / v.W) * o.W / go.fw : v.z;   // 同一原像素比例
-      if (kind === 'subject') {
-        const c = [(extra[0] + extra[2]) / 2, (extra[1] + extra[3]) / 2];
-        const near = o.subjects.map(s => [(s.xyxy[0] + s.xyxy[2]) / 2, (s.xyxy[1] + s.xyxy[3]) / 2])
-          .sort((p, q) => Math.hypot(p[0] - c[0], p[1] - c[1]) - Math.hypot(q[0] - c[0], q[1] - c[1]))[0];
-        [o.cx, o.cy] = near && Math.hypot(near[0] - c[0], near[1] - c[1]) < 0.25 ? near : c;
-      } else { o.cx += extra[0]; o.cy += extra[1]; }
-      dvLayout(o); dvWant(o);
-      o.pc = [o.cx, o.cy];
+      if (!sync()) return;
+      const g = dvGeom(v);
+      panes.filter(o => o && o !== v).forEach(o => {
+        const go = dvGeom(o);
+        o.z = v.W && o.W ? (g.fw * v.z / v.W) * o.W / go.fw : v.z;   // 同一原像素比例
+        if (kind === 'subject') {
+          const c = [(extra[0] + extra[2]) / 2, (extra[1] + extra[3]) / 2];
+          const near = o.subjects.map(s => [(s.xyxy[0] + s.xyxy[2]) / 2, (s.xyxy[1] + s.xyxy[3]) / 2])
+            .sort((p, q) => Math.hypot(p[0] - c[0], p[1] - c[1]) - Math.hypot(q[0] - c[0], q[1] - c[1]))[0];
+          [o.cx, o.cy] = near && Math.hypot(near[0] - c[0], near[1] - c[1]) < 0.25 ? near : c;
+        } else if (kind === 'part') {                              // 同一比例，各自对准自己的头部 / 眼部
+          dvPartOf(o, extra).then(r => {
+            if (!r || !r.part || !dvLive.has(o)) return;
+            o.cx = (r.part.xyxy[0] + r.part.xyxy[2]) / 2; o.cy = (r.part.xyxy[1] + r.part.xyxy[3]) / 2;
+            dvLayout(o); dvWant(o); o.pc = [o.cx, o.cy];
+          }).catch(() => {});
+        } else { o.cx += extra[0]; o.cy += extra[1]; }
+        dvLayout(o); dvWant(o);
+        o.pc = [o.cx, o.cy];
+      });
     }
     function strip() {
       const bursts = new Set(panes.map(p => p && (A(p.id).burst || {}).id).filter(Boolean));
       const sib = ws.all.filter(id => A(id).burst && bursts.has(A(id).burst.id))
         .sort((x, y) => (A(x).burst.id < A(y).burst.id ? -1 : A(x).burst.id > A(y).burst.id ? 1 : A(x).burst.rank - A(y).burst.rank));
-      $('.cmp-strip', d).innerHTML = sib.length > 2 ? sib.map(id => `<button type="button" class="cmp-thumb" data-cmp-pick="${esc(id)}" aria-pressed="${panes.some(p => p && p.id === id)}" aria-label="${esc(A(id).name)}">${photo(A(id), 'thumb')}</button>`).join('') : '';
+      $('.cmp-strip', d).innerHTML = sib.length > n ? sib.map(id => `<button type="button" class="cmp-thumb" data-cmp-pick="${esc(id)}" aria-pressed="${panes.some(p => p && p.id === id)}" aria-label="${esc(A(id).name)}">${photo(A(id), 'thumb')}</button>`).join('') : '';
       $$('.cmp-item', d).forEach(f => f.classList.toggle('is-active', Number(f.dataset.pane) === active));
     }
     function mount(i, id) {
       dvDrop(panes[i]);
-      const o = sync() && panes[1 - i];                        // 同步时新换上的一张沿用另一侧的视图
-      panes[i] = dvMount($(`[data-pane="${i}"] .cmp-view`, d), A(id), o ? { z: o.z, cx: o.cx, cy: o.cy } : null, onView);
+      const o = sync() && panes.find((p, j) => p && j !== i && dvLive.has(p));   // 同步时新换上的一张沿用另一格的视图
+      const v = panes[i] = dvMount($(`[data-pane="${i}"] .cmp-view`, d), A(id), o ? { z: o.z, cx: o.cx, cy: o.cy } : null, onView);
+      if (i >= 2) v.after = () => panes.slice(0, 2).some(p => p && p.state === 'loading');
       const cap = $(`[data-pane="${i}"] figcaption`, d);
       cap.dataset.cmp = id;
       swap(cap, cmpCapHTML(id));
@@ -1535,6 +1579,7 @@
     d.addEventListener('pointerdown', e => { const f = e.target.closest('.cmp-item'); if (f) { active = Number(f.dataset.pane); strip(); } });
     d.addEventListener('click', e => { const t = e.target.closest('[data-cmp-pick]'); if (t && !panes.some(p => p.id === t.dataset.cmpPick)) mount(active, t.dataset.cmpPick); });
     d.addEventListener('change', e => { if (e.target.matches('[data-cmp-sync]')) prefs.set('cmpsync', e.target.checked ? '1' : '0'); });
+    document.addEventListener('keydown', onKey);
   }
   // ---------- 原像素细节查看器 结束 ----------
   function openEditCol(id) {
