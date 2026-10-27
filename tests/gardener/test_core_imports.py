@@ -135,6 +135,20 @@ def test_name_conflicts_get_a_batch_suffix_on_the_whole_group(env, tmp_path):
     assert (folder / f"A_B{seq}.ARW").read_bytes() == (src / "A.ARW").read_bytes()
 
 
+def test_same_name_from_two_card_folders_gets_the_batch_suffix(env, tmp_path):
+    src = tmp_path / "card"
+    make_jpg(src / "100MSDCF" / "DSC00001.JPG", color=(10, 100, 30), when=WHEN)
+    make_jpg(src / "101MSDCF" / "DSC00001.JPG", color=(200, 100, 30), when=WHEN + 600)   # counter rollover
+    with env.client() as c:
+        t = create_task(c, [str(src)], caps=[])
+        wait_task(c, t["id"])
+        p = run(c, plan(c, t["id"], tmp_path / "lib")["id"])
+        assert p["status"] == "completed"
+    folder = tmp_path / "lib" / f"{DAY}_未标注地点"
+    assert sorted(x.name for x in folder.iterdir()) == ["DSC00001.JPG", f"DSC00001_B{p['seq']}.JPG"]
+    assert (folder / f"DSC00001_B{p['seq']}.JPG").read_bytes() == (src / "101MSDCF" / "DSC00001.JPG").read_bytes()
+
+
 def test_exact_duplicates_from_another_card_path_are_reused_not_copied(env, tmp_path, copies):
     first, second = card(tmp_path / "card"), tmp_path / "again"
     with env.client() as c:

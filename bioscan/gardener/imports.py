@@ -89,9 +89,11 @@ def _day(taken_at: str | None, mtime_ns: int) -> str:
     return datetime.fromtimestamp(mtime_ns / 1e9).date().isoformat()
 
 
-def _known(c: Any, aid: str, f: dict[str, Any]) -> tuple[str, str] | None:
+def _known(c: Any, f: dict[str, Any]) -> tuple[str, str] | None:
     """(action, existing copy) when this file needs no copy: imported before from the same, unchanged
-    source (reuse), or the same content imported from another file (duplicate: size + quick hash, then sha256)."""
+    source (reuse), or the same content imported from another file (duplicate: size + quick hash, then sha256).
+    ponytail: per file, so a group with one new sidecar after an earlier batch spans two folders; keep it in the
+    earlier batch's folder when that shows up."""
     for m in c.execute("SELECT * FROM managed_files WHERE source_path = ? ORDER BY imported_at", (f["src"],)):
         if ((m["size"], m["source_mtime_ns"]) == (f["size"], f["mtime_ns"]) and os.path.isfile(m["path"])
                 and os.path.getsize(m["path"]) == m["size"]):
@@ -152,7 +154,7 @@ def build(store: st.Store, task_id: str, dest_root: str, place: str | None, incl
     for r in chosen:
         todo = []
         for f in files.get(r["id"], []):
-            known = _known(c, r["id"], f) if os.path.isfile(f["src"]) else None
+            known = _known(c, f) if os.path.isfile(f["src"]) else None
             if known:
                 items.append((r["id"], f, known[1], known[0]))
             else:
