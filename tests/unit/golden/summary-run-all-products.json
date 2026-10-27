@@ -6,7 +6,7 @@
   "sha256": "sha",
   "engine": {
    "version": "0.1.0",
-   "settings": "eac0a4782113",
+   "settings": "98bd51d76dac",
    "models": {
     "gate": "google/siglip2-base-patch16-224@75de2d55ec2d",
     "detect": "google/owlv2-base-patch16-ensemble@cfd3195ba4ea",

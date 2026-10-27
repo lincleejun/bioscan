@@ -214,6 +214,54 @@ def test_loaded_lists_are_finished_and_frozen(tmp_path):
         fresh["bird"].birdnet = []
 
 
+def test_a_person_is_never_named_as_a_species(tmp_path):
+    """Issue #86: MDD lists Homo sapiens. A crop that looks most like it (a skier gated mammal) gets
+    the next mammal, never Human, and Homo is no candidate either; the other rows keep their
+    vectors and labels."""
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from bioscan.service import candidates, pipeline
+
+    data, tol, vecs = setup(tmp_path)
+    write_csv(data / "mdd" / "mdd.csv", MDD_HEADER,
+              [["Homo_sapiens", "Human", "Primates", "Hominidae", "Homo", "sapiens"], *MDD_ROWS])
+    write_csv(data / "names" / "mdd_map.csv", ["scientific", "common", "order", "family", "birdnet_label", "birdnet_how"],
+              [["Homo sapiens", "Human", "Primates", "Hominidae", "Homo sapiens_Human", "exact"],
+               ["Rangifer tarandus", "Reindeer", "Artiodactyla", "Cervidae", "Rangifer tarandus_Reindeer", "exact"]])
+    lists = names.load_lists(FakeModel(), FakeTokenizer(), "cpu", tmp_path / "cache", data_dir=data, tol_files=tol)
+    mammal = lists["mammal"]
+    assert mammal.scientific == ["Rangifer tarandus", "Alces alces"] and mammal.matrix.shape == (2, names.DIM)
+    np.testing.assert_allclose(mammal.matrix[0], vecs[:, 3], rtol=1e-5)
+    assert mammal.birdnet == ["Rangifer tarandus_Reindeer", ""] and mammal.tol_how == ["exact", "none"]
+    assert candidates.unknown(lists, ["Homo sapiens", "Homo"]) == ["Homo sapiens", "Homo"]
+
+    human = names.tol_text(["Animalia", "Chordata", "Mammalia", "Primates", "Hominidae", "Homo", "Homo sapiens"], "Human")
+    look = FakeModel().encode_text(FakeTokenizer()([human])).numpy()[0]     # Homo's own vector: it would rank first
+    look /= np.linalg.norm(look)
+    full = names.NameList("mdd-2025", "mammal", ["Homo sapiens", *mammal.scientific], ["Human", *mammal.common],
+                          [["Animalia", "Chordata", "Mammalia", "Primates", "Hominidae", "Homo", "Homo sapiens"],
+                           *mammal.taxonomy], np.vstack([look, mammal.matrix]), ["none", *mammal.tol_how])
+
+    def scores(feats, m):
+        z = np.exp(8.0 * (np.asarray(feats) @ np.asarray(m).T))
+        return z / z.sum(axis=1, keepdims=True)
+
+    tops = []
+    for nl in (full, names.wildlife(full)):
+        engine = SimpleNamespace(names={"mammal": nl}, priors={},
+                                 bioclip=SimpleNamespace(encode_images=lambda crops: np.array([look] * len(crops)),
+                                                         probs=scores))
+        boxes = [{"kind": "mammal"}]
+        pipeline._species(engine, Image.new("RGB", (100, 100)), boxes, [(10, 10, 60, 60)], None, None, None,
+                          {"geo": False, "top_k": 3, "kind_check": False})
+        tops.append([c["scientific"] for c in boxes[0]["species"]["top"]])
+    assert tops[0][0] == "Homo sapiens"                                      # the fake does rank Homo first
+    assert sorted(tops[1]) == ["Alces alces", "Rangifer tarandus"]          # the next mammal, Homo nowhere
+    assert names.wildlife(mammal) is mammal                                 # nothing to drop: the same list
+
+
 def test_label_map_is_list_data_not_a_kind_check(tmp_path, monkeypatch):
     """Which list carries BirdNET labels is LISTS data: give the mammal list a map and take the birds' away."""
     data, tol, _ = setup(tmp_path)
@@ -384,3 +432,12 @@ def test_build_name_map_refuses_to_overwrite_without_force(tmp_path, monkeypatch
     assert target.read_text() == "committed\n" and target.stat().st_mtime_ns == before
     bnm.refuse_overwrite([target], force=True)                   # --force: the guard lets it through
     bnm.refuse_overwrite([tmp_path / "absent.csv"], force=False)  # nothing to overwrite
+
+
+def test_leaving_homo_out_keeps_each_concept_on_its_row():
+    tax = [["Animalia", "Chordata", "Mammalia", "Primates", "Hominidae", g, f"{g} {e}"]
+           for g, e in (("Gorilla", "gorilla"), ("Homo", "sapiens"), ("Pan", "troglodytes"))]
+    nl = names.NameList("m", "mammal", [t[6] for t in tax], ["", "", ""], tax, np.zeros((3, 4), np.float32),
+                        ["exact"] * 3, concept=["mdd:1", "mdd:2", "mdd:3"])
+    out = names.wildlife(nl)
+    assert out.scientific == ["Gorilla gorilla", "Pan troglodytes"] and out.concept == ["mdd:1", "mdd:3"]

@@ -28,6 +28,7 @@
 - 下载日期：2026-09-22；sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`
 - 用到的列：`order`、`family`、`genus`、`specificEpithet`、`mainCommonName`（`sciName` 是 `Genus_epithet`，未直接用）。
 - 注：list_id 沿用计划接口里的 `mdd-2025`，实际数据版本是 v2.5（2026）。
+- 注：加载时（`names.load_lists` → `names.wildlife`）去掉 `taxa.NOT_WILDLIFE` 里的属（Homo）的行：*Homo sapiens* 不会作为物种名出现，也不能作候选（#86）。CSV 和缓存不变（缓存仍是 6904 行，sha 不变），实际服务 6903 种；`NOT_WILDLIFE` 计入 settings 指纹。
 
 ## 名字向量
 

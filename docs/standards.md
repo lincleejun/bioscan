@@ -255,7 +255,7 @@ Report the machine, the disk and the settings fingerprint with it.
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
 | Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,172** (all of AviList v2026) | — | 11,172 (`bioscan names stats`; data/README) | the whole world list, extinct species included |
-| Mammal species in the name list | ~2,000 categories, SpeciesNet, all taxa (vendor claim) [^speciesnet] | **6,904** (all of MDD v2.5) | — | 6,904 | the whole world list |
+| Mammal species in the name list | ~2,000 categories, SpeciesNet, all taxa (vendor claim) [^speciesnet] | **6,903** (all of MDD v2.5 but *Homo sapiens*) | — | 6,903 (`names.wildlife` leaves Homo out at load) | the whole world list; a person is never named as wildlife |
 | Other animal species with a name | 100,000+ taxa, iNat CV 2.20, all kingdoms (vendor claim) [^inat220] | **100,000** | 300,000 | 366,460 (CI 2026-09); TreeOfLife-200M has no vectors for many reptiles and ray-finned fish (smoke: 0 of 6 reptiles, 0 of 1 fish) | all taxa by default has to mean most animals people photograph |
 | Share of truth species in the lists | none | **100%** | 100% | golden birds 42/42 (checked against `avilist_map.csv` + synonyms, 2026-09-24); golden mammals 23/23 as scored by `bioscan eval` (MDD CSV not in the repo, not re-checked); own 3/3 | a species missing from the list can never be named, so it would make the accuracy numbers meaningless |
 
