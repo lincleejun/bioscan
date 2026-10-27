@@ -16,7 +16,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -193,6 +193,11 @@ class RunQueue:
                 out.append(exc)
         return out
 
+    def _on_device(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """`fn(*args)` holding the engine's device_lock (an engine without one: no lock)."""
+        with getattr(self.engine, "device_lock", None) or nullcontext():
+            return fn(*args)
+
     async def _run_products(self, images: list[_Image], plan: plugin.Plan) -> None:
         """Stage-first over one chunk, in plan.stages order; every stage sees the same Items, so what
         one provides (Item.facts) reaches the stages after it. A stage that throws on one image costs
@@ -209,7 +214,7 @@ class RunQueue:
                 out = self.engine.frame([im.dec.image for im in images])
                 return out, (time.perf_counter() - t) * 1000 / len(images)
             try:
-                (vecs, gates), per = await loop.run_in_executor(self._model, frame)
+                (vecs, gates), per = await loop.run_in_executor(self._model, self._on_device, frame)
                 for im in images:
                     im.timing[framed[0]] = round(per, 1)
             except Exception as exc:  # noqa: BLE001
@@ -226,8 +231,10 @@ class RunQueue:
             else:
                 t = time.perf_counter()
                 try:
-                    outs = await loop.run_in_executor(self._model if manifest.thread == "model" else self._cpu,
-                                                      plugin.load(manifest).run, self.engine, items, plan.opts[name])
+                    run = plugin.load(manifest).run
+                    outs = await (loop.run_in_executor(self._model, self._on_device, run, self.engine, items,
+                                                       plan.opts[name]) if manifest.thread == "model"
+                                  else loop.run_in_executor(self._cpu, run, self.engine, items, plan.opts[name]))
                     if not isinstance(outs, list) or len(outs) != len(images):
                         got = len(outs) if isinstance(outs, list) else type(outs).__name__
                         outs = [RuntimeError(f"stage returned {got} results for {len(images)} images")] * len(images)

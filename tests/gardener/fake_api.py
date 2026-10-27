@@ -629,8 +629,14 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         return fk.detail(fk.asset(aid))
 
     @app.get(P + "/assets/{aid}/{kind}")
-    def asset_media(aid: str, kind: str):
+    def asset_media(aid: str, kind: str, subject: str | None = None):
         a = fk.asset(aid)
+        if kind == "parts":          # contract revision 7C: head / eye inside one subject box
+            if not subject:
+                raise Err(400, "subject is required", "bad_request")
+            return {"asset_id": aid, "subject": subject, "kind": "bird", "file": "image", "ms": 12,
+                    "floor": {"head": 0.2, "eye": 0.2},
+                    "parts": [{"name": "head", "xyxy": [0.3, 0.2, 0.42, 0.34], "score": 0.41}]}
         if kind == "original":
             if not a["online"]:
                 raise Err(404, "原片离线", "not_found")

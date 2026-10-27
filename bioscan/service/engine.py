@@ -122,6 +122,11 @@ class Engine:
         self.priors: dict[str, Any] = {}      # kind -> geo.LocationPrior
         self.extra: dict[str, Any] = {}       # plugin model name -> its adapter, once loaded
         self._lock = threading.Lock()
+        # One caller on the device at a time: two threads running models on MPS at once abort the process
+        # ("failed assertion _status < MTLCommandBufferStatusCommitted", torch 2.14, 2026-10-27). RunQueue's
+        # model thread, ensure() (loading copies weights to the device) and Gardener's on-demand head/eye call
+        # (gardener/parts.py) all take it; re-entrant because that call loads OWLv2 while holding it.
+        self.device_lock = threading.RLock()
 
     # ---- loading ----
     def loaded(self) -> list[str]:
@@ -140,7 +145,9 @@ class Engine:
         unknown = wanted - set(MODELS) - set(self.loaders.extra) - set(declared)
         if unknown:
             raise ValueError(f"unknown models: {sorted(unknown)}")
-        with self._lock:
+        if all(getattr(self, n) is not None for n in wanted & set(MODELS)) and wanted - set(MODELS) <= set(self.extra):
+            return                                    # all loaded: never wait on the device for nothing
+        with self.device_lock, self._lock:
             for name in MODELS:                       # registry order: gate, detector, species
                 if name in wanted and getattr(self, name) is None:
                     MODELS[name](self)
