@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import math
+import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,8 +44,10 @@ def _ratio(v) -> float:
 
 
 def gps_from_ifd(gps: dict) -> tuple[float | None, float | None]:
-    """EXIF GPS IFD (tags 1-4) -> signed decimal degrees, or (None, None) when missing, not finite
-    or out of range."""
+    """EXIF GPS IFD (tags 1-4) -> signed decimal degrees, or (None, None) when missing, not finite,
+    out of range, exactly (0, 0) (what cameras write without a fix) or marked void (GPSStatus 'V')."""
+    if str(gps.get(9, "A")).strip("\x00 ").upper().startswith("V"):
+        return None, None
     try:
         lat = sum(_ratio(x) / 60 ** i for i, x in enumerate(gps[2]))
         lon = sum(_ratio(x) / 60 ** i for i, x in enumerate(gps[4]))
@@ -56,21 +59,34 @@ def gps_from_ifd(gps: dict) -> tuple[float | None, float | None]:
         lon = -lon
     if not (math.isfinite(lat) and math.isfinite(lon) and abs(lat) <= 90 and abs(lon) <= 180):
         return None, None                              # 0/0 rationals give NaN; never pass that to the prior
+    if lat == 0 and lon == 0:
+        return None, None
     return lat, lon
+
+
+_EXIF_TIME = re.compile(r"\d{4}[:\-/](\d\d)[:\-/](\d\d)[ T]\d\d:\d\d:\d\d")
+
+
+def _exif_time(raw: object) -> str | None:
+    """The first 19 characters, 'YYYY:MM:DD HH:MM:SS' (also '-' or '/' in the date, 'T' before the
+    time, as some writers use), or None for a blank, zeroed or malformed value."""
+    s = str(raw or "").strip("\x00 \t\r\n")[:19]
+    m = _EXIF_TIME.fullmatch(s)
+    return s if m and int(m[1]) and int(m[2]) else None
 
 
 def taken_at_from(exif_ifd: dict, base: dict) -> str | None:
     """DateTimeOriginal (else IFD0 DateTime) as ISO 8601, with its sub-seconds and UTC offset when
-    the file has them: '2026-05-01T08:00:00.37-07:00'. Burst frames differ only in the fraction."""
-    raw, sub = exif_ifd.get(0x9003), exif_ifd.get(0x9291)       # SubSecTimeOriginal
-    if not raw:
-        raw, sub = base.get(0x0132), exif_ifd.get(0x9290)        # DateTime, SubSecTime
-    if not raw or len(str(raw)) < 19:
+    the file has them: '2026-05-01T08:00:00.37-07:00'. Burst frames differ only in the fraction.
+    A blank or zeroed DateTimeOriginal counts as missing."""
+    s, sub, offset = _exif_time(exif_ifd.get(0x9003)), exif_ifd.get(0x9291), exif_ifd.get(0x9011)
+    if s is None:      # IFD0 DateTime pairs with SubSecTime and OffsetTime (else OffsetTimeOriginal)
+        s, sub = _exif_time(base.get(0x0132)), exif_ifd.get(0x9290)
+        offset = exif_ifd.get(0x9010) or exif_ifd.get(0x9011)
+    if s is None:
         return None
-    s = str(raw).strip()
     iso = f"{s[0:4]}-{s[5:7]}-{s[8:10]}T{s[11:19]}" + subsec(sub)
-    offset = exif_ifd.get(0x9011)
-    return iso + (str(offset).strip() if offset else "")
+    return iso + (str(offset).strip("\x00 ") if offset else "")
 
 
 # ---- metadata containers -----------------------------------------------------------
@@ -227,7 +243,12 @@ def _raw(data: bytes) -> tuple[Image.Image, int, int, int]:
 def _raster(data: bytes) -> tuple[Image.Image, int, int, int]:
     with Image.open(io.BytesIO(data)) as im:
         orientation = int(im.getexif().get(0x0112, 1) or 1)
-        upright = ImageOps.exif_transpose(im).convert("RGB")
+        upright = ImageOps.exif_transpose(im)
+        if upright.mode.startswith("I;16") or (upright.mode == "I" and upright.getextrema()[1] > 255):
+            # 16-bit greyscale: convert("RGB") clips at 255 (a near-white frame); scale to 8 bits first.
+            # An "I" image whose values all fit in 8 bits is already 8-bit data.
+            upright = upright.convert("I").point(lambda v: v / 256).convert("L")
+        upright = upright.convert("RGB")
     return upright, upright.width, upright.height, orientation
 
 
