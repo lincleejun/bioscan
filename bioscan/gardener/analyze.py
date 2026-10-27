@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import bioscan
-from bioscan import cull, profile
+from bioscan import contract, cull, profile
 from bioscan.gardener import capabilities
 
 ALBUM = "album"         # the profile whose scene, burst and select options Gardener uses
@@ -33,7 +33,7 @@ LABEL_ZH = {
 REASON_ZH = {"soft_subject": "主体不清晰", "motion": "运动模糊", "defocus": "失焦", "motion_or_defocus": "运动模糊或失焦",
              "overexposed": "过曝", "underexposed": "欠曝", "subject_cut": "主体被画面边缘裁切",
              "subject_too_small": "主体过小", "no_subject": "像有动物但未找到主体"}
-FLAG_ZH = {"horizon_tilt": "提示：地平线倾斜", "tight_headroom": "提示：主体上方空间紧"}
+FLAG_ZH = {"horizon_tilt": "提示：地平线倾斜", "tight_headroom": "提示：主体上方空间紧", "no_lead_room": "提示：主体朝向一侧空间不足"}
 
 
 @dataclass
@@ -95,7 +95,7 @@ def _species(p: dict[str, Any]) -> tuple[str, dict | None]:
         if sp and sp.get("top"):
             first, level = sp["top"][0], sp["level"]
             return "done", {"taxon": sp["taxon"], "common": first["common"] if level == "species" else None,
-                            "level": level, "p": first["posterior"],
+                            "level": level, "p": first["posterior"] if contract.mass(sp) is None else contract.mass(sp),
                             "top": [{"scientific": c["scientific"], "common": c["common"], "p": c["posterior"]}
                                     for c in sp["top"]],
                             "uncertain": level != "species"}

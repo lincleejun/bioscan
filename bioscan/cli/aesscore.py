@@ -14,10 +14,10 @@ at the copy's full size). The service writes the page's jpg copies in `<out>-fil
 browser-readable originals and marks the rest.
 
 Stars are quintiles of this run's scores (5 = the top fifth), a relative rank and not a rating; scene
-and reject reasons come from the album profile's scene and quality stages; flags (horizon_tilt: a
-landscape's horizon tilts more than the profile's `select.horizon_flag_deg`; tight_headroom: the
-subject's box starts within `select.headroom_min` of the frame top) only mark a photo, they never
-change its stars. `--species` turns the
+comes from the album profile's scene stage; status (pick / spare / duplicate / reject), reject reasons
+(after the profile's waivers) and flags come from its `select` reducer, run here as in `bioscan cull`;
+flags (notes such as horizon_tilt or tight_headroom; docs/album.md lists them with their options) only
+mark a photo, they never change its stars. `--species` turns the
 profile's species naming on, so the CSV and the page also carry each photo's surest name (species,
 genus or family, as `bioscan summarize` counts it) with an English name beside it (`rp.common_of`: the common name, or
 "a vireo" / "a hawk or eagle" above species), and the page groups and filters by it. The page
@@ -30,12 +30,14 @@ import csv
 import json
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from bioscan import aesthetic, contract, cull, formats
 from bioscan import apply as applying
 from bioscan.cli import cull as cc
+from bioscan.cli import geotag_cli
 from bioscan.cli import report as rp
 from bioscan.cli.aespage import page_rows, thumb_of, write_html  # noqa: F401  (page_rows: tests)
 from bioscan.cli.config import expand, load_config, request_options
@@ -44,8 +46,9 @@ FORMATS = ("json", "csv", "html")
 THUMB_EDGE = 1024
 EDGE = 3072
 DEFAULT_OUT = "aesthetic-scores"
-CSV_FIELDS = ("rank", "path", "score", "stars", "scene", "species", "common", "level", "reject_reasons", "flags",
-              "sharpness", "taken_at")
+TOP_TAXA = 5
+CSV_FIELDS = ("rank", "path", "score", "stars", "status", "scene", "species", "common", "level", "reject_reasons",
+              "waived", "flags", "sharpness", "taken_at")
 
 
 def parse_export(spec: str) -> list[str]:
@@ -63,17 +66,23 @@ def files_dir(out: str) -> str:
     return str(Path(out).resolve().with_name(Path(out).name + "-files"))
 
 
-def build_request(paths: list[str], out: str, thumbs: bool, species: bool = False,
-                  edge: int = EDGE) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_request(paths: list[str], out: str, thumbs: bool, species: bool = False, edge: int = EDGE,
+                  lat: float | None = None, lon: float | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """(the /run body, the meta line): the album profile, plus jpg copies for the page at long edge
     `edge`; `species` turns the profile's species naming on (BioCLIP loads), so each photo's best box
-    gets a name."""
+    gets a name. `lat`/`lon` is the batch coordinate for the photos whose EXIF has no GPS, as in `run`."""
     res = expand(load_config(), cc.DEFAULT_PROFILE, None, {"identify": {"species": True}} if species else {})
     want, options = list(res.want), request_options(res)
     if thumbs:
         want = [*want, "jpg"] if "jpg" not in want else want
         options["jpg"] = {"out_dir": files_dir(out), "edge": edge}
-    body = {"inputs": [{"path": p} for p in paths], "want": want, "options": options}
+    inputs: list[dict[str, Any]] = [{"path": p} for p in paths]
+    if lat is not None:
+        exif_gps = geotag_cli.exif_gps_paths(paths)
+        for inp in inputs:
+            if inp["path"] not in exif_gps:
+                inp["lat"], inp["lon"] = lat, lon
+    body = {"inputs": inputs, "want": want, "options": options}
     meta = {"type": "meta", "schema": cc.PREDS_SCHEMA, "profile": res.profile, "options": options,
             "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     return body, meta
@@ -102,37 +111,41 @@ def shrink(events: list[dict[str, Any]], edge: int) -> int:
 
 
 def named(ev: dict[str, Any]) -> tuple[str | None, str | None, str | None, list[str]]:
-    """(taxon, common, level, lineage) of the photo's surest named box: species, genus or family name
+    """(taxon, common, level, lineage) of the photo's surest named box: the most specific level (the service
+    grades a box species only when it is sure), then the most taxon mass; the species, genus or family name
     as the summary counts it, and its lineage from class down to that name (the page's tree);
     (None, None, None, []) when species was off or nothing held up."""
     best = None
     for b in contract.boxes_of(contract.identify_of(ev)):
         sp = contract.species_of(b)
-        name, level = rp.taxon(sp), contract.level_of(sp)
+        name, level = contract.taxon(sp), contract.level_of(sp)
         if name:
-            top = contract.top_of(sp)[0]
-            if best is None or top["posterior"] > best[0]:
-                lineage = [*(rp.lead(sp).get("taxonomy") or [])[2:rp.LEVEL_RANK[level]], name]
-                best = (top["posterior"], name, rp.common_of(sp), level, lineage)
+            key = (contract.LEVEL_RANK[level], contract.mass(sp))
+            if best is None or key > best[0]:
+                lineage = [*(rp.lead(sp).get("taxonomy") or [])[2:contract.LEVEL_RANK[level]], name]
+                best = (key, name, rp.common_of(sp), level, lineage)
     return best[1:] if best else (None, None, None, [])
 
 
-def rows_of(events: list[dict[str, Any]], select: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def rows_of(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One row per result, best first (a photo without a finite score comes last); stars = quintile;
-    flags as select sets them with its options `select` (cull.flags; None = the defaults)."""
+    status, reject reasons, waived reasons and flags as the select reducer set them (products.select,
+    after cull.apply), so the page and `bioscan cull` agree."""
     rows = []
     for ev in events:
         if ev.get("type") != contract.RESULT:
             continue
         p = cull.products(ev)
-        a, q, sc = p.get("aesthetics") or {}, p.get("quality") or {}, p.get("scene") or {}
+        a, q, sc, sel = p.get("aesthetics") or {}, p.get("quality") or {}, p.get("scene") or {}, p.get("select") or {}
         s = a.get("score")
         score = float(s) if isinstance(s, (int, float)) and not isinstance(s, bool) and s == s else None
         species, common, level, lineage = named(ev)
         scene = f"{sc['label']} ({sc['group']})" if sc.get("group") not in (None, sc.get("label")) else sc.get("label")
-        rows.append({"path": ev["path"], "score": score, "scene": scene,
+        rows.append({"path": ev["path"], "score": score, "scene": scene, "scene_group": sc.get("group") or sc.get("label"),
+                     "status": sel.get("status"),
                      "species": species, "common": common, "level": level, "lineage": lineage,
-                     "reject_reasons": list(q.get("reject_reasons") or []), "flags": cull.flags(ev, select),
+                     "reject_reasons": list(sel.get("reasons") or []), "waived": list(sel.get("waived") or []),
+                     "flags": list(sel.get("flags") or []),
                      "sharpness": (q.get("frame") or {}).get("sharpness"), "taken_at": cull.capture(ev)[0],
                      "jpg": (p.get("jpg") or {}).get("path"), "note": a.get("note")})
     rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["path"]))
@@ -155,7 +168,8 @@ def write_csv(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: str
         w.writeheader()
         for r in rows:
             w.writerow({**r, "score": "" if r["score"] is None else f"{r['score']:.4f}", "stars": r["stars"] or "",
-                        "reject_reasons": ";".join(r["reject_reasons"]), "flags": ";".join(r["flags"])})
+                        "status": r["status"] or "", "reject_reasons": ";".join(r["reject_reasons"]),
+                        "waived": ";".join(r["waived"]), "flags": ";".join(r["flags"])})
         for r in fails:
             w.writerow({"path": r["path"], "reject_reasons": "failed: " + " | ".join(r["messages"])})
 
@@ -176,6 +190,12 @@ def summary(rows: list[dict[str, Any]], fails: list[dict[str, Any]]) -> str:
         lines.append(f"{sum(by.values())} named: " + ", ".join(f"{by[k]} to {k}" for k in ("species", "genus", "family")
                                                               if k in by))
     notes = {r["note"] for r in rows if r["score"] is None and r["note"]}
+    taxa = Counter(r["common"] or r["species"] for r in rows if r["species"])
+    if taxa:
+        lines.append("top taxa: " + ", ".join(f"{n} {c}" for n, c in taxa.most_common(TOP_TAXA)))
+    scenes = Counter(r.get("scene_group") for r in rows if r.get("scene_group"))
+    if scenes:
+        lines.append("scenes: " + ", ".join(f"{n} {c}" for n, c in scenes.most_common()))
     lines += [f"note: {n}" for n in sorted(notes)]
     return "\n".join(lines)
 
@@ -185,25 +205,37 @@ def summary(rows: list[dict[str, Any]], fails: list[dict[str, Any]]) -> str:
 def cmd_score(a) -> int:
     exports = parse_export(a.export)
     out = a.out or DEFAULT_OUT
+    if (a.lat is None) != (a.lon is None):
+        raise SystemExit("--lat and --lon go together")
     if a.preds:
         if a.paths:
             raise SystemExit("--preds re-exports a saved run; give no paths with it")
+        if a.lat is not None:
+            raise SystemExit("--lat/--lon go into the service request; a --preds re-export calls no service")
         meta, events = cc.read_ndjson(a.preds)
         head = meta or {"type": "meta", "schema": cc.PREDS_SCHEMA, "profile": None, "options": None}
     else:
         if not a.paths:
             raise SystemExit("give photo files or folders, or --preds FILE")
         exts = formats.parse_ext(a.ext)
-        paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)]
+        skip = Path(files_dir(out))                       # the page's own copies from an earlier run: not photos
+        paths = [p for root in a.paths for p in formats.list_images(root, exts, a.recursive)
+                 if not Path(p).resolve().is_relative_to(skip)]
         if not paths:
             raise SystemExit("no images found")
-        body, head = build_request(paths, out, "html" in exports and not a.no_thumbs, a.species, a.edge)
+        body, head = build_request(paths, out, "html" in exports and not a.no_thumbs, a.species, a.edge,
+                                   a.lat, a.lon)
         events, _ = cc.fetch(body, a.url)
     if "html" in exports:
         shrink(events, a.thumb_edge)
     complete = any(e.get("type") == contract.DONE for e in events)
-    select = expand(load_config(), cc.DEFAULT_PROFILE, None, {}).reducer_options["select"]
-    rows, fails = rows_of(events, select), cc.failed(events)
+    reducers = cc.reducer_run(expand(load_config(), cc.DEFAULT_PROFILE, None, {}))
+    head = {**head, "reducers": reducers}
+    try:
+        events = cull.apply(events, reducers)             # burst + select: the same statuses and reasons as `cull`
+    except ValueError as e:
+        raise SystemExit(f"error: {e}") from None
+    rows, fails = rows_of(events), cc.failed(events)
     written = []
     if "json" in exports:
         cc.write_json(head, events, f"{out}.ndjson")
@@ -261,6 +293,9 @@ def add_parser(g) -> None:
     s.add_argument("--no-thumbs", action="store_true", help="HTML without jpg copies (browser-readable originals show)")
     s.add_argument("--species", action="store_true", help="also name the animals (identify with species on: BioCLIP "
                                                           "loads); the name goes in the CSV and the page")
+    s.add_argument("--lat", type=float, help="batch coordinate for photos with no EXIF GPS (the species pass's "
+                                             "geo prior; with --lon; not with --preds)")
+    s.add_argument("--lon", type=float)
     s.add_argument("-r", "--recursive", action="store_true")
     s.add_argument("--ext", default=formats.DEFAULT_EXT)
     s.set_defaults(func=cmd_score)

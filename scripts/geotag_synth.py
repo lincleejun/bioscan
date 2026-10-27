@@ -377,7 +377,7 @@ def generate(gt_csv: str, out: str | Path, seed: int = 7, scenarios: list[str] |
     out = Path(out)
     shots = load_shots(gt_csv, seed)
     groups = outings(shots)[:limit] if limit else outings(shots)
-    meta = {"schema": "bioscan-geotag-synth", "version": 1, "seed": seed, "source": str(gt_csv),
+    meta = {"schema": "bioscan-geotag-synth", "version": 1, "seed": seed, "source": str(Path(gt_csv).resolve()),
             "source_sha256": hashlib.sha256(Path(gt_csv).read_bytes()).hexdigest(),
             "photos": sum(len(g) for g in groups), "outings": len(groups),
             "precision": {p: sum(s.precision == p for g in groups for s in g) for p in ("second", "minute", "date")},

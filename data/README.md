@@ -2,24 +2,24 @@
 
 名单原始文件。CSV/XLSX 体积大，已 gitignore，按下面步骤重新获取。`bioscan/service/names.py` 读取 `avilist/*.csv` 与 `mdd/*.csv`（每个目录恰好一个 CSV）。
 
-## avilist/ — 鸟类（list_id `avilist-2025`）
+## avilist/ — 鸟类（list_id `avilist-2026`）
 
-- 来源页：https://www.avilist.org/checklist/v2025/
-- 文件：https://www.avilist.org/wp-content/uploads/2025/06/AviList-v2025-11Jun-extended.xlsx
-- 版本：AviList v2025（2025-06-11 发布），CC BY 4.0。引用：AviList Core Team. 2025. AviList: The Global Avian Checklist, v2025. https://doi.org/10.2173/avilist.v2025
-- 下载日期：2026-09-22
-- 官方只发 XLSX，已把第一个工作表 `AviList v2025 extended` 原样转成 UTF-8 CSV：`AviList-v2025-11Jun-extended.csv`（sha256 `a6024ec5680665489303f50bcefd6f222f5f9deca611868a849548a009aa83d3`；xlsx sha256 `5aa71c2eedd0a9e9a50b4908bfea7a412776d80460e666c0a2949ff567991f8e`）。转换命令：
+- 来源页：https://www.avilist.org/checklist/
+- 文件：https://www.avilist.org/wp-content/uploads/2026/10/AviList-v2026-20Oct2026-extended-version.xlsx
+- 版本：AviList v2026（2026-10-20 发布，首次大修订，对齐 eBird/Clements v2026 与 BirdLife v10；此后每年 9–10 月更新一次），CC BY 4.0。引用：AviList Core Team. 2026. AviList: The Global Avian Checklist, v2026. https://doi.org/10.2173/avilist.v2026
+- 下载日期：2026-10-26
+- 官方只发 XLSX，已把第一个工作表 `AviList v2026` 原样转成 UTF-8 CSV：`AviList-v2026-20Oct2026-extended-version.csv`（sha256 `02663bc97888d8940eab5628ef60b951c3818d998174f8d7549ccc94fe0c85d9`；xlsx sha256 `df031d392b766673ce8a9eb37b8e57a91baabf9576b6b2bcfd6cf9aa4902797d`）。转换命令：
 
   ```sh
   uv run --no-project --with openpyxl python -c "
   import csv, openpyxl
-  ws = openpyxl.load_workbook('AviList-v2025-11Jun-extended.xlsx', read_only=True).worksheets[0]
-  with open('AviList-v2025-11Jun-extended.csv', 'w', newline='', encoding='utf-8') as f:
+  ws = openpyxl.load_workbook('AviList-v2026-20Oct2026-extended-version.xlsx', read_only=True).worksheets[0]
+  with open('AviList-v2026-20Oct2026-extended-version.csv', 'w', newline='', encoding='utf-8') as f:
       csv.writer(f).writerows([('' if v is None else v) for v in r] for r in ws.iter_rows(values_only=True))"
   ```
-- 行：33684（order 46、family 252、genus 2376、species 11131、subspecies 19879）。只取 `Taxon_rank == species` 的 11131 行，含已灭绝种。
-- 用到的列：`Taxon_rank`、`Order`、`Family`、`Scientific_name`（双名）、`English_name_AviList`（俗名）。其余列（Clements/BirdLife 俗名、IUCN、Range、Avibase ID 等）未用。
-- 注：AviList 已发布 v2025b，本仓库按计划固定用 v2025。
+- 行：36165（order 45、family 250、genus 2379、species 11172、subspecies 19852，另有 2467 行空行）。只取 `RANK == species` 的 11172 行，含已灭绝种。
+- 用到的列：`RANK`、`ORDER`、`FAMILY`、`SCIENTIFIC NAME`（双名）、`ENGLISH NAME: AVILIST`（俗名）。v2026 改了表头，`naming.avilist_row` 把它们换回 v2025 的列名（`Taxon_rank`、`Order`、`Family`、`Scientific_name`、`English_name_AviList`），两种表头都能读。其余列（Clements/BirdLife 俗名、IUCN、Range、Avibase ID 等）未用。
+- 对 v2025：11131 → 11172 种，49 个学名去掉、90 个新增；其中 43 个是同一 Avibase ID 改学名（如 *Troglodytes pacificus* → *Nannus pacificus*），52 个英文名变更。golden、smoke、own 三个真值集合的鸟种都仍在名单里；新增种里与 golden 同属的只有 *Bubo*、*Turdus* 的南美拆分种。
 
 ## mdd/ — 哺乳类（list_id `mdd-2025`）
 
@@ -56,11 +56,11 @@
 - 内存：矩阵 N × 1024 × 2 B。第一次真数据 N = 365,973：float16 715 MiB（float32 要 1.40 GiB）；新规则实测（CI run 35953188230）：N = 366,460，float16 716 MiB，缓存 763 MiB。下面的替身测量按 N = 47 万（早先的估计）：float16 918 MiB，缓存文件约 980 MiB；字符串约 0.1–0.3 GiB。最坏把 794878 行全收：float16 1.52 GiB。实测（本仓库开发容器，CPU，按真实行数和布局生成的 47 万行替身文件）：建表 25 s，新进程从缓存加载 6 s、峰值 RSS 1.3 GiB；16 个框对 47 万行打分 1.3 s（CPU，float16 按 65536 行一段升 float32 算，计算本身误差 < 1e-5）。float16 存储本身的误差（相对 float32 官方向量；20 万行随机单位向量、logit scale 100 实测）：logit 最多约 3.5e-3；概率在一个名字占绝大部分时约 1e-10，两个名字分摊概率时最多约 3e-4。
 - 真实行数、去重条数、每张照片的 top-1：见 CI `models` 任务的报告（`tests/models`，18 张其他动物照片）。
 
-## 实测（2026-09-22，M 系列 Mac，MPS，`uv run python scripts/build_names.py`）
+## 实测（M 系列 Mac，MPS，`uv run python scripts/build_names.py`；avilist 行 2026-10-26，mdd 行 2026-09-22）
 
 | 名单 | 总数 | 官方向量 | 自编码 | 覆盖率 | 缓存文件 |
 |---|---|---|---|---|---|
-| avilist-2025 | 11131 | 9416 | 1715 | 84.6% | 56.2 MiB |
+| avilist-2026 | 11172 | 9416 | 1756 | 84.3% | 56.7 MiB |
 | mdd-2025 | 6904 | 3835 | 3069 | 55.5% | 35.0 MiB |
 
 - 首次构建（官方文件已在 HF 缓存，不含下载与模型加载 4.5 s）：23.0 s
@@ -70,13 +70,14 @@
 
 以 AviList（鸟）/ MDD（哺乳）学名为准，把另外三套名字对齐过来：TreeOfLife-200M（BioCLIP 官方向量）、BirdNET geo 3.0（地理先验）、iNaturalist（真值标签）。
 
-- `synonyms.csv`（手工维护）：`avilist_scientific, alias, source, note`。`avilist_scientific` 是 AviList 或 MDD 的学名；`source` 决定别名用在哪一侧：`tol` 只用于 TreeOfLife 匹配，`birdnet` 只用于 BirdNET，`inat` 只用于 eval 真值，`spelling`（拼写差异）三侧都用。每条必须写 note。目前 6 条：
+- `synonyms.csv`（手工维护）：`avilist_scientific, alias, source, note`。`avilist_scientific` 是 AviList 或 MDD 的学名；`source` 决定别名用在哪一侧：`tol` 只用于 TreeOfLife 匹配，`birdnet` 只用于 BirdNET，`inat` 只用于 eval 真值，`spelling`（拼写差异）三侧都用。每条必须写 note。手工的 6 条：
   - `Pica nuttallii` ← `Pica nuttalli`（spelling；TreeOfLife、BirdNET、iNat 都拼单 l）
   - `Tyto furcata` ← BirdNET `Tyto alba`（birdnet；BirdNET 只有合并的 Tyto alba）
   - `Circus hudsonius` ← `Circus cyaneus`（inat；美洲观测）
   - `Circus hudsonius` ← TreeOfLife `Circus cyaneus`（tol；TreeOfLife 没有 hudsonius 行，与 AviList C. cyaneus 共用官方向量，由地理先验按地点区分）
   - `Cervus canadensis` ← `Cervus elaphus`（inat；北美观测）
   - `Icterus bullockiorum` ← BirdNET `Icterus bullockii`（birdnet；BirdNET 用旧拼写。2026-09-23 由 `bioscan names geo-gaps` 在加州查出；映射表该行按脚本规则手工同步：birdnet_label `Icterus bullockii_Bullock's Oriole`、birdnet_how `synonym`）
+  - v2026 升级生成的 122 条（note 以 "From the v2026 changes tab." 结尾）：v2026 中 BirdNET 或 TreeOfLife 对不上、但它在 v2025 的祖先名（AviList 变更页 SPLITS 与 SPECIES SCIENTIFIC NAME CHANGES 两节，同一 Avibase ID）对得上的种，别名指向祖先名。改学名 36 条 birdnet + 41 条 tol（同一分类单元）；拆分 45 条只加 birdnet（子种共用亲本的先验，同 *Tyto furcata*）。拆分子种不加 tol 别名：对不上的子种按自己的名字用文本塔编码，加别名会让两个子种共用同一个向量。不加这些行时，没有 BirdNET 标签的鸟按 `zero` 策略在有坐标时被压掉。
   - 未收：`Alces alces → Alces americanus`。MDD v2.5 只有 `Alces alces`，没有 americanus，真值 `Alces alces` 已直接对上。
 - `avilist_map.csv`（`uv run python scripts/build_name_map.py --force` 生成，不加 `--force` 拒绝覆盖已提交的文件；需要 HF 缓存里的 TreeOfLife json 和 birdnet 包）：每个 AviList 种一行，`scientific, common, order, family, tol_name, tol_how, birdnet_label, birdnet_how`，`*_how` 取 `exact | synonym | none`。`birdnet_label` 是 BirdNET 原样的 `学名_俗名`，服务加载时建好"名单行号 → BirdNET 输出位置"索引，请求时一次数组查表得每行 `p_geo`（无标签的行为 0）。
 - `candidates.csv`（同一脚本生成，只供人审，不会自动采纳）：映射为 none 的种里，同属且种加词编辑距离 ≤ 2 的 TreeOfLife / BirdNET 名字。`candidate_in_avilist=True` 表示候选本身也是 AviList 的另一个种，多半是不同种。确认后把对应行抄进 `synonyms.csv` 再重跑脚本。
@@ -87,15 +88,20 @@
   - 一行多个标签（MDD 并了 BirdNET 分开的种）用 `|` 连接，先验取其中最大值：*Cebus albifrons*（4 个）、*Cebus capucinus*、*Plecturocebus cupreus*、*Plecturocebus toppini*（各 2 个）。
   - 结果：1042 行有标签（exact 1028、synonym 14），1048 个哺乳标签全部用上；golden 集 23 种哺乳里 21 种有标签，*Lepus californicus*、*Sylvilagus audubonii* 按属回退。
   - 没有标签的行按名单的 unlabelled policy 处理：哺乳为 `genus`（取同属有标签种的最大 p_geo，同属都没有时取 `geo.UNLABELLED_NEUTRAL` 0.05），鸟为 `zero`（按 0，行为不变）。属回退得到的 p_geo 不触发分布否决。
+- `avilist_splits.csv`（`uv run --no-project --with openpyxl python scripts/build_splits.py --xlsx AviList-v2026-20Oct2026-extended-version.xlsx --previous AviList-v2025-11Jun-extended.csv --force` 生成，不加 `--force` 拒绝覆盖；下一版名录用 `--version avilist-2027 --append` 追加，保留旧版本的行；2026-10-26）：AviList 某个版本拆分的种，每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。Gardener 用它把旧的人工确认改成“待重新确认”（`docs/gardener/contract.md` 契约修订 4，S7 第二部分）；BioScan 识别不读它。
+  - 来源：xlsx 的 `Changes from previous version` 页 “SPLITS (including descriptions of taxa that alter existing taxa)” 一节（表头 `#, AVIBASE ID, FAMILY, SCIENTIFIC NAME: AVILIST v2026, ENGLISH NAME: AVILIST v2026, AVILIST v2025 SCIENTIFIC NAME, AVILIST v2025 ENGLISH NAME`），到下一节 “LUMPS” 为止。`concept` 取该行的 Avibase ID；`parent_concept` 取 v2025 CSV 里亲本学名那一行种级的 `AvibaseID`（亲本不是 v2025 的种就报错）。
+  - 结果：80 个子种、35 个亲本，80 个子种的 ID 都在 v2026 CSV 里。35 个亲本的种级 ID 在 v2026 里全部不再使用，没有子种沿用亲本 ID；留下原学名的子种用的是原来指名亚种的 ID（如 Willet `avibase-E7A14E91` → Saltmarsh Willet `avibase-6D372C9F`，后者在 v2025 是 *Tringa semipalmata semipalmata*）。
+  - *Mixornis bornensis* 只有一行：变更页把从 *M. gularis* 分出的 *M. woodi* 记在 *M. gularis* 名下，*M. bornensis* 自己换了新 ID，所以它的旧人工确认会变成只有一个候选的“待重新确认”。这是原表的样子，没有手工补行。
+  - 不含 LUMPS（并种）：并种后旧确认仍指向一个确定的种，没有歧义。
 
-覆盖率（2026-09-23）：
+覆盖率（avilist 2026-10-26，mdd 2026-09-23）：
 
 | 名单 | 总数 | TreeOfLife exact / synonym / none | 官方向量覆盖 | BirdNET exact / synonym / none |
 |---|---|---|---|---|
-| avilist-2025 | 11131 | 9416 / 2 / 1713 | 84.6% | 10380 / 3 / 748（93.3%） |
+| avilist-2026 | 11172 | 9373 / 43 / 1756 | 84.3% | 10344 / 84 / 744（93.3%） |
 | mdd-2025 | 6904 | 3835 / 0 / 3069 | 55.5% | 1028 / 14 / 5862（15.1%，其余按属回退） |
 
-旧版 BirdNET 匹配另外用俗名兜底（多 15 种），新版只按学名 + 别名，暂未把俗名匹配搬进映射表。`candidates.csv` 当前 49 条（distance 1：11 条）。
+旧版 BirdNET 匹配另外用俗名兜底（多 15 种），新版只按学名 + 别名，暂未把俗名匹配搬进映射表。`candidates.csv` 当前 48 条（distance 1：11 条）。
 
 ## inat/groundtruth-inat.csv — golden 真值（`bioscan gt inat` 生成）
 
@@ -130,4 +136,4 @@ md5 一致就跳过，否则下载；下载结果 md5 不符直接报错。这�
 
 ## aesthetic/ — 通用美学头（`eva-head-v1.json`）
 
-`aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。**头文件尚未提交**（目前只有 README），在 CI（`aesthetic.yml`）或 Mac 上训练后再提交；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`bioscan aesthetic train --ratings`）只留在本机，不进仓库。
+`aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。头文件 `eva-head-v1.json` 已提交（在 CI（`aesthetic.yml`）或 Mac 上训练）；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`bioscan aesthetic train --ratings`）只留在本机，不进仓库。

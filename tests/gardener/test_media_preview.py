@@ -176,3 +176,18 @@ def test_raw_embedded_source_size_before_draft(tmp_path, monkeypatch):
     thumb, large = out_paths(tmp_path)
     p = make_preview(str(tmp_path / "x.ARW"), "photo", thumb, large)
     assert p.method == "raw-embedded" and (p.meta["source_width"], p.meta["source_height"]) == (4000, 6000)
+
+
+def test_argfile_never_carries_a_line_break():
+    assert preview._argfile(["/a/ok.jpg", "/a/x\n-all=\n.jpg", "/a/y\r.jpg"]) == ["/a/ok.jpg"]
+
+
+@pytest.mark.skipif(not shutil.which("exiftool"), reason="exiftool not installed")
+def test_a_line_break_in_a_name_cannot_inject_exiftool_options(tmp_path):
+    good = make_jpg(tmp_path / "good.jpg", taken="2025:03:01 08:12:00")
+    bad = make_jpg(tmp_path / "x\n-all=\n-overwrite_original\n.jpg", taken="2025:03:02 09:00:00")
+    before = (tmp_path / "good.jpg").read_bytes()
+    m = read_meta([good, bad])
+    assert m[good]["taken_at"] == "2025-03-01T08:12:00"
+    assert m[bad]["taken_at"] == "2025-03-02T09:00:00"          # read per file instead
+    assert (tmp_path / "good.jpg").read_bytes() == before

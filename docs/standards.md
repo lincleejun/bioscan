@@ -45,7 +45,7 @@ must clear it, not just the observed rate.
 | Tier | What | N | Lists | Licence | Where it runs | Use |
 |---|---|---|---|---|---|---|
 | `smoke` | 95 iNat photos (42 birds, 35 mammals, 18 other animals; 83 species), `tests/models/sample.csv` | 95 | reduced: AviList rows of the sampled genera + 41 mammals | CC BY-NC / CC BY / CC0, fetched at test time | CI `models.yml`, CPU, every push | regression guard |
-| `golden` | iNat research-grade, California, 65 species × 25 (42 bird, 23 mammal), real GPS and dates, `data/inat/groundtruth-inat.csv` | 1,625 | full AviList 2025 + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
+| `golden` | iNat research-grade, California, 65 species × 25 (42 bird, 23 mammal), real GPS and dates, `data/inat/groundtruth-inat.csv` | 1,625 | full AviList (v2026 from 2026-10-26; v1.5 numbers were measured on v2025) + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
 | `golden` other-animal slice | **to build**: iNat California, about 16 non-bird, non-mammal species × 25 (reptiles, amphibians, insects, spiders), with `bioscan gt inat` | ~400 | TreeOfLife-wide list (work package W4) | as golden | owner's Mac | all-taxa default |
 | `own` | owner's telephoto RAW, folder-name truth, `data/groundtruth-own.csv` (288 Western Screech-Owl, 85 Red-tailed Hawk, 31 Steller's Jay) | 404 | full lists | private | owner's Mac | the real use case |
 | `public` | **to build**: ≥ 5 regions, CC0/CC BY only, one observation per photo, ≤ 5 per observer, sequestered test split | ≥ 5,000 | full lists | CC0 / CC BY, redistributable | owner's Mac; published | claim we can show others |
@@ -133,8 +133,8 @@ Failed images count as misses on every accuracy metric.
 compares it with `data/standards.toml`.
 
 ```sh
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden                  # golden, real GPS
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden-nogeo --no-geo   # location-aware
+bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden                  # golden, real GPS
+bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden-nogeo --no-geo   # location-aware
 bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own                           # own RAW
 bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own-nogeo --no-geo
 BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models                                          # smoke (CI models.yml)
@@ -160,7 +160,7 @@ RAW files have no GPS, so to score them with one batch coordinate, fill those tw
 | Other animals genus | none | **75%** | 90% | unmeasured | the level most other-animal answers should stop at |
 
 How measured: golden tier (other animals: the golden other-animal slice), with GPS, `bioscan bench run
-data/inat/groundtruth-inat.csv --out runs/<tag>-golden`, rows `bird`, `mammal`, `other`.
+data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden`, rows `bird`, `mammal`, `other`.
 
 The industry numbers are not like-for-like. Merlin, iNat and Dongniao measure on their own
 unpublished test sets. CUB/NABirds are curated closed sets, and SpeciesNet works on camera traps.
@@ -181,7 +181,7 @@ They show the level people expect, not a result on our folders.
 | Other animals coverage | none | **≥ 40%** | ≥ 70% | unmeasured | most other-animal answers should stop at genus or family |
 | Calibration (ECE, all kinds) | none published | **≤ 0.05** | ≤ 0.02 | unmeasured (no calibrated `p_correct` yet) | a "90%" answer should be right 85–95% of the time; this gates v1.0 only |
 
-How measured: golden tier, `bioscan bench run data/inat/groundtruth-inat.csv --out runs/<tag>-golden`.
+How measured: golden tier, `bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden`.
 Confident-error rate and precision must always be read together with coverage.
 
 For context, general vision-language models identify fewer than 13% of the answerable birds in the
@@ -247,14 +247,14 @@ group can prove an 85% bar with a 3-point margin.
 | Decode, median | none | **≤ 700 ms** | ≤ 300 ms | ~650 ms from a USB disk (README, before v1.1; the 3072 px detail copy since is unmeasured) | with 4 workers, 700 ms still feeds more than 5 images/s; the stretch needs the embedded preview |
 
 How measured: `mac` tier, 2,000 RAW files, 24 MP (plus 45 MP), from SSD and USB disk, on an M1-class
-Mac: `bioscan bench run <gt> --out runs/<tag>-speed`. Throughput = ok ÷ (`done.elapsed_ms` / 1000).
+Mac: `bioscan bench run <gt> --tier mac --out runs/<tag>-speed`. Throughput = ok ÷ (`done.elapsed_ms` / 1000).
 Report the machine, the disk and the settings fingerprint with it.
 
 ## 7. Taxonomic coverage (manual)
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
-| Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,131** (all of AviList 2025) | — | 11,131 (`bioscan names stats`; data/README) | the whole world list, extinct species included |
+| Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,172** (all of AviList v2026) | — | 11,172 (`bioscan names stats`; data/README) | the whole world list, extinct species included |
 | Mammal species in the name list | ~2,000 categories, SpeciesNet, all taxa (vendor claim) [^speciesnet] | **6,903** (all of MDD v2.5 but *Homo sapiens*) | — | 6,903 (`names.wildlife` leaves Homo out at load) | the whole world list; a person is never named as wildlife |
 | Other animal species with a name | 100,000+ taxa, iNat CV 2.20, all kingdoms (vendor claim) [^inat220] | **100,000** | 300,000 | 366,460 (CI 2026-09); TreeOfLife-200M has no vectors for many reptiles and ray-finned fish (smoke: 0 of 6 reptiles, 0 of 1 fish) | all taxa by default has to mean most animals people photograph |
 | Share of truth species in the lists | none | **100%** | 100% | golden birds 42/42 (checked against `avilist_map.csv` + synonyms, 2026-09-24); golden mammals 23/23 as scored by `bioscan eval` (MDD CSV not in the repo, not re-checked); own 3/3 | a species missing from the list can never be named, so it would make the accuracy numbers meaningless |
@@ -452,7 +452,8 @@ portrait photograph), so a first run's failures need a look at the photos before
 CVDF S3 mirror), `md5`, labels, licence and attribution, no photos (about 600 MB; they stay under
 `runs/`, ignored by git). Any machine gets the identical set with `gt scene --from`: a photo already
 there with the manifest's md5 is kept, anything else is downloaded, and a download whose md5 differs
-fails the run, so a bench on this tier always scores the same files.
+fails the run, so a bench on this tier always scores the same files. `--from` takes only `--out`: the
+sampling flags (`--map`, `--per-label`, `--seed`, `--subset`, `--cache`, `--dry-run`) are refused with it.
 
 How measured (any machine with the service running and the out folder under its allow-roots):
 ```sh

@@ -5,6 +5,7 @@ import time
 import numpy as np
 import torch
 
+from bioscan import contract
 from bioscan.service import names
 
 AVI_HEADER = ["Sequence", "Taxon_rank", "Order", "Family", "Scientific_name", "English_name_AviList"]
@@ -67,6 +68,28 @@ def test_tol_text_matches_treeoflife_format():
     assert names.tol_text(tax, "") == "an image of Animalia Chordata Aves Passeriformes Corvidae Corvus corax."
 
 
+def test_read_avilist_v2026_headers_match_v2025(tmp_path):
+    from bioscan.cli import bench
+    v2026 = ["#", "RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST"]
+    write_csv(tmp_path / "v2025.csv", AVI_HEADER, AVI_ROWS)
+    write_csv(tmp_path / "v2026.csv", v2026, AVI_ROWS)
+    assert names.read_avilist(tmp_path / "v2026.csv") == names.read_avilist(tmp_path / "v2025.csv")
+    assert bench.read_name_list(tmp_path / "v2026.csv") == {"corvus corax": "Corvidae", "megascops kennicottii": "Strigidae"}
+
+
+def test_concept_ids_from_avibase_and_mdd_else_the_name(tmp_path):
+    write_csv(tmp_path / "avi.csv", ["RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST", "AVIBASE ID"],
+              [["species", "Passeriformes", "Troglodytidae", "Nannus pacificus", "Pacific Wren", "avibase-5D1A2DC4"],
+               ["species", "Passeriformes", "Corvidae", "Corvus corax", "Northern Raven", ""]])
+    write_csv(tmp_path / "mdd.csv", MDD_HEADER + ["id"], [MDD_ROWS[0] + ["1003456"]])
+    assert [r[3] for r in names.read_avilist(tmp_path / "avi.csv")] == ["avibase:avibase-5D1A2DC4", ""]
+    assert [r[3] for r in names.read_mdd(tmp_path / "mdd.csv")] == ["mdd:1003456"]
+    nl = names.NameList("b", "bird", ["Nannus pacificus", "Corvus corax"], ["", ""], [[""] * 7] * 2,
+                        np.zeros((2, 4), np.float32), ["exact"] * 2, concept=["avibase:x", ""])
+    assert [names.concept_of(nl, i) for i in (0, 1)] == ["avibase:x", ""]
+    assert contract.candidate("Corvus corax", None, [], 0.5, None, 0.5, "")["concept"] == "name:Corvus corax"
+
+
 def test_match_tol_class_and_family():
     birds = [("Corvus corax", "", ["", "", "Aves", "", "Corvidae", "", ""]),
              ("Megascops kennicottii", "", ["", "", "Aves", "", "Strigidae", "", ""])]
@@ -81,7 +104,7 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
     lists = names.load_lists(FakeModel(), tok, "cpu", cache, data_dir=data, tol_files=tol)
 
     bird, mammal = lists["bird"], lists["mammal"]
-    assert bird.list_id == "avilist-2025" and mammal.list_id == "mdd-2025"
+    assert bird.list_id == "avilist-2026" and mammal.list_id == "mdd-2025"
     assert bird.scientific == ["Corvus corax", "Megascops kennicottii"]  # subspecies/order rows dropped
     assert bird.taxonomy[0] == ["Animalia", "Chordata", "Aves", "Passeriformes", "Corvidae", "Corvus", "Corvus corax"]
     assert mammal.scientific == ["Rangifer tarandus", "Alces alces"] and mammal.common == ["Reindeer", "Moose"]
@@ -95,7 +118,7 @@ def test_load_lists_end_to_end_and_cache(tmp_path):
     ])
     how = {"exact": 1, "synonym": 0, "none": 1}
     assert names.stats(lists) == {
-        "bird": {"list_id": "avilist-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
+        "bird": {"list_id": "avilist-2026", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
                  "tol": how, "birdnet": None},
         "mammal": {"list_id": "mdd-2025", "total": 2, "official": 1, "encoded": 1, "coverage": 0.5,
                    "tol": how, "birdnet": None},
@@ -409,3 +432,12 @@ def test_build_name_map_refuses_to_overwrite_without_force(tmp_path, monkeypatch
     assert target.read_text() == "committed\n" and target.stat().st_mtime_ns == before
     bnm.refuse_overwrite([target], force=True)                   # --force: the guard lets it through
     bnm.refuse_overwrite([tmp_path / "absent.csv"], force=False)  # nothing to overwrite
+
+
+def test_leaving_homo_out_keeps_each_concept_on_its_row():
+    tax = [["Animalia", "Chordata", "Mammalia", "Primates", "Hominidae", g, f"{g} {e}"]
+           for g, e in (("Gorilla", "gorilla"), ("Homo", "sapiens"), ("Pan", "troglodytes"))]
+    nl = names.NameList("m", "mammal", [t[6] for t in tax], ["", "", ""], tax, np.zeros((3, 4), np.float32),
+                        ["exact"] * 3, concept=["mdd:1", "mdd:2", "mdd:3"])
+    out = names.wildlife(nl)
+    assert out.scientific == ["Gorilla gorilla", "Pan troglodytes"] and out.concept == ["mdd:1", "mdd:3"]

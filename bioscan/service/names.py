@@ -27,7 +27,7 @@ from typing import Callable, NamedTuple
 
 import numpy as np
 
-from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, map_problems, norm_binomial, read_synonyms
+from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, avilist_row, map_problems, norm_binomial, read_synonyms
 from bioscan.service.taxa import NOT_WILDLIFE
 
 log = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ DIM = 1024
 @dataclass(frozen=True)
 class NameList:
     """One species list, complete as `load_lists` returns it. Frozen: fields are set once, there."""
-    list_id: str                 # "avilist-2025" | "mdd-2025"
+    list_id: str                 # "avilist-2026" | "mdd-2025"
     kind: str                    # "bird" | "mammal"
     scientific: list[str]
     common: list[str]
@@ -59,6 +59,14 @@ class NameList:
     unlabelled: str = "zero"     # location prior for a row with no label: zero | genus (geo.LocationPrior)
     label_map_sha: str = ""      # label_map_sha(label map file) the labels came from; "" = no map
     source: str = ""             # the taxonomy the rows follow (engine info), "" = not stated
+    # Stable concept id per row (avibase:<id> | mdd:<id>); "" or no list = none (contract.candidate: name:<scientific>).
+    concept: list[str] = field(default_factory=list)
+
+
+def concept_of(nl: NameList, row: int) -> str:
+    """The row's stable concept id, "" when its list has none (stand-in lists in tests have no field)."""
+    concept = getattr(nl, "concept", None)
+    return concept[row] if concept else ""
 
 
 def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> list[str]:
@@ -66,24 +74,28 @@ def _taxonomy(cls: str, order: str, family: str, genus: str, epithet: str) -> li
             genus.strip().capitalize(), f"{genus.strip().capitalize()} {epithet.strip().lower()}"]
 
 
-def read_avilist(path: Path) -> list[tuple[str, str, list[str]]]:
+def read_avilist(path: Path) -> list[tuple[str, str, list[str], str]]:
+    """(scientific, common, taxonomy, concept) per species row; concept = avibase:<Avibase ID>, "" when absent."""
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
+        for r in map(avilist_row, csv.DictReader(f)):
             if r["Taxon_rank"] != "species":
                 continue
             genus, epithet = norm_binomial(r["Scientific_name"]).split(" ", 1)
             tax = _taxonomy("Aves", r["Order"], r["Family"], genus, epithet)
-            rows.append((tax[6], r["English_name_AviList"].strip(), tax))
+            avibase = (r.get("AvibaseID") or "").strip()
+            rows.append((tax[6], r["English_name_AviList"].strip(), tax, f"avibase:{avibase}" if avibase else ""))
     return rows
 
 
-def read_mdd(path: Path) -> list[tuple[str, str, list[str]]]:
+def read_mdd(path: Path) -> list[tuple[str, str, list[str], str]]:
+    """As read_avilist; concept = mdd:<MDD id>."""
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             tax = _taxonomy("Mammalia", r["order"], r["family"], r["genus"], r["specificEpithet"])
-            rows.append((tax[6], r["mainCommonName"].strip(), tax))
+            mdd = (r.get("id") or "").strip()
+            rows.append((tax[6], r["mainCommonName"].strip(), tax, f"mdd:{mdd}" if mdd else ""))
     return rows
 
 
@@ -103,8 +115,8 @@ class ListSource(NamedTuple):
 
 
 LISTS = {
-    # zero: the 748 unlabelled AviList rows are mostly extinct or lumped sisters that must stay suppressed
-    "bird": ListSource("avilist-2025", "avilist", "Aves", read_avilist, "avilist_map.csv", "zero", "AviList v2025"),
+    # zero: the 744 unlabelled AviList rows are mostly extinct or lumped sisters that must stay suppressed
+    "bird": ListSource("avilist-2026", "avilist", "Aves", read_avilist, "avilist_map.csv", "zero", "AviList v2026"),
     # genus: BirdNET labels only 1,048 of 6,904 MDD species; the rest borrow their genus's presence
     "mammal": ListSource("mdd-2025", "mdd", "Mammalia", read_mdd, "mdd_map.csv", "genus", "MDD v2.5"),
 }
@@ -171,7 +183,8 @@ def match_tol(rows, tol_names, cls: str, keys: list[str] | None = None) -> list[
         if tax[2] == cls:
             index.setdefault(norm_binomial(f"{tax[5]} {tax[6]}"), []).append((i, tax[4].lower()))
     out = []
-    for (_sci, _common, tax), key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
+    for row, key in zip(rows, keys if keys is not None else [r[0] for r in rows]):
+        tax = row[2]
         hits = index.get(norm_binomial(key)) if key else None
         if not hits:
             out.append(None)
@@ -481,7 +494,7 @@ def wildlife(nl: NameList) -> NameList:
 
     return replace(nl, scientific=cut(nl.scientific), common=cut(nl.common), taxonomy=cut(nl.taxonomy),
                    matrix=nl.matrix[keep], tol_how=cut(nl.tol_how), birdnet=cut(nl.birdnet),
-                   birdnet_how=cut(nl.birdnet_how))
+                   birdnet_how=cut(nl.birdnet_how), concept=cut(nl.concept))
 
 
 def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
@@ -522,7 +535,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
                       "birdnet_how": [x.get("birdnet_how") or "none" for x in m],
                       "label_map_sha": label_map_sha(map_path)}
         out[kind] = wildlife(NameList(src.list_id, kind, **cols, sha=sha, **labels, unlabelled=src.unlabelled,
-                                      source=src.source))
+                                      source=src.source, concept=[r[3] for r in rows]))
     try:
         other = load_all_taxa(cache_dir, tol_files=tol_files, tol=tol)
     except Exception as exc:  # noqa: BLE001 - an optional list must not cost birds and mammals

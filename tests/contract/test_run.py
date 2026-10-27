@@ -1,6 +1,7 @@
 """spec §4: /health, /products, /run events and error conventions, want combos, lock queue, cancel."""
 import asyncio
 import base64
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +27,7 @@ def test_health(client):
 
 def test_products(client):
     p = client.get("/products").json()
-    assert set(p) == {"identify", "embed", "jpg", "geotag", "aesthetics", "quality", "scene"}
+    assert set(p) == {"identify", "embed", "jpg", "geotag", "aesthetics", "quality", "scene", "facing"}
     for spec in p.values():
         assert {"description", "options", "output"} <= set(spec)
     assert p["identify"]["options"]["top_k"]["default"] == 5
@@ -277,6 +278,42 @@ def test_allow_roots(tmp_path):
     assert len(fakes.frames) == 1        # rejected requests never reach the models
 
 
+def test_run_rejects_bad_coordinates_and_nul_paths(tmp_path):
+    """Half a pair would mix the request's lat with the photo's EXIF lon; NaN / out of range would
+    reach the prior; a NUL in a path made Path.resolve raise (500)."""
+    ok = make_jpg(tmp_path / "a.jpg")
+    fakes = Fakes()
+    app = create_app(fakes.engine(), decode_pool=ThreadPoolExecutor(2), allow_roots=[str(tmp_path)])
+    with TestClient(app) as c:
+        for inp, message in [({"lat": 10}, "lat and lon go together"), ({"lon": 10}, "lat and lon go together"),
+                             ({"lat": 91, "lon": 0}, "inputs[0].lat must be finite"),
+                             ({"lat": 0, "lon": 500}, "inputs[0].lon must be finite")]:
+            r = c.post("/run", json={"inputs": [{"path": ok, **inp}]})
+            assert r.status_code == 400 and message in r.json()["error"], inp
+        for lat in ("NaN", "-Infinity", "1" + "0" * 400):        # a huge int made isfinite overflow (500)
+            r = c.post("/run", content=f'{{"inputs": [{{"path": "{ok}", "lat": {lat}, "lon": 1}}]}}')
+            assert r.status_code == 400 and "inputs[0].lat must be finite" in r.json()["error"], lat
+        r = c.post("/run", json={"inputs": [{"path": ok + "\x00x"}]})
+        assert r.status_code == 400 and "NUL" in r.json()["error"]
+        r = c.post("/run", json={"inputs": [{"path": ok}], "want": ["jpg"],
+                                 "options": {"jpg": {"out_dir": str(tmp_path / "j\x00pg")}}})
+        assert r.status_code == 400 and "NUL" in r.json()["error"]
+        assert events(c.post("/run", json={"inputs": [{"path": ok, "lat": -90, "lon": 180}]}))[-1]["ok"] == 1
+    assert len(fakes.frames) == 1
+
+
+def test_run_refuses_requests_from_other_origins(client, tmp_path):
+    """A foreign page may POST text/plain without a preflight and read the stream; the Python
+    client sends no Origin, and a page served by the service itself would send its own."""
+    p = make_jpg(tmp_path / "a.jpg")
+    body = json.dumps({"inputs": [{"path": p}]})
+    for origin in ("https://evil.example", "null", "http://testserver:9999"):
+        r = client.post("/run", content=body, headers={"content-type": "text/plain", "origin": origin})
+        assert r.status_code == 403 and "other origins" in r.json()["error"], origin
+    assert events(client.post("/run", content=body, headers={"origin": "http://testserver"}))[-1]["ok"] == 1
+    assert events(client.post("/run", content=body))[-1]["ok"] == 1
+
+
 def test_process_pool_decode_path(tmp_path):
     """Production decodes in a ProcessPoolExecutor: Decoded (with its detail image) must survive
     pickling back from the worker."""
@@ -385,6 +422,31 @@ def test_decode_pool_rebuild_only_replaces_the_broken_executor():
     fut.result(timeout=5)                                    # not cancelled
     assert not run_mod.DecodePool(executor=broken).rebuild(broken)   # a caller's executor is never rebuilt
     made[1].shutdown()
+
+
+def _die():
+    import os
+
+    os._exit(1)
+
+
+def test_a_pool_left_broken_is_rebuilt_on_the_next_submit(tmp_path):
+    """A request that went away before its gather saw the crash leaves the pool broken; submit
+    itself then raises BrokenProcessPool, so the next request must rebuild, not cut its stream."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures.process import BrokenProcessPool
+
+    ctx = multiprocessing.get_context("fork")
+    broken = ProcessPoolExecutor(1, mp_context=ctx)
+    with pytest.raises(BrokenProcessPool):
+        broken.submit(_die).result(timeout=10)
+    pool = run_mod.DecodePool(lambda: ProcessPoolExecutor(1, mp_context=ctx), executor=broken)
+    p = make_jpg(tmp_path / "a.jpg")
+    with TestClient(create_app(Fakes().engine(), decode_pool=pool)) as c:
+        ev = events(c.post("/run", json={"inputs": [{"path": p}]}))
+    assert ev[-1]["type"] == "done" and ev[-1]["ok"] == 1 and pool.executor is not broken
+    pool.executor.shutdown()
 
 
 @pytest.mark.parametrize("options, loaded", [
