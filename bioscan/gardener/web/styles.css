@@ -738,3 +738,7 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .id-hits .btn { width: 100%; justify-content: flex-start; text-align: left; }
 .page-head .seg .seg-btn { white-space: nowrap; }
 .page-head .seg { flex: none; }
+/* 拍摄段（契约修订 5B）：占满网格一行的段标题 */
+.enc-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 2px 2px; border-top: 1px solid var(--line); }
+.enc-head:first-child { border-top: 0; padding-top: 0; }
+.enc-head .hint { flex: 1 1 auto; min-width: 0; }
