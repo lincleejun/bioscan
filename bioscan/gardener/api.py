@@ -23,10 +23,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import identities, people, query, tasks
+from bioscan.gardener import identities, people, query, tasks, taxa
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
+from bioscan.naming import DATA_DIR
 
 log = logging.getLogger("bioscan.gardener")
 BUILTIN_DEFAULT = "photo"      # the default preset when the configured one is gone
@@ -59,11 +60,14 @@ def text(body: dict[str, Any], key: str, *, required: bool = False, default: str
 
 def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: tasks.Toolkit | None = None,
                         allow_roots: list[str] | None = None, start_worker: bool = True,
-                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS) -> FastAPI:
+                        allowed_hosts: tuple[str, ...] = LOCAL_HOSTS, name_lists: Path | None = DATA_DIR) -> FastAPI:
     """`engine`: a BioScan Engine (tests pass one built on fake Loaders); None = created on first analysis.
     `toolkit`: unit 2's scanner/Analyzer functions (default: the real modules). `allow_roots`: task sources
-    must lie inside one of them (none = any directory)."""
+    must lie inside one of them (none = any directory). `name_lists`: the folder holding avilist/, mdd/ and
+    names/ the name index is built from (taxa.py); None = leave the index as it is."""
     store = st.Store(data_dir)
+    if name_lists is not None:
+        taxa.sync(store, name_lists)
     tk = toolkit or tasks.Toolkit.default()
     holder = tasks.EngineHolder(engine)
     worker = tasks.Worker(store, tk, holder.get)
@@ -748,6 +752,11 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if task is not None:
             task_or_404(task)
         return identities.species(store.conn(), task, include_hidden=hidden == "1")
+
+    @r.get("/names")
+    def get_names(q: str = "", limit: int = LIMIT100) -> list[dict[str, Any]]:
+        """Taxa by any of their names (scientific, English, synonyms, replaced names, the person's Chinese)."""
+        return taxa.search(store.conn(), q, min(limit, 100))
 
     @r.patch("/species/{concept}")
     def patch_species(concept: str, body: dict[str, Any] = BODY) -> dict[str, Any]:

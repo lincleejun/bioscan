@@ -126,10 +126,13 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
     if "content" in f:
         add("EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id "
             "AND t.id LIKE 'scene:%' AND (t.id = 'scene:' || ? OR t.name = ?))", f["content"], f["content"])
-    if "species" in f:
-        add("EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id "
-            "AND t.id LIKE 'species:%' AND (instr(lower(t.id), lower(?)) > 0 OR instr(lower(t.name), lower(?)) > 0))",
-            f["species"], f["species"])
+    if "species" in f:      # any name of the concept a subject currently has (taxon_names), or its shown names
+        from bioscan.gardener.taxa import norm
+
+        key = norm(f["species"])
+        add("EXISTS (SELECT 1 FROM current_ids ci WHERE ci.asset_id = a.id AND ci.level = 'species' AND (ci.concept "
+            "IN (SELECT concept FROM taxon_names WHERE instr(norm, ?) > 0) OR instr(lower(ci.taxon), ?) > 0 "
+            "OR instr(lower(coalesce(ci.common, '')), ?) > 0))", key, key, key)
     if "concept" in f or "id_state" in f:             # one subject must satisfy both (contract revision 4, S4)
         sub, ps = [], []
         if "concept" in f:

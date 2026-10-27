@@ -282,4 +282,15 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - **`PATCH /species/{concept} {cover_asset_id?: id|null, hidden?: bool}`**：只影响显示（表 `species_prefs`）；封面必须是该物种的照片（否则 400），没有该物种的照片则 404。
   - **`GET /assets` 增加 `concept`、`id_state=confirmed|candidate|unresolved`**：两者同时给出时，须由同一个主体满足。Smart 规则同样可用。
   - **任务内分组**：本切片仍保留任务内物种分组（`grouping.suggest`），界面切换到物种库（S6）时再去掉。
+- **名字检索（S5）**：
+  - **索引表 `taxon_names`**：名字 → 概念（`taxa.py`）。来源有三类：
+    - AviList/MDD 的学名与英文名、MDD 的其他俗名；
+    - `synonyms.csv` 的别名，包括名录升级前的旧学名；
+    - 用户的中文名 `<数据目录>/names-zh.csv`（`scientific,zh`；没有授权清楚的中文名单可随附，见调研 §3，所以不内置、也不机器翻译）。
+  - **重建时机**：服务启动时对这些文件算哈希，变化才重建（真实名单 18,076 个概念、44,817 个名字，约 0.5 s）；名单缺失则跳过。`create_gardener_app(name_lists=)` 指定名单所在目录，`None` 不碰索引。
+  - **`GET /names?q=&limit=`** 返回 `[{concept, scientific, common, zh, kind, matched, photos}]`：
+    - 排序：名字完全相同在前，再是前缀匹配，再是包含；同一档里库中已有照片的在前。
+    - 拍到过、但不在任何名单里的 `name:` 概念，从识别结果本身检索。
+    - 纠错时用它找到 `claim` 需要的 `concept` 与 `taxon`。
+  - **筛选 `species=`**（包括 Smart 规则）改为按名字索引与主体的当前结论匹配：人工纠正后筛选结果跟着变，旧学名同样命中。
 - **后续切片**（同一修订，按实现逐步补全本节）： 库级物种 Collection 由当前结论派生（一个概念一个、无最小张数、已确认与候选分开计数）；S5 名字检索；S6 界面；S7 名录升级迁移。

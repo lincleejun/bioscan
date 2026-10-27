@@ -214,3 +214,11 @@ WHERE s.removed_at IS NULL;
 CREATE TABLE IF NOT EXISTS species_prefs (
   concept TEXT PRIMARY KEY, cover_asset_id TEXT, hidden INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
 );
+-- Every name a concept goes by (taxa.py): list names, synonyms, the person's Chinese names; rebuilt when its inputs change.
+CREATE TABLE IF NOT EXISTS taxon_names (
+  concept TEXT NOT NULL, name TEXT NOT NULL, norm TEXT NOT NULL,
+  lang TEXT NOT NULL,            -- sci | en | zh | alias
+  source TEXT NOT NULL,          -- avilist | mdd | synonym | user
+  kind TEXT                      -- bird | mammal
+);
+CREATE INDEX IF NOT EXISTS taxon_names_concept ON taxon_names (concept);

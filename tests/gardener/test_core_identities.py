@@ -214,3 +214,66 @@ def test_hiding_a_card_and_pinning_its_cover_touch_nothing_else(env, fakes, tmp_
         assert c.patch(f"{API}/species/{owl}", json={"cover_asset_id": "a_other"}).status_code == 400
         assert c.patch(f"{API}/species/avibase:none", json={"hidden": True}).status_code == 404
         assert c.get(f"{API}/species", params={"hidden": "1"}).json()["to_confirm"][0]["concept"] == owl
+
+
+def lists_dir(tmp_path):
+    """A tiny avilist/ + mdd/ + names/synonyms.csv in the v2026 layout."""
+    import csv
+
+    root = tmp_path / "lists"
+    for sub, header, rows in (
+            ("avilist", ["RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST", "AVIBASE ID"],
+             [["species", "Strigiformes", "Strigidae", "Megascops asio", "Eastern Screech-Owl", "test-asio"],
+              ["species", "Passeriformes", "Troglodytidae", "Nannus pacificus", "Pacific Wren", "avibase-CF5B7A9D"],
+              ["species", "Accipitriformes", "Accipitridae", "Aquila chrysaetos", "Golden Eagle", "test-aquila"]]),
+            ("mdd", ["sciName", "id", "mainCommonName", "otherCommonNames", "order", "family", "genus", "specificEpithet"],
+             [["Alces_alces", "1006285", "Moose", "Elk|Eurasian Elk", "Artiodactyla", "Cervidae", "Alces", "alces"]]),
+            ("names", ["avilist_scientific", "alias", "source", "note"],
+             [["Nannus pacificus", "Troglodytes pacificus", "birdnet", "renamed in v2026"]])):
+        (root / sub).mkdir(parents=True)
+        with open(root / sub / ("synonyms.csv" if sub == "names" else f"{sub}.csv"), "w", newline="") as f:
+            csv.writer(f).writerows([header, *rows])
+    return root
+
+
+def test_names_resolve_scientific_english_replaced_and_chinese_names_to_concepts(env, fakes, tmp_path):
+    (env.data).mkdir(parents=True, exist_ok=True)
+    (env.data / "names-zh.csv").write_text("scientific,zh\nAquila chrysaetos,金雕\nNannus pacificus,太平洋鹪鹩\n"
+                                          "Nobody nowhere,无名\n", encoding="utf-8")
+    with env.client(name_lists=lists_dir(tmp_path)) as c:
+        task_of(c, tmp_path, "trip", ["A1.jpg"], fakes, [[owl_box()]])
+        q = lambda s: [(x["concept"], x["matched"]) for x in c.get(f"{API}/names", params={"q": s}).json()]  # noqa: E731
+        assert q("金雕") == [("avibase:test-aquila", "金雕")]
+        assert q("troglodytes pacificus") == [("avibase:avibase-CF5B7A9D", "Troglodytes pacificus")]  # the replaced name
+        assert q("Eurasian elk") == [("mdd:1006285", "Eurasian Elk")]
+        (owl,) = c.get(f"{API}/names", params={"q": "screech"}).json()
+        assert (owl["scientific"], owl["common"], owl["zh"], owl["kind"], owl["photos"]) == \
+            ("Megascops asio", "Eastern Screech-Owl", None, "bird", 1)
+        wren = c.get(f"{API}/names", params={"q": "太平洋"}).json()[0]
+        assert (wren["common"], wren["zh"], wren["photos"]) == ("Pacific Wren", "太平洋鹪鹩", 0)
+        assert c.get(f"{API}/names", params={"q": " "}).json() == []
+
+
+def test_the_species_filter_follows_current_identifications_and_smart_rules_use_it(env, fakes, tmp_path):
+    with env.client(name_lists=lists_dir(tmp_path)) as c:
+        t = task_of(c, tmp_path, "trip", ["A1.jpg", "A2.jpg"], fakes, [[owl_box()], [owl_box()]])
+        names = lambda **q: sorted(i["name"] for i in c.get(f"{API}/assets", params=q).json()["items"])  # noqa: E731
+        assert names(species="screech-owl") == ["A1.jpg", "A2.jpg"]
+        smart = c.post(f"{API}/collections", json={"name": "鹪鹩", "kind": "smart", "rule": {"species": "Troglodytes pacificus"},
+                                                   "task_id": t["id"]}).json()
+        a1 = next(i["id"] for i in c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"] if i["name"] == "A1.jpg")
+        sid = c.get(f"{API}/assets/{a1}").json()["subjects"][0]["id"]
+        c.post(f"{API}/identifications", json={"subject_ids": [sid], "claim": {"level": "species", "taxon": WREN["scientific"],
+                                                                              **WREN}})
+        assert names(species="screech-owl") == ["A2.jpg"] and names(species="pacific wren") == ["A1.jpg"]
+        assert names(collection=smart["id"]) == ["A1.jpg"]            # the rule names the wren by its old name
+
+
+def test_the_name_index_rebuilds_only_when_its_inputs_change(tmp_path):
+    from bioscan.gardener import taxa
+
+    store, lists = st.Store(tmp_path / "d"), lists_dir(tmp_path)
+    assert taxa.sync(store, lists) and not taxa.sync(store, lists)
+    (tmp_path / "d" / "names-zh.csv").write_text("scientific,zh\nMegascops asio,东美角鸮\n", encoding="utf-8")
+    assert taxa.sync(store, lists)
+    assert [x["zh"] for x in taxa.search(store.conn(), "东美")] == ["东美角鸮"]

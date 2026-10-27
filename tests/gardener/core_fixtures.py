@@ -321,7 +321,8 @@ class Env:
         self.engine = engine or ok_engine()
 
     def client(self, **kw) -> TestClient:
-        app = create_gardener_app(self.data, engine=self.engine, toolkit=self.fakes.toolkit(), **kw)
+        app = create_gardener_app(self.data, engine=self.engine, toolkit=self.fakes.toolkit(),
+                                  **{"name_lists": None} | kw)
         return TestClient(app, base_url=BASE)
 
 
