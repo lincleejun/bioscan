@@ -71,3 +71,25 @@ def test_an_offline_disk_never_changes_species_counts(env, fakes, tmp_path):
             db.execute("UPDATE asset_files SET online = 0")
             db.execute("UPDATE assets SET online = 0")
         assert c.get(f"{API}/species").json()["confirmed_total"] == 1
+
+
+def test_a_narrow_tasks_own_representative_is_in_its_species_encounters_and_import(env, fakes, tmp_path):
+    """#102 per-task representatives in the task views: B covers only camera/, so its JPEG, a version of the RAW
+    in the wider task A, is B's own photo there; library-wide counts still see one capture."""
+    from test_core_groups import pattern
+
+    shoot = tmp_path / "shoot"
+    pattern(shoot / "raw" / "DSC01234.jpg", 1, size=(128, 96))
+    pattern(shoot / "camera" / "DSC01234.jpg", 1)
+    with env.client() as c:
+        a = wait_task(c, create_task(c, [str(shoot)])["id"])
+        b = wait_task(c, create_task(c, [str(shoot / "camera")])["id"])
+        (cam,) = [i["id"] for i in c.get(f"{API}/assets", params={"task": b["id"]}).json()["items"]]
+        owl = lambda **q: [k["photos"] for k in c.get(f"{API}/species", params=q).json()["to_confirm"]]  # noqa: E731
+        assert owl(task=b["id"]) == [1] and owl(task=a["id"]) == [1] and owl() == [1]    # one capture in the library
+        enc = c.get(f"{API}/encounters", params={"task": b["id"]}).json()
+        assert [e["asset_ids"] for e in enc["encounters"]] == [[cam]] and enc["unassigned"] == []
+        p = c.post(f"{API}/tasks/{b['id']}/import-plan", json={"dest_root": str(tmp_path / "lib")}).json()
+        assert p["assets"] == 1 and p["not_copied"]["versions"] == 0
+        pa = c.post(f"{API}/tasks/{a['id']}/import-plan", json={"dest_root": str(tmp_path / "lib")}).json()
+        assert pa["assets"] == 1 and pa["not_copied"]["versions"] == 1               # A copies the RAW only
