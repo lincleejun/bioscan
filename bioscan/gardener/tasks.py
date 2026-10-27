@@ -512,6 +512,21 @@ class RunExec:
                 self.analyzer_error = f"{type(exc).__name__}: {exc}"
         return self.analyzer
 
+    def resolve_splits(self) -> None:
+        """Split reconfirm rows a photo's place settles (contract revision 7D), once this run has the engine and its
+        location prior loaded; never an error on the run."""
+        try:
+            p_geo_of = split_prior(self.w.get_engine()) if self.analyzer is not None else None
+            if p_geo_of is None:
+                return
+            with self.store.tx() as c:
+                out = identities.resolve_splits(c, p_geo_of)
+            if out["changed"]:
+                log.info("run %s: %d split identifications settled by place (undo batch %s)", self.id,
+                         len(out["changed"]), out["batch_id"])
+        except Exception:  # noqa: BLE001 - an optional step: the person still resolves it by hand
+            log.exception("run %s: resolving splits by place failed", self.id)
+
     def save_versions(self, versions: dict[str, str]) -> None:
         self.versions = self.versions | versions
         run = self.store.run(self.id)
@@ -530,6 +545,7 @@ class RunExec:
         people = [aid for aid, caps in units.items() if "people" in caps]
         if bio:
             await self.analyze_bioscan(bio)
+            await asyncio.to_thread(self.resolve_splits)
         if people and not self.stopping():
             await self.analyze_people(people)
         await asyncio.to_thread(self.regroup)
@@ -1145,6 +1161,22 @@ def verify_sources(store: st.Store, worker: Worker, tk: Toolkit, task_id: str) -
                         preset=t["preset"], sources=back)
     worker.wake()
     return rid
+
+
+def split_prior(engine: Any) -> Callable[..., dict[str, float] | None] | None:
+    """The engine's bird location prior as identities.resolve_splits wants it: (concepts, lat, lon, taken_at) ->
+    {concept: p_geo} for the concepts with a direct BirdNET value; None until BioCLIP (and with it the prior) loaded."""
+    prior, names = (getattr(engine, "priors", None) or {}).get("bird"), (getattr(engine, "names", None) or {}).get("bird")
+    if prior is None or names is None or not getattr(names, "concept", None):
+        return None
+    row = {k: i for i, k in enumerate(names.concept) if k}
+
+    def p_geo_of(concepts: list[str], lat: float, lon: float, taken_at: str | None) -> dict[str, float] | None:
+        p = prior.p_geo(lat, lon, taken_at)
+        if p is None:
+            return None
+        return {k: float(p[row[k]]) for k in concepts if k in row and prior.direct[row[k]]}
+    return p_geo_of
 
 
 class EngineHolder:

@@ -389,3 +389,40 @@ def reconfirm(c: Any, version: str, parents: dict[str, list[dict[str, Any]]]) ->
         c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, r["asset_id"]))
         changed.append({"subject_id": r["subject_id"], "asset_id": r["asset_id"], "from": r["concept"]})
     return {"batch_id": batch if changed else None, "changed": changed}
+
+
+GEO_REASON = "split-geo:"       # + the list version of the split it settles (contract revision 7D)
+
+
+def resolve_splits(c: Any, p_geo_of: Any) -> dict[str, Any]:
+    """Settle split reconfirm rows (reconfirm) by place (contract revision 7D): for each subject still waiting on
+    one, in a photo with GPS, `p_geo_of(concepts, lat, lon, taken_at)` gives the location prior of the daughters it
+    labels directly ({concept: p_geo}, None without a prior). When exactly one daughter is plausible (p_geo >=
+    RANGE_TAU, BioScan's in-range bar) and every other is clearly absent (p_geo < RANGE_EPS, its "not here" bar),
+    a user row (actor system, reason split-geo:<version>, one batch for this call, undoable) names that daughter;
+    otherwise the subject stays for the person. A subject is tried once per split: after an undo it is left alone."""
+    from bioscan.service.rules import RANGE_EPS, RANGE_TAU
+
+    t, batch, changed = now(), st.new_id("b"), []
+    for r in c.execute(
+            "SELECT ci.subject_id, ci.asset_id, i.candidates, i.taxon, i.reason, a.lat, a.lon, a.taken_at FROM current_ids "
+            "ci JOIN identifications i ON i.id = ci.identification_id JOIN assets a ON a.id = ci.asset_id WHERE "
+            "ci.qualifier = 'slash' AND i.reason LIKE 'split:%' AND a.lat IS NOT NULL AND a.lon IS NOT NULL AND NOT "
+            "EXISTS (SELECT 1 FROM identifications g WHERE g.subject_id = ci.subject_id AND g.reason = ? || "
+            "substr(i.reason, 7)) ORDER BY ci.identification_id", (GEO_REASON,)).fetchall():
+        kids = loads(r["candidates"], [])
+        p = p_geo_of([k["concept"] for k in kids], r["lat"], r["lon"], r["taken_at"])
+        if not p or any(k["concept"] not in p for k in kids):
+            continue                                   # no prior here, or a daughter it cannot speak for
+        here = [k for k in kids if p[k["concept"]] >= RANGE_TAU]
+        if len(here) != 1 or any(p[k["concept"]] >= RANGE_EPS for k in kids if k is not here[0]):
+            continue
+        k, version = here[0], r["reason"].removeprefix("split:")
+        c.execute("INSERT INTO identifications (subject_id, asset_id, concept, taxon, common, level, candidates, source, "
+                  "batch_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?, 'species', ?, 'user', ?, 'system', ?, ?)",
+                  (r["subject_id"], r["asset_id"], k["concept"], k["scientific"], k["common"],
+                   dumps([x | {"p": round(p[x["concept"]], 4)} for x in kids]), batch, GEO_REASON + version, t))
+        c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, r["asset_id"]))
+        changed.append({"subject_id": r["subject_id"], "asset_id": r["asset_id"], "to": k["concept"],
+                        "p_geo": round(p[k["concept"]], 4)})
+    return {"batch_id": batch if changed else None, "changed": changed}
