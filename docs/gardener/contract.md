@@ -308,6 +308,9 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - **任务内自动分组不再生成物种组**：物种只在物种页出现，没有最小张数，因此去掉 `MIN_GROUP` 把稀有物种并入动物大类的冲突。动物照片在任务内按内容大类分组；旧库已有的任务级物种集合原样保留，不再增加成员。
   - **`AssetItem.species`** 改由主体的当前结论派生（人工确认优先，其次概率最高的 AI 物种结论），并增加 `confirmed`。
   - **缓存**：UI 静态文件返回 `Cache-Control: no-cache`（靠 ETag 重新校验），升级后不会继续使用旧脚本。
+- **CLI 与 MCP**（PRD §02“MCP 同步可用”）：新接口都有对应的 CLI 命令与 MCP 工具，一律只走 HTTP。
+  - CLI：`gardener species|names|identify|identify-undo|species-card`；`assets` 增加 `--concept`、`--id-state`。
+  - MCP：`list_species`、`search_names`、`identify_species`（说明里要求先 `dry_run`，没看过图像证据不确认）、`undo_identification`、`set_species_card`。
 - **名录升级（S7，第一部分：改名）**：
   - 改学名不改概念，所以人工结论自动跟随新名字。
   - 物种卡片、`AssetItem.species` 与主体的 `current`/`ai` 都按概念显示当前名单的学名、英文名和中文名（`zh`，来自 `taxon_names`）。

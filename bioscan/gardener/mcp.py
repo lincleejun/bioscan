@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import sys
+import urllib.parse
 
 from bioscan.gardener.cli import DEFAULT_URL, FILTERS, ApiError, call
 
@@ -55,6 +56,21 @@ TOOLS = [
           ("scope",)),
     _tool("capabilities", "能力列表：版本、可用状态与原因；check=true 时试加载模型（可能耗时）。",
           {"check": {"type": "boolean"}}),
+    _tool("list_species", "物种卡片（契约修订 4）：species = 有人工确认的物种（数量即“已拍到 N 种”），to_confirm = 只有模型"
+          "候选，unresolved = 只到属/科或不确定的照片数。task 只看一个任务。成员用 query_assets 的 concept 筛选。",
+          {"task": _STR, "hidden": {"type": "boolean"}}),
+    _tool("search_names", "按学名、英文名、同义名、旧学名或用户中文名查物种，得到 identify_species 需要的 concept 与学名。",
+          {"q": _STR, "limit": {"type": "integer"}}, ("q",)),
+    _tool("identify_species", "人工确认或纠正主体（照片里的一只动物，id 见 get_asset 的 subjects）的物种。claim：{accept: true}"
+          "（采纳模型结论）、{level: species, concept, taxon, common?}、{level: genus|family, taxon}、{level: unconfirmed|"
+          "not_animal}。scope=burst 时同一连拍里模型认成同一种的主体一起改（已有人工结论的跳过）。先用 dry_run 看影响"
+          "范围；返回 batch_id 可用 undo_identification 撤销。没看过图像证据时不要确认物种。",
+          {"subject_ids": _IDS, "new_subjects": {"type": "array", "items": {"type": "object"}},
+           "claim": {"type": "object"}, "scope": {"type": "string", "enum": ["subject", "burst"]}, "reason": _STR,
+           "dry_run": {"type": "boolean"}}, ("claim",)),
+    _tool("undo_identification", "撤销一批物种结论（之后又被人工改过的主体会返回冲突）。", {"batch_id": _STR}, ("batch_id",)),
+    _tool("set_species_card", "物种卡片的固定封面（cover_asset_id，null 取消）与隐藏（hidden）；只影响显示。",
+          {"concept": _STR, "cover_asset_id": {"type": ["string", "null"]}, "hidden": {"type": "boolean"}}, ("concept",)),
 ]
 _NAMES = {t["name"] for t in TOOLS}
 
@@ -94,6 +110,18 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "export":
         return "POST", "/export", _pick(args, ("collection_id", "asset_ids", "rule", "scope", "dest_dir", "copy",
                                                "conflict")), None
+    if name == "list_species":
+        return "GET", "/species", None, {**_pick(args, ("task",)), "hidden": "1" if args.get("hidden") else "0"}
+    if name == "search_names":
+        return "GET", "/names", None, _pick(args, ("q", "limit"))
+    if name == "identify_species":
+        return "POST", "/identifications", _pick(args, ("subject_ids", "new_subjects", "claim", "scope", "reason",
+                                                        "dry_run")), None
+    if name == "undo_identification":
+        return "POST", "/identifications/undo", _pick(args, ("batch_id",)), None
+    if name == "set_species_card":
+        return ("PATCH", f"/species/{urllib.parse.quote(args['concept'], safe=':')}",
+                _pick(args, ("cover_asset_id", "hidden")), None)
     if name == "capabilities":
         return ("POST", "/capabilities/check", {}, None) if args.get("check") else ("GET", "/capabilities", None, None)
     raise KeyError(name)

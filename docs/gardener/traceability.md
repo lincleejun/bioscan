@@ -49,5 +49,13 @@
 | R42 | 按人分组：本地人脸检测与聚类；给人物分组或单张脸命名，所有任务与以后的扫描直接归入，同名即合并（owner 2026-10-21，契约修订 3） | `faces.py`、`people.py`、能力 `people`、`PATCH /collections`、`POST /assets/{id}/faces/{i}` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据；聚类质量未验证（无标注） |
 | R43 | 导出图与跨目录副本作为原片的版本合并，只出现一次；人可撤销（owner 2026-10-21） | `versions.py`、`assets.version_of`、`POST /assets/{id}/split-version` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据 |
 
+| R44 | 物种身份用概念 ID（`avibase:`/`mdd:`/`name:`），改学名不改身份（ADR 0002，PRD §15） | BioScan `names.read_avilist/read_mdd`、`contract.Candidate.concept` | `tests/unit/test_names.py::test_concept_ids_*`；契约 golden（去掉 concept 后不变） | 已由测试证实；真实名单 18,076 个概念全部唯一 |
+| R45 | 按主体（每只动物）记录识别，ID 跨重跑稳定；一张照片多个物种（PRD §03，AC03） | `identities.ingest`、表 `subjects`/`identifications` | `test_core_identities.py::test_a_rerun_box_*`、`test_a_two_species_photo_*` | 已由测试证实 |
+| R46 | 人工结论优先，模型重跑不覆盖；纠错、连拍范围、先看影响范围、整批撤销（PRD §10，AC04、AC09） | `POST /identifications`、`/identifications/undo` | `test_core_identities.py::test_correcting_*`、`test_a_burst_claim_*`、`test_a_rescan_keeps_*`、`test_a_drawn_box_*` | 已由测试证实；真模型试用一次（Mac） |
+| R47 | 物种卡片跨任务累积、无最小张数，“已拍到 N 种”只计人工确认，候选不计（PRD §03、§04，AC02、AC05） | `GET /species`、视图 `current_ids` | `test_core_identities.py::test_species_cards_*`、`test_hiding_a_card_*` | 已由测试证实；真模型试用一次（Mac） |
+| R48 | 中英文名、学名、同义名、旧学名检索同一物种；`species=` 跟随当前结论（PRD §10，AC13 部分） | `taxa.py`、`GET /names`、`query.where` | `test_core_identities.py::test_names_resolve_*`、`test_the_species_filter_*`、`test_the_name_index_rebuilds_*` | 已由测试证实；Smart 规则增减预览未做 |
+| R49 | 物种页、物种详情、任务内按物种查看、检查器逐主体确认纠错（PRD §05、§07） | `web/app.js`（vSpecies、vSpeciesOne、subjectsHTML） | `test_ui_web.py`（静态与契约路由）；真模型浏览器走查（Mac） | 部分验证：无自动化浏览器测试 |
+| R50 | CLI 与 MCP 覆盖物种动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_species_commands_*`、`test_ui_mcp.py::test_species_tools_*` | 已由测试证实（请求映射） |
+
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

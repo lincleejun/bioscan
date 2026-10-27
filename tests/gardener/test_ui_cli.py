@@ -156,3 +156,22 @@ def test_serve_passes_its_arguments_through(monkeypatch):
 def test_unknown_arguments_rejected():
     with pytest.raises(SystemExit):
         cli.main(["health", "--bogus"])
+
+
+def test_species_commands_build_the_revision_4_requests():
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("identify", "s_1", "s_2", "--accept", "--burst") == \
+        ("POST", "/identifications", {"subject_ids": ["s_1", "s_2"], "claim": {"accept": True}, "scope": "burst",
+                                      "dry_run": False}, None)
+    assert req("identify", "s_1", "--level", "species", "--taxon", "Aquila chrysaetos", "--concept", "avibase:a",
+               "--dry-run")[2]["claim"] == {"level": "species", "taxon": "Aquila chrysaetos", "concept": "avibase:a",
+                                            "common": None}
+    assert req("identify", "s_1", "--level", "genus", "--taxon", "Aquila")[2]["claim"] == {"level": "genus", "taxon": "Aquila"}
+    assert req("identify", "s_1", "--unsure")[2]["claim"] == {"level": "unconfirmed"}
+    assert req("identify-undo", "b_1") == ("POST", "/identifications/undo", {"batch_id": "b_1"}, None)
+    assert req("species", "--task", "t_1") == ("GET", "/species", None, {"task": "t_1", "hidden": "0"})
+    assert req("names", "金雕") == ("GET", "/names", None, {"q": "金雕", "limit": 20})
+    assert req("species-card", "name:Corvus corax", "--hide") == ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
+    assert req("assets", "--concept", "avibase:a", "--id-state", "confirmed")[3]["id_state"] == "confirmed"
