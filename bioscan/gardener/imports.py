@@ -31,16 +31,14 @@ PART = re.compile(r"^\..+\.\d+\.[0-9a-f]{8}\.gardener-part$")     # export._copy
 # ---- uses: the one place that reads the review decision ----------------------------------------------------
 # The review-flow unit replaces Flag pick/reject with four uses; switch `uses_of` and `decided_since` to its field.
 USES = ("record", "edit", "pending", "reject")
-FLAG_USE = {"pick": "record", "reject": "reject"}
 
 
 def uses_of(c: Any, asset_ids: list[str]) -> dict[str, str]:
-    """Each asset's use: record | edit | pending | reject. Today from the Flag: pick → record, reject → reject,
-    none → pending."""
+    """Each asset's use (contract revision 5B, marks.use): record | edit | pending | reject; no mark = pending."""
     out = dict.fromkeys(asset_ids, "pending")
     for part in st.chunks(asset_ids):
-        for r in c.execute(f"SELECT asset_id, flag FROM marks WHERE asset_id IN ({st.marks_in(part)})", part):
-            out[r["asset_id"]] = FLAG_USE.get(r["flag"], "pending")
+        for r in c.execute(f"SELECT asset_id, use FROM marks WHERE asset_id IN ({st.marks_in(part)})", part):
+            out[r["asset_id"]] = r["use"] or "pending"
     return out
 
 

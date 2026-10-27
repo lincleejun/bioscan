@@ -88,6 +88,8 @@ def test_plan_by_use_with_sidecars_folder_and_pending_switch(env, tmp_path):
         assert off["not_copied"]["pending"] == 1                       # still only on the card
         c.post(f"{API}/marks", json={"asset_ids": [ids["D.JPG"]], "flag": "reject"})
         assert c.get(f"{API}/imports/{off['id']}").json()["stale"]
+        c.post(f"{API}/marks", json={"asset_ids": [ids["D.JPG"]], "use": "edit"})        # four uses (revision 5B)
+        assert plan(c, tid, tmp_path / "lib")["uses"] == {"record": 2, "edit": 1, "pending": 0, "reject": 1, "total": 4}
         assert c.post(f"{API}/tasks/{tid}/import-plan", json={"dest_root": str(src / "x")}).status_code == 400
         assert c.post(f"{API}/tasks/{tid}/import-plan", json={"dest_root": "rel"}).status_code == 400
 

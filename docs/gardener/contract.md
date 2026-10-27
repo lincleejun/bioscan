@@ -410,7 +410,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 
 依据：PRD §06 要求 Review 后先生成导入计划、再复制并核对，§09 要求完成页能核对目标、待定、重复、容量与失败项后再“导入 N 张”。
 
-- **用途（适配函数）**：导入按每张照片的用途选择：保留记录 `record`、选入修图 `edit`、待定 `pending`、淘汰 `reject`。用途只从 `imports.uses_of(c, asset_ids)` 读取；四种用途落地之前它把 Flag 映射为 pick → record、reject → reject、无 → pending。`imports.decided_since` 判断计划生成后决定是否又变过。改用新字段时只改这两个函数。
+- **用途**：导入按每张照片的用途选择：保留记录 `record`、选入修图 `edit`、待定 `pending`、淘汰 `reject`（`marks.use`，契约修订 5B）；只在 `imports.uses_of(c, asset_ids)` 一处读取，没有标记即待定。`imports.decided_since` 判断计划生成后决定是否又变过。
 - **计划** `POST /tasks/{id}/import-plan {dest_root, place?, include_pending?: true}` → 201 `ImportPlan`：
   - 范围：本任务的代表版本；同一拍摄的其他版本不另复制（`not_copied.versions`），因为它们是同一次拍摄的副本或导出图。默认复制 record + edit + pending，`include_pending=false` 时待定不复制（`not_copied.pending`，界面提醒“仍仅在来源中”）；淘汰永不复制。
   - 文件组：素材的全部文件（RAW、同拍 JPEG）加上旁边的 sidecar（`scan.sidecars`：同目录、`<stem>.<ext>` 或 `<文件名>.<ext>`，不区分大小写，扩展名为 `SIDECAR_EXT` 加 `.acr`）。`discover()` 仍跳过 sidecar，发现语义不变。
