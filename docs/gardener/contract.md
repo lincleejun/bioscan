@@ -333,7 +333,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - RAW：LibRaw 全尺寸解码（`postprocess(use_camera_wb=True, output_bps=8)`，不用 half_size），由 LibRaw 按 `sizes.flip` 转正，与 BioScan 识别用的解码同一方向，主体框对得上。JPEG/PNG/TIFF：Pillow 按 EXIF 方向转正后裁切。
   - 响应头说明它是什么：`X-Detail-Source: original`、`X-Detail-File: raw|image`、`X-Detail-Decoder: libraw-full|pillow`、`X-Detail-Orientation`（已转正的 EXIF 方向）、`X-Detail-Full: W×H`（原图直立尺寸）、`X-Detail-Crop: x0,y0,x1,y1`（原像素框）、`X-Detail-Size`、`X-Detail-Scale`（返回像素 / 原像素，1 = 未缩小）、`X-Detail-Cache: hit|miss|none`、`X-Detail-Ms`。
   - 错误：`xyxy`/`max` 不合法 400；视频 400；原片离线 404（“只有快速预览”）；解码失败 404 并附原因；被取代 409；超时 503。
-- **不阻塞**：解码在独立的 2 线程池里跑，不占网格、标记所用的请求线程；rawpy 0.27 在 `unpack`/`dcraw_process` 期间释放 GIL（已查其 `_rawpy.pyx`）。同一素材有更新的请求时，仍在排队的旧请求直接返回 409；等待上限 90 s，超时时还在排队的请求被取消，已经开始的解码继续完成并写入缓存，重试即命中。UI 换图、缩放、平移或点“取消”都会中止上一个请求。
+- **不阻塞**：解码在独立的 2 线程池里跑；等待中的细节请求只占一个请求线程（UI 每个视图同时最多一个），网格与标记不排在解码后面（`test_marks_do_not_wait_for_a_decode`）。若以后需要，可改为 async 路由 + `asyncio.wait_for(wrap_future)`，等待时不占线程；rawpy 0.27 在 `unpack`/`dcraw_process` 期间释放 GIL（已查其 `_rawpy.pyx`）。同一素材有更新的请求时，仍在排队的旧请求直接返回 409；等待上限 90 s，超时时还在排队的请求被取消，已经开始的解码继续完成并写入缓存，重试即命中。UI 换图、缩放、平移或点“取消”都会中止上一个请求。
 - **缓存**：RAW 的全尺寸解码存为 `cache/detail/<id[2:4]>/<id>.<size>-<mtime>.o<方向>.npy`（未压缩，内存映射，之后任何裁切都是毫秒级），总量上限 2 GiB，按最近使用淘汰；文件大小或修改时间变化即重新解码。JPEG 等不复制（文件本身就是原像素）。`POST /storage/clear-cache` 与 `GET /storage` 一并覆盖它；原片目录从不写入。
 - **界面**（`web/app.js` 的 dv* 函数）：
   - 大图（放大查看）与并排比较用同一个查看器：先显示 1600 px 快速预览；放大到预览会被拉伸时，按可见区域外加 25 % 余量请求原像素，叠在画面的同一位置。

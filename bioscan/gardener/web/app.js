@@ -1351,8 +1351,8 @@
       v.state = 'ready';
     } catch (e) {
       if (ctl !== v.ctl || (e && e.name === 'AbortError')) return;
-      if (e.status === 409) return;                             // 被同一素材更新的请求取代：等那一个
-      v.state = 'failed'; v.why = errMsg(e);
+      if (e.status === 409) v.state = v.box ? 'ready' : 'preview';   // 被同一素材更新的请求取代
+      else { v.state = 'failed'; v.why = errMsg(e); }
     }
     v.ctl = null;
     dvLabel(v);

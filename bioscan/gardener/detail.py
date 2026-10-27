@@ -10,8 +10,9 @@ so `POST /storage/clear-cache` and `GET /storage` cover it.
 - JPEG / PNG / TIFF: Pillow, upright by EXIF orientation, decoded on each request (no copy needed:
   the file already is the original pixels).
 
-Decodes run on their own pool of DETAIL_WORKERS threads, so a slow RAW never takes the request threads
-the grid and marks use. A queued request that a newer one for the same asset superseded is skipped; a
+Decodes run on their own pool of DETAIL_WORKERS threads (rawpy releases the GIL while decoding), so
+grid and mark requests never queue behind a slow RAW; a waiting detail request holds one request thread
+(ponytail: async route + asyncio.wait_for(wrap_future) if that ever matters). A queued request that a newer one for the same asset superseded is skipped; a
 caller waits at most DETAIL_TIMEOUT_S, and a request still queued then is cancelled."""
 from __future__ import annotations
 
