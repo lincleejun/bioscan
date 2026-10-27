@@ -2,11 +2,12 @@ local LrFileUtils = import "LrFileUtils"
 local LrLogger = import "LrLogger"
 local LrTasks = import "LrTasks"
 local Apply = require "Apply"
+local Handoff = require "Handoff"
 
 local log = LrLogger("bioscan")
 log:enable("logfile")
 
--- Polls latest.json; Apply.apply skips a file whose run equals prefs.lastRun and records it on success.
+-- Polls latest.json and the Gardener handoffs folder; Apply.apply skips a file whose run equals prefs.lastRun and records it on success.
 -- A Plug-in Manager "Reload" starts a second loop until Lightroom restarts; applies are idempotent.
 LrTasks.startAsyncTask(function()
   LrTasks.sleep(5)
@@ -19,6 +20,8 @@ LrTasks.startAsyncTask(function()
         -- a batch failure) is retried; the longer sleep keeps a bad file from spinning the log.
         if Apply.apply({}) then seen = mtime else LrTasks.sleep(28) end
       end
+      -- a handoff gets its .result.json once applied, so only the ones without one are pending
+      if not Handoff.applyPending({}) then LrTasks.sleep(28) end
     end)
     if not ok then log:error("watcher: " .. tostring(err)) end
     LrTasks.sleep(2)

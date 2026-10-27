@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from bioscan import aesthetic
 from bioscan.cli import cull as cc
 
 
@@ -18,6 +19,16 @@ def thumb_of(jpg: str) -> str:
     """The grid thumbnail next to a jpg copy: `<stem>-<sha8>-t.jpg`."""
     p = Path(jpg)
     return str(p.with_name(p.stem + "-t.jpg"))
+
+
+_SCRIPT_ESCAPES = str.maketrans({"<": "\\u003c", ">": "\\u003e", "&": "\\u0026",
+                                 "\u2028": "\\u2028", "\u2029": "\\u2029"})
+
+
+def script_json(value: Any) -> str:
+    """JSON safe to embed in an inline <script>: `<`, `>`, `&` and U+2028/2029 become \\u escapes, so no
+    value (a filename with `</script>` in it) can end the script or the line."""
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).translate(_SCRIPT_ESCAPES)
 
 
 def page_rows(rows: list[dict[str, Any]], base: Path, roots: str) -> list[dict[str, Any]]:
@@ -168,6 +179,7 @@ const F={sort:'st',dir:'',stars:new Set(),rej:'',scenes:new Set(),sp:'',dec:'',q
 let merging=null,shown=[],cur=-1,sel=new Set(),anchor=-1;
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({dec:DEC,merge:MERGE,gone:[...GONE]}))}catch(e){}};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const url=p=>p.split('/').map(encodeURIComponent).join('/');  // a relative path as a URL: # ? % in names stay literal
 const BY={};for(const r of DATA)if(r.sp&&!BY[r.sp])BY[r.sp]={cn:r.cn,lv:r.lv,tx:r.tx};
 function eff(r){let sp=r.sp,n=0;while(sp&&MERGE[sp]&&n++<20)sp=MERGE[sp];if(sp===r.sp)return r;const b=BY[sp]||{};return{...r,sp,cn:b.cn||null,lv:b.lv||r.lv,tx:b.tx||[sp]}}
 const keyOf=r=>(r.sp?r.tx:['(unnamed)']).join('/');
@@ -186,7 +198,7 @@ function pass(r){const q=F.q;
     &&(F.dec===''||(F.dec==='u'?!DEC[r.p]:DEC[r.p]===F.dec))&&(!F.group||keyOf(r)===F.group||keyOf(r).startsWith(F.group+'/'))}
 function render(){
   shown=LIVE().map(eff).filter(pass).sort(SORTS[F.sort][1]);sel.clear();anchor=-1;
-  grid.innerHTML=shown.length?shown.map((r,i)=>`<figure class="card ${DEC[r.p]||''}" data-i="${i}" data-p="${esc(r.p)}"><div class="im">${r.t?`<img loading="lazy" src="${esc(r.t)}" alt="">`:'<span class="no">no thumbnail</span>'}
+  grid.innerHTML=shown.length?shown.map((r,i)=>`<figure class="card ${DEC[r.p]||''}" data-i="${i}" data-p="${esc(r.p)}"><div class="im">${r.t?`<img loading="lazy" src="${esc(url(r.t))}" alt="">`:'<span class="no">no thumbnail</span>'}
 <div class="ov1"><span class="badge">${r.s==null?'–':r.s.toFixed(3)}</span>${r.st?`<span class="badge st">${'★'.repeat(r.st)}</span>`:''}</div><span class="mk">${DEC[r.p]==='k'?'✓':'✕'}</span>
 <span class="zoom" title="open">${ICON_ZOOM}</span><div class="hov"><button class="k">keep</button><button class="x">drop</button></div></div>
 <figcaption class="cap"><div class="t" title="${esc(r.sp||'')}">${r.sp?esc(label(r)):'<i>unnamed</i>'}</div><div class="f"><span>${esc(r.f)}</span>${r.rr.length?`<span class="rr" title="${esc(r.rr.join(', '))}">${esc(r.rr[0].replace(/_/g,' '))}${r.rr.length>1?' +'+(r.rr.length-1):''}</span>`:''}${r.ss&&r.ss!=='reject'?`<span class="ss" title="cull status">${esc(r.ss)}</span>`:''}${(r.fl||[]).map(x=>`<span class="fl" title="flag (not a reject)">${esc(x.replace(/_/g,' '))}</span>`).join('')}</div></figcaption></figure>`).join('')
@@ -244,8 +256,8 @@ const lb=$('#lb'),lbi=$('#lbi');
 function caption(){const r=shown[cur];if(!r)return;$('#lbn').textContent=`${cur+1} / ${shown.length}`;$('#lbf').textContent=r.p;
   $('#lbsp').innerHTML=`${r.s==null?'–':r.s.toFixed(3)} <span style="color:#fbbf24">${stars(r.st)}</span>${r.sp?' · '+esc(label(r))+(r.cn?' <i style="color:#aaa">'+esc(r.sp)+'</i>':''):''}${r.ss?' · '+esc(r.ss):''}${r.rr.length?' · <span style="color:#fca5a5">'+esc(r.rr.join(', ').replace(/_/g,' '))+'</span>':''}${r.fl?' · <span style="color:#fbbf24">'+esc(r.fl.join(', ').replace(/_/g,' '))+'</span>':''}${r.o?' · original':r.l?' · '+esc(r.l.split('/').pop()):''}`;
   $('#lbk').classList.toggle('on',DEC[r.p]==='k');$('#lbx').classList.toggle('on',DEC[r.p]==='x')}
-function open(i){if(i<0||i>=shown.length)return;cur=i;const r=shown[i],src=r.o||r.l||r.t;if(!src)return;lbi.src=src;caption();lb.classList.add('on');
-  const nx=shown[i+1];if(nx){const im=new Image();im.src=nx.o||nx.l||nx.t||''}}
+function open(i){if(i<0||i>=shown.length)return;cur=i;const r=shown[i],src=r.o||r.l||r.t;if(!src)return;lbi.src=url(src);caption();lb.classList.add('on');
+  const nx=shown[i+1];if(nx){const im=new Image();im.src=url(nx.o||nx.l||nx.t||'')}}
 function close(){lb.classList.remove('on');lbi.src='';cur=-1}
 $('#lbk').onclick=()=>mark([shown[cur].p],'k',true);$('#lbx').onclick=()=>mark([shown[cur].p],'x',true);$('#lbc').onclick=close;
 $('#lbprev').onclick=()=>open(cur-1);$('#lbnext').onclick=()=>open(cur+1);$('#lbstage').onclick=e=>{if(e.target===e.currentTarget||e.target===lbi)close()};
@@ -265,8 +277,8 @@ function filtermenu(){const seg=(name,opts,cur,multi)=>`<h4>${name}</h4><div cla
   const spOpts=Object.values(Object.fromEntries(LIVE().map(eff).filter(r=>r.sp).map(r=>[r.sp,{sp:r.sp,cn:r.cn,lv:r.lv}]))).sort((a,b)=>label(a).localeCompare(label(b)));
   $('#pop-filter').innerHTML=seg('stars',[[5,'★★★★★','st'],[4,'★★★★','st'],[3,'★★★','st'],[2,'★★','st'],[1,'★','st']],F.stars,true)
     +seg('marks',[['','all'],['k','keep'],['x','drop'],['u','unmarked']],F.dec)
-    +seg('rejects',[['','all'],['clean','none'],['any','any'],...REASONS.map(r=>[r,r.replace(/_/g,' ')])],F.rej)
-    +(SCENES.length>1?seg('scene',SCENES.map(s=>[s,s]),F.scenes,true):'')
+    +seg('rejects',[['','all'],['clean','none'],['any','any'],...REASONS.map(r=>[r,esc(r.replace(/_/g,' '))])],F.rej)
+    +(SCENES.length>1?seg('scene',SCENES.map(s=>[s,esc(s)]),F.scenes,true):'')
     +`<h4>species</h4><select id="f-sp"><option value="">all</option><option value="named">named</option><option value="unnamed">unnamed</option>${spOpts.map(b=>`<option value="${esc(b.sp)}">${esc(label(b))}</option>`).join('')}</select>`
     +(DIRS.length?`<h4>folder</h4><select id="f-dir"><option value="">all</option>${DIRS.map(d=>`<option>${esc(d)}</option>`).join('')}</select>`:'')
     +`<hr><button class="item" id="f-clear">clear all filters</button>`;
@@ -382,8 +394,7 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
     scenes = sorted({d["sc"] for d in data if d.get("sc")})
     reasons = sorted({x for d in data for x in d["rr"]})
     scored = [r["score"] for r in rows if r["score"] is not None]
-    n = len(scored)
-    cuts = [scored[int(n * k / 5) - 1] for k in range(1, 5)] if n >= 5 else []     # lowest score of 5, 4, 3, 2 stars
+    cuts = aesthetic.quintile_stars(scored)[1]                                   # lowest score of 5, 4, 3, 2 stars
     named = sum(1 for r in rows if r["species"])
     sub = (f"{len(scored)} scored" + (f", {named} named" if named else "")
            + (f", {len(fails)} failed" if fails else ""))
@@ -422,10 +433,11 @@ def write_html(rows: list[dict[str, Any]], fails: list[dict[str, Any]], path: st
             '<div id="lb"><div class="stage" id="lbstage"><img id="lbi" alt=""><div class="nav prev" id="lbprev">‹</div><div class="nav next" id="lbnext">›</div>'
             '<button class="close" id="lbc">×</button></div><div class="bar"><span id="lbn"></span><span class="f" id="lbf"></span>'
             '<span class="sp" id="lbsp"></span><button class="k" id="lbk">keep</button><button class="x" id="lbx">drop</button></div></div>'
-            f"<script>const DATA={json.dumps(data, ensure_ascii=False, separators=(',', ':'))};"
-            f"const ROOT={json.dumps(roots, ensure_ascii=False)};const DIRS={json.dumps(dirs, ensure_ascii=False)};"
-            f"const SERVICE={json.dumps((service or '').rstrip('/'))};const TOKEN={json.dumps(token)};"
-            f"const SCENES={json.dumps(scenes)};const CUTS={json.dumps([round(c, 4) for c in cuts])};const REASONS={json.dumps(reasons)};const ICON_ZOOM={json.dumps(i['zoom'])};"
+            f"<script>const DATA={script_json(data)};"
+            f"const ROOT={script_json(roots)};const DIRS={script_json(dirs)};"
+            f"const SERVICE={script_json((service or '').rstrip('/'))};const TOKEN={script_json(token)};"
+            f"const SCENES={script_json(scenes)};const CUTS={script_json([round(c, 4) for c in cuts])};"
+            f"const REASONS={script_json(reasons)};const ICON_ZOOM={script_json(i['zoom'])};"
             f"{JS}</script></body></html>\n")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(page, encoding="utf-8")

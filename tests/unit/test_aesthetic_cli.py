@@ -128,6 +128,19 @@ def test_train_needs_one_source_and_enough_vectors(service, tmp_path):
               "--out", str(tmp_path / "h.json")])
 
 
+def test_train_refuses_a_head_name_the_loader_would_reject_before_embedding(tmp_path, monkeypatch):
+    def embed(*_):
+        raise AssertionError("embedded before checking --name")
+    monkeypatch.setattr(aesbench, "embed_paths", embed)
+    monkeypatch.setattr(aes, "PERSONAL_HEAD", tmp_path / "personal.json")
+    src = ratings_csv(tmp_path, [(f"/x{i}.jpg", 3, "t") for i in range(12)])
+    with pytest.raises(SystemExit, match="--name"):
+        main(["aesthetic", "train", "--ratings", src, "--name", "my head"])
+    assert not (tmp_path / "personal.json").exists()
+    with pytest.raises(aes.HeadError):
+        aes.make_head("my head", [1.0], 0.0, [0.0], [1.0], 0.0, 5.0, "t", {})
+
+
 def test_train_eva_refuses_to_overwrite_a_head_without_force(tmp_path, monkeypatch, capsys):
     class Embedded(Exception):
         pass
@@ -342,3 +355,11 @@ def test_train_script_refuses_to_overwrite_the_head_without_force(tmp_path, caps
     assert out.read_text() == "{}" and out.stat().st_mtime_ns == before
     script.refuse_overwrite(out, force=True)                      # --force: the guard lets it through
     script.refuse_overwrite(tmp_path / "absent.json", force=False)
+
+
+def test_train_has_no_pick_min():
+    """Training regresses on stars; picks never enter it, so the flag is not offered."""
+    from bioscan.cli.main import parser
+    with pytest.raises(SystemExit):
+        parser().parse_args(["aesthetic", "train", "--ratings", "r.csv", "--pick-min", "3"])
+    assert parser().parse_args(["aesthetic", "eval", "r.csv", "--out", "o", "--pick-min", "3"]).pick_min == 3

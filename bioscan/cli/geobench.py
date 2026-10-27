@@ -228,6 +228,9 @@ def cmd_geotag(a) -> int:
         src = (rep["meta"]["synth"] or {}).get("source")
         if not src:
             raise bench.BenchError("--gt-out needs scenarios.json (from scripts/geotag_synth.py) naming the source CSV")
+        if not Path(src).is_file():
+            raise bench.BenchError(f"--gt-out: the source CSV {src} named in scenarios.json is not found "
+                                   "(a relative path is read from the current directory)")
         for p in write_gt(rep, src, Path(a.gt_out)):
             print(f"ground truth with GPX coordinates -> {p}")
     return bench.EXIT_OVER if any(r["status"] == "fail" for r in sc["rows"]) else bench.EXIT_OK

@@ -62,9 +62,9 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | **Personal aesthetics**: a head fitted on your Lightroom stars, blended with the general one | `bioscan aesthetic train --ratings DIR` | [album.md](docs/album.md) |
 | **Profiles** `full`, `wildlife`, `album`, and your own in `bioscan.toml` | `bioscan run DIR --profile album` | [usage.md](docs/usage.md#profiles-and-bioscantoml) |
 | **Evaluate**: ground truth from folders or iNaturalist, reports with Wilson intervals, baselines and regression budgets, failure classes, scorecard against the standards | `bioscan eval`, `bioscan bench` | [development.md](docs/development.md), [harness.md](docs/harness.md) |
-| **HTTP API**: `/run` streams NDJSON; `/health`, `/products`, `/apply` (the review page's copy / delete) | `curl 127.0.0.1:8765/run` | [usage.md](docs/usage.md#http-api) |
+| **HTTP API**: `/run` streams NDJSON; `/health`, `/products`, `/apply` (the review page's copy / delete) | `curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}]}'` | [usage.md](docs/usage.md#http-api) |
 
-Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), BirdNET geo (location prior), AviList 2025 and MDD v2.5 name lists, TreeOfLife-200M all-taxa list. Sources and licences: [docs/how-it-works.md](docs/how-it-works.md#pipeline).
+Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), BirdNET geo (location prior), AviList v2026 and MDD v2.5 name lists, TreeOfLife-200M all-taxa list. Sources and licences: [docs/how-it-works.md](docs/how-it-works.md#pipeline).
 
 ## Status
 

@@ -135,7 +135,7 @@ def test_load_lists_adds_it_and_survives_without_it(tmp_path, caplog):
     files, _ = tol_files(tmp_path)                                  # birds and mammals match nothing here: encoded
     lists = names_mod.load_lists(FakeModel(), FakeTokenizer(), "cpu", tmp_path / "cache", data_dir=data, tol_files=files)
     assert set(lists) == {"bird", "mammal", "other_animal"}
-    assert lists["bird"].source == "AviList v2025" and lists["mammal"].source == "MDD v2.5"
+    assert lists["bird"].source == "AviList v2026" and lists["mammal"].source == "MDD v2.5"
     assert names_mod.stats(lists)["other_animal"]["total"] == 3
     # bird and mammal caches built, TreeOfLife files deleted since, no all-taxa cache: birds and
     # mammals load as before, the others go without species
@@ -475,7 +475,7 @@ def test_run_and_eval_pass_candidates(tmp_path, monkeypatch):
     assert "candidates" not in cli.build_payload(cli.parser().parse_args(["run", str(tmp_path)]))["options"]["identify"]
     _fake_service(monkeypatch, PREDS)
     assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "e"), "--candidates", "Buteo, Canis",
-                     "--identify-opt", "kind_check=false"]) == 0
+                     "--identify-opt", "kind_check=false"]) == cli.EXIT_PARTIAL   # PREDS has one failed image
     meta = json.loads((tmp_path / "e" / "preds.ndjson").read_text().splitlines()[0])
     assert meta["options"]["identify"] == {"top_k": 5, "geo": True, "kind_check": False, "candidates": ["Buteo", "Canis"]}
     assert '- identify options: {"candidates": ["Buteo", "Canis"], "kind_check": false}' in \

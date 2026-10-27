@@ -80,7 +80,7 @@ def build(rows, tol_names, birdnet_labels, synonyms):
     bn_names = names.match_names(scis, bn_sci, naming.aliases(synonyms, ("birdnet", "spelling")))
     bn = [(bn_t[naming.norm_binomial(n)] if n else "", how) for n, how in bn_names]
     mapped = [dict(zip(MAP_COLS, (sci, common, tax[3], tax[4], t, th, b, bh)))
-              for (sci, common, tax), (t, th), (b, bh) in zip(rows, tol, bn)]
+              for (sci, common, tax), (t, th), (b, bh) in zip((r[:3] for r in rows), tol, bn)]
     in_list = {naming.norm_binomial(s) for s in scis}
     cands = []
     for side, targets, got in (("tol", tol_t, tol), ("birdnet", bn_sci, bn_names)):
@@ -135,7 +135,7 @@ def build_mdd(rows, mammal_labels, synonym_index, reviewed=REVIEWED):
         got[row].append((lab, "synonym"))
         report.append(f"synonym: {lab} -> {rows[row][0]}")
     mapped = []
-    for i, (sci, common, tax) in enumerate(rows):
+    for i, (sci, common, tax) in enumerate(r[:3] for r in rows):
         labs = sorted(got.get(i, []), key=lambda lh: (lh[1] != "exact", lh[0]))   # own name first
         if len(labs) > 1:
             report.append(f"lump: {sci} <- {', '.join(lab for lab, _h in labs)}")
