@@ -19,7 +19,7 @@ from pathlib import Path
 
 from bioscan import aesthetic, contract
 from bioscan.cli import client
-from bioscan.cli.report import common_of, taxon
+from bioscan.cli.report import common_of
 
 REVIEW = "待确认"      # group of photos with an animal but no species-level box
 NONE = "无动物"        # group of photos with no box
@@ -46,7 +46,7 @@ def _keyword(b: dict) -> list[str]:
     level, top, kind = contract.level_of(sp), contract.top_of(sp), b["kind"]
     if level == "species" and top:
         return [ROOT, kind, top[0].get("common") or top[0]["scientific"]]
-    if level in ("genus", "family") and (name := taxon(sp)):
+    if level in ("genus", "family") and (name := contract.taxon(sp)):
         common = common_of(sp)
         return [ROOT, kind, f"{common} ({name})" if common else name]
     return [ROOT, kind]
