@@ -154,7 +154,7 @@ end
 -- Applies one handoff file. Returns false (and writes no result, so it is retried) when the catalog could not be
 -- written at all; per-photo failures are reported in the result file.
 function Handoff.applyFile(path)
-  local doc = json.decode(LrFileUtils.readFile(path))
+  local doc = json.decode(LrFileUtils.readFile(path), 1, nil, nil, nil)   -- plain tables: the SDK rejects arrays with a metatable ("packed")
   if type(doc) ~= "table" or doc.schema ~= 2 or doc.kind ~= "gardener-handoff" or type(doc.photos) ~= "table" then
     log:error("not a Gardener handoff: " .. path)
     writeResult(path, { schema = 2, id = type(doc) == "table" and doc.id or nil, error = "not a schema 2 Gardener handoff",
