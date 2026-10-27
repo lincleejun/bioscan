@@ -59,7 +59,8 @@ def test_schema_2_picks_become_records_and_rejects_stay_rejects_with_provenance(
         t = scanned(c, src, caps=["meta", "subject", "species"])
         a, b, x = ids(c, task=t["id"])
     sd = st.Store(env.data)
-    with sd.tx() as cx:                       # a schema 2 database: flags only, no encounters
+    with sd.tx() as cx:                       # a schema 2 database: flags only, no marks.use column, no encounters
+        cx.execute("ALTER TABLE marks DROP COLUMN use")
         for aid, flag in ((a, "pick"), (b, "reject")):
             cx.execute("INSERT OR REPLACE INTO marks (asset_id, flag, stars, updated_at, version) VALUES (?, ?, 2, ?, 1)",
                        (aid, flag, st.now()))
@@ -128,7 +129,9 @@ def test_encounters_follow_time_gaps_and_species_and_a_persons_split_and_merge_s
         assert [s["concept"] for s in es[0]["species"]] == ["avibase:test-asio"] and es[0]["photos"] == 2
         assert [b["size"] for b in es[0]["bursts"]] == [1, 1] and len(es[0]["candidates"]) == 2
         assert [e["asset_ids"] for e in listing(c, concept=WREN["concept"])["encounters"]] == [[p2], [p3]]
+        before = c.get(f"{API}/assets/{p3}").json()["updated_at"]
         merged = c.post(f"{API}/encounters/merge", json={"ids": [es[1]["id"], es[2]["id"]]}).json()["id"]
+        assert p3 in ids(c, task=t["id"], changed_after=before)          # pollers see a moved photo
         split = c.post(f"{API}/encounters/{es[0]['id']}/split", json={"at": p1})
         assert split.status_code == 201
         want = [[p0], [p1], [p2, p3]]

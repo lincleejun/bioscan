@@ -81,6 +81,7 @@ def assign_encounters(c: Any, task_id: str) -> int:
             to = eid or min(have, key=lambda h: abs(h[0] - t))[1]
             c.execute("INSERT INTO encounter_members (task_id, asset_id, encounter_id, source) VALUES (?, ?, ?, 'auto')",
                       (task_id, a, to))
+            c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (ts, a))     # pollers see it (§10 X7)
             n += 1
     return n
 
@@ -197,6 +198,7 @@ def split_encounter(c: Any, eid: str, *, at: str | None = None, asset_ids: list[
     for part in st.chunks(moving):
         c.execute(f"UPDATE encounter_members SET encounter_id = ?, source = 'user' WHERE encounter_id = ? AND asset_id "
                   f"IN ({st.marks_in(part)})", [new, eid, *part])
+        c.execute(f"UPDATE assets SET updated_at = ? WHERE id IN ({st.marks_in(part)})", [t, *part])
     c.execute("UPDATE encounters SET updated_at = ?, actor = ? WHERE id = ?", (t, actor, eid))
     return new
 
@@ -209,6 +211,8 @@ def merge_encounters(c: Any, ids: list[str], *, actor: str) -> str:
         raise st.Error("merge needs two or more encounters of one task")
     t = now()
     for e in es[1:]:
+        c.execute("UPDATE assets SET updated_at = ? WHERE id IN (SELECT asset_id FROM encounter_members WHERE "
+                  "encounter_id = ?)", (t, e["id"]))
         c.execute("UPDATE encounter_members SET encounter_id = ?, source = 'user' WHERE encounter_id = ?",
                   (ids[0], e["id"]))
         c.execute("UPDATE encounters SET merged_into = ?, updated_at = ?, actor = ? WHERE id = ?", (ids[0], t, actor, e["id"]))

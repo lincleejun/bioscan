@@ -351,6 +351,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - `unassigned` = 范围内没有拍摄段的照片（无拍摄时间，或扫描尚未到分组阶段）。
   - `POST /encounters/{id}/split {at: asset_id | asset_ids: [..]}` → 201 `{id（新段）, from}`：`at` 把这张及之后的照片拆为新的一段（`origin=user`），`asset_ids` 恰好拆出这些。两段都要有照片，否则 400；已被合并的段 400。
   - `POST /encounters/merge {ids}` → `{id}`：并入第一个，其余记 `merged_into`；须同一任务、两个以上。
+  - 放置、拆、合都更新所涉照片的 `assets.updated_at`（§10 X7），轮询 `changed_after` 的客户端据此重新取拍摄段。
   - 本版没有拍摄段的撤销接口：拆与合互为逆操作。
   - **识别范围**：`POST /identifications` 的 `scope` 增加 `encounter`。同一结论写到目标所在拍摄段的其他照片，选主体的规则与 `burst` 相同；`changed[].via = encounter`。
   - **界面**：
