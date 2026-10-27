@@ -56,6 +56,10 @@
 | R48 | 中英文名、学名、同义名、旧学名检索同一物种；`species=` 跟随当前结论（PRD §10，AC13 部分） | `taxa.py`、`GET /names`、`query.where` | `test_core_identities.py::test_names_resolve_*`、`test_the_species_filter_*`、`test_the_name_index_rebuilds_*` | 已由测试证实；Smart 规则增减预览未做 |
 | R49 | 物种页、物种详情、任务内按物种查看、检查器逐主体确认纠错（PRD §05、§07） | `web/app.js`（vSpecies、vSpeciesOne、subjectsHTML） | `test_ui_web.py`（静态与契约路由）；真模型浏览器走查（Mac） | 部分验证：无自动化浏览器测试 |
 | R50 | CLI 与 MCP 覆盖物种动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_species_commands_*`、`test_ui_mcp.py::test_species_tools_*` | 已由测试证实（请求映射） |
+| D-R1 | 导入计划：按用途复制（默认含待定、不含淘汰），文件组含 RAW、同拍 JPEG、XMP/ACR sidecar，`YYYY-MM-DD_地点` 目录，批次后缀，精确重复，容量与未完成项（PRD §06，AC10） | `imports.py`（`build`、`uses_of`）、`scan.sidecars`、`POST /tasks/{id}/import-plan` | `test_core_imports.py::test_plan_by_use_*`、`test_name_conflicts_get_a_batch_suffix_*`、`test_exact_duplicates_*`、`test_sidecars_are_found_*` | 已由测试证实；真实存储卡未验证 |
+| D-R2 | 复制后核对字节与 sha256 再入库；幂等、可续跑；部分失败如实报告；来源不变（PRD §06、§11，AC11） | `imports.Runner`、`POST /imports/{id}/run`、`managed_files` | `test_core_imports.py::test_run_verifies_*`、`test_partial_failure_*`、`test_crash_mid_import_resumes_*`、`test_not_enough_space_*` | 已由测试证实；exFAT 真盘未验证 |
+| D-R3 | 完成与导入确认页、结果页（PRD §09） | `web/app.js`（vImport、importPlanHTML、importResultHTML） | `test_ui_web.py`（契约路由）；对假服务的无头 Chrome 截图 | 部分验证：无自动化浏览器测试 |
+| D-R4 | CLI 与 MCP 的导入命令（PRD §13） | `cli.py`（`import`）、`mcp.py`（`plan_import`、`run_import`、`get_import`） | `test_ui_cli.py::test_import_commands`、`test_ui_mcp.py::test_import_tools_*` | 已由测试证实（请求映射与假服务往返） |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

@@ -127,9 +127,43 @@ def render(cmd: str, out) -> str:
                 + f"\n待鉴定：属/科 {un['genus_family']} 张，不确定 {un['unconfirmed']} 张")
     if cmd == "names":
         return table(out, NAME_COLS)
+    if cmd == "import list":
+        return table(out, IMPORT_COLS)
+    if cmd.startswith("import "):
+        return import_text(out)
     if isinstance(out, dict):
         return pairs(out)
     return _cell(out)
+
+
+# ---- import (契约修订 5D) ----
+IMPORT_COLS = [("id", "id"), ("批次", "seq"), ("状态", "status"), ("目标", "dest_dir"), ("素材", "assets"),
+               ("文件", "files"), ("已完成", "progress.files_done"), ("失败", "progress.files_failed")]
+USE_ZH = (("edit", "选入修图"), ("record", "保留记录"), ("pending", "待定"), ("reject", "淘汰"))
+
+
+def import_text(p: dict) -> str:
+    u, nc, d, g = p.get("uses", {}), p.get("not_copied", {}), p.get("duplicates", {}), p.get("progress", {})
+    lines = [f"导入计划 {p['id']}（批次 {p['seq']}）：{p['status']}" + ("（决定已变化，建议重新生成计划）" if p.get("stale") else ""),
+             "用途：" + "，".join(f"{zh} {u.get(k, 0)}" for k, zh in USE_ZH) + f"，共 {u.get('total', 0)} 张",
+             f"导入 {p['assets']} 张 · {p['files']} 个文件（含 sidecar {p['sidecars']}）· {_bytes(p['bytes'])}",
+             f"目标：{p['dest_dir']}",
+             f"需要 {_bytes(p['needed_bytes'])} · 可用 {_bytes(p['free_bytes'])}" + ("" if p["enough_space"] else " · 空间不足"),
+             f"精确重复：目标已有 {d.get('identical', 0)} · 已导入过 {d.get('reuse', 0)} · 同内容已在库中 {d.get('duplicate', 0)}"
+             f"；同名改为批次后缀 {p.get('renamed', {}).get('files', 0)} 个文件",
+             f"不复制：淘汰 {nc.get('reject', 0)} · 待定 {nc.get('pending', 0)}（仍仅在来源中）· 同一拍摄的其他版本 {nc.get('versions', 0)}",
+             f"进度：{g.get('files_done', 0)}/{g.get('files_total', 0)} 个文件，{g.get('assets_done', 0)}/"
+             f"{g.get('assets_total', 0)} 张已入库，失败 {g.get('files_failed', 0)}"]
+    lines += [f"  失败 {f['path']}：{f['error']}" for f in p.get("failed", [])]
+    return "\n".join(lines)
+
+
+def _bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
 
 
 # ---- commands ----------------------------------------------------------------
@@ -226,6 +260,15 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         else:
             body["rule"] = _filters(a)
         return "POST", "/export", body, None
+    if c == "import":
+        if sub == "plan":
+            body = {"dest_root": os.path.abspath(os.path.expanduser(a.dest)), "include_pending": not a.no_pending}
+            return "POST", f"/tasks/{a.task}/import-plan", body | ({"place": a.place} if a.place else {}), None
+        if sub == "run":
+            return "POST", f"/imports/{a.id}/run", {}, None
+        if sub == "show":
+            return "GET", f"/imports/{a.id}", None, None
+        return "GET", "/imports", None, {"task": a.task}
     raise SystemExit(f"unknown command {c}")
 
 
@@ -340,6 +383,16 @@ def parser() -> argparse.ArgumentParser:
     e.add_argument("--copy", action="store_true", help="复制原片（默认只写一个 XML）")
     e.add_argument("--conflict", default="rename", choices=("rename", "skip", "fail"))
     _add_filters(e, skip=("collection",))
+
+    im = s.add_parser("import", help="正式导入：生成计划、执行（复制并校验，可续跑）、查看结果").add_subparsers(dest="sub", required=True)
+    ip = im.add_parser("plan", help="为任务生成导入计划（默认含待定，不含淘汰）")
+    ip.add_argument("task")
+    ip.add_argument("--dest", required=True, help="目标根目录；其下建 YYYY-MM-DD_地点")
+    ip.add_argument("--place", help="地点（缺省为“未标注地点”）")
+    ip.add_argument("--no-pending", action="store_true", help="待定照片不导入（仍仅在来源中）")
+    im.add_parser("run", help="执行或续跑导入计划").add_argument("id")
+    im.add_parser("show", help="导入计划与进度、结果").add_argument("id")
+    im.add_parser("list", help="导入计划列表").add_argument("--task")
     return p
 
 

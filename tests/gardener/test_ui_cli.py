@@ -175,3 +175,20 @@ def test_species_commands_build_the_revision_4_requests():
     assert req("names", "金雕") == ("GET", "/names", None, {"q": "金雕", "limit": 20})
     assert req("species-card", "name:Corvus corax", "--hide") == ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
     assert req("assets", "--concept", "avibase:a", "--id-state", "confirmed")[3]["id_state"] == "confirmed"
+
+
+def test_import_commands(svc, capsys, tmp_path):
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("import", "plan", "t_1", "--dest", "/lib", "--place", "东滩", "--no-pending") == \
+        ("POST", "/tasks/t_1/import-plan", {"dest_root": "/lib", "include_pending": False, "place": "东滩"}, None)
+    assert req("import", "run", "ip_1") == ("POST", "/imports/ip_1/run", {}, None)
+    assert req("import", "show", "ip_1") == ("GET", "/imports/ip_1", None, None)
+    assert req("import", "list", "--task", "t_1") == ("GET", "/imports", None, {"task": "t_1"})
+    url, fake = svc
+    tid = next(iter(fake.tasks))
+    p = run_json(capsys, url, "import", "plan", tid, "--dest", str(tmp_path))
+    assert p["status"] == "planned" and p["dest_root"] == str(tmp_path)
+    code, out, _ = run(capsys, url, "import", "run", p["id"])
+    assert code == 0 and "partial" in out and "源文件不存在或离线" in out and "选入修图" in out

@@ -738,3 +738,11 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .id-hits .btn { width: 100%; justify-content: flex-start; text-align: left; }
 .page-head .seg .seg-btn { white-space: nowrap; }
 .page-head .seg { flex: none; }
+
+/* 完成与导入（契约修订 5D） */
+.imp-uses { width: 100%; border-collapse: collapse; font-size: 13px; }
+.imp-uses th, .imp-uses td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.imp-uses thead th { color: var(--faint); font-weight: 500; }
+.imp-uses tfoot th, .imp-uses tfoot td { border-bottom: 0; font-weight: 600; }
+.imp-meta { grid-template-columns: 56px 1fr; }
+#imp-body { display: flex; flex-direction: column; gap: 14px; }

@@ -45,7 +45,8 @@ def test_handshake_list_and_errors(svc):
     names = [t["name"] for t in replies[1]["result"]["tools"]]
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
-                     "identify_species", "undo_identification", "set_species_card"]
+                     "identify_species", "undo_identification", "set_species_card", "plan_import", "run_import",
+                     "get_import"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -123,3 +124,17 @@ def test_species_tools_map_to_the_revision_4_endpoints():
     assert route("search_names", {"q": "金雕"}) == ("GET", "/names", None, {"q": "金雕"})
     assert route("set_species_card", {"concept": "name:Corvus corax", "hidden": True}) == \
         ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
+
+
+def test_import_tools_map_to_the_revision_5d_endpoints(svc):
+    from bioscan.gardener.mcp import route
+
+    assert route("plan_import", {"task_id": "t_1", "dest_root": "/lib", "include_pending": False}) == \
+        ("POST", "/tasks/t_1/import-plan", {"dest_root": "/lib", "include_pending": False}, None)
+    assert route("run_import", {"plan_id": "ip_1"}) == ("POST", "/imports/ip_1/run", {}, None)
+    assert route("get_import", {"plan_id": "ip_1"}) == ("GET", "/imports/ip_1", None, None)
+    url, fake = svc
+    p, err = tool(url, "plan_import", task_id=next(iter(fake.tasks)), dest_root="/lib", place="东滩")
+    assert not err and p["folder"].endswith("_东滩")
+    done, err = tool(url, "run_import", plan_id=p["id"])
+    assert not err and done["status"] in ("completed", "partial")

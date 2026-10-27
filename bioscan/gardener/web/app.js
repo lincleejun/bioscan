@@ -393,6 +393,7 @@
           <a href="#/task/${esc(t.id)}/collections" ${tab === 'collections' ? 'aria-current="page"' : ''}>Collections <span class="count">${(t.review || {}).collections_total || 0}</span></a>
           <a href="#/task/${esc(t.id)}/runs" ${tab === 'runs' ? 'aria-current="page"' : ''}>运行历史 <span class="count">${(t.runs || []).length}</span></a>
           <a href="#/species/task/${esc(t.id)}">按物种看本次拍摄 →</a>
+          <a href="#/import/${esc(t.id)}">完成与导入 →</a>
         </nav>
       </header>`;
     if (tab === 'collections') {
@@ -1362,6 +1363,7 @@
       case 'library': return ['library', {}];
       case 'species': return parts[1] === 'task' ? ['species', { task: parts[2] }] : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
       case 'settings': return ['settings', {}];
+      case 'import': return ['import', { task: parts[1], plan: parts[2] }];
       case 'tasks': return ['tasks', { archived: parts[1] === 'archived' }];
       default: return null;
     }
@@ -1641,6 +1643,105 @@
     'clear-cache': () => confirmDialog('清理预览缓存？', '<p>只删除预览缓存文件以释放空间。</p><p class="hint">任务、素材、集合、人工标记与 AI 建议等整理记录全部保留；原片在线时，预览会在需要时重新生成，离线素材在原片恢复前将没有预览。</p>', '清理缓存', 'danger', async () => { const r = await api('POST', '/storage/clear-cache', {}); toast(`已清理 ${r.removed_files} 个文件，释放 ${fmtBytes(r.freed_bytes)}`); route(true); }),
     skip: () => { const h = $('h1', main); (h || main).focus(); },
   };
+  // ---------- 完成与导入（契约修订 5D；PRD §06 正式导入、§09 Review 完成与导入确认） ----------
+  // #/import/<task>：填写目标；#/import/<task>/<plan>：确认页（用途计数、文件与容量、重复、未完成项、导入 N 张）与结果。
+  const IMPORT_USES = [
+    ['edit', '选入修图', '复制入库；可交接 Lightroom'], ['record', '保留记录', '复制入库；补充物种档案'],
+    ['pending', '待定', '默认一并复制；继续待整理'], ['reject', '淘汰', '不从新批次复制；来源不在此步自动删除'],
+  ];
+  const IMPORT_ST = { planned: '待确认', queued: '排队中', running: '导入中', completed: '导入完成', partial: '部分完成 · 有失败项', failed: '导入失败' };
+  const imp = { task: null, plan: null };
+  async function vImport(p) {
+    const t = await api('GET', `/tasks/${encodeURIComponent(p.task)}`);
+    imp.task = t;
+    imp.plan = p.plan ? await api('GET', `/imports/${encodeURIComponent(p.plan)}`) : null;
+    const last = imp.plan || (await api('GET', '/imports', null, { task: t.id }))[0] || null;
+    return `<div class="page"><div class="narrow">
+      <nav class="crumbs" aria-label="位置"><a href="#/tasks">任务</a><span aria-hidden="true">/</span><a href="#/task/${esc(t.id)}/collections">${esc(t.title)}</a><span aria-hidden="true">/</span><span>完成与导入</span></nav>
+      <header class="page-head"><div><h1 tabindex="-1">完成与导入</h1><p class="lede">这次保留多少、准备修多少、还有多少待定、将复制哪些文件。导入只读取来源，复制后逐个校验字节与 sha256 再入库；成功导入后仍可继续 Review。</p></div></header>
+      <div id="imp-body">${imp.plan ? importPlanHTML(imp.plan) : importFormHTML(last)}</div></div></div>`;
+  }
+  function importFormHTML(last) {
+    return `<section class="form-sec">
+      <div class="field"><label for="imp-dest">目标根目录</label><input id="imp-dest" class="input mono" autocomplete="off" placeholder="/Volumes/Photos/Wildlife" value="${esc(last ? last.dest_root : '')}"><p class="hint">其下新建 YYYY-MM-DD_地点 目录；跨日拍摄用日期范围。</p></div>
+      <div class="field"><label for="imp-place">地点</label><input id="imp-place" class="input" autocomplete="off" placeholder="未填写则为“未标注地点”" value="${esc(last && last.place ? last.place : '')}"></div>
+      <label class="switch-row boxed"><span class="sw-text"><b>待定照片一起导入</b><small>默认开启，避免尚未决定就失去卡上的素材</small></span><input type="checkbox" role="switch" class="switch" id="imp-pending-new" ${last && !last.include_pending ? '' : 'checked'}></label>
+      <p class="field-err" id="imp-err" aria-live="polite"></p>
+      <button type="button" class="btn primary" data-action="import-plan">${ic('check')}生成导入计划</button></section>`;
+  }
+  function importPlanHTML(p) {
+    const u = p.uses || {}, nc = p.not_copied || {}, d = p.duplicates || {}, un = p.unfinished || {};
+    const take = id => id === 'reject' ? false : id === 'pending' ? p.include_pending : true;
+    const rows = IMPORT_USES.map(([id, label, how]) => `<tr><th scope="row">${label}</th><td>${u[id] || 0}</td><td>${id === 'pending' && !p.include_pending ? '本次不复制；仍仅在来源中' : how}</td><td>${take(id) ? '复制' : '—'}</td></tr>`).join('');
+    const warn = s => `<p class="note warn block">${ic('warn')}${s}</p>`;
+    const notes = [
+      p.stale ? warn('生成计划后又有决定变化；请重新生成计划，再导入。') : '',
+      !p.include_pending && nc.pending ? warn(`${nc.pending} 张待定照片不导入，它们仍仅在来源中。`) : '',
+      un.offline ? warn(`${un.offline} 张有文件离线或缺失：导入时会列为失败，来源恢复后可重试。`) : '',
+      un.scan_active ? warn('扫描仍在进行；新发现的素材不在本计划中，扫描结束后可再生成一次。') : '',
+      un.analysis_pending ? `<p class="note block">${un.analysis_pending} 张分析尚未完成；不影响导入，物种可在入库后继续确认。</p>` : '',
+      p.enough_space ? '' : warn(`目标磁盘空间不足：需要 ${fmtBytes(p.needed_bytes)}，可用 ${fmtBytes(p.free_bytes)}。`),
+    ].join('');
+    const busy = ['queued', 'running'].includes(p.status);
+    const runnable = ['planned', 'partial', 'failed'].includes(p.status);
+    const label = p.status === 'planned' ? `导入 ${p.assets} 张` : '继续导入未完成项';
+    const dupList = (d.items || []).length ? `<details><summary>精确重复与已有副本（${d.items.length}）</summary><ul class="hist">${d.items.map(x => `<li class="mono">${esc(x.path)} → ${esc(x.existing)}</li>`).join('')}</ul></details>` : '';
+    const renList = (p.renamed.items || []).length ? `<details><summary>同名改为批次后缀（${p.renamed.files} 个文件）</summary><ul class="hist">${p.renamed.items.map(x => `<li class="mono">${esc(x.path)} → ${esc(x.to)}</li>`).join('')}</ul></details>` : '';
+    return `${notes}
+      <section class="card"><h3>本次决定<span class="sub">照片数，不等于文件数</span></h3>
+        <table class="imp-uses"><thead><tr><th>用途</th><th>照片</th><th>默认处理</th><th>本次</th></tr></thead><tbody>${rows}</tbody>
+        <tfoot><tr><th scope="row">总计</th><td>${u.total || 0}</td><td colspan="2">导入 ${p.assets} 张${nc.versions ? ` · 同一拍摄的其他版本 ${nc.versions} 张不另复制` : ''}</td></tr></tfoot></table></section>
+      <section class="card"><h3>文件与目标</h3><dl class="meta imp-meta">
+        <dt>文件</dt><dd>${p.files} 个（RAW、同拍 JPEG 与 sidecar ${p.sidecars} 个一起复制）· ${fmtBytes(p.bytes)}</dd>
+        <dt>目标</dt><dd class="mono">${esc(p.dest_dir)}</dd>
+        <dt>容量</dt><dd>需复制 ${fmtBytes(p.needed_bytes)} · 可用 ${fmtBytes(p.free_bytes)}</dd>
+        <dt>重复</dt><dd>目标已有相同文件 ${d.identical || 0} · 之前已导入 ${d.reuse || 0} · 同内容已在库中 ${d.duplicate || 0}（不再复制；连拍相似不算重复）</dd>
+        <dt>同名</dt><dd>${p.renamed.files ? `${p.renamed.files} 个文件加批次后缀 _B${esc(p.seq)}，整组同名，不覆盖已有文件` : '无冲突'}</dd></dl>${dupList}${renList}</section>
+      ${p.status === 'planned' ? `<label class="switch-row boxed"><span class="sw-text"><b>待定照片一起导入</b><small>关闭后待定照片仍仅在来源中</small></span><input type="checkbox" role="switch" class="switch" id="imp-pending" ${p.include_pending ? 'checked' : ''}></label>` : ''}
+      ${p.status === 'planned' ? '' : importResultHTML(p)}
+      <footer class="form-foot"><a class="btn ghost" href="#/task/${esc(p.task_id)}/collections">继续 Review</a>
+        ${runnable ? `<button type="button" class="btn primary" data-action="import-run" data-id="${esc(p.id)}" ${p.enough_space ? '' : 'disabled'}>${ic('download')}${label}</button>` : ''}
+        ${busy ? `<span class="note">${IMPORT_ST[p.status]}…</span>` : ''}</footer>`;
+  }
+  function importResultHTML(p) {
+    const g = p.progress || {}, nc = p.not_copied || {};
+    const fails = p.failed || [];
+    return `<section class="card report"><h3>${esc(IMPORT_ST[p.status] || p.status)}<span class="sub">批次 ${esc(p.seq)}</span></h3>
+      ${bar(pct(g.bytes_done, g.bytes_total), p.status === 'running' ? 'st-running' : '')}
+      <dl class="meta imp-meta"><dt>入库</dt><dd>${g.assets_done}/${g.assets_total} 张 · ${g.files_done}/${g.files_total} 个文件已校验 · ${fmtBytes(g.bytes_done)}</dd>
+        <dt>未复制</dt><dd>淘汰 ${nc.reject || 0} 张${nc.pending ? ` · 待定 ${nc.pending} 张` : ''}；来源未做任何改动</dd>
+        ${p.interruptions ? `<dt>中断</dt><dd>${p.interruptions} 次，已从未完成项继续</dd>` : ''}</dl>
+      ${fails.length ? `<p class="ai-fail">${ic('warn')}${g.files_failed} 个文件失败（部分完成，不是成功）：</p><ul class="hist">${fails.map(f => `<li class="mono">${esc(f.path)} · ${esc(f.error)}</li>`).join('')}</ul>` : ''}
+      ${p.status === 'completed' ? '<p class="hint">下一步：继续 Review；待定照片改为选入修图时只更新用途，不移动已导入的文件。</p>' : ''}</section>`;
+  }
+  async function importReplan(task, body) {
+    const p = await api('POST', `/tasks/${encodeURIComponent(task)}/import-plan`, body);
+    location.hash = `#/import/${encodeURIComponent(task)}/${encodeURIComponent(p.id)}`;
+  }
+  Object.assign(VIEWS, { import: vImport });
+  Object.assign(NAV_OF, { import: 'tasks' });
+  Object.assign(TITLES, { import: '完成与导入' });
+  Object.assign(ACTIONS, {
+    'import-plan': async () => {
+      const dest = $('#imp-dest').value.trim();
+      if (!dest) { $('#imp-err').textContent = '请填写目标根目录（绝对路径）'; return; }
+      try { await importReplan(imp.task.id, { dest_root: dest, place: $('#imp-place').value.trim(), include_pending: $('#imp-pending-new').checked }); } catch (e) { $('#imp-err').textContent = errMsg(e); }
+    },
+    'import-run': async el => {
+      el.disabled = true;
+      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/run`); setHTML($('#imp-body'), importPlanHTML(imp.plan)); toast('已开始导入；可以继续 Review'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
+    },
+  });
+  document.addEventListener('change', async e => {
+    if (e.target.id !== 'imp-pending' || !imp.plan) return;
+    const p = imp.plan;
+    try { await importReplan(p.task_id, { dest_root: p.dest_root, place: p.place || '', include_pending: e.target.checked }); } catch (err) { toast(errMsg(err)); }
+  });
+  setInterval(async () => {
+    if (ui.view !== 'import' || !imp.plan || !['queued', 'running'].includes(imp.plan.status)) return;
+    try { imp.plan = await api('GET', `/imports/${encodeURIComponent(imp.plan.id)}`); const box = $('#imp-body'); if (box) setHTML(box, importPlanHTML(imp.plan)); } catch (e) { /* 下次轮询再试 */ }
+  }, 2000);
+  // ---------- 完成与导入 · 结束 ----------
   function presetDialog(p, title, saveAs) {
     const sel = p ? p.capabilities : ['meta'];
     dialog({
