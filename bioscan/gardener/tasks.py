@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import identities
+from bioscan.gardener import identities, review
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
@@ -644,6 +644,8 @@ class RunExec:
             rows = self.raw_rows()
             if caps and rows:
                 self.save_suggestions(self.analyzer.reduce(rows, caps))
+        with self.store.tx() as c:          # encounters (contract revision 5B): only unplaced photos join
+            review.assign_encounters(c, self.task_id)
         self.regroup(final=True)
 
     def raw_rows(self) -> list[dict[str, Any]]:
@@ -803,8 +805,8 @@ def content_changed(c: Any, asset_id: str, meta: dict[str, Any]) -> None:
     """Same path, new content (§10 X4): same asset id, Flag/Star cleared as an undoable system batch,
     previews and capabilities back to pending; the old results stay as history."""
     m = st.mark_row(c, asset_id)
-    if m["flag"] is not None or m["stars"]:
-        st.apply_marks(c, [asset_id], {"flag": None, "stars": 0}, actor="system", reason="content_changed")
+    if m["use"] is not None or m["stars"]:
+        st.apply_marks(c, [asset_id], {"use": None, "stars": 0}, actor="system", reason="content_changed")
     t = now()
     meta["content_changed_at"] = t
     c.execute("UPDATE assets SET preview_status = 'pending', preview_method = NULL, preview_error = NULL, "

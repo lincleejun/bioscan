@@ -24,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import bioscan
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import identities, people, query, tasks, taxa
+from bioscan.gardener import review as rv
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
@@ -36,6 +37,7 @@ WEB_DIR = Path(__file__).with_name("web")
 BODY = Body(...)
 OPT_BODY = Body(default={})
 LIMIT200, LIMIT100, OFFSET = Query(200, ge=1, le=1000), Query(100, ge=1, le=1000), Query(0, ge=0)
+PREVIEW_IDS = 200      # asset ids listed per side of a rule preview (the counts are always whole)
 ACTOR = Header("api", alias="X-Gardener-Actor")     # who wrote it: ui | cli | mcp | api (history rows)
 
 
@@ -681,6 +683,10 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def post_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         ids = strs(body.get("asset_ids"), "asset_ids")
         fields: dict[str, Any] = {}
+        if "use" in body:              # contract revision 5B: the four uses; `flag` is the older form
+            if body["use"] not in st.USES or "flag" in body:
+                raise Error("use must be record|edit|pending|reject (and not sent with flag)")
+            fields["use"] = None if body["use"] == "pending" else body["use"]
         if "flag" in body:             # omitted = unchanged, null = clear (§10 X5)
             if body["flag"] not in ("pick", "reject", None):
                 raise Error("flag must be pick|reject|null")
@@ -690,7 +696,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 raise Error("stars must be 0..5")
             fields["stars"] = body["stars"]
         if not ids or not fields:
-            raise Error("asset_ids and flag or stars are required")
+            raise Error("asset_ids and use, flag or stars are required")
         expect = body.get("expect")
         if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
             raise Error("expect must be {asset_id: version}")
@@ -730,8 +736,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             elif level != "species":
                 claim = claim | {"concept": None, "common": None}
         scope = body.get("scope", "subject")
-        if scope not in ("subject", "burst"):
-            raise Error("scope must be subject|burst")
+        if scope not in ("subject", "burst", "encounter"):
+            raise Error("scope must be subject|burst|encounter")
         reason = body.get("reason")
         with store.tx() as c:
             for n in new:
@@ -781,6 +787,44 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 raise NotFound(f"no photo of {concept}")
         return card
 
+    # ---- contract revision 5B: keep-best, encounters ----
+    @r.post("/marks/keep-best")
+    def keep_best(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """保留此张并淘汰相似帧: dry_run first shows the reach (rejected and skipped frames)."""
+        use = body.get("keep_use", "record")
+        if use not in ("record", "edit"):
+            raise Error("keep_use must be record|edit")
+        expect = body.get("expect")
+        if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
+            raise Error("expect must be {asset_id: version}")
+        with store.tx() as c:
+            return rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
+                                    dry_run=bool(body.get("dry_run")), expect=expect)
+
+    @r.get("/encounters")
+    def get_encounters(task: str | None = None, concept: str | None = None) -> dict[str, Any]:
+        if not task and not concept:
+            raise Error("task or concept is required")
+        if task:
+            task_or_404(task)
+        return rv.encounters(store.conn(), task_id=task, concept=concept)
+
+    @r.post("/encounters/{eid}/split", status_code=201)
+    def split_encounter(eid: str, body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """{at: asset_id} moves that photo and the later ones, {asset_ids} exactly those, to a new encounter."""
+        at = body.get("at")
+        ids = strs(body["asset_ids"], "asset_ids") if body.get("asset_ids") is not None else None
+        if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
+            raise Error("one of at (asset id) or asset_ids is required")
+        with store.tx() as c:
+            new = rv.split_encounter(c, eid, at=at, asset_ids=ids, actor=actor)
+        return {"id": new, "from": eid}
+
+    @r.post("/encounters/merge")
+    def merge_encounters(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        with store.tx() as c:
+            return {"id": rv.merge_encounters(c, strs(body.get("ids"), "ids"), actor=actor)}
+
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,
                      limit: int = LIMIT100) -> list[dict[str, Any]]:
@@ -803,6 +847,18 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if query.cycle(store, rule, self_id):
             raise Error("规则引用的集合形成循环（或嵌套过深）")
         return rule
+
+    @r.post("/collections/{cid}/preview-rule")
+    def preview_rule(cid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        """Contract revision 5B (PRD AC13): what a changed rule would hold, against the current members."""
+        if col_or_404(cid)["kind"] != "smart":
+            raise Error("only a smart collection has a rule")
+        rule = check_rule(body.get("rule"), cid)
+        current, hits = store.ids_where({"collection": cid}), store.ids_where(rule)
+        now_set, hit_set = set(current), set(hits)
+        added, removed = [i for i in hits if i not in now_set], [i for i in current if i not in hit_set]
+        return {"total": len(hits), "current": len(current), "added_count": len(added), "removed_count": len(removed),
+                "added": added[:PREVIEW_IDS], "removed": removed[:PREVIEW_IDS]}
 
     @r.get("/collections")
     def get_collections(task: str | None = None, kind: str | None = None, deleted: str = "0") -> list[dict[str, Any]]:
@@ -1027,7 +1083,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         batch = None
         with store.tx() as c:
             if picks and resolution == "clear_picks":
-                batch = st.apply_marks(c, picks, {"flag": None}, actor=actor, reason=f"zero:{cid}")["batch_id"]
+                batch = st.apply_marks(c, picks, {"use": None}, actor=actor, reason=f"zero:{cid}")["batch_id"]
             review(c, cid, "zero", ids, col["review"]["unhandled"], actor, resolution=resolution,
                    note=text(body, "note") or None)
         return store.collection(cid) | {"batch_id": batch}

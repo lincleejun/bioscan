@@ -104,8 +104,9 @@ CREATE INDEX IF NOT EXISTS ai_asset ON ai_suggestions (asset_id, id);
 -- Human layer: global per asset, shared by every collection.
 CREATE TABLE IF NOT EXISTS marks (
   asset_id TEXT PRIMARY KEY REFERENCES assets(id),
-  flag TEXT,                     -- pick | reject | NULL
-  stars INTEGER NOT NULL DEFAULT 0, note TEXT, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1
+  flag TEXT,                     -- derived from `use` for older clients: pick (record|edit) | reject | NULL
+  stars INTEGER NOT NULL DEFAULT 0, note TEXT, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+  use TEXT                       -- record | edit | reject | NULL = pending (contract revision 5B)
 );
 CREATE TABLE IF NOT EXISTS mark_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id TEXT NOT NULL, asset_id TEXT NOT NULL,
@@ -225,3 +226,20 @@ CREATE TABLE IF NOT EXISTS taxon_names (
   kind TEXT                      -- bird | mammal
 );
 CREATE INDEX IF NOT EXISTS taxon_names_concept ON taxon_names (concept);
+
+-- Encounters (contract revision 5B): one continuous observation within a task, suggested from time gaps and
+-- species continuity; bursts nest inside. The machine only places photos not placed yet, so a person's split
+-- or merge survives every rescan.
+CREATE TABLE IF NOT EXISTS encounters (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
+  origin TEXT NOT NULL,          -- auto (suggested) | user (split off by a person)
+  merged_into TEXT,              -- a person merged it away: its photos now belong to that encounter
+  actor TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS encounter_members (
+  task_id TEXT NOT NULL REFERENCES tasks(id), asset_id TEXT NOT NULL REFERENCES assets(id),
+  encounter_id TEXT NOT NULL REFERENCES encounters(id),
+  source TEXT NOT NULL,          -- auto | user (moved by a split or merge)
+  PRIMARY KEY (task_id, asset_id)
+);
+CREATE INDEX IF NOT EXISTS encounter_members_enc ON encounter_members (encounter_id);
