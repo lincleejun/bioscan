@@ -573,7 +573,8 @@ bioscan bench aesthetic compare runs/aes/eva/report.json runs/aes/qrealign-4b/re
 without a finite score counts as the lowest score everywhere.
 
 **images.csv / pairs.csv.** Columns and the drop-reason vocabulary are in the design doc (§4.1); a file with an
-unknown column, variant or reason is refused. Rows default to split `test`; `--split dev|all` scores the others.
+unknown column, variant or reason is refused. Rows default to split `test`; `--split dev|all` scores the others; a
+split with no rows is an error naming the splits the set has. Paths match after resolving symlinks on both sides.
 
 **report.json** (schema `bioscan-aesthetic-golden`, version 1): `meta` (tier `aesthetic-golden` and profile `album`
 for `bench scorecard`, golden path and sha256 of images.csv + pairs.csv, split, model, scores path and sha, git, date, tolerances), `metrics` per scope (`all`, `category:<c>`,
