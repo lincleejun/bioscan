@@ -505,3 +505,19 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - #102 引入按任务的代表版本（`query.IN_TASK_REP`）：一张照片只有当它的代表版本也在同一任务里时，才在该任务里算作版本；否则它就是这个任务自己的照片。
 - 下列按任务的视图采用同一规则：`GET /species?task=`、拍摄段的分配、`GET /encounters?task=`（含“未分段”）、保留此张并淘汰相似帧的同连拍照片（连拍 id 带任务前缀）、导入计划（`not_copied.versions` 只计代表版本也在本任务里的版本）。
 - 全库视图（`GET /species` 总数、清理计划的“最后一张”、`GET /names` 的张数）仍按全局规则，只计代表版本，同一拍摄不重复计数。
+
+## 契约修订 7A：Review 收尾——一起改的范围、拆分错误连拍、拍摄段撤销（2026-10-27，#110；AfterShooting PRD §05、§07、AC07；优先于上文冲突处）
+
+- **schema**（不改 `schema_version`，新表 `CREATE IF NOT EXISTS`，见 `schema.sql` 末尾 7A 段）：`burst_overrides`、`encounter_history`。
+- **一起改的范围**（检查器“物种”卡片）：下拉框“仅此主体 / 同一连拍（N 张）/ 同一拍摄段（M 张）”，只列出当前照片实际有的范围；选择记在界面偏好 `idscope`（取代 `idburst`，缺省 `burst`；记的范围当前照片没有时退回同一连拍，再退回仅此主体）。画出的框仍只改它自己。`AssetDetail` 增加 `encounters: [{id, task_id, photos}]`，界面据此判断有没有拍摄段。
+- **拆分错误连拍**（AC07）：`POST /bursts/split {at: asset_id | asset_ids: [..]}` → 201 `{burst_id（新连拍，只剩一帧时为 null）, from, moved}`。
+  - `at`：这帧及之后（按拍摄时间）的帧；`asset_ids`：恰好这些帧。都须在同一个连拍里，两边都要有帧，否则 400。
+  - 持久：被拆出的帧写入 `burst_overrides(task_id, asset_id, burst_id)`（`burst_id` = `<原连拍>~p_<hex>`，仍以任务 id 开头）。连拍 reducer 每次运行都重新推导 `ai_suggestions.burst_id`，所以每次保存建议之后由 `review.apply_burst_overrides` 把这些帧改到人的连拍，并重新给受影响的连拍排名次、计张数；一帧的连拍记为不在连拍中（与 reducer 相同）。只有 reducer 放进某个连拍的帧才会被移动，关掉连拍能力的运行不凭空造出连拍。
+  - 当下的显示：拆分时为原连拍的每一帧追加一行 `ai_suggestions`（`run_id = user`，复制最新一行的建议，只改连拍字段），所以所有读最新建议的地方（网格、拍摄段、保留此张并淘汰相似帧、`scope=burst`）不用改动；`AssetDetail.ai_history` 不列这类行。
+  - 物种身份按主体记录，拆连拍不碰识别与物种卡片（AC07 “不创建重复集合”）。
+  - 已知上限：之后追加的帧若被 reducer 归入这个连拍，会落在机器那一半；需要时再拆一次。本版没有连拍拆分的撤销。
+- **拍摄段撤销**：`POST /encounters/{id}/split` 的响应增加 `batch_id`，`POST /encounters/merge` 返回 `{id, batch_id}`。`POST /encounters/undo {batch_id}` → `{undone（移回的照片数）, action}`：照片回到原拍摄段（连同原来的 `source`）；拆分新建的段记为 `merged_into` 原段，合并掉的段恢复。所涉拍摄段在这一批之后又有变化（成员或合并状态，包括重扫并入的新照片）→ 409 `{encounters}`；未知或已撤销的批次 404。更新所涉照片的 `assets.updated_at`。修订 5B 的“本版没有拍摄段的撤销接口”作废。
+- **保留此张并淘汰相似帧**：响应增加 `collections: [{id, name, asset_ids}]`——要淘汰的帧所在的集合（手动按成员，Smart 按规则），PRD §05“批量淘汰前提示是否涉及其他集合”。界面在预览对话框里列出（不含当前正在看的集合）；CLI `keep-best` 多打“也在集合…”。
+- **物种卡片**：`Card` 增加 `encounters`：含该物种照片的拍摄段数，与卡片同一口径（只计代表版本，不计已移到废纸篓的）；`task=` 时只数该任务的拍摄段。全库视图里同一照片在两个任务中时，每个任务的拍摄段各算一次。界面在日期后显示“N 个拍摄段”。
+- **用词**：界面不再出现 Pick / Reject，按四种用途说（保留记录、选入修图、待定、淘汰）；接口字段 `picks`、`flag` 不变。
+- **CLI 与 MCP**：CLI `burst split --at ID | --assets IDS`、`encounter undo BATCH`；MCP 新工具 `split_burst`，`edit_encounters` 的 `action` 增加 `undo`（`batch_id`）。

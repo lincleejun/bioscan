@@ -46,7 +46,7 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idburst", "enc", "cmpsync"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync"}, keys
 
 
 def test_nav_order():
@@ -64,7 +64,7 @@ def test_nav_order():
     "AI 整组评分偏低 · 全部候选仍可审阅",
     "无法在浏览器播放", "在 Finder 中显示",
     "内容已变化，旧判断已清空", "恢复旧判断",
-    "不会被自动 Reject",
+    "不会被自动淘汰",
     "整理记录全部保留",
     "未启用", "待运行", "运行中", "完成", "失败", "未识别", "不可用",
     "快速预览", "原像素细节加载中", "原像素细节可用", "不是原像素",   # PRD §08 第三级 / AC06 (revision 5C)
@@ -174,3 +174,19 @@ def test_review_flow_ui_contract_5b():
     t = c.get("/api/v1/tasks").json()[-1]
     enc = c.get("/api/v1/encounters", params={"task": t["id"]}).json()["encounters"][0]
     assert {"id", "start", "end", "photos", "asset_ids", "bursts", "candidates", "species"} <= set(enc)
+
+
+def test_review_polish_ui_contract_7a():
+    """Identify scope is a three-way choice remembered as idscope, a burst can be split from the current frame,
+    encounter split/merge toasts offer undo, keep-best names the other collections, species cards show encounters."""
+    app = text("app.js")
+    assert "data-pref=\"idscope\"" in app and "['encounter', `同一拍摄段" in app and "idburst" not in app
+    assert "api('POST', '/bursts/split', { at: el.dataset.id })" in app and "从这张起拆为新连拍" in app
+    assert "api('POST', '/encounters/undo', { batch_id: batch })" in app and "encUndo(ws, r.batch_id)" in app
+    assert "要淘汰的帧也在其他集合" in app and "个拍摄段" in app
+    assert "Pick" not in app.replace("cmpPick", "").replace("cmp-pick", "")
+    from fastapi.testclient import TestClient
+    c = TestClient(create_app(static=False))
+    kb = c.post("/api/v1/marks/keep-best", json={"asset_id": "a_0006", "dry_run": True}).json()
+    assert kb["collections"] and {"id", "name", "asset_ids"} <= set(kb["collections"][0])
+    assert c.get("/api/v1/assets/a_0006").json()["encounters"][0]["photos"] > 1
