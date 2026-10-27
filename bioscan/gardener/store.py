@@ -253,6 +253,13 @@ class Store:
                 tasks.setdefault(r["asset_id"], []).append(r["task_id"])
             versions = {r["version_of"]: r["n"] for r in self.all(
                 f"SELECT version_of, count(*) n FROM assets WHERE version_of IN ({q}) GROUP BY version_of", part)}
+            named: dict[str, dict[str, Any]] = {}            # the photo's species shown on its tile (revision 4)
+            for r in self.all(f"SELECT asset_id, taxon, common, source, p FROM current_ids WHERE asset_id IN ({q}) "
+                              f"AND level = 'species'", part):
+                key = (r["source"] == "user", r["p"] or 0.0)
+                if r["asset_id"] not in named or key > named[r["asset_id"]]["_key"]:
+                    named[r["asset_id"]] = {"taxon": r["taxon"], "common": r["common"], "p": r["p"],
+                                            "confirmed": r["source"] == "user", "_key": key}
             for a in rows:
                 s = ai.get(a["id"])
                 content = data.get((a["id"], "content")) or {}
@@ -266,8 +273,9 @@ class Store:
                     "ai": None if s is None else {"verdict": s["verdict"], "score": s["score"],
                                                   "reasons": loads(s["reasons"], [])},
                     "content_label_zh": content.get("label_zh"),
-                    "species": None if not sp else {"taxon": sp.get("taxon"), "common": sp.get("common"),
-                                                    "p": sp.get("p")},
+                    "species": ({k: v for k, v in named[a["id"]].items() if k != "_key"} if a["id"] in named else
+                                None if not sp else {"taxon": sp.get("taxon"), "common": sp.get("common"),
+                                                     "p": sp.get("p"), "confirmed": False}),
                     "burst": None if s is None or s["burst_id"] is None else
                     {"id": s["burst_id"], "rank": s["burst_rank"], "size": s["burst_size"]},
                     "analysis": analysis_state(states.get(a["id"], []), in_run),

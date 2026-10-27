@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -585,6 +585,28 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
     @app.post(P + "/marks/undo")
     def marks_undo(body: dict):
         return fk.undo(body["batch_id"])
+
+    # ---- contract revision 4 (species identity): shapes only; behaviour is tested on the real service ----
+    @app.post(P + "/identifications")
+    def identifications(body: dict):
+        return {"batch_id": None if body.get("dry_run") else "b_fake", "dry_run": bool(body.get("dry_run")),
+                "changed": [], "skipped": []}
+
+    @app.post(P + "/identifications/undo")
+    def identifications_undo(body: dict):
+        return {"undone": 0}
+
+    @app.get(P + "/species")
+    def species(task: str = "", hidden: str = "0"):
+        return {"species": [], "to_confirm": [], "confirmed_total": 0, "unresolved": {"genus_family": 0, "unconfirmed": 0}}
+
+    @app.patch(P + "/species/{concept}")
+    def species_prefs(concept: str, body: dict):
+        raise HTTPException(404, "no photo of " + concept)
+
+    @app.get(P + "/names")
+    def names(q: str = "", limit: int = 20):
+        return []
 
     # ---- 6.5 ----
     @app.get(P + "/collections")

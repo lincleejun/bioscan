@@ -110,6 +110,8 @@ def test_correcting_one_frame_of_a_burst_corrects_the_burst_and_undo_puts_the_mo
         assert currents(c, aids) == [("Eastern Screech-Owl", "ai")] * 3        # a dry run writes nothing
         done = c.post(f"{API}/identifications", json=body).json()
         assert currents(c, aids) == [("Pacific Wren", "user")] * 3
+        tiles = c.get(f"{API}/assets", params={"concept": WREN["concept"]}).json()["items"]
+        assert [(i["species"]["common"], i["species"]["confirmed"]) for i in tiles] == [("Pacific Wren", True)] * 3
         assert c.post(f"{API}/identifications/undo", json={"batch_id": done["batch_id"]}).json() == {"undone": 3}
         assert currents(c, aids) == [("Eastern Screech-Owl", "ai")] * 3
 
@@ -277,3 +279,10 @@ def test_the_name_index_rebuilds_only_when_its_inputs_change(tmp_path):
     (tmp_path / "d" / "names-zh.csv").write_text("scientific,zh\nMegascops asio,东美角鸮\n", encoding="utf-8")
     assert taxa.sync(store, lists)
     assert [x["zh"] for x in taxa.search(store.conn(), "东美")] == ["东美角鸮"]
+
+
+def test_the_web_ui_revalidates_so_an_upgrade_is_never_served_stale(env):
+    with env.client() as c:
+        r = c.get("/app.js")
+        assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
+        assert "cache-control" not in c.get(f"{API}/health").headers

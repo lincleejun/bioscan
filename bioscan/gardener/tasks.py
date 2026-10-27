@@ -36,7 +36,7 @@ MODEL_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages or c.local)
 BIOSCAN_CAPS = tuple(c.id for c in capmod.CAPABILITIES if c.stages)
 VIDEO_NA = "视频首版只做元数据、封面、播放与人工标记；图像分析不适用"
 # what a group kind needs switched on, any of them ((): always; "other" = videos and photos with no subject information)
-GROUP_NEEDS = {"species": ("species",), "person": ("people", "content"), "animal": ("content", "species"),
+GROUP_NEEDS = {"person": ("people", "content"), "animal": ("content", "species"),
                "scene": ("content",), "other": (), "place": ("place_event",)}
 SUBJECT_CAPS = ("content", "species", "people")
 PEOPLE_EVERY = 64            # regroup after this many people results
@@ -958,7 +958,7 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
     latest: dict[tuple[str, str], Any] = {(r["asset_id"], r["capability"]): loads(r["data"]) for r in store.all(
         "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(x.id) FROM results x "
         "JOIN task_assets ta ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability IN "
-        "('content', 'species') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)", (task_id,))}
+        "('content') AND x.status IN ('done', 'unrecognized') GROUP BY x.asset_id, x.capability)", (task_id,))}
     rows = store.all("SELECT a.id, a.taken_at, a.lat, a.lon, a.media, a.version_of FROM task_assets ta JOIN assets a "
                      "ON a.id = ta.asset_id WHERE ta.task_id = ? ORDER BY ta.ord", (task_id,))
     subject_caps = [c for c in SUBJECT_CAPS if c in enabled]
@@ -984,10 +984,11 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
             own["taken_at"] = own["taken_at"] or v["taken_at"]
             if own["lat"] is None or own["lon"] is None:
                 own["lat"], own["lon"] = v["lat"], v["lon"]
-        ct, sp = latest.get((a["id"], "content")), latest.get((a["id"], "species"))
+        ct = latest.get((a["id"], "content"))
+        # Species never make task groups (contract revision 4, S6): the library's species cards, derived from
+        # identifications, are the species view, with no minimum size; a task groups animals by kind.
         assets.append(own | {"content": {"group": ct.get("group"), "label": ct.get("label")} if ct else None,
-                             "species": {"taxon": sp.get("taxon"), "common": sp.get("common"), "level": sp.get("level")}
-                             if sp and sp.get("taxon") else None,
+                             "species": None,
                              "people": people.get(a["id"]), "settled": a["id"] not in unsettled})
     if not assets:
         return 0

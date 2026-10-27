@@ -1124,5 +1124,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     if (WEB_DIR / "index.html").exists():
         from fastapi.staticfiles import StaticFiles
 
+        @app.middleware("http")
+        async def revalidate_ui(request: Request, call_next: Any) -> Any:
+            """The UI files revalidate (ETag) on every load, so an upgraded service never runs a stale app.js."""
+            response = await call_next(request)
+            if not request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-cache"
+            return response
+
         app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
     return app

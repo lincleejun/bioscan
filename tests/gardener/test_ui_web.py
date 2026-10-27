@@ -46,13 +46,13 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idburst"}, keys
 
 
 def test_nav_order():
-    assert re.findall(r'data-nav="(\w+)"', text("index.html")) == ["library", "collections", "tasks", "settings"]
+    assert re.findall(r'data-nav="(\w+)"', text("index.html")) == ["library", "species", "collections", "tasks", "settings"]
     labels = re.findall(r'data-nav="\w+">.*?</svg>([^<]+)<', text("index.html"))
-    assert labels == ["全部素材", "Collections", "任务", "管理"]
+    assert labels == ["全部素材", "物种", "Collections", "任务", "管理"]
 
 
 @pytest.mark.parametrize("phrase", [
