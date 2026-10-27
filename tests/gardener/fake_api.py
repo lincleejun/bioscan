@@ -908,9 +908,10 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                  for i in ids]
         h = {"id": hid, "name": body.get("name") or "交接", "scope": body, "status": "written",
              "doc_path": f"/tmp/lr/handoffs/{hid}.json", "result_path": f"/tmp/lr/handoffs/{hid}.result.json",
-             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items, "options": {}, "retryable": 0,
+             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items, "retryable": 0,
+             "options": {k: body[k] for k in ("develop", "export") if body.get(k)},
              "counts": {k: sum(i["status"] == k for i in items) for k in ("ok", "skipped", "failed", "pending")}
-             | {"conflicts": 0}}
+             | {"conflicts": 0, "preset_applied": 0, "exported": 0}}
         fk.handoffs[hid] = h
         return h
 
@@ -923,6 +924,23 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         if hid not in fk.handoffs:
             raise Err(404, "没有这个交接", "not_found")
         return fk.handoffs[hid]
+
+    PRESETS = {"available": True, "at": "2026-10-27T08:00:00Z", "path": "/tmp/lr/presets.json",
+               "develop": [{"uuid": "P-WARM", "name": "Bird warm", "folder": "User Presets"}],
+               "export": [{"name": "JPEG 2048", "folder": "User Presets", "path": "/tmp/lr/JPEG 2048.lrtemplate"}]}
+
+    @app.get(P + "/lightroom/presets")
+    def lr_presets():
+        return PRESETS
+
+    @app.post(P + "/handoffs/preview")
+    def handoff_preview(body: dict):
+        """契约修订 7B: count, offline, representatives and the remembered preset before a handoff."""
+        ids = [i for i in scope_ids(body) if fk.assets[i]["flag"] == "pick" or (body.get("asset_ids") and
+                                                                                  fk.assets[i]["flag"] != "reject")]
+        return {"name": "预览", "scope": body, "uses": None, "count": len(ids),
+                "offline": sum(not fk.assets[i]["online"] for i in ids), "representatives": ids[:4],
+                "remembered": None, "presets": PRESETS}
 
     @app.post(P + "/handoffs/{hid}/retry", status_code=201)
     def handoff_retry(hid: str):

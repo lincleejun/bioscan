@@ -233,6 +233,21 @@ def _scope_5e(a) -> dict:
     return {}
 
 
+def _options_7b(a) -> dict:
+    """契约修订 7B: --preset / --export-preset / --export-dir / --overwrite on `handoff create`."""
+    out: dict = {}
+    if a.preset:
+        out["develop"] = {"uuid": a.preset, "name": a.preset_name or a.preset}
+    if a.export_preset or a.export_dir:
+        if not (a.export_preset and a.export_dir and a.overwrite):
+            raise SystemExit("handoff create: 导出需要 --export-preset、--export-dir 和 --overwrite（gardener handoff presets 查预设）")
+        out["export"] = {"preset_path": os.path.abspath(os.path.expanduser(a.export_preset)),
+                         "dest_dir": os.path.abspath(os.path.expanduser(a.export_dir)), "overwrite": a.overwrite}
+    if a.no_remember:
+        out["remember"] = False
+    return out
+
+
 # ---- commands ----------------------------------------------------------------
 
 def _abs(paths: list[str]) -> list[str]:
@@ -326,9 +341,17 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
             body = _scope_5e(a) | ({"uses": a.use} if a.use else {}) | ({"name": a.name} if a.name else {})
             if not body:
                 raise SystemExit("handoff create: 需要 --collection、--concept 或 --assets")
+            body |= _options_7b(a)
             return "POST", "/handoffs", body, None
         if sub == "retry":
             return "POST", f"/handoffs/{a.id}/retry", {}, None
+        if sub == "presets":
+            return "GET", "/lightroom/presets", None, None
+        if sub == "preview":
+            body = _scope_5e(a) | ({"uses": a.use} if a.use else {})
+            if not body:
+                raise SystemExit("handoff preview: 需要 --collection、--concept 或 --assets")
+            return "POST", "/handoffs/preview", body, None
         return ("GET", "/handoffs", None, None) if sub == "list" else ("GET", f"/handoffs/{a.id}", None, None)
     if c == "cleanup":
         if sub == "plan":
@@ -535,6 +558,16 @@ def parser() -> argparse.ArgumentParser:
     scope_args(hc)
     hc.add_argument("--use", action="append", help="只交这些用途（record / pending / ...；可重复）")
     hc.add_argument("--name", help="Lightroom 里的集合名（默认取集合或物种名）")
+    hc.add_argument("--preset", help="应用的显影预设 uuid（gardener handoff presets 查得；契约修订 7B）")
+    hc.add_argument("--preset-name", help="预设名（只用于显示）")
+    hc.add_argument("--export-preset", help="应用后导出：导出预设 .lrtemplate 的路径")
+    hc.add_argument("--export-dir", help="导出目标目录（不能在照片来源之内）")
+    hc.add_argument("--overwrite", choices=("rename", "skip", "overwrite"), help="目标已有同名文件时")
+    hc.add_argument("--no-remember", action="store_true", help="不为这个物种或集合记住预设与导出设置")
+    hp = ho.add_parser("preview", help="交接前看目标数量、离线张数、代表照片与记住的预设")
+    scope_args(hp)
+    hp.add_argument("--use", action="append")
+    ho.add_parser("presets", help="插件从 Lightroom 读到的显影预设与导出预设")
     ho.add_parser("show", help="逐张结果（成功 / 跳过 / 失败、字段冲突）").add_argument("id")
     ho.add_parser("list", help="交接历史")
     ho.add_parser("retry", help="只重新交接失败和因离线跳过的照片（同名集合，按身份找回，不重复导入）").add_argument("id")

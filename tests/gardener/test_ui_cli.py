@@ -267,3 +267,23 @@ def test_handoff_retry_command(svc, capsys):
     h = run_json(capsys, url, "handoff", "create", "--assets", pick["id"])
     code, _, err = run(capsys, url, "handoff", "retry", h["id"])
     assert code != 0 and "还没有返回" in err
+
+
+def test_handoff_preset_export_preview_and_presets_commands(svc, capsys):
+    """契约修订 7B: presets and export on `handoff create` (export needs all three settings), preview, presets."""
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("handoff", "create", "--concept", "k", "--preset", "P1", "--export-preset", "/p/J.lrtemplate",
+               "--export-dir", "/out", "--overwrite", "skip", "--no-remember") == \
+        ("POST", "/handoffs", {"concept": "k", "develop": {"uuid": "P1", "name": "P1"},
+                               "export": {"preset_path": "/p/J.lrtemplate", "dest_dir": "/out", "overwrite": "skip"},
+                               "remember": False}, None)
+    with pytest.raises(SystemExit):
+        req("handoff", "create", "--concept", "k", "--export-dir", "/out")          # no preset, no policy
+    assert req("handoff", "preview", "--concept", "k") == ("POST", "/handoffs/preview", {"concept": "k"}, None)
+    assert req("handoff", "presets") == ("GET", "/lightroom/presets", None, None)
+    url, fake = svc
+    assert run_json(capsys, url, "handoff", "presets")["develop"][0]["uuid"] == "P-WARM"
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    assert run_json(capsys, url, "handoff", "preview", "--assets", pick["id"])["count"] == 1

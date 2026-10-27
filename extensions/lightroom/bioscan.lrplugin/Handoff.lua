@@ -5,6 +5,7 @@
 -- the ones a handoff wrote before are never touched.
 local LrApplication = import "LrApplication"
 local LrDialogs = import "LrDialogs"
+local LrExportSession = import "LrExportSession"
 local LrFileUtils = import "LrFileUtils"
 local LrFunctionContext = import "LrFunctionContext"
 local LrLogger = import "LrLogger"
@@ -141,15 +142,145 @@ local function applyOne(it, s)
   r.uuid = photo:getRawMetadata("uuid")
 end
 
-local function writeResult(path, result)
-  local final = resultPath(path)
+local function writeJson(final, value)
   local tmp = final .. ".tmp"
   local f = assert(io.open(tmp, "w"))
-  f:write(json.encode(result, { indent = true }))
+  f:write(json.encode(value, { indent = true }))
   f:close()
   if LrFileUtils.exists(final) then LrFileUtils.delete(final) end
   LrFileUtils.move(tmp, final)
 end
+
+local function writeResult(path, result)
+  writeJson(resultPath(path), result)
+end
+
+-- ---- 契约修订 7B: develop preset and export step ----
+-- Runs after the fields, only on photos that are ok. The decisions follow Decide.lua (handoff.py decide_develop,
+-- decide_export). Each photo's result says what really happened; Gardener marks 修图进度 only from it.
+-- In the SDK 6.0 reference: developPresetByUuid, developPresetFolders, getDevelopPresets, applyDevelopPreset (in a
+-- write gate), getDevelopSettings (in a task; "experimental"), LrExportSession, doExportOnCurrentTask, waitForRender.
+-- Unverified until run in Lightroom Classic: getDevelopSettings right after the gate reflecting the preset,
+-- loadstring/setfenv on an .lrtemplate, the LR_* export setting names and LR_collisionHandling values.
+local function developStep(catalog, doc, items)
+  local spec = doc.develop
+  if type(spec) ~= "table" or not spec.uuid then return end
+  local preset = LrApplication.developPresetByUuid(spec.uuid)
+  local todo = {}
+  for _, it in ipairs(items) do
+    if it.r.status == "ok" then
+      local base = (it.p.baseline or {}).develop or {}
+      local fp = Decide.fingerprint(it.photo:getDevelopSettings())
+      local action = Decide.develop(spec.uuid, base.uuid, base.fingerprint, fp)
+      it.r.develop = { action = action, preset = spec.uuid, preset_name = spec.name, fingerprint = fp }
+      if action == "conflict" then it.r.develop.reason = "edited_in_lightroom" end
+      if action == "apply" then
+        if preset then todo[#todo + 1] = it else it.r.develop.action, it.r.develop.reason = "failed", "preset_missing" end
+      end
+    end
+  end
+  if #todo == 0 then return end
+  local ok = write(catalog, "Gardener develop preset", function()
+    for _, it in ipairs(todo) do
+      local done, err = LrTasks.pcall(function() it.photo:applyDevelopPreset(preset, _PLUGIN) end)
+      if done then it.r.develop.action = "applied" else it.r.develop.action, it.r.develop.reason = "failed", tostring(err) end
+    end
+  end)
+  for _, it in ipairs(todo) do
+    if not ok then it.r.develop.action, it.r.develop.reason = "failed", "no write access" end
+    if it.r.develop.action == "applied" then it.r.develop.fingerprint = Decide.fingerprint(it.photo:getDevelopSettings()) end
+  end
+end
+
+local COLLISION = { rename = "rename", skip = "skip", overwrite = "overwrite" }
+
+-- The settings of a saved export preset (an .lrtemplate is a Lua file `s = { ..., value = { settings } }`),
+-- sent to the handoff's folder with its overwrite policy. nil + reason when that cannot be done.
+local function exportSettings(spec)
+  if not COLLISION[spec.overwrite] then return nil, "unknown overwrite policy: " .. tostring(spec.overwrite) end
+  local text = spec.preset_path and LrFileUtils.readFile(spec.preset_path)
+  if not text then return nil, "export preset not readable: " .. tostring(spec.preset_path) end
+  local chunk, err = loadstring(text)
+  if not chunk then return nil, "export preset: " .. tostring(err) end
+  local env = {}
+  setfenv(chunk, env)
+  local ran, e = pcall(chunk)
+  if not ran or type(env.s) ~= "table" or type(env.s.value) ~= "table" then
+    return nil, "export preset: not an export template (" .. tostring(e) .. ")"
+  end
+  local settings = {}
+  for k, v in pairs(env.s.value) do settings[k] = v end
+  settings.LR_export_destinationType = "specificFolder"
+  settings.LR_export_destinationPathPrefix = spec.dest_dir
+  settings.LR_export_useSubfolder = false
+  settings.LR_collisionHandling = COLLISION[spec.overwrite]
+  return settings
+end
+
+local function exportStep(doc, items)
+  local spec = doc.export
+  if type(spec) ~= "table" then return end
+  local photos, byId = {}, {}
+  for _, it in ipairs(items) do
+    local d = Decide.export(true, it.r.status, it.r.develop and it.r.develop.action)
+    if d == "export" then
+      photos[#photos + 1] = it.photo
+      byId[it.photo.localIdentifier] = it
+    elseif d == "skip" then
+      it.r.export = { action = "skipped", reason = it.r.status ~= "ok" and "not_in_lightroom" or "develop_failed" }
+    end
+  end
+  if #photos == 0 then return end
+  local settings, err = exportSettings(spec)
+  if settings then
+    local done, e = LrTasks.pcall(function()
+      local session = LrExportSession({ photosToExport = photos, exportSettings = settings })
+      -- render everything first (blocks this task until done), then read each rendition's real outcome: a
+      -- renditions() loop alone might never start rendering outside an export service, and would then wait forever
+      session:doExportOnCurrentTask()
+      for _, rendition in session:renditions() do
+        local success, pathOrMessage = rendition:waitForRender()
+        local it = byId[rendition.photo.localIdentifier]
+        if it and success then
+          it.r.export = { action = "exported", path = pathOrMessage }
+        elseif it then
+          it.r.export = { action = "failed", reason = tostring(pathOrMessage) }
+        end
+      end
+    end)
+    if not done then err = "export failed: " .. tostring(e) end
+  end
+  for _, it in pairs(byId) do
+    if not it.r.export then it.r.export = { action = "failed", reason = err or "no rendition returned" } end
+  end
+end
+
+-- presets.json next to the handoffs folder: the develop presets and saved export presets Gardener offers.
+Handoff.PRESETS = LrPathUtils.parent(Handoff.DIR) .. "/presets.json"
+Handoff.EXPORT_PRESETS = LrPathUtils.getStandardFilePath("home") ..
+  "/Library/Application Support/Adobe/Lightroom/Export Presets"
+
+function Handoff.writePresets()
+  local dev = {}
+  for _, folder in ipairs(LrApplication.developPresetFolders()) do
+    for _, p in ipairs(folder:getDevelopPresets()) do
+      dev[#dev + 1] = { uuid = p:getUuid(), name = p:getName(), folder = folder:getName() }
+    end
+  end
+  local exp = {}
+  if LrFileUtils.exists(Handoff.EXPORT_PRESETS) then
+    for path in LrFileUtils.recursiveFiles(Handoff.EXPORT_PRESETS) do
+      if path:match("%.lrtemplate$") then
+        exp[#exp + 1] = { name = LrPathUtils.removeExtension(LrPathUtils.leafName(path)),
+          folder = LrPathUtils.leafName(LrPathUtils.parent(path)), path = path }
+      end
+    end
+  end
+  table.sort(exp, function(a, b) return a.path < b.path end)
+  LrFileUtils.createAllDirectories(LrPathUtils.parent(Handoff.PRESETS))
+  writeJson(Handoff.PRESETS, { schema = 1, at = os.date("!%Y-%m-%dT%H:%M:%SZ"), develop = dev, export = exp })
+end
+-- ---- end 契约修订 7B ----
 
 -- Applies one handoff file. Returns false (and writes no result, so it is retried) when the catalog could not be
 -- written at all; per-photo failures are reported in the result file.
@@ -205,6 +336,20 @@ function Handoff.applyFile(path)
     end)
     if not ok then
       for _, it in ipairs(ready) do it.r.status, it.r.reason = "failed", "no write access" end
+    end
+  end
+  -- 契约修订 7B: optional steps; an error in one is reported per photo, never lost and never retried forever
+  for _, step in ipairs({ { "develop", function() developStep(catalog, doc, items) end },
+                          { "export", function() exportStep(doc, items) end } }) do
+    local key, fn = step[1], step[2]
+    local done, err = LrTasks.pcall(fn)
+    if not done and doc[key] then
+      log:error("handoff " .. key .. ": " .. tostring(err))
+      for _, it in ipairs(items) do
+        if it.r.status == "ok" and (not it.r[key] or it.r[key].action == "apply") then
+          it.r[key] = { action = "failed", reason = tostring(err) }
+        end
+      end
     end
   end
   local out, n = {}, { ok = 0, skipped = 0, failed = 0 }

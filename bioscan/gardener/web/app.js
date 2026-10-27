@@ -2280,9 +2280,11 @@
   // ---------- 契约修订 5E：Lightroom 交接与清理计划 ----------
   const HANDOFF_ST = { written: ['已写出交接文件 · 等待 Lightroom 返回结果', 'wait'], applied: ['已在 Lightroom 中处理', 'ok'], partial: ['部分照片未成功', 'fail'], failed: ['没有照片成功', 'fail'] };
   const ITEM_ST = { pending: ['等待结果', 'wait'], ok: ['成功', 'ok'], skipped: ['跳过', 'muted'], failed: ['失败', 'fail'], trashed: ['已移到废纸篓', 'ok'] };
-  const WHY_ZH = { offline: '原片离线', file_missing: 'Lightroom 找不到文件', not_rejected: '已不再是淘汰，未动', changed: '文件在计划之后有变化，未动', stars: '星级', keywords: '关键词' };
+  const WHY_ZH = { offline: '原片离线', file_missing: 'Lightroom 找不到文件', develop: '显影', preset_missing: 'Lightroom 里找不到这个预设', not_in_lightroom: '照片没有进入 Lightroom', develop_failed: '预设未应用', not_rejected: '已不再是淘汰，未动', changed: '文件在计划之后有变化，未动', stars: '星级', keywords: '关键词' };
   const why = r => esc(WHY_ZH[r] || r || '');
   const TRASH_COPY = '文件移到废纸篓，可在废纸篓中恢复；移到废纸篓不释放磁盘空间，在 Finder 中清空废纸篓后才真正释放。Gardener 不做永久删除。';
+  const STEP_ZH = { applied: '预设已应用', same: '预设此前已应用', conflict: '显影在 Lightroom 中改过，未应用预设', exported: '已导出', skipped: '未导出', failed: '失败' };
+  const stepHTML = i => [['develop', i.develop], ['export', i.export]].filter(([, r]) => r && r.action && r.action !== 'none').map(([k, r]) => ` · ${k === 'develop' ? '' : '导出：'}${esc(STEP_ZH[r.action] || r.action)}${r.path ? ` <span class="mono">${esc(r.path)}</span>` : ''}${r.reason && r.action !== 'conflict' ? `（${why(r.reason)}）` : ''}`).join('');
   function handoffHTML(h) {
     const [label, tone] = HANDOFF_ST[h.status] || [h.status, 'wait'];
     const n = h.counts;
@@ -2290,7 +2292,8 @@
       <p>成功 <b>${n.ok}</b> · 跳过 ${n.skipped} · 失败 ${n.failed} · 等待结果 ${n.pending}${n.conflicts ? ` · <b>${n.conflicts}</b> 张有字段冲突（Lightroom 中已改过，未覆盖）` : ''}</p>
       ${h.status === 'written' ? '<p class="hint">写出交接文件不等于完成。Lightroom Classic 运行且装有 bioscan 插件（bioscan lr install）时几秒内处理；没有运行就打开它，或在 Library &gt; Plug-in Extras &gt; bioscan: Apply Gardener handoffs 手动执行，然后刷新。</p>' : ''}
       <p class="hint mono">${esc(h.doc_path)}</p>
-      <ul class="hist">${h.items.map(i => { const [l, t] = ITEM_ST[i.status] || [i.status, 'wait']; return `<li>${pill(l, t)} ${esc(i.name)}${i.reason ? ` · ${why(i.reason)}` : ''}${i.conflicts.length ? ` · 冲突：${i.conflicts.map(why).join('、')}` : ''}</li>`; }).join('')}</ul>
+      ${(h.options || {}).develop || (h.options || {}).export ? `<p>${(h.options || {}).develop ? `预设「${esc(h.options.develop.name)}」已应用 <b>${n.preset_applied || 0}</b> 张` : ''}${(h.options || {}).export ? ` · 已导出 <b>${n.exported || 0}</b> 张到 <span class="mono">${esc(h.options.export.dest_dir)}</span>` : ''}（只按 Lightroom 返回的逐张结果计）</p>` : ''}
+      <ul class="hist">${h.items.map(i => { const [l, t] = ITEM_ST[i.status] || [i.status, 'wait']; return `<li>${pill(l, t)} ${esc(i.name)}${i.reason ? ` · ${why(i.reason)}` : ''}${i.conflicts.length ? ` · 冲突：${i.conflicts.map(why).join('、')}` : ''}${stepHTML(i)}</li>`; }).join('')}</ul>
       <button type="button" class="btn sm" data-action="lr-refresh" data-id="${esc(h.id)}">${ic('retry')}刷新结果</button>
       ${h.retryable ? `<button type="button" class="btn sm" data-action="lr-retry" data-id="${esc(h.id)}">只重试未成功的 ${h.retryable} 张</button>` : ''}</section>`;
   }
@@ -2300,23 +2303,60 @@
     const label = scope ? (scope.collection_id ? ui.col.name : ui.sp.zh || ui.sp.common || ui.sp.taxon) : '';
     if (!scope && !sel.length) { toast('请先选择要交给 Lightroom 的照片'); return; }
     const radio = (v, text, on, dis) => `<label class="radio-row"><input type="radio" name="ho-scope" value="${v}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}><span>${text}</span></label>`;
-    dialog({
+    const scopeOf = d => ($('input[name=ho-scope]:checked', d).value === 'scope' ? scope : { asset_ids: sel });
+    const d = dialog({
       title: '在 Lightroom 打开', cls: 'export',
-      body: `<fieldset class="fs"><legend>范围</legend>${scope ? radio('scope', `${esc(label)} 中已 Pick 的照片`, true) : ''}${radio('selected', `当前选中（${sel.length} 张，淘汰的除外）`, !scope, !sel.length)}</fieldset>
+      body: `<fieldset class="fs"><legend>范围</legend>${scope ? radio('scope', `${esc(label)} 中选入修图的照片`, true) : ''}${radio('selected', `当前选中（${sel.length} 张，淘汰的除外）`, !scope, !sel.length)}</fieldset>
         <div class="field"><label for="ho-name">Lightroom 集合名</label><input id="ho-name" class="input" maxlength="80" value="${esc(label)}" placeholder="默认取集合或物种名"></div>
+        <div id="ho-preview" aria-live="polite"><p class="hint">正在读取范围…</p></div>
         <p class="hint">冻结此刻的成员：已在 Lightroom 目录中的照片按路径找到并复用，其余就地添加（不复制），全部放进 Gardener 集合组里以此命名的集合。写入你给的星级（AI 分数不会变成星级）和你确认过的物种关键词（Aves|目|科|学名，英文名与中文名为同义词）；其他关键词与显影设置不动。Lightroom 中已改过的星级或关键词不覆盖，列为冲突。原片离线的照片跳过。</p>
         <div id="ho-report" aria-live="polite"></div>`,
       actions: [{ label: '交给 Lightroom', value: 'ok', kind: 'primary' }],
-      onSubmit: async (v, d) => {
+      onSubmit: async (v, dd) => {
         if (v !== 'ok') return undefined;
-        const which = $('input[name=ho-scope]:checked', d).value;
-        const body = Object.assign(which === 'scope' ? scope : { asset_ids: sel }, val(d, '#ho-name') ? { name: val(d, '#ho-name') } : {});
+        const body = Object.assign({}, scopeOf(dd), val(dd, '#ho-name') ? { name: val(dd, '#ho-name') } : {}, handoffOptions(dd));
         const h = await api('POST', '/handoffs', body);
-        setHTML($('#ho-report', d), handoffHTML(h));
-        $('.dlg-foot [type=submit]', d).hidden = true;
+        setHTML($('#ho-report', dd), handoffHTML(h));
+        $('.dlg-foot [type=submit]', dd).hidden = true;
         return false;
       },
     });
+    const load = () => api('POST', '/handoffs/preview', scopeOf(d)).then(pv => { if ($('#ho-preview', d)) setHTML($('#ho-preview', d), handoffPreviewHTML(pv)); }).catch(e => setHTML($('#ho-preview', d), `<p class="field-err">${esc(errMsg(e))}</p>`));
+    d.addEventListener('change', e => { if (e.target.name === 'ho-scope') load(); if (e.target.id === 'ho-exp-on') $('#ho-exp', d).hidden = !e.target.checked; });
+    load();
+  }
+  // 契约修订 7B：先显示目标数量、代表照片与记住的预设，再应用预设与导出；修图进度只按插件逐张返回的真实结果更新。
+  const OVERWRITE_ZH = [['rename', '换一个新文件名（不覆盖）'], ['skip', '跳过，保留已有文件'], ['overwrite', '覆盖已有文件']];
+  function handoffPreviewHTML(pv) {
+    const ps = pv.presets || {}, mem = pv.remembered || {}, md = mem.develop || {}, me = mem.export || {};
+    const opt = (v, text, on) => `<option value="${esc(v)}" ${on ? 'selected' : ''}>${esc(text)}</option>`;
+    const reps = (pv.representatives || []).map(id => `<img src="${esc(mediaUrl(id, 'thumb'))}" alt="" loading="lazy">`).join('');
+    const where = pv.scope && pv.scope.concept ? '这个物种' : pv.scope && pv.scope.collection_id ? '这个集合' : '';
+    return `<section class="card"><h3>将交给 Lightroom <b>${pv.count}</b> 张${pv.offline ? `<span class="sub">${pv.offline} 张原片离线，会跳过</span>` : ''}</h3>
+      ${reps ? `<div class="montage n${Math.min(4, pv.representatives.length)}">${reps}</div>` : ''}
+      ${ps.available ? '' : '<p class="hint">还没有读到 Lightroom 的预设列表：Lightroom Classic 运行且装有 bioscan 插件时会写出（约每分钟一次）。</p>'}
+      <div class="field"><label for="ho-dev">显影预设</label><select id="ho-dev" class="input"><option value="">不应用预设</option>${(ps.develop || []).map(p => opt(p.uuid, (p.folder ? p.folder + ' / ' : '') + p.name, p.uuid === md.uuid)).join('')}${md.uuid && !(ps.develop || []).some(p => p.uuid === md.uuid) ? opt(md.uuid, md.name + '（上次所用）', true) : ''}</select>
+        <p class="hint">${md.uuid ? `${where}上次用「${esc(md.name)}」。` : ''}同种动物在不同光照下不一定适合同一预设，请对照上面的代表照片。Gardener 应用过之后又在 Lightroom 里改过的照片不再覆盖，列为冲突。</p></div>
+      <label class="check-row"><input type="checkbox" id="ho-exp-on" ${me.preset_path ? 'checked' : ''}> 应用后导出</label>
+      <div id="ho-exp" ${me.preset_path ? '' : 'hidden'}>
+        <div class="field"><label for="ho-exp-preset">导出预设</label><select id="ho-exp-preset" class="input">${(ps.export || []).map(p => opt(p.path, (p.folder ? p.folder + ' / ' : '') + p.name, p.path === me.preset_path)).join('')}${me.preset_path && !(ps.export || []).some(p => p.path === me.preset_path) ? opt(me.preset_path, me.preset + '（上次所用）', true) : ''}</select></div>
+        <div class="field"><label for="ho-exp-dest">目标目录</label><input id="ho-exp-dest" class="input mono" autocomplete="off" placeholder="/Volumes/Photos/Exports" value="${esc(me.dest_dir || '')}"><p class="hint">不能在照片来源目录之内。</p></div>
+        <div class="field"><label for="ho-exp-ow">已有同名文件时</label><select id="ho-exp-ow" class="input">${OVERWRITE_ZH.map(([v, t]) => opt(v, t, v === (me.overwrite || 'rename'))).join('')}</select></div>
+      </div>
+      ${where ? `<label class="check-row"><input type="checkbox" id="ho-remember" checked> 为${where}记住预设与导出设置</label>` : ''}</section>`;
+  }
+  function handoffOptions(d) {
+    const out = {};
+    const dev = $('#ho-dev', d);
+    if (dev && dev.value) out.develop = { uuid: dev.value, name: dev.selectedOptions[0].textContent.replace(/（上次所用）$/, '').split(' / ').pop() };
+    if ($('#ho-exp-on', d) && $('#ho-exp-on', d).checked) {
+      const ps = $('#ho-exp-preset', d);
+      if (!ps.value) throw new Error('请选择导出预设');
+      if (!val(d, '#ho-exp-dest')) throw new Error('请填写导出目标目录（绝对路径）');
+      out.export = { preset: ps.selectedOptions[0].textContent.replace(/（上次所用）$/, '').split(' / ').pop(), preset_path: ps.value, dest_dir: val(d, '#ho-exp-dest'), overwrite: $('#ho-exp-ow', d).value };
+    }
+    if ($('#ho-remember', d)) out.remember = $('#ho-remember', d).checked;
+    return out;
   }
   async function vCleanup() {
     const plans = await api('GET', '/cleanup-plans');

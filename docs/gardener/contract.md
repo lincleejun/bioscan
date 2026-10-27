@@ -529,3 +529,20 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - `POST /handoffs/{id}/retry` → 201 `Handoff`：先读回结果文件；插件还没返回结果 → 409。取 `status=failed` 的照片，以及 `skipped` 且原因为 `offline`（原片离线）或 `file_missing`（Lightroom 找不到文件）的照片；字段冲突不在其中（要人处理）。一张都没有 → 400。
 - 新建一次交接：同一 `name`（落进同一个 Lightroom 集合）、同一 `uses` 过滤（之后改为淘汰的不再发送）、同一 `options`（预设与导出），`scope = {retry_of, asset_ids, uses}`。`editor_links` 照常带上 Lightroom 身份与基线，已在目录中的照片按路径或 uuid 找回，不重复导入。
 - `Handoff` 增加 `options`（见下节）与 `retryable`（有结果后可重试的张数；没有结果时为 0）。界面在交接结果里给“只重试未成功的 N 张”。CLI `gardener handoff retry <id>`；MCP `retry_handoff`。
+
+### Lightroom 预设与导出（PRD §12“预设与导出”、FR13，P1）
+- **预设清单**：插件运行时约每分钟写一次 `<lightroom_dir>/presets.json` `{schema: 1, at, develop: [{uuid, name, folder}], export: [{name, folder, path}]}`：显影预设来自 `LrApplication.developPresetFolders()`，导出预设是 `~/Library/Application Support/Adobe/Lightroom/Export Presets/` 下的 `.lrtemplate`。`GET /lightroom/presets` → `{available, at, path, develop, export}`（插件没运行过 → `available: false`，列表为空）。
+- **先预览再应用** `POST /handoffs/preview {collection_id | concept | asset_ids | rule, uses?}` → `{name, scope, uses, count, offline, representatives: [≤4 个 asset id，星级高者在前], remembered: {develop, export, updated_at} | null, presets}`；不写任何东西。界面“在 Lightroom 打开”对话框打开即显示：将交几张、离线几张、代表照片、预设选择（预选记住的那个）、“应用后导出”。
+- **交接选项** `POST /handoffs` 增加可选字段（缺省与 5E 完全相同）：
+  - `develop: {uuid, name}`：应用的显影预设。
+  - `export: {preset?, preset_path, dest_dir, overwrite}`：`preset_path` 为 `.lrtemplate` 的绝对路径；`dest_dir` 绝对路径，不得位于任何任务来源之内（400，与导入同一检查）；`overwrite` 必填 `rename | skip | overwrite`（目标已有同名文件时；PRD 要求明确）。
+  - `remember`（默认 true）：范围是物种或集合（导入批次即集合）时，为它记住这次的 `develop` / `export`（表 `editor_presets`，键 `concept:<k>` / `collection:<id>`）；下次预览带出，人可改。
+  - 选项记在 `handoffs.options`，`Handoff.options` 返回；交接文件仍为 `schema: 2`，增加顶层 `develop`、`export`（旧插件忽略它们，也就不会返回逐张结果，Gardener 因此不会标记任何进度）。每张 `baseline.develop = {uuid, fingerprint}`，只在 Gardener 应用过预设后出现。
+- **插件**（`Handoff.lua`，在星级与关键词之后，只对 `ok` 的照片）：
+  - 显影：读 `photo:getDevelopSettings()` 的指纹（`Decide.fingerprint`：键排序后的设置串的短哈希），按 `handoff.decide_develop` / `Decide.develop`：未选预设 → `none`；有基线且指纹已变（Gardener 应用后在 Lightroom 里改过）→ `conflict`，跳过并报告（不覆盖人的显影）；同一预设已应用 → `same`；否则 `apply`（第一次应用前人已看过名称、数量与代表照片）。在写入门内 `photo:applyDevelopPreset(preset, _PLUGIN)`，之后重新取指纹作为新基线。找不到预设 → `failed`（`preset_missing`）。
+  - 导出：按 `decide_export` / `Decide.export`：照片不在 Lightroom（非 ok）或预设失败 → `skipped`；否则用导出预设的设置（`.lrtemplate` 里的 `s.value`），目标改为 `dest_dir`（`LR_export_destinationType = "specificFolder"`，不建子目录），`LR_collisionHandling = overwrite`；`LrExportSession{photosToExport, exportSettings}:doExportOnCurrentTask()`，然后逐个 `rendition:waitForRender()` 取真实结果。导出期间插件的轮询等待导出结束。
+  - 每张结果增加 `develop: {action: applied|same|conflict|failed|none, preset, preset_name, fingerprint, reason}`、`export: {action: exported|skipped|failed, path, reason}`。步骤出错时记为该步 `failed` 并写出结果，不会无限重试。
+- **修图进度**（列 `editor_links.progress`，`AssetDetail.lightroom = {photo_id, uuid, path, handoff_id, progress}`）：只在读回结果时按逐张真实结果推进，**从不因写出交接文件或发出命令而改变**：`in_lightroom`（status ok）→ `preset_applied`（develop 为 applied 或 same）→ `exported`（export 为 exported 且有路径，记 `exported_path`、`exported_at`）；不倒退。`Handoff.counts` 增加 `preset_applied`、`exported`；显影冲突计入 `conflicts`（`conflicts` 含 `"develop"`）。`Handoff.status` 的含义不变（照片是否送达）。
+- **CLI / MCP**：`gardener handoff create … --preset UUID [--preset-name] [--export-preset PATH --export-dir DIR --overwrite rename|skip|overwrite] [--no-remember]`、`gardener handoff preview`、`gardener handoff presets`；MCP `lightroom_handoff` 的 `develop`、`export`、`remember`，`preview_handoff`、`lightroom_presets`。
+- **未验证**（插件在 Lightroom Classic 里实际运行之前）：SDK 6.0 参考里有的 `developPresetByUuid`、`developPresetFolders`、`getDevelopPresets`、`applyDevelopPreset`、`getDevelopSettings`（文档标为实验性）、`LrExportSession`、`doExportOnCurrentTask`、`waitForRender` 的实际行为；写入门结束后立即读到的显影设置是否已含预设；插件环境里的 `loadstring` / `setfenv` 读 `.lrtemplate`；`LR_export_destinationType`、`LR_export_destinationPathPrefix`、`LR_export_useSubfolder`、`LR_collisionHandling` 的取值（尤其 `skip`）；导出预设的目录位置；`os.date`。
+- **未做**：按单张照片选不同预设；Smart Collection 的“是否已修图”条件（`progress` 已可查，规则字段未加）；导出模板以外的导出参数编辑；双向同步与逐字段合并（FR13 其余部分）。

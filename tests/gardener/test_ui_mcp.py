@@ -48,7 +48,7 @@ def test_handshake_list_and_errors(svc):
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
                      "list_encounters", "edit_encounters", "preview_rule", "plan_import", "run_import", "get_import",
                      "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan",
-                     "import_collection", "retry_handoff"]
+                     "import_collection", "retry_handoff", "lightroom_presets", "preview_handoff"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -218,3 +218,20 @@ def test_retry_handoff_tool(svc):
     fake.handoffs[h["id"]]["items"][0].update(status="failed", reason="no write access")
     again, err = tool(url, "retry_handoff", id=h["id"])
     assert not err and again["scope"]["retry_of"] == h["id"]
+
+
+def test_preset_and_export_tools(svc):
+    """契约修订 7B: presets, preview, and develop/export passed through lightroom_handoff."""
+    from bioscan.gardener.mcp import route
+
+    assert route("lightroom_presets", {}) == ("GET", "/lightroom/presets", None, None)
+    assert route("preview_handoff", {"concept": "k"}) == ("POST", "/handoffs/preview", {"concept": "k"}, None)
+    ex = {"preset_path": "/p/J.lrtemplate", "dest_dir": "/out", "overwrite": "rename"}
+    assert route("lightroom_handoff", {"concept": "k", "develop": {"uuid": "P"}, "export": ex})[2] == \
+        {"concept": "k", "develop": {"uuid": "P"}, "export": ex}
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    pv, err = tool(url, "preview_handoff", asset_ids=[pick["id"]])
+    assert not err and pv["representatives"] == [pick["id"]]
+    h, err = tool(url, "lightroom_handoff", asset_ids=[pick["id"]], develop={"uuid": "P-WARM", "name": "Bird warm"})
+    assert not err and h["options"]["develop"]["uuid"] == "P-WARM"
