@@ -70,3 +70,14 @@ def test_committed_map_reflects_synonyms():
     from bioscan.service import names
 
     assert naming.map_problems(names.read_map(naming.AVILIST_MAP_CSV), naming.read_synonyms()) == []
+
+
+def test_split_ranges_are_daughters_with_valid_cells():
+    splits = {r["concept"] for r in read(NAMES / "avilist_splits.csv")}
+    rows = read(NAMES / "split_ranges.csv")
+    assert len(rows) >= 70 and len({r["concept"] for r in rows}) == len(rows)
+    for r in rows:
+        assert r["concept"] in splits, r["concept"]
+        cells = [tuple(map(int, c.split(","))) for c in r["cells"].split(";")]
+        assert cells and all(-90 <= la < 90 and -180 <= lo < 180 for la, lo in cells), r["scientific"]
+        assert int(r["records"]) > 0 and r["names"] and r["gbif_keys"]

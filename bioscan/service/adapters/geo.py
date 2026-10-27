@@ -9,6 +9,7 @@ for birds (AviList, unlabelled rows 0) and mammals (MDD, unlabelled rows backed 
 Optional: if birdnet cannot load there is no prior and posterior == p_visual."""
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 from typing import Any
 
@@ -23,6 +24,9 @@ UNLABELLED_POLICIES = ("zero", "genus")
 # evidence either way, so neither the floor (absent) nor a presence value. Above rules.RANGE_EPS,
 # so such a row is never range-vetoed. In settings.fingerprint().
 UNLABELLED_NEUTRAL = 0.05
+# A split daughter with a range (split_ranges.csv) keeps its label's value within this many 1-degree cells of a
+# cell it was recorded in, else 0: occurrence grids are sparse, a margin keeps a gap from reading as absence.
+RANGE_MARGIN = 1
 
 
 def week_of(taken_at: str | None) -> int | None:
@@ -79,7 +83,7 @@ class LocationPrior:
     floor = GEO_FLOOR           # of the posterior formula; in settings.fingerprint()
 
     def __init__(self, source: Any, row_labels: list[str], name: str = PRIOR_NAME, *,
-                 unlabelled: str = "zero", genera: list[str] | None = None) -> None:
+                 unlabelled: str = "zero", genera: list[str] | None = None, ranges: list | None = None) -> None:
         if unlabelled not in UNLABELLED_POLICIES:
             raise ValueError(f"unlabelled policy {unlabelled!r} not in {UNLABELLED_POLICIES}")
         if unlabelled == "genus" and (genera is None or len(genera) != len(row_labels)):
@@ -96,6 +100,8 @@ class LocationPrior:
         # rows whose p_geo is evidence about the species itself: its own label, or the list's
         # "zero" policy declaring unlabelled rows absent; not a genus back-off (rules.range_veto)
         self.direct = self._labelled if unlabelled == "genus" else np.ones(len(hits), dtype=bool)
+        # Split daughters sharing their parent's label: zero outside the daughter's own range (split_ranges.csv).
+        self._ranged = [(i, cells) for i, cells in enumerate(ranges or []) if cells]
         if unlabelled == "genus":
             assert genera is not None
             ids = {g: i for i, g in enumerate(dict.fromkeys(genera))}
@@ -121,7 +127,16 @@ class LocationPrior:
             return None
         try:
             p = self._aligned(lat, lon, taken_at)
-            return self._backed_off(p) if self.unlabelled == "genus" else p
+            p = self._backed_off(p) if self.unlabelled == "genus" else p
+            if self._ranged:
+                cy, cx = math.floor(lat), math.floor(lon)
+                near = {(cy + dy, cx + dx) for dy in range(-RANGE_MARGIN, RANGE_MARGIN + 1)
+                        for dx in range(-RANGE_MARGIN, RANGE_MARGIN + 1)}
+                p = p.copy()
+                for i, cells in self._ranged:
+                    if not near & cells:
+                        p[i] = 0.0
+            return p
         except Exception:  # noqa: BLE001 - see docstring
             return None
 
@@ -166,5 +181,6 @@ def priors_for(lists: dict[str, Any], source: Any) -> dict[str, LocationPrior]:
         if nl.birdnet:
             policy = getattr(nl, "unlabelled", "zero")
             genera = [s.split(" ")[0] for s in nl.scientific] if policy == "genus" else None
-            out[kind] = LocationPrior(source, nl.birdnet, unlabelled=policy, genera=genera)
+            out[kind] = LocationPrior(source, nl.birdnet, unlabelled=policy, genera=genera,
+                                      ranges=getattr(nl, "ranges", None))
     return out

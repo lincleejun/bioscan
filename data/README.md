@@ -89,6 +89,15 @@
   - 结果：1042 行有标签（exact 1028、synonym 14），1048 个哺乳标签全部用上；golden 集 23 种哺乳里 21 种有标签，*Lepus californicus*、*Sylvilagus audubonii* 按属回退。
   - 没有标签的行按名单的 unlabelled policy 处理：哺乳为 `genus`（取同属有标签种的最大 p_geo，同属都没有时取 `geo.UNLABELLED_NEUTRAL` 0.05），鸟为 `zero`（按 0，行为不变）。属回退得到的 p_geo 不触发分布否决。
 - `avilist_splits.csv`（`uv run --no-project --with openpyxl python scripts/build_splits.py --xlsx AviList-v2026-20Oct2026-extended-version.xlsx --previous AviList-v2025-11Jun-extended.csv --force` 生成，不加 `--force` 拒绝覆盖；下一版名录用 `--version avilist-2027 --append` 追加，保留旧版本的行；2026-10-26）：AviList 某个版本拆分的种，每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。Gardener 用它把旧的人工确认改成“待重新确认”（`docs/gardener/contract.md` 契约修订 4，S7 第二部分）；BioScan 识别不读它。
+- `split_ranges.csv`：拆分出的子种在哪里出现，用 1° 网格表示。生成命令：`uv run --no-project python scripts/build_split_ranges.py --avilist data/avilist/AviList-v2026-20Oct2026-extended-version.csv --cache <原始计数 JSON> --force`；不加 `--force` 拒绝覆盖。2026-10-27 生成。
+  - 列：`list_version, concept, scientific, cells`（`lat,lon` 为 1° 格左下角，以 `;` 分隔）`, records, names, gbif_keys`。
+  - 来源：GBIF 观测记录。用 GBIF Occurrence Search API（免费、无需 key）取有坐标、无地理问题、`occurrenceStatus=PRESENT` 的记录，每个名字最多 10,000 条，只汇总成网格，不保存单条记录。引用：GBIF.org (2026) GBIF Occurrence Search, https://www.gbif.org 。
+  - 查询的名字：子种自己的学名（与亲本不同时）、它在 AviList v2026 里的亚种，以及同一亚种在亲本学名下的旧组合。GBIF 主干仍是拆分前的分类，例如 *Tringa inornata* 在 GBIF 里是 *Tringa semipalmata inornata*。每个名字都要与 GBIF 主干的种或亚种精确匹配，匹配到更高分类级别的丢弃。
+  - 过滤（亚种标注偏向指名亚种，迁徙与误标会留下零星记录）：
+    - 子种总记录 ≥ 200 时，一格至少要有 2 条记录；
+    - 同一组拆分里，一格只算给记录数至少达到该格领先兄弟子种一半的子种（`SIBLING_SHARE = 0.5`）。
+  - 结果：80 个子种中 71 个有范围，35 组拆分中 29 组所有子种都有。没有范围的子种沿用亲本的位置分数。
+  - 用途：BioScan 的位置先验（`bioscan/service/adapters/geo.py`，范围外记 0，±1 格容差），以及 Gardener 的拆分按位置选定（契约修订 7D）。文件的哈希在 `settings.fingerprint()` 里。
   - 来源：xlsx 的 `Changes from previous version` 页 “SPLITS (including descriptions of taxa that alter existing taxa)” 一节（表头 `#, AVIBASE ID, FAMILY, SCIENTIFIC NAME: AVILIST v2026, ENGLISH NAME: AVILIST v2026, AVILIST v2025 SCIENTIFIC NAME, AVILIST v2025 ENGLISH NAME`），到下一节 “LUMPS” 为止。`concept` 取该行的 Avibase ID；`parent_concept` 取 v2025 CSV 里亲本学名那一行种级的 `AvibaseID`（亲本不是 v2025 的种就报错）。
   - 结果：80 个子种、35 个亲本，80 个子种的 ID 都在 v2026 CSV 里。35 个亲本的种级 ID 在 v2026 里全部不再使用，没有子种沿用亲本 ID；留下原学名的子种用的是原来指名亚种的 ID（如 Willet `avibase-E7A14E91` → Saltmarsh Willet `avibase-6D372C9F`，后者在 v2025 是 *Tringa semipalmata semipalmata*）。
   - *Mixornis bornensis* 只有一行：变更页把从 *M. gularis* 分出的 *M. woodi* 记在 *M. gularis* 名下，*M. bornensis* 自己换了新 ID，所以它的旧人工确认会变成只有一个候选的“待重新确认”。这是原表的样子，没有手工补行。

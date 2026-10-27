@@ -7,7 +7,7 @@
 - preds schema: 1
 - complete: True
 - synonyms: <repo>/data/names/synonyms.csv
-- engine: {"detail_edge": 3072, "models": {"detect": "google/owlv2-base-patch16-ensemble@cfd3195ba4ea", "gate": "google/siglip2-base-patch16-224@75de2d55ec2d", "geo": "birdnet-geo-3.0", "label_maps": {}, "names": {"bird": "fake-owls@test"}, "priors": {"bird": "birdnet-geo-3.0"}, "species": "imageomics/bioclip-2.5-vith14@6e3d04e3d652", "taxonomy": {}}, "settings": "98bd51d76dac", "version": "0.1.0"}
+- engine: {"detail_edge": 3072, "models": {"detect": "google/owlv2-base-patch16-ensemble@cfd3195ba4ea", "gate": "google/siglip2-base-patch16-224@75de2d55ec2d", "geo": "birdnet-geo-3.0", "label_maps": {}, "names": {"bird": "fake-owls@test"}, "priors": {"bird": "birdnet-geo-3.0"}, "species": "imageomics/bioclip-2.5-vith14@6e3d04e3d652", "taxonomy": {}}, "settings": "45e846c628ef", "version": "0.1.0"}
 
 ## Metrics by tier × kind
 

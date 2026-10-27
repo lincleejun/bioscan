@@ -333,6 +333,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **鸟群不逐只命名**：一张照片里同一 `kind` 的带物种结果的框达到 `identities.FLOCK_MIN`（5）个时，按 Merlin 的克制做法不逐只命名：
   - 这些框的 AI 识别改记为所有框首选答案共同的属（`level=genus`），没有共同属时取共同的科（需要候选带 `taxonomy`），都没有则 `unconfirmed`；`concept`、`common`、`p` 为空，`candidates` 保留每个框原来的候选，`reason=flock`。
   - 原因：一群鸟里分类器逐只猜测，往往给出几种不同的近缘种，每种都会变成物种库里的一张卡片（实测一张雨燕群照片出了三种雨燕）。
+  - 例外（owner 2026-10-27）：一群里每个框的 AI 结论都是同一个种（种级、同一概念）时保留种名，不降级。在 300 张真实照片里这样的鸟群有 11 个，全部正确。
   - 人工结论不受影响（当前结论仍是人的）；少于 `FLOCK_MIN` 个的照片照常逐只命名。重跑与 schema 1 回填都经过同一规则。
   - 界面在该主体下显示“鸟群：不逐只命名”（哺乳为“兽群”，其他为“成群”）。
   - 照片级的 `species` 能力结果（`AssetItem.species` 在没有种级主体结论时的退路）不在本规则内。
@@ -591,7 +592,12 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - `identities.resolve_splits(c, p_geo_of)`：对当前结论仍是 `split:<版本>` 待重新确认、照片有 GPS 的主体，问 `p_geo_of(子种概念, lat, lon, taken_at)`（只返回位置先验直接标注的子种）。恰好一个子种 `p_geo ≥ RANGE_TAU`（0.05，BioScan 的“在分布区”线），其余都 `< RANGE_EPS`（0.01，“不在这里”线）时，追加一条 `source=user, actor=system, reason=split-geo:<版本>` 的识别：`level=species`、该子种的 `concept/taxon/common`、`candidates` 为各子种并带上 `p`（p_geo），本次调用一个 `batch_id`，可用 `POST /identifications/undo` 撤销。这里 `candidates[].p` 是位置先验 p_geo，不是视觉后验概率。否则不动，留给人选。
   - 每个主体每次拆分只尝试一次：撤销 `split-geo` 批次后不会再被自动选定。之后若撤销原来的 `split:<版本>` 批次，会因为其后有人工行而 409（与撤销规则一致，不特殊处理）。
   - 何时运行：一次运行的 BioScan 分析之后（`tasks.RunExec.resolve_splits`），只在引擎已加载 BioCLIP、因而有鸟类位置先验时（`tasks.split_prior`：`engine.priors["bird"]` 与 `engine.names["bird"].concept`）；全库范围；出错只记日志，不影响运行；名字同步（`taxa.sync`）不变。
-  - **真实先验的结果**：BirdNET geo 3.0 用的是拆分前的分类。AviList v2026 的 35 个拆分中 34 个的所有子种都映射到同一个 BirdNET 标签（亲本，`birdnet_how=synonym`），p_geo 完全相同，所以一个也选不出；在 14 组地点上核对过（如 Willet 在新泽西海岸与北达科他、Great Horned Owl 在加州与利马、European Robin 在伦敦与特内里费），全部留给人选。第 35 个（Mixornis bornensis）在拆分表里只有一个子种、亲本概念不同。等位置先验认得这些子种（或给子种单独的标签映射）之后，这一步才会真正起作用。
+  - **真实先验的结果（2026-10-27 起有子种分布范围）**：
+    - BirdNET geo 3.0 用的是拆分前的分类，35 个拆分中 34 个的子种共用亲本的标签，单靠 BirdNET 一个也分不开。
+    - 现在子种有了自己的分布范围 `data/names/split_ranges.csv`（见 `data/README.md`）：位置先验把子种在自己范围外的值记为 0（`geo.LocationPrior`，±`RANGE_MARGIN` = 1 格容差）。80 个子种中 71 个有范围；35 组拆分中 29 组所有子种都有。
+    - 在 8 组地点上核对：新泽西海岸 → Saltmarsh Willet，北达科他 → Prairie Willet，西雅图 → Western Marsh Wren，纽约州北部 → Eastern Marsh Wren，加州 → Great Horned Owl，基多高原 → Paramo Horned Owl，共 6 组自动选定。
+    - 利马、马瑙斯两组仍留给人：BirdNET 对亲本在那里本身就几乎为 0，没有位置信号可用。
+    - 范围同样作用于 BioScan 识别本身：子种在范围外不再沾亲本的位置分数。
 ## 契约修订 7C：四图比较、头部 / 眼部裁切建议（2026-10-27，AfterShooting PRD §08 第三级“提供眼部或主体裁切建议”、AC06，#110；优先于上文冲突处）
 
 - **比较 2–4 张**（`web/app.js` 的 dvCompare）：
