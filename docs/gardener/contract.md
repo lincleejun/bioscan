@@ -482,6 +482,9 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 逐组重新核对：仍为淘汰（`not_rejected`）、文件存在（`offline`）、文件集合与大小/mtime 不变（`changed`），不符则整组跳过。
   - 通过的文件逐个移到废纸篓（`create_gardener_app(trash=)` 可注入，默认 `cleanup.trash`），每个结果立即落库；
     文件记为离线，素材 `meta.trashed = {at, plan}`，任何行都不删除。
+  - 每组移动之前在一个短事务里再核对一次（仍为淘汰、文件大小与 mtime 不变）：执行耗时较长时，人在这期间改回保留的照片不会被移走，记 `not_rejected` 跳过。
+  - 同一计划同一时间只执行一次：正在执行时再次请求 → 409；已移到废纸篓的文件结果不会被之后的失败覆盖。
+  - 物种“最后一张”的判断不计已在废纸篓里的照片，与物种卡片口径相同。
   - 再次执行只处理尚未移走的文件。
   - `report = {trashed_files, trashed_bytes, freed_bytes: 0, recoverable: true, failed: [{asset_id, path, error}],
     skipped: [{asset_id, reason}], note}`：移到废纸篓的字节可恢复、**未释放**；Gardener 不做永久删除。

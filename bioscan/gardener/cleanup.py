@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -78,8 +79,11 @@ def _impact(c: Any, ready: set[str]) -> dict[str, list[dict[str, Any]]]:
 
     members: dict[str, set[str]] = {}
     names: dict[str, tuple[str, str | None]] = {}
+    from bioscan.gardener.identities import GONE  # photos already in the Trash are not "left" (same as cards)
+
     for r in c.execute("SELECT ci.concept, ci.asset_id, ci.taxon, ci.common FROM current_ids ci JOIN assets a ON "
-                       "a.id = ci.asset_id WHERE ci.level = 'species' AND ci.concept IS NOT NULL AND a.version_of IS NULL"):
+                       "a.id = ci.asset_id WHERE ci.level = 'species' AND ci.concept IS NOT NULL AND a.version_of IS NULL "
+                       + GONE):
         members.setdefault(r["concept"], set()).add(r["asset_id"])
         names.setdefault(r["concept"], (r["taxon"], r["common"]))
     touched = [k for k, ms in members.items() if ms & ready]
@@ -158,9 +162,41 @@ def recheck(c: Any, pid: str) -> tuple[dict[str, list[dict[str, Any]]], list[dic
     return go, skipped
 
 
+_RUNNING: set[str] = set()                       # plans being run in this process (one service owns the database)
+_RUNNING_LOCK = threading.Lock()
+
+
+def _still_rejected(c: Any, aid: str, files: list[dict[str, Any]]) -> str | None:
+    """Why this group must not move now ("not_rejected", "changed"), or None. Checked again right before each group's move,
+    because the person can keep a photo while a long run is going (ADR 0003: only what is still rejected moves)."""
+    row = c.execute("SELECT use FROM marks WHERE asset_id = ?", (aid,)).fetchone()
+    if row is None or row["use"] != "reject":
+        return "not_rejected"
+    for f in files:
+        try:
+            s_ = os.stat(f["path"])
+        except OSError:
+            return "changed"
+        if (s_.st_size, s_.st_mtime_ns) != (f["size"], f["mtime_ns"]):
+            return "changed"
+    return None
+
+
 def run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str, Any]:
     """Re-check, then move each file to the Trash outside the write lock; each file's result is committed as it
-    happens, so a crash leaves a true record."""
+    happens, so a crash leaves a true record. One run per plan at a time (409 for a second, e.g. a double click)."""
+    with _RUNNING_LOCK:
+        if pid in _RUNNING:
+            raise st.Conflict("这个清理计划正在执行")
+        _RUNNING.add(pid)
+    try:
+        return _run(store, pid, trash_fn)
+    finally:
+        with _RUNNING_LOCK:
+            _RUNNING.discard(pid)
+
+
+def _run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str, Any]:
     with store.tx() as c:
         if not c.execute("SELECT 1 FROM cleanup_plans WHERE id = ?", (pid,)).fetchone():
             raise st.NotFound(f"no cleanup plan {pid}")
@@ -171,6 +207,13 @@ def run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str,
                       "asset_id = ? AND coalesce(result, '') != 'trashed'", (s["reason"], t, pid, s["asset_id"]))
     failed = []
     for aid, files in go.items():
+        with store.tx() as c:
+            why = _still_rejected(c, aid, files)
+            if why is not None:
+                skipped.append({"asset_id": aid, "reason": why})
+                c.execute("UPDATE cleanup_files SET result = 'skipped', reason = ?, at = ? WHERE plan_id = ? AND "
+                          "asset_id = ? AND coalesce(result, '') != 'trashed'", (why, now(), pid, aid))
+                continue
         for f in files:
             try:
                 trash_fn(f["path"])
@@ -180,8 +223,8 @@ def run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str,
                 failed.append({"asset_id": aid, "path": f["path"], "error": reason})
             with store.tx() as c:
                 t = now()
-                c.execute("UPDATE cleanup_files SET result = ?, reason = ?, at = ? WHERE plan_id = ? AND path = ?",
-                          (result, reason, t, pid, f["path"]))
+                c.execute("UPDATE cleanup_files SET result = ?, reason = ?, at = ? WHERE plan_id = ? AND path = ? "
+                          "AND coalesce(result, '') != 'trashed'", (result, reason, t, pid, f["path"]))
                 if result == "trashed":
                     c.execute("UPDATE asset_files SET online = 0 WHERE path = ?", (f["path"],))
                     meta = loads(c.execute("SELECT meta FROM assets WHERE id = ?", (aid,)).fetchone()[0], {})

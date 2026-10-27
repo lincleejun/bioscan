@@ -130,3 +130,55 @@ def test_a_stem_sidecar_shared_with_another_asset_is_left_out(tmp_path):
                       "(?, ?, 'raw', ?, 1, 1, ?)", (str(d / n), aid, Path(n).suffix, st.now()))
         files = [Path(f["path"]).name for f in cleanup._files(c, "a_1")]
     assert files == ["IMG_1.ARW", "IMG_1.ARW.xmp"]
+
+
+def test_a_photo_kept_while_the_run_is_going_is_not_moved(env, fakes, tmp_path):
+    """Review finding B1: the use is checked again right before each group moves."""
+    bin_, seen = tmp_path / "bin", {}
+    bin_.mkdir()
+
+    def trash(path):
+        if not seen.get("moved"):                                    # while the first photo moves, the person keeps
+            other = next(i for i in range(3) if Path(path).name != f"IMG_{i}.jpg")   # another one of the plan
+            seen["kept"] = other
+            seen["c"].post(f"{API}/marks", json={"asset_ids": [seen["aids"][other]], "use": "record"})
+        shutil.move(path, bin_ / Path(path).name)
+        seen.setdefault("moved", []).append(Path(path).name)
+
+    with env.client(trash=trash) as c:
+        seen["c"] = c
+        src, aids = shoot(c, fakes, tmp_path)
+        seen["aids"] = aids
+        c.post(f"{API}/marks", json={"asset_ids": aids[:3], "use": "reject"})
+        p = c.post(f"{API}/cleanup-plans", json={"asset_ids": aids[:3]}).json()
+        report = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()["report"]
+    kept = seen["kept"]
+    assert f"IMG_{kept}.jpg" not in seen["moved"] and (src / f"IMG_{kept}.jpg").exists()
+    assert {"asset_id": aids[kept], "reason": "not_rejected"} in report["skipped"]
+
+
+def test_the_last_photo_warning_ignores_photos_already_in_the_trash(env, fakes, tmp_path):
+    """Review finding B2: same count as the species cards."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    with env.client(trash=lambda p: shutil.move(p, bin_ / Path(p).name)) as c:
+        src, aids = shoot(c, fakes, tmp_path)
+        owls = aids[:3]                                              # IMG_0..2 are the owls
+        c.post(f"{API}/marks", json={"asset_ids": owls, "use": "reject"})
+        first = c.post(f"{API}/cleanup-plans", json={"asset_ids": owls[:2]}).json()
+        c.post(f"{API}/cleanup-plans/{first['id']}/run", json={"confirm": True})
+        last = c.post(f"{API}/cleanup-plans", json={"asset_ids": [owls[2]]}).json()
+    assert last["items"][0]["species"][0]["last_photo"] is True
+
+
+def test_a_second_run_of_a_plan_already_running_is_refused(env, fakes, tmp_path):
+    with env.client(trash=Bin(tmp_path / "bin")) as c:
+        _src, aids = shoot(c, fakes, tmp_path)
+        c.post(f"{API}/marks", json={"asset_ids": [aids[0]], "use": "reject"})
+        p = c.post(f"{API}/cleanup-plans", json={"asset_ids": [aids[0]]}).json()
+        cleanup._RUNNING.add(p["id"])                                # as if a first click were still running
+        try:
+            assert c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).status_code == 409
+        finally:
+            cleanup._RUNNING.discard(p["id"])
+        assert c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).status_code == 200
