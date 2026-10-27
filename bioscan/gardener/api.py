@@ -23,7 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import people, query, tasks
+from bioscan.gardener import identities, people, query, tasks
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
@@ -697,6 +697,50 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     @r.post("/marks/undo")
     def undo_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         return store.undo(text(body, "batch_id", required=True), actor)
+
+    @r.post("/identifications")
+    def post_identifications(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """A person's species claim on subjects (contract revision 4, S3)."""
+        sids = strs(body.get("subject_ids") or [], "subject_ids")
+        new = body.get("new_subjects") or []
+        if not isinstance(new, list) or not all(
+                isinstance(n, dict) and isinstance(n.get("asset_id"), str) and isinstance(n.get("xyxy"), list)
+                and len(n["xyxy"]) == 4 and all(isinstance(v, (int, float)) for v in n["xyxy"])
+                and 0 <= n["xyxy"][0] < n["xyxy"][2] <= 1 and 0 <= n["xyxy"][1] < n["xyxy"][3] <= 1 for n in new):
+            raise Error("new_subjects must be [{asset_id, xyxy: [x0, y0, x1, y1] within 0..1}]")
+        if not sids and not new:
+            raise Error("subject_ids or new_subjects is required")
+        claim = body.get("claim")
+        if not isinstance(claim, dict):
+            raise Error("claim is required")
+        if not claim.get("accept"):
+            level = claim.get("level")
+            if level not in identities.LEVELS:
+                raise Error(f"claim.level must be one of {', '.join(identities.LEVELS)}, or claim.accept")
+            if level == "species" and not (isinstance(claim.get("concept"), str) and isinstance(claim.get("taxon"), str)):
+                raise Error("a species claim needs concept and taxon (the scientific name)")
+            if level in ("genus", "family") and not isinstance(claim.get("taxon"), str):
+                raise Error(f"a {level} claim needs taxon")
+            if level not in ("species", "genus", "family"):
+                claim = {"level": level, "concept": None, "taxon": None, "common": None}
+            elif level != "species":
+                claim = claim | {"concept": None, "common": None}
+        scope = body.get("scope", "subject")
+        if scope not in ("subject", "burst"):
+            raise Error("scope must be subject|burst")
+        reason = body.get("reason")
+        with store.tx() as c:
+            for n in new:
+                if not c.execute("SELECT 1 FROM assets WHERE id = ?", (n["asset_id"],)).fetchone():
+                    raise NotFound(f"no asset {n['asset_id']}")
+            return identities.identify(c, sids, new, claim, scope=scope, actor=actor,
+                                       reason=reason if isinstance(reason, str) else None,
+                                       dry_run=bool(body.get("dry_run")))
+
+    @r.post("/identifications/undo")
+    def undo_identifications(body: dict[str, Any] = BODY) -> dict[str, Any]:
+        with store.tx() as c:
+            return identities.undo(c, text(body, "batch_id", required=True))
 
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,

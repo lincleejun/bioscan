@@ -260,4 +260,11 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **AI 识别**：开启 species 时，每个带 `species` 的框写一行 `source=ai`：只有 `level=species` 才有 `concept`；属/科级保留上卷的 `taxon`，`concept` 为空；`candidates` 为前几名 `[{concept, scientific, common, p}]`。species 关闭时只有主体、没有识别。
 - **当前结论**：主体最新一条未撤销的 `source=user` 行，否则最新的 `source=ai` 行。模型重跑只追加 AI 行，不改写、不覆盖人工行。
 - **AssetDetail.subjects**：`[{id, xyxy, kind, origin, current: Identification|null, ai: Identification|null, human: bool}]`；`Identification = {id, concept, taxon, common, level, qualifier, p, candidates, source, run_id, version, actor, at}`。
-- **后续切片**（同一修订，按实现逐步补全本节）：S3 `POST /identifications`（主体、照片或连拍范围的人工确认与纠错，整批撤销）；S4 库级物种 Collection 由当前结论派生（一个概念一个、无最小张数、已确认与候选分开计数）；S5 名字检索；S6 界面；S7 名录升级迁移。
+- **人工确认与纠错（S3）**：`POST /identifications {subject_ids?, new_subjects?: [{asset_id, xyxy}], claim, scope?: subject|burst, reason?, dry_run?}`。
+  - `claim` 为 `{accept: true}`（采纳该主体当前的 AI 结论）、`{level: species, concept, taxon（学名）, common?}`、`{level: genus|family, taxon}`，或 `{level: unconfirmed|not_animal}`。
+  - `new_subjects` 是人画的框（比例坐标），新建 `origin=user` 的主体。
+  - `scope=burst` 把同一结论写到每个目标所在连拍（`ai_suggestions.burst_id`）的其他照片：那里与目标 AI 结论同一概念的主体，或照片唯一的主体。已有人工结论的主体不改，列入 `skipped`（`reason: human`）。
+  - 响应 `{batch_id, dry_run, changed: [{subject_id, asset_id, via: target|burst, from, to}], skipped: [{subject_id, asset_id, reason}]}`；`dry_run` 只报告影响范围，不写入（PRD §10“先展示影响范围”）。
+  - `POST /identifications/undo {batch_id}` 整批撤销；该批之后有人再改过其中的主体 → 409 `{subjects}`；该批画出的框若再无结论则随之退役。
+  - 拍摄段（Encounter）范围留到阶段 B。
+- **后续切片**（同一修订，按实现逐步补全本节）：S4 库级物种 Collection 由当前结论派生（一个概念一个、无最小张数、已确认与候选分开计数）；S5 名字检索；S6 界面；S7 名录升级迁移。

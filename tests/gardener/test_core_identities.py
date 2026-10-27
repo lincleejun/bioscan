@@ -83,3 +83,77 @@ def test_a_two_species_photo_shows_both_subjects_in_the_asset_detail(env, fakes,
         subjects = c.get(f"{API}/assets/{item['id']}").json()["subjects"]
     assert [(s["current"]["common"], s["origin"], s["human"]) for s in subjects] == \
         [("Eastern Screech-Owl", "ai", False), ("Pacific Wren", "ai", False)]
+
+
+def burst_of_three(env, fakes, tmp_path, c):
+    src = tmp_path / "card"
+    for i in range(3):
+        make_jpg(src / f"IMG_{i}.jpg", when=1_700_000_000 + i)
+    t = wait_task(c, create_task(c, [str(src)])["id"])
+    items = sorted(c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"], key=lambda i: i["name"])
+    assert len({i["burst"]["id"] for i in items}) == 1                  # the fake reducer: one burst per task
+    return t, [c.get(f"{API}/assets/{i['id']}").json()["subjects"][0]["id"] for i in items], [i["id"] for i in items]
+
+
+def currents(c, aids):
+    return [(s["current"]["common"], s["current"]["source"]) for a in aids
+            for s in c.get(f"{API}/assets/{a}").json()["subjects"]]
+
+
+def test_correcting_one_frame_of_a_burst_corrects_the_burst_and_undo_puts_the_model_back(env, fakes, tmp_path):
+    with env.client() as c:
+        _t, sids, aids = burst_of_three(env, fakes, tmp_path, c)
+        body = {"subject_ids": [sids[0]], "claim": {"level": "species", "taxon": WREN["scientific"], **WREN},
+                "scope": "burst"}
+        preview = c.post(f"{API}/identifications", json=body | {"dry_run": True}).json()
+        assert preview["batch_id"] is None and [x["via"] for x in preview["changed"]] == ["target", "burst", "burst"]
+        assert currents(c, aids) == [("Eastern Screech-Owl", "ai")] * 3        # a dry run writes nothing
+        done = c.post(f"{API}/identifications", json=body).json()
+        assert currents(c, aids) == [("Pacific Wren", "user")] * 3
+        assert c.post(f"{API}/identifications/undo", json={"batch_id": done["batch_id"]}).json() == {"undone": 3}
+        assert currents(c, aids) == [("Eastern Screech-Owl", "ai")] * 3
+
+
+def test_a_burst_claim_skips_frames_a_person_already_identified_and_undo_refuses_after_a_later_edit(env, fakes, tmp_path):
+    with env.client() as c:
+        _t, sids, aids = burst_of_three(env, fakes, tmp_path, c)
+        wren = {"level": "species", "taxon": WREN["scientific"], **WREN}
+        own = c.post(f"{API}/identifications", json={"subject_ids": [sids[2]], "claim": wren}).json()
+        accept = c.post(f"{API}/identifications", json={"subject_ids": [sids[0]], "claim": {"accept": True},
+                                                        "scope": "burst"}).json()
+        assert [x["subject_id"] for x in accept["changed"]] == sids[:2]
+        assert accept["skipped"] == [{"subject_id": sids[2], "asset_id": aids[2], "reason": "human"}]
+        assert currents(c, aids) == [("Eastern Screech-Owl", "user")] * 2 + [("Pacific Wren", "user")]
+        c.post(f"{API}/identifications", json={"subject_ids": [sids[2]], "claim": {"level": "unconfirmed"}})
+        r = c.post(f"{API}/identifications/undo", json={"batch_id": own["batch_id"]})
+        assert r.status_code == 409 and r.json()["subjects"] == [sids[2]]
+
+
+def test_a_rescan_keeps_a_persons_identification(env, fakes, tmp_path):
+    with env.client() as c:
+        t, sids, aids = burst_of_three(env, fakes, tmp_path, c)
+        c.post(f"{API}/identifications", json={"subject_ids": [sids[1]], "claim": {"level": "genus", "taxon": "Nannus"}})
+        fakes.version = "fake2"
+        c.post(f"{API}/tasks/{t['id']}/rescan", json={"capabilities": ["species"]})
+        wait_task(c, t["id"])
+        (s,) = c.get(f"{API}/assets/{aids[1]}").json()["subjects"]
+    assert s["id"] == sids[1] and s["human"] and (s["current"]["level"], s["current"]["taxon"]) == ("genus", "Nannus")
+    assert s["ai"]["version"] == "identify@fake2"                        # the rescan's claim is recorded, not applied
+
+
+def test_a_drawn_box_becomes_a_subject_and_bad_claims_are_refused(env, fakes, tmp_path):
+    with env.client() as c:
+        _t, sids, aids = burst_of_three(env, fakes, tmp_path, c)
+        r = c.post(f"{API}/identifications", json={"new_subjects": [{"asset_id": aids[0], "xyxy": [0.6, 0.6, 0.8, 0.9]}],
+                                                   "claim": {"level": "species", "taxon": WREN["scientific"], **WREN}})
+        assert r.status_code == 200 and r.json()["changed"][0]["via"] == "target"
+        drawn = c.get(f"{API}/assets/{aids[0]}").json()["subjects"][-1]
+        assert drawn["origin"] == "user" and drawn["current"]["common"] == "Pacific Wren"
+        assert c.post(f"{API}/identifications/undo", json={"batch_id": r.json()["batch_id"]}).status_code == 200
+        assert [s["origin"] for s in c.get(f"{API}/assets/{aids[0]}").json()["subjects"]] == ["ai"]   # the drawn box goes too
+        for bad in ({"subject_ids": [sids[0]], "claim": {"level": "species", "taxon": "X"}},           # no concept
+                    {"subject_ids": [sids[0]], "claim": {"level": "kingdom"}},
+                    {"new_subjects": [{"asset_id": aids[0], "xyxy": [0.5, 0.5, 0.4, 0.9]}], "claim": {"accept": True}},
+                    {"claim": {"accept": True}}):
+            assert c.post(f"{API}/identifications", json=bad).status_code == 400, bad
+        assert c.post(f"{API}/identifications", json={"subject_ids": ["s_nope"], "claim": {"accept": True}}).status_code == 404
