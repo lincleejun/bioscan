@@ -259,7 +259,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **主体匹配**：`raw:identify` 的每个框与该素材现有主体按 IoU ≥ 0.5 匹配（一对一，取重叠最大者）；匹配不上就新建主体（`origin=ai`）。本轮没看到、且没有人工结论的 AI 主体记 `removed_at`；有人工结论的主体永远保留。人工画的框是 `origin=user` 的主体（S3）。
 - **AI 识别**：开启 species 时，每个带 `species` 的框写一行 `source=ai`：只有 `level=species` 才有 `concept`；属/科级保留上卷的 `taxon`，`concept` 为空；`candidates` 为前几名 `[{concept, scientific, common, p}]`。species 关闭时只有主体、没有识别。
 - **当前结论**：主体最新一条未撤销的 `source=user` 行，否则最新的 `source=ai` 行。模型重跑只追加 AI 行，不改写、不覆盖人工行。
-- **AssetDetail.subjects**：`[{id, xyxy, kind, origin, current: Identification|null, ai: Identification|null, human: bool}]`；`Identification = {id, concept, taxon, common, level, qualifier, p, candidates, source, run_id, version, actor, at}`。
+- **AssetDetail.subjects**：`[{id, xyxy, kind, origin, current: Identification|null, ai: Identification|null, human: bool}]`；`Identification = {id, concept, taxon, common, level, qualifier, p, candidates, source, run_id, version, actor, reason, batch_id, at}`（`reason`：人工批次的理由，或 AI 行的 `flock`；`batch_id`：人工批次，可撤销）。
 - **人工确认与纠错（S3）**：`POST /identifications {subject_ids?, new_subjects?: [{asset_id, xyxy}], claim, scope?: subject|burst, reason?, dry_run?}`。
   - `claim` 为 `{accept: true}`（采纳该主体当前的 AI 结论）、`{level: species, concept, taxon（学名）, common?}`、`{level: genus|family, taxon}`，或 `{level: unconfirmed|not_animal}`。
   - `new_subjects` 是人画的框（比例坐标），新建 `origin=user` 的主体。
@@ -269,7 +269,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 拍摄段（Encounter）范围留到阶段 B。
 - **物种卡片（S4）**：
   - **派生方式**：卡片不落进 `collections` 表，查询时从视图 `current_ids`（每个在用主体的当前结论）派生。PRD §04 规定成员的真值来自物种标注，所以不经过 `grouping.suggest`。
-  - **`GET /species?task=&hidden=0|1`** 返回 `{species: [Card], to_confirm: [Card], confirmed_total, unresolved: {genus_family, unconfirmed}}`：
+  - **`GET /species?task=&hidden=0|1`** 返回 `{species: [Card], to_confirm: [Card], confirmed_total, to_reconfirm, unresolved: {genus_family, unconfirmed}}`（`to_reconfirm` 见 S7 第二部分）：
     - 只看代表版本，同一拍摄的其他版本不计。
     - 一个概念一张卡，没有最小张数。
     - 一张照片无论有几个主体是同一概念，都只算一张（AC03）。
@@ -280,7 +280,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - 名字以人工结论为准，否则取最新的 AI 结论。
     - 封面：固定的封面仍是成员时用它；否则在已确认的照片里按星级、再按拍摄时间挑，没有已确认照片时在全部成员里挑。
   - **`PATCH /species/{concept} {cover_asset_id?: id|null, hidden?: bool}`**：只影响显示（表 `species_prefs`）；封面必须是该物种的照片（否则 400），没有该物种的照片则 404。
-  - **`GET /assets` 增加 `concept`、`id_state=confirmed|candidate|unresolved`**：两者同时给出时，须由同一个主体满足。Smart 规则同样可用。
+  - **`GET /assets` 增加 `concept`、`id_state=confirmed|candidate|unresolved|reconfirm`**：两者同时给出时，须由同一个主体满足。Smart 规则同样可用。
   - **任务内分组**：本切片仍保留任务内物种分组（`grouping.suggest`），界面切换到物种库（S6）时再去掉。
 - **名字检索（S5）**：
   - **索引表 `taxon_names`**：名字 → 概念（`taxa.py`）。来源有三类：
@@ -327,7 +327,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - `AssetItem.species` 不取这类结论（退回模型的照片级结论）。`Identification` 增加 `reason`、`batch_id`。
     - 人用普通的 `POST /identifications` 选定一个子种（或任意物种）即解决。
   - **界面**：主体一行显示“待重新确认：A / B”和“名录拆分：原记作 …”，每个子种一个按钮；物种页在待确认与待鉴定之间增加“待重新确认”区，链接到 `id_state=reconfirm`；全部素材的“物种结论”筛选增加同一项。CLI `gardener species` 多打一行，MCP `list_species` 说明里写明 `to_reconfirm`。
-- **标出漏掉的动物（S3 的界面）**：检查器“物种”卡片（照片有预览时总是显示，没有主体时提示“模型没有标出动物”）增加“标出漏掉的动物”：
+- **标出漏掉的动物（S3 的界面）**：检查器“物种”卡片（照片有预览时总是显示，没有主体时提示“模型没有标出动物”或“还没有主体框”）增加“标出漏掉的动物”：
   - 在大图上按住拖出一个框（Esc 取消；“主体放大”会先关掉）。大图已按 EXIF 摆正，`xyxy` 是摆正后图像的 0–1 比例；图按 contain 显示，换算时只算图像实际显示的区域，不算留白。
   - 松开后打开与“改为…”相同的名字检索，选中即 `POST /identifications {new_subjects: [{asset_id, xyxy}], claim, scope: subject}`；也可“只标出，不确定是什么”（`claim: {level: unconfirmed}`）。画的框不按连拍范围扩散。提示条可整批撤销，撤销后这个框随之退役。
 - **鸟群不逐只命名**：一张照片里同一 `kind` 的带物种结果的框达到 `identities.FLOCK_MIN`（5）个时，按 Merlin 的克制做法不逐只命名：

@@ -116,6 +116,8 @@ def apply_splits(store: Any, lists_dir: Path = naming.DATA_DIR) -> dict[str, str
     now_applied: dict[str, str | None] = {}
     for version, parents in versions.items():
         kids = sorted({d["concept"] for ds in parents.values() for d in ds})
+        # ponytail: needs every daughter in the loaded list; a library that skips a list year whose next version
+        # retires one of them never applies the earlier split. Apply versions in order, or on any daughter, then.
         if version in applied or store.one(f"SELECT count(DISTINCT concept) n FROM taxon_names WHERE concept IN "
                                            f"({st.marks_in(kids)})", kids)["n"] < len(kids):
             continue

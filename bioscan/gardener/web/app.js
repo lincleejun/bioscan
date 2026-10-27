@@ -721,7 +721,7 @@
       return `<li><span class="face subj" style="${esc(crop(s))}" role="img" aria-label="动物 ${i + 1}"></span>
         <span><b>${esc(idText(cur))}</b>${src}${aiDiff}${said}${why}</span>
         <span class="face-acts">${picks}${!s.human && ai && ai.level === 'species' ? btn('id-accept', s, '确认') : ''}${btn('id-change', s, '改为…')}${btn('id-unsure', s, '不确定')}</span></li>`;
-    }).join('') || '<li class="hint">模型没有标出动物。</li>'}</ul>${a.media === 'photo' && a.preview === 'ready' ? `<button type="button" class="btn sm ghost" data-action="id-draw" data-id="${esc(a.id)}">标出漏掉的动物</button>` : ''}${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
+    }).join('') || `<li class="hint">${(d.caps.subject || {}).state === 'done' ? '模型没有标出动物。' : '还没有主体框（未分析或未启用主体检测）。'}</li>`}</ul>${a.media === 'photo' && a.preview === 'ready' ? `<button type="button" class="btn sm ghost" data-action="id-draw" data-id="${esc(a.id)}">标出漏掉的动物</button>` : ''}${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
   }
   // 同一拍摄的其他版本：只在代表版本出现；“不是同一张”由人确认后永不再自动合并
   function versionsHTML(d) {
