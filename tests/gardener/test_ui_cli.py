@@ -175,3 +175,26 @@ def test_species_commands_build_the_revision_4_requests():
     assert req("names", "金雕") == ("GET", "/names", None, {"q": "金雕", "limit": 20})
     assert req("species-card", "name:Corvus corax", "--hide") == ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
     assert req("assets", "--concept", "avibase:a", "--id-state", "confirmed")[3]["id_state"] == "confirmed"
+
+
+def test_handoff_and_cleanup_commands(svc, capsys):
+    """契约修订 5E: handoff create/show and cleanup plan/run (run refuses without --yes)."""
+    url, fake = svc
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("handoff", "create", "--concept", "avibase:x", "--use", "record") == \
+        ("POST", "/handoffs", {"concept": "avibase:x", "uses": ["record"]}, None)
+    assert req("cleanup", "plan") == ("POST", "/cleanup-plans", {}, None)
+    with pytest.raises(SystemExit):
+        req("cleanup", "run", "p_1")
+    col = next(c for c in fake.cols.values() if c["group_kind"] == "all")
+    code, out, err = run(capsys, url, "handoff", "create", "--collection", col["id"])
+    assert code == 0, err
+    assert "等待 Lightroom 插件返回结果" in out
+    hid = next(iter(fake.handoffs))
+    assert run(capsys, url, "handoff", "show", hid)[0] == 0
+    fake.assets[next(iter(fake.assets))]["flag"] = "reject"
+    plan = run_json(capsys, url, "cleanup", "plan")
+    code, out, _ = run(capsys, url, "cleanup", "run", plan["id"], "--yes")
+    assert code == 0 and "可恢复，未释放空间" in out and "清空废纸篓后才真正释放" in out

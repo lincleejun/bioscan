@@ -965,6 +965,8 @@
     const closed = c.review.state !== 'open';
     return `${closed ? '<button type="button" class="btn sm ghost" data-action="reopen-col" data-key="reopen">重新打开</button>' : `<button type="button" class="btn sm accent" data-action="complete-col" data-key="complete">${ic('check')}完成本组</button><button type="button" class="btn sm ghost" data-action="zero-col" data-key="zero">本组不留</button>`}
       <button type="button" class="btn sm ghost" data-action="export" data-key="export">${ic('download')}导出…</button>
+      <button type="button" class="btn sm ghost" data-action="lr-handoff" data-key="lr-handoff">在 Lightroom 打开…</button>
+      <button type="button" class="btn sm ghost" data-action="cleanup-col" data-key="cleanup-col">清理淘汰…</button>
       ${c.kind === 'smart' ? '<button type="button" class="btn sm ghost" data-action="save-manual" data-key="save-manual">另存为 Manual…</button>' : ''}
       <button type="button" class="btn sm ghost" data-action="delete-col" data-key="delete-col">${ic('trash')}删除</button>
       <button type="button" class="btn sm" data-action="next-col" data-key="next-col">下一组${ic('right')}</button>`;
@@ -1031,7 +1033,7 @@
         <nav class="crumbs" aria-label="位置"><a href="#/species">物种</a><span aria-hidden="true">/</span><span>${esc(k.common || k.taxon)}</span></nav>
         <div class="rh-row">
           <div class="rh-title"><h1 tabindex="-1">${esc(k.zh || k.common || k.taxon)}</h1>${k.zh && k.common ? `<span class="hint">${esc(k.common)}</span>` : ''}<i class="hint">${esc(k.taxon)}</i>${k.kind ? `<span class="hint">${esc(KIND_ZH[k.kind] || k.kind)}</span>` : ''}</div>
-          <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="sp-cover">设当前照片为封面</button><button type="button" class="btn sm ghost" data-action="sp-hide">${k.hidden ? '在物种页显示' : '在物种页隐藏'}</button></div>
+          <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="sp-cover">设当前照片为封面</button><button type="button" class="btn sm ghost" data-action="sp-hide">${k.hidden ? '在物种页显示' : '在物种页隐藏'}</button><button type="button" class="btn sm ghost" data-action="lr-handoff">在 Lightroom 打开…</button></div>
         </div>
         <p class="hint">已确认 ${k.confirmed} 张 · 待确认 ${k.candidates} 张 · 首次 ${esc(fmtTime(k.first_taken_at))} · 最近 ${esc(fmtTime(k.last_taken_at))}。成员来自每张照片的物种结论：在右侧「物种」卡片确认或纠正。</p>
       </header>
@@ -1066,7 +1068,7 @@
     return `<div class="wpage">
       <header class="rv-head">
         <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">全部素材</h1><span class="hint">跨任务组合筛选；结果可直接 Review、保存为 Smart Collection 或导出。</span></div>
-          <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button><button type="button" class="btn sm ghost" data-action="save-smart">保存为 Smart Collection…</button><button type="button" class="btn sm ghost" data-action="export">${ic('download')}导出…</button></div></div>
+          <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button><button type="button" class="btn sm ghost" data-action="save-smart">保存为 Smart Collection…</button><button type="button" class="btn sm ghost" data-action="export">${ic('download')}导出…</button><button type="button" class="btn sm ghost" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></div>
         <form class="filters" id="lib-filters" aria-label="组合筛选">
           ${LIBF.map(sel).join('')}
           ${txt('date_from', '起始日期', 'date')}${txt('date_to', '结束日期', 'date')}
@@ -1103,9 +1105,9 @@
           <dt>数据目录</dt><dd class="mono">${esc(storage.data_dir)}</dd>
           <dt>整理记录</dt><dd><span class="mono">${esc(storage.db_path)}</span> · ${fmtBytes(storage.db_bytes)}</dd>
           <dt>预览缓存</dt><dd><span class="mono">${esc(storage.cache_dir)}</span> · ${fmtBytes(storage.cache_bytes)} · ${esc(storage.cache_files)} 个文件</dd>
-          <dt>原片</dt><dd>保留原位置，Gardener 不移动、改名或删除；Reject 不触发任何文件操作。</dd>
+          <dt>原片</dt><dd>保留原位置，Gardener 不移动、改名或删除；Reject 不触发任何文件操作。只有在清理计划里确认后，淘汰照片的文件才会移到废纸篓（可恢复，见 ADR 0003）。</dd>
         </dl>
-        <div class="set-actions"><button type="button" class="btn sm danger-ghost" data-action="clear-cache">清理预览缓存…</button></div></section>
+        <div class="set-actions"><a class="btn sm ghost" href="#/cleanup">清理计划…</a><button type="button" class="btn sm danger-ghost" data-action="clear-cache">清理预览缓存…</button></div></section>
       ${S.tags = tags, ''}
     </div></div>`;
   }
@@ -1362,6 +1364,7 @@
       case 'library': return ['library', {}];
       case 'species': return parts[1] === 'task' ? ['species', { task: parts[2] }] : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
       case 'settings': return ['settings', {}];
+      case 'cleanup': return parts[1] ? ['cleanup-plan', { id: parts[1] }] : ['cleanup', {}];
       case 'tasks': return ['tasks', { archived: parts[1] === 'archived' }];
       default: return null;
     }
@@ -1767,6 +1770,93 @@
     if (el && el.tagName === 'IMG') { const ph = el.closest('.ph'); if (ph) ph.classList.add('is-failed'); el.remove(); }
     if (el && el.tagName === 'VIDEO') { const box = el.closest('.vid'); el.remove(); if (box) $('.vid-fail', box).hidden = false; }
   }, true);
+
+  // ---------- 契约修订 5E：Lightroom 交接与清理计划 ----------
+  const HANDOFF_ST = { written: ['已写出交接文件 · 等待 Lightroom 返回结果', 'wait'], applied: ['已在 Lightroom 中处理', 'ok'], partial: ['部分照片未成功', 'fail'], failed: ['没有照片成功', 'fail'] };
+  const ITEM_ST = { pending: ['等待结果', 'wait'], ok: ['成功', 'ok'], skipped: ['跳过', 'muted'], failed: ['失败', 'fail'], trashed: ['已移到废纸篓', 'ok'] };
+  const WHY_ZH = { offline: '原片离线', file_missing: 'Lightroom 找不到文件', not_rejected: '已不再是淘汰，未动', changed: '文件在计划之后有变化，未动', stars: '星级', keywords: '关键词' };
+  const why = r => esc(WHY_ZH[r] || r || '');
+  const TRASH_COPY = '文件移到废纸篓，可在废纸篓中恢复；移到废纸篓不释放磁盘空间，在 Finder 中清空废纸篓后才真正释放。Gardener 不做永久删除。';
+  function handoffHTML(h) {
+    const [label, tone] = HANDOFF_ST[h.status] || [h.status, 'wait'];
+    const n = h.counts;
+    return `<section class="card report"><h3>${pill(label, tone)}</h3>
+      <p>成功 <b>${n.ok}</b> · 跳过 ${n.skipped} · 失败 ${n.failed} · 等待结果 ${n.pending}${n.conflicts ? ` · <b>${n.conflicts}</b> 张有字段冲突（Lightroom 中已改过，未覆盖）` : ''}</p>
+      ${h.status === 'written' ? '<p class="hint">写出交接文件不等于完成。Lightroom Classic 运行且装有 bioscan 插件（bioscan lr install）时几秒内处理；没有运行就打开它，或在 Library &gt; Plug-in Extras &gt; bioscan: Apply Gardener handoffs 手动执行，然后刷新。</p>' : ''}
+      <p class="hint mono">${esc(h.doc_path)}</p>
+      <ul class="hist">${h.items.map(i => { const [l, t] = ITEM_ST[i.status] || [i.status, 'wait']; return `<li>${pill(l, t)} ${esc(i.name)}${i.reason ? ` · ${why(i.reason)}` : ''}${i.conflicts.length ? ` · 冲突：${i.conflicts.map(why).join('、')}` : ''}</li>`; }).join('')}</ul>
+      <button type="button" class="btn sm" data-action="lr-refresh" data-id="${esc(h.id)}">${ic('retry')}刷新结果</button></section>`;
+  }
+  function openHandoff() {
+    const sel = ui.ws ? Array.from(ui.ws.sel) : [];
+    const scope = ui.view === 'review' && ui.col ? { collection_id: ui.col.id } : ui.view === 'species-one' && ui.sp ? { concept: ui.sp.concept } : null;
+    const label = scope ? (scope.collection_id ? ui.col.name : ui.sp.zh || ui.sp.common || ui.sp.taxon) : '';
+    if (!scope && !sel.length) { toast('请先选择要交给 Lightroom 的照片'); return; }
+    const radio = (v, text, on, dis) => `<label class="radio-row"><input type="radio" name="ho-scope" value="${v}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}><span>${text}</span></label>`;
+    dialog({
+      title: '在 Lightroom 打开', cls: 'export',
+      body: `<fieldset class="fs"><legend>范围</legend>${scope ? radio('scope', `${esc(label)} 中已 Pick 的照片`, true) : ''}${radio('selected', `当前选中（${sel.length} 张，淘汰的除外）`, !scope, !sel.length)}</fieldset>
+        <div class="field"><label for="ho-name">Lightroom 集合名</label><input id="ho-name" class="input" maxlength="80" value="${esc(label)}" placeholder="默认取集合或物种名"></div>
+        <p class="hint">冻结此刻的成员：已在 Lightroom 目录中的照片按路径找到并复用，其余就地添加（不复制），全部放进 Gardener 集合组里以此命名的集合。写入你给的星级（AI 分数不会变成星级）和你确认过的物种关键词（Aves|目|科|学名，英文名与中文名为同义词）；其他关键词与显影设置不动。Lightroom 中已改过的星级或关键词不覆盖，列为冲突。原片离线的照片跳过。</p>
+        <div id="ho-report" aria-live="polite"></div>`,
+      actions: [{ label: '交给 Lightroom', value: 'ok', kind: 'primary' }],
+      onSubmit: async (v, d) => {
+        if (v !== 'ok') return undefined;
+        const which = $('input[name=ho-scope]:checked', d).value;
+        const body = Object.assign(which === 'scope' ? scope : { asset_ids: sel }, val(d, '#ho-name') ? { name: val(d, '#ho-name') } : {});
+        const h = await api('POST', '/handoffs', body);
+        setHTML($('#ho-report', d), handoffHTML(h));
+        $('.dlg-foot [type=submit]', d).hidden = true;
+        return false;
+      },
+    });
+  }
+  async function vCleanup() {
+    const plans = await api('GET', '/cleanup-plans');
+    return `<div class="page"><a class="back" href="#/settings">${ic('left')}管理</a>
+      <header class="page-head"><div><h1 tabindex="-1">清理计划</h1><p class="lede">标记淘汰不会动任何文件。清理计划列出淘汰照片的全部文件（RAW、JPEG、旁边的 XMP 等 sidecar）、占用空间，以及哪些是某个物种仅剩的照片；你确认后才执行，执行前逐张重新核对。</p><p class="hint">${TRASH_COPY}</p></div>
+        <button type="button" class="btn accent" data-action="cleanup-new">${ic('plus')}为全部淘汰生成计划</button></header>
+      <div class="del-list">${plans.map(p => `<a class="del-row card" href="#/cleanup/${esc(encodeURIComponent(p.id))}"><div><b>${esc(fmtTime(p.created_at))}</b><p class="hint">淘汰 ${p.summary.rejected} 张 · 可清理 ${p.summary.ready} 张 · ${fmtBytes(p.summary.bytes)}${p.summary.last_species.length ? ` · <b>${p.summary.last_species.length}</b> 个物种的最后照片` : ''}</p></div>${pill(p.status === 'planned' ? '未执行' : p.status === 'ran' ? '已执行' : '部分执行', p.status === 'planned' ? 'wait' : p.status === 'ran' ? 'ok' : 'fail')}</a>`).join('') || '<div class="empty">还没有清理计划。</div>'}</div></div>`;
+  }
+  async function vCleanupPlan(p) {
+    const plan = await api('GET', `/cleanup-plans/${encodeURIComponent(p.id)}`);
+    ui.plan = plan;
+    const sm = plan.summary, rep = plan.report;
+    const spName = s => `${esc(s.zh || s.common || s.taxon)} <i class="hint">${esc(s.taxon)}</i>`;
+    const left = plan.items.some(i => i.state === 'ready' && i.files.some(f => f.result !== 'trashed'));
+    return `<div class="page"><a class="back" href="#/cleanup">${ic('left')}清理计划</a>
+      <header class="page-head"><div><h1 tabindex="-1">清理计划</h1>
+        <p class="lede">淘汰 <b>${sm.rejected}</b> 张 · 可清理 <b>${sm.ready}</b> 张、${sm.files} 个文件、<b>${fmtBytes(sm.bytes)}</b>${sm.offline ? ` · ${sm.offline} 张原片离线，跳过（不会当成已删除）` : ''}</p>
+        <p class="note warn block">${ic('warn')}将修改来源目录：这些文件会从原位置移到废纸篓。${TRASH_COPY}</p></div>
+        ${left ? `<button type="button" class="btn danger" data-action="cleanup-run">${ic('trash')}移到废纸篓…</button>` : ''}</header>
+      ${sm.last_species.length ? `<section class="card"><h2>${ic('warn')}这些物种只剩计划里的照片</h2><p class="hint">清理后它们在物种页不再有照片；仍可以决定清理。</p><ul class="hist">${sm.last_species.map(s => `<li>${spName(s)} · 共 ${s.photos} 张</li>`).join('')}</ul></section>` : ''}
+      ${rep ? `<section class="card report"><h3>执行结果</h3><p>已移到废纸篓 <b>${rep.trashed_files}</b> 个文件、${fmtBytes(rep.trashed_bytes)}（可恢复，未释放空间）· 真正释放 ${fmtBytes(rep.freed_bytes)} · 失败 ${rep.failed.length} · 跳过 ${rep.skipped.length} 张</p>${rep.failed.map(f => `<p class="ai-fail mono">${esc(f.path)} · ${esc(f.error)}</p>`).join('')}${rep.skipped.map(s => `<p class="hint">${esc(s.asset_id)} · ${why(s.reason)}</p>`).join('')}</section>` : ''}
+      <section><h2>照片与文件</h2><div class="del-list">${plan.items.map(i => `<div class="del-row card"><img src="${esc(mediaUrl(i.asset_id, 'thumb'))}" alt="" loading="lazy" width="72"><div><b>${esc(i.name)}</b> ${i.state === 'ready' ? '' : pill('原片离线 · 跳过', 'muted')} ${i.species.filter(s => s.last_photo).map(s => pill(`${s.zh || s.common || s.taxon} 的最后照片`, 'fail')).join('')}
+        <ul class="hist">${i.files.map(f => `<li class="mono">${esc(f.path)} · ${esc(f.role)} · ${fmtBytes(f.size)}${f.result ? ` · ${(ITEM_ST[f.result] || [f.result])[0]}${f.reason ? ` · ${why(f.reason)}` : ''}` : ''}</li>`).join('')}</ul>
+        ${i.versions.length ? `<p class="hint">另有 ${i.versions.length} 个同一拍摄的版本，不在计划里。</p>` : ''}</div></div>`).join('') || '<div class="empty">范围内没有淘汰的照片。</div>'}</div></section></div>`;
+  }
+  async function newPlan(body) {
+    try { const plan = await api('POST', '/cleanup-plans', body); location.hash = `#/cleanup/${encodeURIComponent(plan.id)}`; } catch (e) { toast(errMsg(e)); }
+  }
+  Object.assign(VIEWS, { cleanup: vCleanup, 'cleanup-plan': vCleanupPlan });
+  Object.assign(NAV_OF, { cleanup: 'settings', 'cleanup-plan': 'settings' });
+  Object.assign(TITLES, { cleanup: '清理计划', 'cleanup-plan': '清理计划' });
+  Object.assign(ACTIONS, {
+    'lr-handoff': () => openHandoff(),
+    'lr-refresh': async el => { try { const h = await api('GET', `/handoffs/${encodeURIComponent(el.dataset.id)}`); const box = el.closest('#ho-report'); if (box) setHTML(box, handoffHTML(h)); } catch (e) { toast(errMsg(e)); } },
+    'cleanup-new': () => newPlan({}),
+    'cleanup-col': () => newPlan({ collection_id: ui.col.id }),
+    'cleanup-run': () => {
+      const plan = ui.plan, sm = plan.summary;
+      const last = sm.last_species.length ? `<p class="note warn block">${ic('warn')}${sm.last_species.length} 个物种只剩这些照片：${sm.last_species.map(s => esc(s.zh || s.common || s.taxon)).join('、')}。</p>` : '';
+      confirmDialog(`把 ${sm.ready} 张照片移到废纸篓？`, `<p>${sm.files} 个文件、${fmtBytes(sm.bytes)}，从来源目录移到废纸篓。执行前逐张重新核对：已不再淘汰或文件有变化的照片不动，原片离线的跳过。</p>${last}<p class="hint">${TRASH_COPY}</p>`, '移到废纸篓', 'danger', async () => {
+        const r = await api('POST', `/cleanup-plans/${encodeURIComponent(plan.id)}/run`, { confirm: true });
+        toast(`已移到废纸篓 ${r.report.trashed_files} 个文件（可恢复，未释放空间）`);
+        route(true);
+      });
+    },
+  });
+  // ---------- 契约修订 5E 结束 ----------
 
   window.addEventListener('hashchange', () => route());
   (async function boot() {

@@ -127,9 +127,54 @@ def render(cmd: str, out) -> str:
                 + f"\n待鉴定：属/科 {un['genus_family']} 张，不确定 {un['unconfirmed']} 张")
     if cmd == "names":
         return table(out, NAME_COLS)
+    if cmd in ("handoff create", "handoff show", "cleanup plan", "cleanup show", "cleanup run"):
+        return _render_5e(cmd, out)
+    if cmd in ("handoff list", "cleanup list"):
+        return table(out, HANDOFF_COLS if cmd == "handoff list" else PLAN_COLS)
     if isinstance(out, dict):
         return pairs(out)
     return _cell(out)
+
+
+# ---- 契约修订 5E: Lightroom handoff and cleanup plans ----
+HANDOFF_COLS = [("id", "id"), ("名称", "name"), ("状态", "status"), ("成功", "counts.ok"), ("跳过", "counts.skipped"),
+                ("失败", "counts.failed"), ("待返回", "counts.pending"), ("冲突", "counts.conflicts"),
+                ("创建", "created_at")]
+PLAN_COLS = [("id", "id"), ("状态", "status"), ("淘汰", "summary.rejected"), ("可清理", "summary.ready"),
+             ("离线", "summary.offline"), ("文件", "summary.files"), ("字节", "summary.bytes"), ("创建", "created_at")]
+HANDOFF_STATUS = {"written": "已写出交接文件，等待 Lightroom 插件返回结果（Lightroom 未运行时，打开它或用 Library > "
+                             "Plug-in Extras > bioscan: Apply Gardener handoffs）",
+                  "applied": "全部照片已在 Lightroom 中处理", "partial": "部分照片未成功，见下表", "failed": "没有照片成功"}
+
+
+def _render_5e(cmd: str, out: dict) -> str:
+    if cmd.startswith("handoff"):
+        rows = [i | {"why": i["reason"] or ",".join(i["conflicts"])} for i in out["items"]]
+        return (table([out], HANDOFF_COLS) + "\n" + HANDOFF_STATUS.get(out["status"], out["status"])
+                + f"\n交接文件: {out['doc_path']}\n" + table(rows, [("asset", "asset_id"), ("文件", "name"),
+                                                               ("结果", "status"), ("原因/冲突", "why")]))
+    sm = out["summary"]
+    head = (f"计划 {out['id']}（{out['status']}）：淘汰 {sm['rejected']} 张，可清理 {sm['ready']} 张、{sm['files']} 个文件、"
+            f"{sm['bytes']} 字节；离线跳过 {sm['offline']} 张")
+    last = "".join(f"\n  ! {s.get('zh') or s.get('common') or s['taxon']}（{s['taxon']}）：清理后这个物种没有照片了"
+                   for s in sm["last_species"])
+    rep = out.get("report")
+    done = "" if not rep else (f"\n已移到废纸篓 {rep['trashed_files']} 个文件、{rep['trashed_bytes']} 字节（可恢复，未释放空间）；"
+                               f"失败 {len(rep['failed'])}，跳过 {len(rep['skipped'])} 张")
+    files = [f | {"asset": i["asset_id"]} for i in out["items"] for f in i["files"]]
+    return (head + ("\n最后的物种照片：" + last if last else "") + done + "\n"
+            + table(files, [("asset", "asset"), ("文件", "path"), ("类型", "role"), ("字节", "size"), ("结果", "result"),
+                            ("原因", "reason")]) + "\n" + out["note"])
+
+
+def _scope_5e(a) -> dict:
+    if a.collection_id:
+        return {"collection_id": a.collection_id}
+    if a.concept:
+        return {"concept": a.concept}
+    if a.assets:
+        return {"asset_ids": a.assets}
+    return {}
 
 
 # ---- commands ----------------------------------------------------------------
@@ -205,6 +250,21 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         if not body:
             raise SystemExit("species-card: 需要 --cover、--no-cover、--hide 或 --show")
         return "PATCH", f"/species/{urllib.parse.quote(a.concept, safe=':')}", body, None
+    if c == "handoff":
+        if sub == "create":
+            body = _scope_5e(a) | ({"uses": a.use} if a.use else {}) | ({"name": a.name} if a.name else {})
+            if not body:
+                raise SystemExit("handoff create: 需要 --collection、--concept 或 --assets")
+            return "POST", "/handoffs", body, None
+        return ("GET", "/handoffs", None, None) if sub == "list" else ("GET", f"/handoffs/{a.id}", None, None)
+    if c == "cleanup":
+        if sub == "plan":
+            return "POST", "/cleanup-plans", _scope_5e(a), None
+        if sub == "run":
+            if not a.yes:
+                raise SystemExit("cleanup run: 先用 cleanup show 看清计划，再加 --yes 确认移到废纸篓")
+            return "POST", f"/cleanup-plans/{a.id}/run", {"confirm": True}, None
+        return ("GET", "/cleanup-plans", None, None) if sub == "list" else ("GET", f"/cleanup-plans/{a.id}", None, None)
     if c == "collections":
         return "GET", "/collections", None, {"task": a.task, "kind": a.kind, "deleted": "1" if a.deleted else "0"}
     if c == "collection":
@@ -340,6 +400,27 @@ def parser() -> argparse.ArgumentParser:
     e.add_argument("--copy", action="store_true", help="复制原片（默认只写一个 XML）")
     e.add_argument("--conflict", default="rename", choices=("rename", "skip", "fail"))
     _add_filters(e, skip=("collection",))
+
+    # ---- 契约修订 5E ----
+    def scope_args(x):
+        x.add_argument("--collection", dest="collection_id")
+        x.add_argument("--concept", help="物种 concept（gardener names 查得）")
+        x.add_argument("--assets", nargs="+")
+    ho = s.add_parser("handoff", help="交给 Lightroom Classic（插件读取交接文件并返回逐张结果）").add_subparsers(
+        dest="sub", required=True)
+    hc = ho.add_parser("create", help="冻结集合、物种或选中照片的成员并写出交接文件（默认只交 Pick）")
+    scope_args(hc)
+    hc.add_argument("--use", action="append", help="只交这些用途（record / pending / ...；可重复）")
+    hc.add_argument("--name", help="Lightroom 里的集合名（默认取集合或物种名）")
+    ho.add_parser("show", help="逐张结果（成功 / 跳过 / 失败、字段冲突）").add_argument("id")
+    ho.add_parser("list", help="交接历史")
+    cl = s.add_parser("cleanup", help="清理计划：淘汰的照片移到废纸篓（可恢复）").add_subparsers(dest="sub", required=True)
+    scope_args(cl.add_parser("plan", help="列出范围内淘汰照片的全部文件、容量与物种影响（默认全库）"))
+    cl.add_parser("show", help="计划与执行结果").add_argument("id")
+    cl.add_parser("list", help="清理计划历史")
+    cr = cl.add_parser("run", help="重新核对后把文件移到废纸篓")
+    cr.add_argument("id")
+    cr.add_argument("--yes", action="store_true", help="确认执行")
     return p
 
 
