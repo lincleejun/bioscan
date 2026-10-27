@@ -220,3 +220,70 @@ def undo(c: Any, batch_id: str) -> dict[str, Any]:
                   "identifications WHERE subject_id = ? AND undone = 0)", (t, r["subject_id"], r["subject_id"]))
         c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, r["asset_id"]))
     return {"undone": len(rows)}
+
+
+KIND_OF_PREFIX = {"avibase": "bird", "mdd": "mammal"}
+
+
+def species(c: Any, task_id: str | None = None, include_hidden: bool = False) -> dict[str, Any]:
+    """The library's species cards (contract revision 4, S4), derived from current identifications of
+    representatives (versions of a capture never count): one card per concept, no minimum size. A photo
+    counts once per concept however many of its subjects show it. `confirmed` = photos a person confirmed;
+    `candidates` = photos only the model names it on. `species` holds the cards with a confirmation (their
+    number is "N species photographed", PRD §03), `to_confirm` the model-only ones; `unresolved` counts
+    photos whose subjects stop at genus/family or are unconfirmed. `task_id` narrows it to one task."""
+    scope = "AND a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)" if task_id else ""
+    rows = c.execute(f"SELECT ci.*, a.taken_at, coalesce(m.stars, 0) stars FROM current_ids ci JOIN assets a ON "
+                     f"a.id = ci.asset_id LEFT JOIN marks m ON m.asset_id = a.id WHERE a.version_of IS NULL {scope} "
+                     f"ORDER BY ci.created_at", [task_id] if task_id else []).fetchall()
+    prefs = {r["concept"]: r for r in c.execute("SELECT * FROM species_prefs")}
+    cards: dict[str, dict[str, Any]] = {}
+    unresolved: dict[str, set[str]] = {"genus_family": set(), "unconfirmed": set()}
+    for r in rows:
+        if r["level"] in ("genus", "family"):
+            unresolved["genus_family"].add(r["asset_id"])
+        elif r["level"] == "unconfirmed":
+            unresolved["unconfirmed"].add(r["asset_id"])
+        if r["level"] != "species" or not r["concept"]:
+            continue
+        k = cards.setdefault(r["concept"], {"concept": r["concept"], "taxon": r["taxon"], "common": r["common"],
+                                            "kinds": {}, "confirmed": set(), "seen": {}, "named_by": "ai"})
+        if r["source"] == "user" or k["named_by"] == "ai":     # a person's naming wins, else the latest
+            k["taxon"], k["common"] = r["taxon"], r["common"] or k["common"]
+            k["named_by"] = r["source"]
+        if r["kind"]:
+            k["kinds"][r["kind"]] = k["kinds"].get(r["kind"], 0) + 1
+        if r["source"] == "user":
+            k["confirmed"].add(r["asset_id"])
+        k["seen"][r["asset_id"]] = (r["taken_at"], r["stars"])
+    out: dict[str, list[dict[str, Any]]] = {"species": [], "to_confirm": []}
+    for concept, k in cards.items():
+        pref = prefs.get(concept)
+        if pref is not None and pref["hidden"] and not include_hidden:
+            continue
+        times = sorted(t for t, _ in k["seen"].values() if t)
+        pool = k["confirmed"] or set(k["seen"])
+        best = max(pool, key=lambda a: (k["seen"][a][1], k["seen"][a][0] or "", a))
+        pinned = pref is not None and pref["cover_asset_id"] in k["seen"]
+        kind = max(k["kinds"], key=k["kinds"].get) if k["kinds"] else KIND_OF_PREFIX.get(concept.split(":")[0])
+        card = {"concept": concept, "taxon": k["taxon"], "common": k["common"], "kind": kind,
+                "confirmed": len(k["confirmed"]), "candidates": len(set(k["seen"]) - k["confirmed"]),
+                "photos": len(k["seen"]), "only_one": len(k["seen"]) == 1,
+                "first_taken_at": times[0] if times else None, "last_taken_at": times[-1] if times else None,
+                "cover_id": pref["cover_asset_id"] if pinned else best, "cover_pinned": pinned,
+                "hidden": bool(pref is not None and pref["hidden"])}
+        out["species" if k["confirmed"] else "to_confirm"].append(card)
+    for v in out.values():
+        v.sort(key=lambda x: (x["last_taken_at"] or "", x["concept"]), reverse=True)
+    return out | {"confirmed_total": len(out["species"]),
+                  "unresolved": {k: len(v) for k, v in unresolved.items()}}
+
+
+def set_prefs(c: Any, concept: str, *, cover_asset_id: Any = ..., hidden: bool | None = None) -> None:
+    """Pin (or clear with None) a species card's cover and hide or show the card; display only."""
+    row = c.execute("SELECT cover_asset_id, hidden FROM species_prefs WHERE concept = ?", (concept,)).fetchone()
+    cover = (row["cover_asset_id"] if row else None) if cover_asset_id is ... else cover_asset_id
+    hide = (bool(row["hidden"]) if row else False) if hidden is None else hidden
+    c.execute("INSERT INTO species_prefs (concept, cover_asset_id, hidden, updated_at) VALUES (?, ?, ?, ?) "
+              "ON CONFLICT(concept) DO UPDATE SET cover_asset_id = excluded.cover_asset_id, hidden = excluded.hidden, "
+              "updated_at = excluded.updated_at", (concept, cover, int(hide), now()))

@@ -267,4 +267,19 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 响应 `{batch_id, dry_run, changed: [{subject_id, asset_id, via: target|burst, from, to}], skipped: [{subject_id, asset_id, reason}]}`；`dry_run` 只报告影响范围，不写入（PRD §10“先展示影响范围”）。
   - `POST /identifications/undo {batch_id}` 整批撤销；该批之后有人再改过其中的主体 → 409 `{subjects}`；该批画出的框若再无结论则随之退役。
   - 拍摄段（Encounter）范围留到阶段 B。
-- **后续切片**（同一修订，按实现逐步补全本节）：S4 库级物种 Collection 由当前结论派生（一个概念一个、无最小张数、已确认与候选分开计数）；S5 名字检索；S6 界面；S7 名录升级迁移。
+- **物种卡片（S4）**：
+  - **派生方式**：卡片不落进 `collections` 表，查询时从视图 `current_ids`（每个在用主体的当前结论）派生。PRD §04 规定成员的真值来自物种标注，所以不经过 `grouping.suggest`。
+  - **`GET /species?task=&hidden=0|1`** 返回 `{species: [Card], to_confirm: [Card], confirmed_total, unresolved: {genus_family, unconfirmed}}`：
+    - 只看代表版本，同一拍摄的其他版本不计。
+    - 一个概念一张卡，没有最小张数。
+    - 一张照片无论有几个主体是同一概念，都只算一张（AC03）。
+    - `species` 是至少有一张人工确认的卡，张数即“已拍到 N 种”（PRD §03）；`to_confirm` 是只有 AI 结论的卡，不计入 N。
+    - `unresolved` 是主体只到属/科或未确认的照片数。
+    - Flag、星级、在线状态都不影响计数。
+  - **`Card`** = `{concept, taxon, common, kind, confirmed, candidates, photos, only_one, first_taken_at, last_taken_at, cover_id, cover_pinned, hidden}`：
+    - 名字以人工结论为准，否则取最新的 AI 结论。
+    - 封面：固定的封面仍是成员时用它；否则在已确认的照片里按星级、再按拍摄时间挑，没有已确认照片时在全部成员里挑。
+  - **`PATCH /species/{concept} {cover_asset_id?: id|null, hidden?: bool}`**：只影响显示（表 `species_prefs`）；封面必须是该物种的照片（否则 400），没有该物种的照片则 404。
+  - **`GET /assets` 增加 `concept`、`id_state=confirmed|candidate|unresolved`**：两者同时给出时，须由同一个主体满足。Smart 规则同样可用。
+  - **任务内分组**：本切片仍保留任务内物种分组（`grouping.suggest`），界面切换到物种库（S6）时再去掉。
+- **后续切片**（同一修订，按实现逐步补全本节）： 库级物种 Collection 由当前结论派生（一个概念一个、无最小张数、已确认与候选分开计数）；S5 名字检索；S6 界面；S7 名录升级迁移。

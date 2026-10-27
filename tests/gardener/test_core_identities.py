@@ -157,3 +157,60 @@ def test_a_drawn_box_becomes_a_subject_and_bad_claims_are_refused(env, fakes, tm
                     {"claim": {"accept": True}}):
             assert c.post(f"{API}/identifications", json=bad).status_code == 400, bad
         assert c.post(f"{API}/identifications", json={"subject_ids": ["s_nope"], "claim": {"accept": True}}).status_code == 404
+
+
+def task_of(c, tmp_path, name, files, fakes, boxes, when=1_700_000_000):
+    src = tmp_path / name
+    for i, f in enumerate(files):
+        make_jpg(src / f, when=when + i)
+        fakes.boxes[f] = boxes[i]
+    return wait_task(c, create_task(c, [str(src)])["id"])
+
+
+def test_species_cards_one_per_concept_across_tasks_single_photo_species_and_two_species_photos(env, fakes, tmp_path):
+    three = owl_box()
+    three["species"]["top"] += [{"scientific": "Megascops kennicottii", "concept": "avibase:test-kenn",
+                                 "common": "Western Screech-Owl", "posterior": 0.1},
+                                {"scientific": "Otus scops", "concept": "avibase:test-scops", "common": "Scops Owl",
+                                 "posterior": 0.05}]
+    with env.client() as c:
+        t1 = task_of(c, tmp_path, "trip1", ["A1.jpg", "A2.jpg"], fakes,
+                     [[three], [owl_box(), owl_box((0.6, 0.6, 0.9, 0.9), **WREN)]])
+        t2 = task_of(c, tmp_path, "trip2", ["B1.jpg", "B2.jpg"], fakes, [[owl_box()], [owl_box(level="genus")]],
+                     when=1_710_000_000)
+        lib = c.get(f"{API}/species").json()
+        assert lib["confirmed_total"] == 0 and lib["species"] == []                 # nothing a person confirmed yet
+        cards = {k["common"]: k for k in lib["to_confirm"]}
+        assert sorted(cards) == ["Eastern Screech-Owl", "Pacific Wren"]             # top-3 runners-up make no cards
+        assert (cards["Eastern Screech-Owl"]["photos"], cards["Pacific Wren"]["photos"]) == (3, 1)
+        assert cards["Pacific Wren"]["only_one"] and cards["Pacific Wren"]["kind"] == "bird"
+        assert lib["unresolved"] == {"genus_family": 1, "unconfirmed": 0}
+        a2 = next(i for i in c.get(f"{API}/assets", params={"task": t1["id"]}).json()["items"] if i["name"] == "A2.jpg")
+        wren_sid = c.get(f"{API}/assets/{a2['id']}").json()["subjects"][1]["id"]
+        c.post(f"{API}/identifications", json={"subject_ids": [wren_sid], "claim": {"accept": True}})
+        lib = c.get(f"{API}/species").json()
+        assert lib["confirmed_total"] == 1 and [k["common"] for k in lib["species"]] == ["Pacific Wren"]
+        assert lib["species"][0]["confirmed"] == 1 and lib["species"][0]["cover_id"] == a2["id"]
+        only = c.get(f"{API}/species", params={"task": t2["id"]}).json()
+        assert [k["photos"] for k in only["to_confirm"]] == [1] and only["unresolved"]["genus_family"] == 1
+        names = lambda **q: sorted(i["name"] for i in c.get(f"{API}/assets", params=q).json()["items"])  # noqa: E731
+        assert names(concept="avibase:test-asio") == ["A1.jpg", "A2.jpg", "B1.jpg"]
+        assert names(concept=WREN["concept"], id_state="confirmed") == ["A2.jpg"]
+        assert names(concept="avibase:test-asio", id_state="confirmed") == []
+        assert names(id_state="unresolved") == ["B2.jpg"]
+
+
+def test_hiding_a_card_and_pinning_its_cover_touch_nothing_else(env, fakes, tmp_path):
+    with env.client() as c:
+        t = task_of(c, tmp_path, "trip", ["A1.jpg", "A2.jpg"], fakes, [[owl_box()], [owl_box()]])
+        a1, a2 = sorted((i["name"], i["id"]) for i in c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"])
+        owl = "avibase:test-asio"
+        assert c.patch(f"{API}/species/{owl}", json={"cover_asset_id": a1[1]}).json()["cover_pinned"] is True
+        assert c.patch(f"{API}/species/{owl}", json={"hidden": True}).json()["hidden"] is True
+        assert c.get(f"{API}/species").json()["to_confirm"] == []
+        hidden = c.get(f"{API}/species", params={"hidden": "1"}).json()["to_confirm"]
+        assert [(k["cover_id"], k["photos"]) for k in hidden] == [(a1[1], 2)]
+        assert len(c.get(f"{API}/assets", params={"concept": owl}).json()["items"]) == 2
+        assert c.patch(f"{API}/species/{owl}", json={"cover_asset_id": "a_other"}).status_code == 400
+        assert c.patch(f"{API}/species/avibase:none", json={"hidden": True}).status_code == 404
+        assert c.get(f"{API}/species", params={"hidden": "1"}).json()["to_confirm"][0]["concept"] == owl

@@ -742,6 +742,36 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         with store.tx() as c:
             return identities.undo(c, text(body, "batch_id", required=True))
 
+    @r.get("/species")
+    def get_species(task: str | None = None, hidden: str = "0") -> dict[str, Any]:
+        """Species cards derived from identifications (contract revision 4, S4); task= narrows to one task."""
+        if task is not None:
+            task_or_404(task)
+        return identities.species(store.conn(), task, include_hidden=hidden == "1")
+
+    @r.patch("/species/{concept}")
+    def patch_species(concept: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        kw: dict[str, Any] = {}
+        if "cover_asset_id" in body:
+            cover = body["cover_asset_id"]
+            if cover is not None and not store.one("SELECT 1 FROM current_ids WHERE asset_id = ? AND concept = ?",
+                                                   (cover, concept)):
+                raise Error("cover_asset_id must be a photo of this species (or null)")
+            kw["cover_asset_id"] = cover
+        if "hidden" in body:
+            if not isinstance(body["hidden"], bool):
+                raise Error("hidden must be true|false")
+            kw["hidden"] = body["hidden"]
+        if not kw:
+            raise Error("cover_asset_id or hidden is required")
+        with store.tx() as c:
+            identities.set_prefs(c, concept, **kw)
+            card = next((x for k in ("species", "to_confirm") for x in identities.species(c, include_hidden=True)[k]
+                         if x["concept"] == concept), None)
+            if card is None:                                  # raised inside: the prefs row rolls back
+                raise NotFound(f"no photo of {concept}")
+        return card
+
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,
                      limit: int = LIMIT100) -> list[dict[str, Any]]:

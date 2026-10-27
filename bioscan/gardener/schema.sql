@@ -203,3 +203,14 @@ CREATE TABLE IF NOT EXISTS identifications (
 CREATE INDEX IF NOT EXISTS identifications_subject ON identifications (subject_id, source, id);
 CREATE INDEX IF NOT EXISTS identifications_asset ON identifications (asset_id);
 CREATE INDEX IF NOT EXISTS identifications_concept ON identifications (concept);
+-- Each live subject's current identification: its latest live user row, else its latest ai row.
+CREATE VIEW IF NOT EXISTS current_ids AS
+SELECT s.asset_id, s.id AS subject_id, s.kind, i.concept, i.taxon, i.common, i.level, i.source, i.created_at
+FROM subjects s JOIN identifications i ON i.id = coalesce(
+  (SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'user' AND x.undone = 0),
+  (SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'ai' AND x.undone = 0))
+WHERE s.removed_at IS NULL;
+-- What a person set on a species card (display only: hiding never touches photos or identifications).
+CREATE TABLE IF NOT EXISTS species_prefs (
+  concept TEXT PRIMARY KEY, cover_asset_id TEXT, hidden INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+);
