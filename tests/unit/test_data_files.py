@@ -22,7 +22,7 @@ def test_synonyms_well_formed():
 
 def test_avilist_map_shape():
     rows = read(NAMES / "avilist_map.csv")
-    assert len(rows) == 11131
+    assert len(rows) == 11172
     assert set(rows[0]) == {"scientific", "common", "order", "family", "tol_name", "tol_how", "birdnet_label", "birdnet_how"}
     assert len({r["scientific"] for r in rows}) == len(rows)
     for r in rows:

@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import logging
+import secrets
 from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Executor
 from contextlib import asynccontextmanager
@@ -156,7 +157,8 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
         """{keep: [paths], drop: [paths], keep_to: DIR | null, delete: bool}: copies the keeps to keep_to,
         deletes the drops when `delete`; each with its XMP sidecars. Every path must be inside the
         allowed roots. Returns apply.apply's counts."""
-        if request.headers.get("x-bioscan-token") != token:
+        sent = request.headers.get("x-bioscan-token")
+        if not token or not sent or not secrets.compare_digest(sent.encode(), token.encode()):
             return JSONResponse({"error": "missing or wrong X-Bioscan-Token"}, status_code=403)
         try:
             body = json.loads(await request.body())
@@ -195,6 +197,9 @@ def parse_apply(body: Any) -> tuple[list[str], list[str], str | None, bool]:
         raise ValueError("keep needs keep_to")
     if lists["drop"] and not delete:
         raise ValueError("drop needs delete: true (the service never moves drops; bioscan aesthetic apply --drop-to does)")
+    for key, paths in (*lists.items(), ("keep_to", [keep_to] if keep_to else [])):
+        if any("\x00" in q for q in paths):
+            raise ValueError(f"{key} contains a path with a NUL character")
     return lists["keep"], lists["drop"], keep_to, delete
 
 

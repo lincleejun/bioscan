@@ -64,8 +64,9 @@ class GoldenError(ValueError):
 # ---- reading --------------------------------------------------------------------------------------
 
 def _key(path: str, base: Path) -> str:
+    """Absolute path with symlinks resolved, the same form as the golden root (so /tmp and /private/tmp match)."""
     p = Path(path).expanduser()
-    return os.path.normpath(str(p if p.is_absolute() else base / p))
+    return os.path.realpath(p if p.is_absolute() else base / p)
 
 
 def _split(cell: str | None) -> list[str]:
@@ -427,6 +428,9 @@ def evaluate(g: dict[str, Any], sc: dict[str, Any], *, split: str | None = "test
     entries = sc["scores"]
     scores = {key: e["score"] for key, e in entries.items()}
     base = [r for r in g["images"] if not r["variant"] and (split is None or r["split"] == split)]
+    if split is not None and not base:
+        have = sorted({r["split"] for r in g["images"] if not r["variant"]})
+        raise GoldenError(f"no frame in split {split!r} (the golden set has: {', '.join(have) or 'none'}; or 'all')")
     base_keys = {r["key"] for r in base}
     planted = [r for r in g["images"] if r["variant"] and r["variant_of"] in base_keys]
     expected = base_keys | {r["key"] for r in planted}
@@ -572,6 +576,8 @@ def read_budget(path: str | Path) -> dict:
         if extra:
             raise bench.BenchError(f"{path}: rule {i + 1}: unknown keys {sorted(extra)}")
         r.setdefault("scopes", ["all"])
+        if not isinstance(r["scopes"], list) or not all(isinstance(s, str) and s for s in r["scopes"]):
+            raise bench.BenchError(f"{path}: rule {i + 1}: scopes must be a list of scope names")
     return raw
 
 
@@ -758,6 +764,8 @@ def arena(reports: list[dict], reps: int = BOOT, seed: int = 0) -> dict[str, Any
     if len({(r["meta"]["golden_sha256"], r["meta"]["split"]) for r in reports}) > 1:
         raise bench.BenchError("reports come from different golden sets or splits: not comparable")
     rated = [x for x in reports[0]["images"] if x["grade"] is not None]
+    if not rated:
+        raise bench.BenchError("no frame in these reports has a grade (stars or keep): nothing to rank the models on")
     paths = [x["path"] for x in rated]
     grades = [float(x["grade"]) for x in rated]
     S: list[list[float]] = []
@@ -873,7 +881,7 @@ def cmd_init(a) -> int:
     cull_rows: dict[str, dict] = {}
     if a.cull:
         with open(a.cull, newline="", encoding="utf-8-sig") as f:
-            cull_rows = {os.path.normpath(os.path.abspath(r["path"])): r for r in csv.DictReader(f)}
+            cull_rows = {os.path.realpath(r["path"]): r for r in csv.DictReader(f)}
     out = Path(a.out)
     target = out / IMAGES_CSV
     if target.exists() and not a.force:
@@ -883,7 +891,7 @@ def cmd_init(a) -> int:
         w = csv.DictWriter(f, fieldnames=IMAGE_FIELDS)
         w.writeheader()
         for r in rows:
-            c = cull_rows.get(os.path.normpath(r.path), {})
+            c = cull_rows.get(os.path.realpath(r.path), {})
             w.writerow({"path": r.path, "split": "test", "trip": r.trip, "group": c.get("burst", ""),
                         "category": c.get("category", ""), "stars": -1 if r.pick == -1 else f"{r.rating:g}",
                         "keep": {1: 1, -1: 0}.get(r.pick, "")})
@@ -910,8 +918,11 @@ def cmd_score(a) -> int:
     g = _golden(a.golden)
     sc = _scores(a.scores, g["root"])
     repeat = _scores(a.repeat, g["root"]) if a.repeat else None
-    rep = evaluate(g, sc, split=None if a.split == "all" else a.split, k=a.k, repeat=repeat, scores_path=a.scores,
-                   model=a.model)
+    try:
+        rep = evaluate(g, sc, split=None if a.split == "all" else a.split, k=a.k, repeat=repeat,
+                       scores_path=a.scores, model=a.model)
+    except GoldenError as e:
+        raise SystemExit(f"error: {e}") from None
     out = Path(a.out)
     path = bench.write_json(rep, out / "report.json")
     md = report_md(rep)

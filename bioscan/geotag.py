@@ -450,7 +450,7 @@ def resolve_offset(photos: list[Photo], track: Track, tz: tzinfo | None, offset_
     """given (--offset) > clock photos (median) > photos with EXIF GPS (estimate_offset) > 0."""
     if offset_s is not None:
         return OffsetEstimate(offset_s, "given")
-    clocks = [offset_from_clock(p.taken_at, p.clock, tz) for p in photos if p.clock and p.taken_at]
+    clocks = [offset_from_clock(p.taken_at, p.clock, tz) for p in photos if p.clock]
     if clocks:
         return OffsetEstimate(round(statistics.median(clocks), 1), "clock", refs=len(clocks))
     refs = [(t, p.lat, p.lon) for p in photos if has_gps(p) and (t := capture_utc(p.taken_at, tz)) is not None]
