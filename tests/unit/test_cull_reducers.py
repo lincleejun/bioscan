@@ -10,7 +10,7 @@ from bioscan import cull, profile
 
 BURST = {"max_gap_s": 1.5, "min_cosine": 0.92}
 SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2, "by": "group",
-          "waive": {"night": ["underexposed"]}, "horizon_flag_deg": 3.0, "headroom_min": 0.02}
+          "waive": {"night": ["underexposed"]}, "horizon_flag_deg": 3.0, "headroom_min": 0.02, "lead_room_min": 0.1}
 
 
 def test_burst_chains_one_camera_close_in_time_and_alike():
@@ -291,6 +291,45 @@ def test_select_flags_tight_headroom_and_the_flag_never_changes_the_selection():
 def test_select_checks_headroom_min(bad):
     with pytest.raises(ValueError, match="select.headroom_min"):
         cull.check_select(SELECT | {"headroom_min": bad})
+
+
+def facing(path, t, side, *boxes, box=None):
+    """boxed() plus the facing stage's side for the best box (or box id `box`)."""
+    e = boxed(path, t, *boxes)
+    best = max(range(len(boxes)), key=lambda i: boxes[i][1]) if box is None else box
+    e["products"]["facing"] = {"box": best, "side": side, "offset": None, "head": None, "eye": None}
+    return e
+
+
+def test_select_flags_no_lead_room_and_the_flag_never_changes_the_selection():
+    events = [facing("right_edge", 0, "right", ((0.6, 0.3, 0.95, 0.7), 0.9)),    # 0.05 in front, 0.6 behind
+              facing("left_edge", 10, "left", ((0.04, 0.3, 0.4, 0.7), 0.9)),
+              facing("away", 20, "left", ((0.6, 0.3, 0.95, 0.7), 0.9)),          # faces into the frame: room ahead
+              facing("room", 30, "right", ((0.5, 0.3, 0.88, 0.7), 0.9)),         # 0.12 in front
+              facing("front", 40, None, ((0.6, 0.3, 0.95, 0.7), 0.9)),           # at the camera, or unknown
+              facing("portrait", 50, "right", ((0.0, 0.0, 0.97, 0.9), 0.9)),     # fills the frame
+              facing("wide", 60, "right", ((0.0, 0.3, 0.92, 0.5), 0.9)),         # 0.08 in front, none behind
+              facing("other", 70, "right", ((0.6, 0.3, 0.95, 0.7), 0.5), ((0.2, 0.3, 0.4, 0.7), 0.9), box=0),
+              boxed("no_stage", 80, ((0.6, 0.3, 0.95, 0.7), 0.9))]             # a run without facing
+    r = run(events, per_category=0)
+    assert {p: x["flags"] for p, x in r.items()} == {
+        "right_edge": ["no_lead_room"], "left_edge": ["no_lead_room"], "away": [], "room": [], "front": [],
+        "portrait": [], "wide": [], "other": [], "no_stage": []}       # other: facing measured a box not the subject
+    plain = [ev(e["path"], i * 10) for i, e in enumerate(events)]
+    drop = lambda out: {p: {k: v for k, v in x.items() if k != "flags"} for p, x in out.items()}  # noqa: E731
+    assert drop(r) == drop(run(plain, per_category=0))                                 # a flag is not a reason
+    assert run(events, lead_room_min=0.15)["room"]["flags"] == ["no_lead_room"]
+    assert run(events, lead_room_min=0.0)["right_edge"]["flags"] == []                 # 0 turns it off
+    all3 = tilted("all", 0, 5.0)
+    all3["products"] |= {k: v for k, v in facing("all", 0, "left", ((0.02, 0.0, 0.3, 0.4), 0.9))["products"].items()
+                         if k in ("identify", "facing")}
+    assert cull.flags(all3) == ["horizon_tilt", "tight_headroom", "no_lead_room"] == list(cull.FLAGS)
+
+
+@pytest.mark.parametrize("bad", [-1, "0.1", True, float("nan"), 1.5])
+def test_select_checks_lead_room_min(bad):
+    with pytest.raises(ValueError, match="select.lead_room_min"):
+        cull.check_select(SELECT | {"lead_room_min": bad})
 
 
 @pytest.mark.parametrize("bad", [-1, "3", True, float("nan")])

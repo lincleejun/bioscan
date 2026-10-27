@@ -1,6 +1,6 @@
 # Album: aesthetics and culling
 
-The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Nothing here deletes or moves a photo or writes into one; only `cull --xmp` rates photos, in new XMP sidecars.
+The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Scoring and culling never delete, move or write into a photo; only `cull --xmp` rates photos, in new XMP sidecars. Acting on the marks is a separate, explicit step: the review page's Delete drops removes them through the running service (`POST /apply`), and `aesthetic apply --drop-to DIR` moves them.
 
 ## Aesthetics
 
@@ -30,29 +30,38 @@ The `aesthetics` stage gives each frame an aesthetic score from a small linear *
 
 ## Scoring a folder: `bioscan aesthetic score`
 
-The ranking on its own, without the cull reducers: score a folder with the `album` profile and export it in any of
-three forms at once, so the same run can be looked at and kept as data.
+The ranking with the cull's verdict alongside: score a folder with the `album` profile, run its reducers (`burst`,
+`select`, as `bioscan cull` does), and export it in any of three forms at once, so the same run can be looked at and
+kept as data. Reject reasons, waived reasons, flags and status (pick / spare / duplicate / reject) come from `select`,
+so a night photo that `cull` waives `underexposed` for reads the same on the score page.
 
 ```sh
 bioscan aesthetic score ~/Pictures/2026-05-trip -r --export json,csv,html --out ~/Pictures/2026-05-trip/aesthetic
 bioscan aesthetic score --preds aesthetic.ndjson --export html --out aesthetic      # again, offline
 bioscan aesthetic score ~/Pictures/2026-05-trip --species --export json,csv,html --out aes   # ... and name the animals
+bioscan aesthetic score ~/Pictures/2026-05-trip --species --lat 37.87 --lon -122.25 --out aes   # photos without GPS
 ```
 
 `--export` takes `json` (default), `csv`, `html`, comma-separated; `--out` is a prefix. `--species` turns the album
 profile's species naming on (BioCLIP loads; the location prior applies as in `bioscan run`): each photo carries the
 name of its surest box (species, or genus / family when only that held up, as `bioscan summarize` counts it).
+`--lat/--lon` (both or neither) is the batch coordinate for the photos whose EXIF has no GPS, as in `bioscan run`:
+a photo's own GPS still wins. It goes into the service request, so `--preds` (no service call) refuses it.
+The scan leaves out `<out>-files/` (the page's own copies from an earlier run). The printed summary gives scored /
+named / failed, the score range and star cuts, the top taxa (common name, count) and the scene-group counts.
 
 | file | what |
 |---|---|
-| `<out>.ndjson` | the run's events with a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
-| `<out>.csv` | one row per photo, best first: rank, path, score, stars, scene, species, common, level, reject_reasons, flags, sharpness, taken_at (the three name columns are empty without `--species`; `common` is the English name at every level: "Lesser Goldfinch", or "a vireo" / "a hawk or eagle" for a genus or family, from the common names of the taxon's candidates); failed decodes last |
-| `<out>.html` | the review page: a photo grid (score, stars, name, reject reason and flags on each card), an overview panel (marks progress, the score cut of each star) and a **taxon tree** (class → order → family → genus → species, with counts; click a branch to see only it, ⇢ merges one name into another). Search, sort (default: stars, then time taken, so a burst stays in shooting order within a star band; also score, name, date, species) and filters (stars, marks, reject reason, scene, species, folder) live in the toolbar's popovers; active filters show as chips. **Marks**: click selects a card, shift-click a range, ⌘-click adds, ⌘A all shown; a floating bar keeps / drops / unmarks the selection, the group header does the same for everything in view (the branch or filter), <kbd>K</kbd> / <kbd>X</kbd> / <kbd>U</kbd> work on the selection and in the lightbox. Marks stay in the browser. **Export keeps…** (overview panel) asks for a destination path (remembered) and copies the kept originals and their XMP sidecars there, files already there left as is; **Delete drops…** asks for confirmation and removes the dropped originals and sidecars from disk. Both go through the running bioscan service (`POST /apply` on the `--url` the page was made with, gated by the token in `~/.cache/bioscan/serve-token` that `aesthetic score` bakes into the page), so keep `bioscan serve` running while you review; the paths must be inside its `--allow-root`s. Without a service the page falls back to the browser's directory picker (Chrome, Edge: it asks for the photo folder once and remembers it); elsewhere save the decisions file from the ⋯ menu and run `bioscan aesthetic apply`. The **lightbox** (double-click, ↵ or the corner button) shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
+| `<out>.ndjson` | the run's events (with `products.burst` and `products.select`) and a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
+| `<out>.csv` | one row per photo, best first: rank, path, score, stars, status, scene, species, common, level, reject_reasons, waived, flags, sharpness, taken_at (the three name columns are empty without `--species`; `common` is the English name at every level: "Lesser Goldfinch", or "a vireo" / "a hawk or eagle" for a genus or family, from the common names of the taxon's candidates; status, reject_reasons and waived are `select`'s); failed decodes last |
+| `<out>.html` | the review page: a photo grid (score, stars, name, reject reason, cull status and flags on each card), an overview panel (marks progress, the score cut of each star) and a **taxon tree** (class → order → family → genus → species, with counts; click a branch to see only it, ⇢ merges one name into another). Search, sort (default: stars, then time taken, so a burst stays in shooting order within a star band; also score, name, date, species) and filters (stars, marks, reject reason, scene, species, folder) live in the toolbar's popovers; active filters show as chips. **Marks**: click selects a card, shift-click a range, ⌘-click adds, ⌘A all shown; a floating bar keeps / drops / unmarks the selection, the group header does the same for everything in view (the branch or filter), <kbd>K</kbd> / <kbd>X</kbd> / <kbd>U</kbd> work on the selection and in the lightbox. Marks stay in the browser. **Export keeps…** (overview panel) asks for a destination path (remembered) and copies the kept originals and their XMP sidecars there, files already there left as is; **Delete drops…** asks for confirmation and removes the dropped originals and sidecars from disk. Both go through the running bioscan service (`POST /apply` on the `--url` the page was made with, gated by the token in `~/.cache/bioscan/serve-token` that `aesthetic score` bakes into the page), so keep `bioscan serve` running while you review; the paths must be inside its `--allow-root`s. Without a service the page falls back to the browser's directory picker (Chrome, Edge: it asks for the photo folder once and remembers it); elsewhere save the decisions file from the ⋯ menu and run `bioscan aesthetic apply`. The **lightbox** (double-click, ↵ or the corner button) shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
 
 `bioscan aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
 **copied** to `--keep-to` (originals and their XMP sidecars), the drops **moved** to `--drop-to`; `--dry-run` only
-reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo already at the target is
-skipped and a missing one reported (exit 1).
+reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo whose file or any of its
+sidecars is already at the target (or would be, from an earlier photo in the same run, `--dry-run` included) is
+skipped and a missing one reported (exit 1). A shared `<stem>.xmp` stays behind while another photo with that stem
+(the RAW of a RAW+JPEG pair) stays in the folder; the same holds for the page's **Delete drops…**.
 
 Stars are quintiles of the run's own scores (5 = top fifth), a relative rank and not a rating. A photo without a
 score (no head installed) sorts last with the head's note; nothing is rated, moved or deleted.
@@ -98,6 +107,25 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   In `aesthetic score`'s CSV and HTML the scene column shows the label with its group, e.g. `coast (landscape)`.
 - **Bursts** (`burst`): frames of one camera (EXIF Make and Model) at most 1.5 s apart, using the sub-second capture
   time, whose frame vectors have cosine at least 0.92.
+- **Facing** (`facing`, **off by default**): which way the subject (identify's best box) looks, for the
+  `no_lead_room` flag. OWLv2 is asked once more, on the subject box's crop, for the kind's head and eye (`bird head` /
+  `bird eye`, `mammal …`, `animal …` for other animals); the head's centre (the eye's when no head is found) at least
+  0.15 of the box width left or right of the box centre gives `side`; nearer the centre (at the camera or away) or
+  with neither found it is null. The album profile leaves it out because of its cost: one more OWLv2 forward per
+  photo with a box, about 118 ms per photo on the owner's Mac (MPS, 95 smoke photos, 2026-10-22): `aesthetic score`
+  took 25.6 s with it against 14.5 s without (+77%), for a flag that fired on 2 of the 95. To turn it on for
+  `aesthetic score` and `bioscan cull`, list it in the album profile's stages in a `bioscan.toml` (project, user or
+  `$BIOSCAN_CONFIG`; `bioscan config show --profile album` shows the stages in use):
+
+  ```toml
+  [profile.album]
+  stages = ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
+  ```
+
+  or, for one `bioscan run`, `--profile album --want identify,embed,aesthetics,quality,scene,facing`. On the smoke
+  photos it found a head or an eye in 82 of 91 subject boxes and gave a side to 65; of the 45 a person could call
+  left or right it got 40 right, none the wrong way. The prompts and thresholds are constants in
+  `bioscan/plugins/facing/stage.py` and in the stage's fingerprint; guesses, unverified until #28's labelled trips.
 - **Selection** (`select`): the best frame of each burst: not rejected, subject sharpness (within 0.03 of the sharpest
   counts as equal), not cut off, exposure within ±0.2, then the aesthetic score when a run has one (it only reorders,
   never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category (`by`: the
@@ -110,9 +138,12 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   horizon tilts more than `horizon_flag_deg` (default 3°) either way; `tight_headroom` when the subject (identify's
   best box by score) starts less than `headroom_min` (default 0.02, a share of the frame height; 0 turns it off)
   below the frame top and is not a fill-the-frame portrait (box under half the frame). It reads the existing boxes, no
-  extra model call; a box within 1% of the top is also quality's `subject_cut` reject. Both thresholds are guesses,
-  unverified until #28's labelled trips exist. `aesthetic score` reads the same options from the album profile
-  (`[profile.album.options.select] horizon_flag_deg = 5`) for its CSV column and card badge; XMP gets nothing. A
+  extra model call; a box within 1% of the top is also quality's `subject_cut` reject. `no_lead_room` when the
+  subject faces (the `facing` stage's side) the nearer side edge with less than `lead_room_min` (default 0.1, a share
+  of the frame width; 0 turns it off) in front of its box and is not a fill-the-frame portrait; it needs the `facing`
+  stage, which the album profile leaves out (see Facing above), so by default no photo gets it. All three thresholds are guesses,
+  unverified until #28's labelled trips exist. `aesthetic score` runs the album profile's reducers too
+  (`[profile.album.options.select] horizon_flag_deg = 5` applies to its CSV column and card badge); XMP gets nothing. A
   preds file from before flags reads as no flags.
 - **Outputs**: `--csv` (one row per photo: status, keep, category, rank, reasons, waived, flags, burst, burst rank, duplicate of,
   sharpness, aesthetic, capture time; failed photos too), `--link-dir` (a symlink per pick in `<dir>/<category>/`,

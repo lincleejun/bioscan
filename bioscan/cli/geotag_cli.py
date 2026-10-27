@@ -154,6 +154,16 @@ def run_coordinates(paths: list[str], a) -> tuple[dict[str, tuple[float, float]]
             {f.path for f in res.fixes if f.source == "exif"})
 
 
+def exif_gps_paths(paths: list[str]) -> set[str]:
+    """The paths whose EXIF has GPS, for a batch --lat/--lon that only fills the others (a photo's own
+    GPS wins, as request coordinates override EXIF on the service side). Pillow reads it; no exiftool."""
+    try:
+        return {ph.path for ph in read_photos(paths) if ph.lat is not None}
+    except ImportError as e:
+        raise SystemExit(f"--lat/--lon needs Pillow to read EXIF GPS, so a photo's own GPS wins over "
+                         f"the batch coordinate; the EXIF reader did not import ({e})") from None
+
+
 def stage_options(paths: list[str], a) -> tuple[dict, set[str] | None, set[str] | None]:
     """`bioscan run --gpx` when the profile runs the geotag stage (wildlife): the service places the
     photos, so the request carries options.geotag instead of per-file coordinates. The clock offset

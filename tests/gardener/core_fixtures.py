@@ -158,7 +158,8 @@ DATA = {"content": {"group": "wildlife", "group_zh": "野生动物", "label": "b
 
 class Fakes:
     """What the fake Analyzer saw and the knobs a test turns: `gate` (cleared = analysis waits per
-    item), `analyzed` ((asset path, caps) per item), `exports` (export calls), `revealed`."""
+    item), `analyzed` ((asset path, caps) per item), `exports` (export calls), `revealed`, `boxes`
+    (file name -> the raw:identify boxes with species on; default one Eastern Screech-Owl box)."""
 
     def __init__(self) -> None:
         self.gate = threading.Event()
@@ -170,6 +171,7 @@ class Fakes:
         self.tz_seen: str | None = None
         self.finals: list[bool] = []
         self.faces_seen: list[str] = []
+        self.boxes: dict[str, list[dict[str, Any]]] = {}
 
     def analyzer(self, engine, *, decode_workers=2, chunk=16, detail_edge=None):
         return FakeAnalyzer(self, engine)
@@ -275,6 +277,10 @@ class FakeAnalyzer:
                 else:
                     yield ItemResult(it["asset_id"], c, "done", DATA[c], None, f"{c}@{self.fakes.version}")
             yield ItemResult(it["asset_id"], "raw:aesthetics", "done", {"score": 5.0}, None, None)
+            if "species" in caps and "fail" not in Path(it["path"]).name:
+                boxes = self.fakes.boxes.get(Path(it["path"]).name, [owl_box()])
+                yield ItemResult(it["asset_id"], "raw:identify", "done", {"gate": {"class": "bird"}, "boxes": boxes},
+                                 None, f"identify@{self.fakes.version}")
 
     def reduce(self, rows, caps):
         return {r["asset_id"]: {"burst": {"id": "b1", "rank": i + 1, "size": len(rows)},
@@ -284,6 +290,14 @@ class FakeAnalyzer:
 
     def close(self):
         pass
+
+
+def owl_box(xyxy=(0.1, 0.1, 0.5, 0.5), scientific="Megascops asio", common="Eastern Screech-Owl",
+            concept="avibase:test-asio", level="species", p=0.8) -> dict[str, Any]:
+    """One raw:identify box with its species result (contract.Species), as BioScan returns it."""
+    return {"id": 0, "xyxy": list(xyxy), "score": 0.8, "kind": "bird",
+            "species": {"list": "fake", "level": level, "taxon": scientific if level == "species" else "Megascops",
+                        "top": [{"scientific": scientific, "concept": concept, "common": common, "posterior": p}]}}
 
 
 def make_jpg(path: Path, size=(64, 48), color=(90, 120, 30), when: float | None = None) -> str:
@@ -307,7 +321,8 @@ class Env:
         self.engine = engine or ok_engine()
 
     def client(self, **kw) -> TestClient:
-        app = create_gardener_app(self.data, engine=self.engine, toolkit=self.fakes.toolkit(), **kw)
+        app = create_gardener_app(self.data, engine=self.engine, toolkit=self.fakes.toolkit(),
+                                  **{"name_lists": None} | kw)
         return TestClient(app, base_url=BASE)
 
 

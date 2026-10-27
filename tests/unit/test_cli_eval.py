@@ -178,7 +178,7 @@ def test_identify_opts_reach_the_service_and_the_report(tmp_path, monkeypatch):
     monkeypatch.setattr(ev.client, "run", lambda payload, url: sent.append(payload) or
                         (json.dumps(e).encode() for e in PREDS))
     assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "a"), "--identify-opt", "kind_check=false",
-                     "--identify-opt", "range_veto=true"]) == 0
+                     "--identify-opt", "range_veto=true"]) == cli.EXIT_PARTIAL   # PREDS has one failed image
     assert sent[0]["options"]["identify"] == {"top_k": 5, "geo": True, "kind_check": False, "range_veto": True}
     meta = json.loads((tmp_path / "a" / "preds.ndjson").read_text().splitlines()[0])
     assert meta["options"]["identify"]["kind_check"] is False
@@ -195,6 +195,50 @@ def test_stream_without_done_is_incomplete(tmp_path, monkeypatch):
     from bioscan.cli import main as cli
     monkeypatch.setattr(ev.client, "run", lambda payload, url: (json.dumps(e).encode() for e in PREDS[:3]))
     assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "c")]) == cli.EXIT_INCOMPLETE
+
+
+def test_rejected_request_keeps_earlier_preds(tmp_path, monkeypatch):
+    _fake_service(monkeypatch, PREDS)
+    ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    preds = tmp_path / "a" / "preds.ndjson"
+    before = preds.read_bytes()
+
+    def rejected(payload, url):
+        raise ev.client.ServiceError("400 bad option")
+        yield  # a generator, like client.run
+    monkeypatch.setattr(ev.client, "run", rejected)
+    with pytest.raises(ev.client.ServiceError):
+        ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    assert preds.read_bytes() == before and not (tmp_path / "a" / "preds.ndjson.tmp").exists()
+
+
+def test_broken_stream_still_replaces_preds(tmp_path, monkeypatch):
+    _fake_service(monkeypatch, PREDS)
+    ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+
+    def broken(payload, url):
+        yield json.dumps(PREDS[0]).encode()
+        raise ev.client.ServiceError("stream broke")
+    monkeypatch.setattr(ev.client, "run", broken)
+    with pytest.raises(ev.client.ServiceError):
+        ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    lines = (tmp_path / "a" / "preds.ndjson").read_text().splitlines()
+    assert len(lines) == 2 and json.loads(lines[1]) == PREDS[0]
+
+
+def test_empty_stream_is_incomplete_and_keeps_earlier_preds(tmp_path, monkeypatch):
+    from bioscan.cli import main as cli
+    monkeypatch.setattr(ev.client, "health", lambda url: {"status": "ok"})
+    monkeypatch.setattr(ev.client, "run", lambda payload, url: iter(()))       # 200, no events
+    assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "new")]) == cli.EXIT_INCOMPLETE
+    _fake_service(monkeypatch, PREDS)
+    ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    preds = tmp_path / "a" / "preds.ndjson"
+    before = preds.read_bytes()
+    monkeypatch.setattr(ev.client, "run", lambda payload, url: iter(()))
+    report, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
+    assert complete is False and "- complete: False" in report
+    assert preds.read_bytes() == before and not (tmp_path / "a" / "preds.ndjson.tmp").exists()
 
 
 def test_old_preds_without_meta_still_score(tmp_path):

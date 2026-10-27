@@ -45,7 +45,10 @@ class FakeSigLIP2:
 
 
 class FakeOWLv2:
-    """Detector: one bird box at BOX, confidence 0.84; raises on FAIL_SIZE images."""
+    """Detector: one bird box at BOX, confidence 0.84; raises on FAIL_SIZE images. Asked for a head
+    and an eye (the facing stage, prompts "<kind> head", "<kind> eye"), it finds the head at HEAD of
+    the crop (right of centre: the subject faces right) and no eye."""
+    HEAD = (0.7, 0.05, 0.95, 0.35)      # fractions of the crop it is handed
 
     def __init__(self, fakes):
         self.fakes = fakes
@@ -59,6 +62,10 @@ class FakeOWLv2:
         return self.detect_batch([image], prompts, threshold=threshold)[0]
 
     def detect_batch(self, images, prompts, *, threshold, batch=8):
+        if prompts[0].endswith(" head"):
+            self.fakes.parts += [(im.size, tuple(prompts)) for im in images]
+            return [[Detection(prompts[0], 0.3, tuple(f * s for f, s in zip(self.HEAD, im.size * 2)))]
+                    for im in images]
         self.fakes.detected(images)
         if any(im.size == FAIL_SIZE for im in images):
             raise RuntimeError("detector exploded")
@@ -104,12 +111,13 @@ def owl_list():
 
 class Fakes:
     """The model adapters of one Engine, and what reached them: `frames` (the image size of every
-    frame the detector was shown), `crops` (every species crop's size), `where` ((lat, lon, week)
-    of every location-prior lookup)."""
+    frame the detector was shown), `parts` ((crop size, prompts) of every head/eye query), `crops`
+    (every species crop's size), `where` ((lat, lon, week) of every location-prior lookup)."""
 
     def __init__(self, fail_load=False, block: threading.Event | None = None):
         self.fail_load, self.block = fail_load, block
         self.frames: list[tuple[int, int]] = []
+        self.parts: list[tuple[tuple[int, int], tuple[str, ...]]] = []
         self.crops: list[tuple[int, int]] = []
         self.where: list[tuple] = []
 

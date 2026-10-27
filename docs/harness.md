@@ -244,7 +244,7 @@ Rates are fractions 0–1 rounded to 6 places, like `metrics`. The built-in metr
 ```toml
 [[rule]]
 metric = "top1"                      # any metric key except n
-scopes = ["all", "bird", "mammal"]   # default: all, bird, mammal, other; <tier>/<scope> keys work too
+scopes = ["all", "bird", "mammal"]   # a list; default: all, bird, mammal, other; <tier>/<scope> keys work too; an unknown scope is an error
 max_drop_pts = 3.0                   # exactly one of: max_drop_pts, max_rise_pts (rates, percentage points),
                                      #                 max_drop_pct, max_rise_pct (relative %, any metric)
 min_n = 1                            # skip scopes with fewer images in either report (optional)
@@ -371,8 +371,8 @@ bioscan bench scorecard runs/album/report.json                       # tier albu
 ```
 
 CI does the same in `tests/models` on 24 smoke photos (scene truth `wildlife`), writes `models-report-album.json`
-and `models.yml` compares it with `baselines/ci-album.json` under `baselines/budget-album.toml` (no baseline yet:
-it prints the candidate between `===== BEGIN bioscan-report ci-album candidate =====` markers).
+and `models.yml` compares it with `baselines/ci-album.json` under `baselines/budget-album.toml`: a regression over budget fails the job (without that file it
+prints the candidate between `===== BEGIN bioscan-report ci-album candidate =====` markers).
 
 | Plugin | Metric (kind) | Scopes | Definition |
 |---|---|---|---|
@@ -473,7 +473,7 @@ Rates carry Wilson intervals (`<rate>_ci`), and the scorecard judges them on the
 Geotagging does not change a photo's capture time, so BirdNET's week (read from `taken_at`) is unchanged by
 construction. Only the place can move, and `cell_change_rate` says how often it leaves the truth's 0.01° cell:
 1.0% in `perfect` ([docs/results/2026-09-24-geotag-synthetic.md](results/2026-09-24-geotag-synthetic.md)). `--gt-out` writes the golden CSV once per scenario with
-lat/lon replaced by the geotag fix (blank where there is none), so `bench run` can measure identification on
+lat/lon replaced by the geotag fix (blank where there is none; the source CSV is the absolute path `geotag_synth.py` records in scenarios.json), so `bench run` can measure identification on
 GPX-derived positions:
 
 ```sh
@@ -573,7 +573,8 @@ bioscan bench aesthetic compare runs/aes/eva/report.json runs/aes/qrealign-4b/re
 without a finite score counts as the lowest score everywhere.
 
 **images.csv / pairs.csv.** Columns and the drop-reason vocabulary are in the design doc (§4.1); a file with an
-unknown column, variant or reason is refused. Rows default to split `test`; `--split dev|all` scores the others.
+unknown column, variant or reason is refused. Rows default to split `test`; `--split dev|all` scores the others; a
+split with no rows is an error naming the splits the set has. Paths match after resolving symlinks on both sides.
 
 **report.json** (schema `bioscan-aesthetic-golden`, version 1): `meta` (tier `aesthetic-golden` and profile `album`
 for `bench scorecard`, golden path and sha256 of images.csv + pairs.csv, split, model, scores path and sha, git, date, tolerances), `metrics` per scope (`all`, `category:<c>`,

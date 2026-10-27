@@ -7,11 +7,13 @@ import argparse
 import asyncio
 import json
 import logging
+import secrets
 from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Executor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,10 +42,17 @@ def parse_run(body: Any, registry: Sequence[plugin.Manifest] = BUILTIN,
     for i, inp in enumerate(inputs):
         if not isinstance(inp, dict) or not isinstance(inp.get("path"), str) or not Path(inp["path"]).is_absolute():
             raise ValueError(f"inputs[{i}].path must be an absolute path")
-        for key in ("lat", "lon"):
+        if "\x00" in inp["path"]:
+            raise ValueError(f"inputs[{i}].path contains a NUL character")
+        for key, bound in (("lat", 90), ("lon", 180)):
             v = inp.get(key)
             if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
                 raise ValueError(f"inputs[{i}].{key} must be a number")
+            # abs(v) <= bound is False for NaN and ±inf, and, unlike isfinite, never overflows on a huge int
+            if v is not None and not abs(v) <= bound:
+                raise ValueError(f"inputs[{i}].{key} must be finite and within ±{bound}")
+        if (inp.get("lat") is None) != (inp.get("lon") is None):
+            raise ValueError(f"inputs[{i}]: lat and lon go together")
         if inp.get("taken_at") is not None and not isinstance(inp["taken_at"], str):
             raise ValueError(f"inputs[{i}].taken_at must be a string")
         clean.append({"path": inp["path"], "lat": inp.get("lat"), "lon": inp.get("lon"), "taken_at": inp.get("taken_at")})
@@ -57,6 +66,8 @@ def parse_run(body: Any, registry: Sequence[plugin.Manifest] = BUILTIN,
             raise ValueError(f"unknown products: {unknown}")
     resolved = profile.resolve(config or profile.builtin(registry), _profile_of(body), want,
                                body.get("options"), check=lambda m, o: m.check(o), registry=registry)
+    if any("\x00" in p for p in stages.paths(resolved.plan)):
+        raise ValueError("an options path contains a NUL character")
     return clean, resolved.plan
 
 
@@ -81,7 +92,8 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
     """`plugins`: the stages this service offers (default the built-in ones; tests add toy stages).
     `profiles`: what a request's "profile" expands with (default: bioscan/profiles.toml only).
     `token`: what POST /apply requires in X-Bioscan-Token (default: the machine's serve-token file,
-    made when missing); the review page opens as file://, so any origin may call, the token gates."""
+    made when missing); the review page opens as file://, so any origin may call, the token gates.
+    /run, which no page calls, refuses any Origin but the service's own."""
     runs = RunQueue(engine, decode_pool=decode_pool, decode_workers=decode_workers, chunk=chunk,
                     detail_edge=detail_edge)
 
@@ -110,6 +122,11 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
 
     @app.post("/run")
     async def run(request: Request) -> Any:
+        origin = request.headers.get("origin")
+        if origin is not None and urlsplit(origin).netloc != request.headers.get("host"):
+            # no browser page calls /run; this stops a cross-origin page POSTing text/plain (no preflight)
+            # and reading the stream. It is no DNS-rebinding guard: there Host is the attacker's own name.
+            return JSONResponse({"error": "/run does not take requests from other origins"}, status_code=403)
         try:
             inputs, plan = parse_run(json.loads(await request.body()), plugins, profiles)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -140,7 +157,8 @@ def create_app(engine: Any, *, decode_pool: Executor | DecodePool | None = None,
         """{keep: [paths], drop: [paths], keep_to: DIR | null, delete: bool}: copies the keeps to keep_to,
         deletes the drops when `delete`; each with its XMP sidecars. Every path must be inside the
         allowed roots. Returns apply.apply's counts."""
-        if request.headers.get("x-bioscan-token") != token:
+        sent = request.headers.get("x-bioscan-token")
+        if not token or not sent or not secrets.compare_digest(sent.encode(), token.encode()):
             return JSONResponse({"error": "missing or wrong X-Bioscan-Token"}, status_code=403)
         try:
             body = json.loads(await request.body())
@@ -179,6 +197,9 @@ def parse_apply(body: Any) -> tuple[list[str], list[str], str | None, bool]:
         raise ValueError("keep needs keep_to")
     if lists["drop"] and not delete:
         raise ValueError("drop needs delete: true (the service never moves drops; bioscan aesthetic apply --drop-to does)")
+    for key, paths in (*lists.items(), ("keep_to", [keep_to] if keep_to else [])):
+        if any("\x00" in q for q in paths):
+            raise ValueError(f"{key} contains a path with a NUL character")
     return lists["keep"], lists["drop"], keep_to, delete
 
 

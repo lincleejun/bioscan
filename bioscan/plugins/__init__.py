@@ -9,6 +9,7 @@ from bioscan.plugin import Manifest
 from bioscan.plugins.aesthetics import MANIFEST as AESTHETICS
 from bioscan.plugins.burst import MANIFEST as BURST
 from bioscan.plugins.embed import MANIFEST as EMBED
+from bioscan.plugins.facing import MANIFEST as FACING
 from bioscan.plugins.geotag import MANIFEST as GEOTAG
 from bioscan.plugins.identify import MANIFEST as IDENTIFY
 from bioscan.plugins.jpg import MANIFEST as JPG
@@ -17,7 +18,7 @@ from bioscan.plugins.scene import MANIFEST as SCENE
 from bioscan.plugins.select import MANIFEST as SELECT
 
 # report order; new stages go last, so existing outputs keep their key order
-BUILTIN: tuple[Manifest, ...] = (IDENTIFY, EMBED, JPG, GEOTAG, AESTHETICS, QUALITY, SCENE)
+BUILTIN: tuple[Manifest, ...] = (IDENTIFY, EMBED, JPG, GEOTAG, AESTHETICS, QUALITY, SCENE, FACING)
 BY_NAME: dict[str, Manifest] = {m.name: m for m in BUILTIN}
 # Reducers (Manifest.kind "reducer"): model-free units over a run's results, run by the CLI or
 # offline (bioscan.cull), in this order. Profiles name them; the service never runs them.
