@@ -97,14 +97,20 @@ TOOLS = [
           ("task_id", "dest_root")),
     _tool("run_import", "执行或续跑导入计划（后台复制，逐文件 sha256 校验后入库；已核验的文件不再复制）。"
           "先让用户看过 plan_import 的结果。", {"plan_id": _STR}, ("plan_id",)),
-    _tool("get_import", "导入计划的进度与结果：status 为 partial 时 failed 列出失败的文件，不是成功。",
+    _tool("get_import", "导入计划的进度与结果：status 为 partial 时 failed 列出失败的文件，不是成功。"
+          "species 为完成页物种统计：new（库中首次确认的物种）、added（已有物种补充）、to_confirm（只有模型识别的候选）、"
+          "sole（某物种唯一的照片，imported=false 表示不导入、只留在卡片与来源中）。",
           {"plan_id": _STR}, ("plan_id",)),
 
     # ---- 契约修订 5E: Lightroom handoff and cleanup plans ----
     _tool("lightroom_handoff", "把集合（collection_id）、物种（concept）或选中照片（asset_ids）交给 Lightroom Classic：冻结成员快照、"
           "写出交接文件，插件导入缺少的照片、加入以交接命名的集合、写星级与物种关键词。默认只交选入修图（edit）；uses 可指定用途。"
           "返回的 status 为 written 时插件还没处理；用 get_handoff 看逐张真实结果，不要把 written 说成完成。",
-          {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS, "uses": _IDS, "name": _STR}),
+          {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS, "uses": _IDS, "name": _STR,
+           # 契约修订 7B: optional develop preset and export step; 修图进度 only from the plugin's real results
+           "develop": {"type": "object", "description": "{uuid, name}：lightroom_presets 里的显影预设"},
+           "export": {"type": "object", "description": "{preset_path, dest_dir, overwrite: rename|skip|overwrite}"},
+           "remember": {"type": "boolean"}}),
     _tool("get_handoff", "交接的逐张结果：ok / skipped / failed 与原因，以及因 Lightroom 中已被改过而跳过的字段（conflicts）。",
           {"id": _STR}, ("id",)),
     _tool("cleanup_plan", "生成清理计划：范围内（collection_id / concept / asset_ids，缺省全库）淘汰照片的全部文件（含 sidecar）、"
@@ -113,6 +119,16 @@ TOOLS = [
     _tool("run_cleanup_plan", "执行清理计划：重新核对每张（仍为淘汰、文件未变），把文件移到废纸篓（可恢复，不释放空间，不永久删除）。"
           "只有用户看过计划（尤其是最后的物种照片）并明确同意后才调用；confirm 必须为 true。",
           {"id": _STR, "confirm": {"type": "boolean"}}, ("id", "confirm")),
+    # ---- 契约修订 7B: import batch collection, handoff retry, presets and export ----
+    _tool("import_collection", "把导入批次中已导入的照片存为以批次目录命名的手动 Collection（运行结束时已自动建立；"
+          "被删除后可再建）。", {"plan_id": _STR}, ("plan_id",)),
+    _tool("retry_handoff", "只重新交接一次交接中失败的、因原片离线或 Lightroom 找不到文件而跳过的照片：新建一次同名交接，"
+          "已在 Lightroom 中的照片按身份找回，不重复导入。插件还没返回结果时 409。", {"id": _STR}, ("id",)),
+    _tool("lightroom_presets", "插件从 Lightroom 读到的显影预设（uuid、名称）与导出预设（.lrtemplate 路径）；available=false 时插件还没运行过。",
+          {}),
+    _tool("preview_handoff", "交接前的预览：将交几张（count）、几张原片离线、代表照片 id、为这个物种或集合记住的预设与导出设置。"
+          "应用预设前先把这些给用户看。", {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS, "uses": _IDS}),
+    # ---- end 契约修订 7B ----
 ]
 _NAMES = {t["name"] for t in TOOLS}
 
@@ -186,7 +202,8 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "preview_rule":
         return "POST", f"/collections/{args['id']}/preview-rule", {"rule": args["rule"]}, None
     if name == "lightroom_handoff":
-        return "POST", "/handoffs", _pick(args, ("collection_id", "concept", "asset_ids", "uses", "name")), None
+        return "POST", "/handoffs", _pick(args, ("collection_id", "concept", "asset_ids", "uses", "name", "develop",
+                                                 "export", "remember")), None
     if name == "get_handoff":
         return "GET", f"/handoffs/{args['id']}", None, None
     if name == "cleanup_plan":
@@ -204,6 +221,14 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
         return "POST", f"/imports/{args['plan_id']}/run", {}, None
     if name == "get_import":
         return "GET", f"/imports/{args['plan_id']}", None, None
+    if name == "lightroom_presets":
+        return "GET", "/lightroom/presets", None, None
+    if name == "preview_handoff":
+        return "POST", "/handoffs/preview", _pick(args, ("collection_id", "concept", "asset_ids", "uses")), None
+    if name == "retry_handoff":
+        return "POST", f"/handoffs/{args['id']}/retry", {}, None
+    if name == "import_collection":
+        return "POST", f"/imports/{args['plan_id']}/collection", {}, None
     raise KeyError(name)
 
 

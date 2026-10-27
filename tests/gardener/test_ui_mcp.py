@@ -46,8 +46,9 @@ def test_handshake_list_and_errors(svc):
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
-                     "list_encounters", "edit_encounters", "split_burst", "preview_rule", "plan_import", "run_import", "get_import",
-                     "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan"]
+                     "list_encounters", "edit_encounters", "split_burst", "preview_rule", "plan_import", "run_import",
+                     "get_import", "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan",
+                     "import_collection", "retry_handoff", "lightroom_presets", "preview_handoff"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -191,6 +192,49 @@ def test_handoff_and_cleanup_tools_round_trip(svc):
     assert err and refused["status"] == 400
     done, err = tool(url, "run_cleanup_plan", id=plan["id"], confirm=True)
     assert not err and done["report"]["freed_bytes"] == 0 and done["report"]["recoverable"] is True
+
+
+def test_import_collection_tool(svc):
+    """契约修订 7B: the batch collection over MCP; get_import carries the species stats."""
+    from bioscan.gardener.mcp import route
+
+    assert route("import_collection", {"plan_id": "ip_1"}) == ("POST", "/imports/ip_1/collection", {}, None)
+    url, fake = svc
+    p, _ = tool(url, "plan_import", task_id=next(iter(fake.tasks)), dest_root="/lib")
+    assert p["species"]["counts"]["sole_left"] == 1
+    tool(url, "run_import", plan_id=p["id"])
+    done, err = tool(url, "import_collection", plan_id=p["id"])
+    assert not err and done["collection_id"] in fake.cols
+
+
+def test_retry_handoff_tool(svc):
+    from bioscan.gardener.mcp import route
+
+    assert route("retry_handoff", {"id": "h_1"}) == ("POST", "/handoffs/h_1/retry", {}, None)
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    h, _ = tool(url, "lightroom_handoff", asset_ids=[pick["id"]])
+    fake.handoffs[h["id"]].update(result_at=fake.now())
+    fake.handoffs[h["id"]]["items"][0].update(status="failed", reason="no write access")
+    again, err = tool(url, "retry_handoff", id=h["id"])
+    assert not err and again["scope"]["retry_of"] == h["id"]
+
+
+def test_preset_and_export_tools(svc):
+    """契约修订 7B: presets, preview, and develop/export passed through lightroom_handoff."""
+    from bioscan.gardener.mcp import route
+
+    assert route("lightroom_presets", {}) == ("GET", "/lightroom/presets", None, None)
+    assert route("preview_handoff", {"concept": "k"}) == ("POST", "/handoffs/preview", {"concept": "k"}, None)
+    ex = {"preset_path": "/p/J.lrtemplate", "dest_dir": "/out", "overwrite": "rename"}
+    assert route("lightroom_handoff", {"concept": "k", "develop": {"uuid": "P"}, "export": ex})[2] == \
+        {"concept": "k", "develop": {"uuid": "P"}, "export": ex}
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    pv, err = tool(url, "preview_handoff", asset_ids=[pick["id"]])
+    assert not err and pv["representatives"] == [pick["id"]]
+    h, err = tool(url, "lightroom_handoff", asset_ids=[pick["id"]], develop={"uuid": "P-WARM", "name": "Bird warm"})
+    assert not err and h["options"]["develop"]["uuid"] == "P-WARM"
 
 
 def test_revision_7a_tools_route_to_burst_split_and_encounter_undo(svc):

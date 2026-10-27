@@ -647,7 +647,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     @r.get("/assets/{aid}")
     def get_asset(aid: str) -> dict[str, Any]:
-        return store.asset_detail(aid) | {"managed": imports.managed(store, aid)}
+        return store.asset_detail(aid) | {"managed": imports.managed(store, aid),
+                                          "lightroom": handoff.link(store.conn(), aid)}     # 修图进度 (契约修订 7B)
 
     def preview_file(aid: str, which: int) -> FileResponse:
         a = asset_or_404(aid)
@@ -1306,6 +1307,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def run_import(pid: str) -> dict[str, Any]:
         return imports.start(store, importer, pid, store.task_roots())
 
+    @r.post("/imports/{pid}/collection")
+    def import_collection(pid: str, actor: str = ACTOR) -> dict[str, Any]:
+        """契约修订 7B: the batch's manual collection (made, or made again after a person deleted it)."""
+        if imports.batch_collection(store, pid, actor=actor) is None:
+            raise Error("这个批次还没有已导入的照片")
+        return imports.plan_json(store, pid)
+
     # ---- 契约修订 5E: Lightroom handoff and cleanup plans (handoff.py, cleanup.py) ----
     lr_dir = Path(lightroom_dir) if lightroom_dir is not None else handoff.default_dir()
     trash_fn = trash or cleanup.trash
@@ -1342,10 +1350,33 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         elif "asset_ids" not in scope:
             uses = handoff.HANDOFF_USES
         name = text(body, "name") or name
+        options = handoff.check_options(body, store.task_roots())       # 契约修订 7B: develop preset, export step
+        remember = body.get("remember", True)
+        if not isinstance(remember, bool):
+            raise Error("remember must be true or false")
         with store.tx() as c:
             hid = handoff.create(c, ids, name=name, scope=scope | {"uses": uses}, uses=uses, actor=actor,
-                                 lightroom_dir=lr_dir, lists_dir=name_lists)
+                                 lightroom_dir=lr_dir, lists_dir=name_lists, options=options)
+            if options and remember and handoff.scope_key(scope):
+                handoff.remember(c, handoff.scope_key(scope), options, actor)
             return handoff.get(c, hid)
+
+    @r.post("/handoffs/preview")
+    def preview_handoff(body: dict[str, Any] = BODY) -> dict[str, Any]:
+        """契约修订 7B: what a handoff would send (count, offline, representatives) and the remembered preset,
+        before anything is written."""
+        scope, ids, name = scope_of(body)
+        if not scope:
+            raise Error("one of collection_id, concept, asset_ids, rule is required")
+        uses = tuple(strs(body["uses"], "uses")) if body.get("uses") is not None else \
+            None if "asset_ids" in scope else handoff.HANDOFF_USES
+        out = handoff.preview(store.conn(), ids, uses, handoff.scope_key(scope))
+        return out | {"name": name, "scope": scope, "uses": uses, "presets": handoff.presets(lr_dir)}
+
+    @r.get("/lightroom/presets")
+    def lightroom_presets() -> dict[str, Any]:
+        """契约修订 7B: the develop and export presets the plugin last found in Lightroom."""
+        return handoff.presets(lr_dir)
 
     @r.get("/handoffs")
     def get_handoffs(limit: int = LIMIT100) -> list[dict[str, Any]]:
@@ -1362,6 +1393,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             if c.execute("SELECT 1 FROM handoffs WHERE id = ?", (hid,)).fetchone():
                 handoff.ingest(c, hid)
             return handoff.get(c, hid)
+
+    @r.post("/handoffs/{hid}/retry", status_code=201)
+    def retry_handoff(hid: str, actor: str = ACTOR) -> dict[str, Any]:
+        """契约修订 7B: a new handoff of only the failed / offline-skipped photos of `hid`."""
+        with store.tx() as c:
+            return handoff.get(c, handoff.retry(c, hid, actor=actor, lightroom_dir=lr_dir, lists_dir=name_lists))
 
     @r.post("/cleanup-plans", status_code=201)
     def post_cleanup_plan(body: dict[str, Any] = OPT_BODY, actor: str = ACTOR) -> dict[str, Any]:

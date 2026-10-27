@@ -243,6 +243,52 @@ def test_handoff_and_cleanup_commands(svc, capsys):
     assert code == 0 and "可恢复，未释放空间" in out and "清空废纸篓后才真正释放" in out
 
 
+def test_import_species_stats_and_batch_collection_commands(svc, capsys, tmp_path):
+    """契约修订 7B: `import show` prints the species stats; `import collection` saves the batch as a collection."""
+    from bioscan.gardener.cli import parser, request
+
+    assert request(parser().parse_args(["import", "collection", "ip_1"])) == ("POST", "/imports/ip_1/collection", {}, None)
+    url, fake = svc
+    p = run_json(capsys, url, "import", "plan", next(iter(fake.tasks)), "--dest", str(tmp_path))
+    code, out, _ = run(capsys, url, "import", "show", p["id"])
+    assert code == 0 and "物种：新增 1" in out and "唯一记录" in out and "不导入" in out
+    run(capsys, url, "import", "run", p["id"])
+    code, out, _ = run(capsys, url, "import", "collection", p["id"])
+    assert code == 0 and "Collection：c" in out
+
+
+def test_handoff_retry_command(svc, capsys):
+    """契约修订 7B: `handoff retry` maps to POST /handoffs/{id}/retry; before a result it is refused (409)."""
+    from bioscan.gardener.cli import parser, request
+
+    assert request(parser().parse_args(["handoff", "retry", "h_1"])) == ("POST", "/handoffs/h_1/retry", {}, None)
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    h = run_json(capsys, url, "handoff", "create", "--assets", pick["id"])
+    code, _, err = run(capsys, url, "handoff", "retry", h["id"])
+    assert code != 0 and "还没有返回" in err
+
+
+def test_handoff_preset_export_preview_and_presets_commands(svc, capsys):
+    """契约修订 7B: presets and export on `handoff create` (export needs all three settings), preview, presets."""
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("handoff", "create", "--concept", "k", "--preset", "P1", "--export-preset", "/p/J.lrtemplate",
+               "--export-dir", "/out", "--overwrite", "skip", "--no-remember") == \
+        ("POST", "/handoffs", {"concept": "k", "develop": {"uuid": "P1", "name": "P1"},
+                               "export": {"preset_path": "/p/J.lrtemplate", "dest_dir": "/out", "overwrite": "skip"},
+                               "remember": False}, None)
+    with pytest.raises(SystemExit):
+        req("handoff", "create", "--concept", "k", "--export-dir", "/out")          # no preset, no policy
+    assert req("handoff", "preview", "--concept", "k") == ("POST", "/handoffs/preview", {"concept": "k"}, None)
+    assert req("handoff", "presets") == ("GET", "/lightroom/presets", None, None)
+    url, fake = svc
+    assert run_json(capsys, url, "handoff", "presets")["develop"][0]["uuid"] == "P-WARM"
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    assert run_json(capsys, url, "handoff", "preview", "--assets", pick["id"])["count"] == 1
+
+
 def test_revision_7a_commands_split_bursts_undo_encounters_and_show_other_collections(svc, capsys):
     from bioscan.gardener.cli import parser, request
 

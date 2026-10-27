@@ -310,6 +310,14 @@ CREATE TABLE IF NOT EXISTS cleanup_files (
   reason TEXT, at TEXT, PRIMARY KEY (plan_id, path)
 );
 
+-- ---- 契约修订 7B: import batch collections, handoff presets/export, 修图进度 ----
+-- Added columns (store.ADDED_COLUMNS): import_plans.collection_id (the batch's manual collection),
+-- handoffs.options (JSON {develop, export, retry_of}), editor_links.progress (JSON 修图进度 from the plugin's real results).
+-- A develop preset / export step a person chose for a species (concept:<k>) or a collection, e.g. a batch (collection:<id>).
+CREATE TABLE IF NOT EXISTS editor_presets (
+  scope_key TEXT PRIMARY KEY, develop TEXT, export TEXT, actor TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
 -- ---- 契约修订 7A: a person's burst split, undoable encounter split/merge (review.py) ----
 -- A frame a person split off its burst: on every later run the reducer's burst for it is replaced by this id, so
 -- the split survives rescans (the reducer re-derives ai_suggestions.burst_id each run). Only moved frames have rows.

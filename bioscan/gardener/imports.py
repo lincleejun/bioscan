@@ -211,7 +211,8 @@ def _analysis_pending(store: st.Store, ids: list[str]) -> int:
 
 
 # ---- the plan as the API shows it ---------------------------------------------------------------------------
-def plan_json(store: st.Store, pid: str) -> dict[str, Any]:
+def plan_json(store: st.Store, pid: str, species: bool = True) -> dict[str, Any]:
+    """The plan; `species` adds the completion page's species stats (契约修订 7B), left out of lists."""
     p = store.one("SELECT * FROM import_plans WHERE id = ?", (pid,))
     if p is None:
         raise NotFound(f"no import plan {pid}")
@@ -251,12 +252,109 @@ def plan_json(store: st.Store, pid: str) -> dict[str, Any]:
                      "assets_total": len(assets), "assets_done": sum(all(x == "done" for x in v) for v in assets.values()),
                      "assets_failed": sum("failed" in v for v in assets.values())},
         "failed": [{"asset_id": i["asset_id"], "path": i["src"], "error": i["error"]}
-                   for i in items if i["state"] == "failed"][:LIST_MAX]}
+                   for i in items if i["state"] == "failed"][:LIST_MAX],
+        "collection_id": p["collection_id"]} | ({"species": species_stats(store, pid)} if species else {})
 
 
 def plans(store: st.Store, task_id: str | None) -> list[dict[str, Any]]:
     rows = store.all("SELECT id FROM import_plans WHERE ? IS NULL OR task_id = ? ORDER BY seq DESC", (task_id, task_id))
-    return [plan_json(store, r["id"]) for r in rows]
+    return [plan_json(store, r["id"], species=False) for r in rows]
+
+
+# ---- 契约修订 7B: species stats of the completion page (PRD §09) ---------------------------------------------
+def species_stats(store: st.Store, pid: str) -> dict[str, Any]:
+    """What this batch does to the species library, live from current identifications (a confirmation after
+    planning shows at once). The batch = the task's representatives, rejects included; the library = every
+    representative not in the Trash (the species cards' rule). `new`: species a person confirmed here with no
+    confirmed photo outside this task; `added`: confirmed here and elsewhere too; `to_confirm`: species only the
+    model names on photos here; `sole`: photos that are a species' only photo in the library (as the card's
+    "仅 1 张" and cleanup's last photo count it), `imported` false = left on the card, only in the source."""
+    from bioscan.gardener import taxa
+    from bioscan.gardener.identities import GONE
+    from bioscan.gardener.query import IN_TASK_REP
+
+    c = store.conn()
+    p = c.execute("SELECT task_id FROM import_plans WHERE id = ?", (pid,)).fetchone()
+    importing = {r[0] for r in c.execute("SELECT DISTINCT asset_id FROM import_items WHERE plan_id = ?", (pid,))}
+    task_ids = {r[0] for r in c.execute("SELECT asset_id FROM task_assets WHERE task_id = ?", (p["task_id"],))}
+    batch: dict[str, dict[str, bool]] = {}           # concept -> asset id -> confirmed by a person
+    names: dict[str, tuple[str, str]] = {}
+    for r in c.execute(f"SELECT ci.asset_id, ci.concept, ci.source, ci.taxon, ci.common FROM current_ids ci JOIN assets a "
+                       f"ON a.id = ci.asset_id WHERE ci.level = 'species' AND ci.concept IS NOT NULL AND {IN_TASK_REP} "
+                       f"AND a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?) "
+                       f"AND json_extract(a.meta, '$.merged_into') IS NULL {GONE}", (p["task_id"], p["task_id"])):
+        k = batch.setdefault(r["concept"], {})
+        k[r["asset_id"]] = k.get(r["asset_id"], False) or r["source"] == "user"
+        names.setdefault(r["concept"], (r["taxon"], r["common"]))
+    library: dict[str, dict[str, bool]] = {}
+    for part in st.chunks(list(batch)):
+        for r in c.execute(f"SELECT ci.asset_id, ci.concept, ci.source FROM current_ids ci JOIN assets a ON a.id = ci.asset_id "
+                           f"WHERE ci.level = 'species' AND ci.concept IN ({st.marks_in(part)}) AND a.version_of IS NULL "
+                           f"{GONE}", part):
+            k = library.setdefault(r["concept"], {})
+            k[r["asset_id"]] = k.get(r["asset_id"], False) or r["source"] == "user"
+    shown = taxa.display(c, list(batch))
+    uses = uses_of(c, sorted({a for k in batch.values() for a in k}))
+    paths = {r[0]: r[1] for part in st.chunks(list(uses))
+             for r in c.execute(f"SELECT id, primary_path FROM assets WHERE id IN ({st.marks_in(part)})", part)}
+
+    def name(k: str) -> dict[str, Any]:
+        n = shown.get(k) or {}
+        return {"concept": k, "taxon": n.get("scientific") or names[k][0], "common": n.get("common") or names[k][1],
+                "zh": n.get("zh")}
+
+    out: dict[str, list[dict[str, Any]]] = {"new": [], "added": [], "to_confirm": [], "sole": []}
+    for k, here in batch.items():
+        mine = [a for a, ok in here.items() if ok]
+        before = sum(ok for a, ok in library.get(k, {}).items() if a not in task_ids)
+        if mine:
+            out["added" if before else "new"].append(name(k) | {"photos": len(mine), "importing": len(importing & set(mine)),
+                                                                 "before": before})
+        if len(mine) < len(here):
+            ai = [a for a, ok in here.items() if not ok]
+            out["to_confirm"].append(name(k) | {"photos": len(ai), "importing": len(importing & set(ai))})
+        everywhere = library.get(k, {})
+        if len(everywhere) == 1 and next(iter(everywhere)) in here:
+            aid = next(iter(everywhere))
+            out["sole"].append(name(k) | {"asset_id": aid, "name": Path(paths.get(aid, "")).name, "use": uses[aid],
+                                          "confirmed": everywhere[aid], "imported": aid in importing})
+    for v in out.values():
+        v.sort(key=lambda x: (x.get("imported", True), x["taxon"] or x["concept"]))
+    counts = {k: len(v) for k, v in out.items()} | {"sole_left": sum(not x["imported"] for x in out["sole"])}
+    return {k: v[:LIST_MAX] for k, v in out.items()} | {"counts": counts}
+# ---- end 契约修订 7B species stats ----
+
+
+# ---- 契约修订 7B: an import batch becomes a manual collection (PRD §09 后续整理) --------------------------------
+def batch_collection(store: st.Store, pid: str, *, actor: str, recreate: bool = True) -> str | None:
+    """The batch's manual collection, named after its folder, holding every asset whose files are all imported.
+    Made when a run finishes (and on request); a later run of the same plan adds what it finished to the same
+    collection. Members join as `auto`, so one a person removed stays removed. A collection the person deleted
+    is made again only on request (`recreate`). origin=user: regrouping never touches it."""
+    with store.tx() as c:
+        p = c.execute("SELECT * FROM import_plans WHERE id = ?", (pid,)).fetchone()
+        if p is None:
+            raise NotFound(f"no import plan {pid}")
+        done = [r[0] for r in c.execute("SELECT asset_id FROM import_items WHERE plan_id = ? GROUP BY asset_id "
+                                        "HAVING sum(state != 'done') = 0 ORDER BY min(rowid)", (pid,))]
+        col = c.execute("SELECT id, deleted_at FROM collections WHERE id = ?", (p["collection_id"],)).fetchone() \
+            if p["collection_id"] else None
+        if col is not None and col["deleted_at"] is None:
+            have = {r[0] for r in c.execute("SELECT asset_id FROM collection_members WHERE collection_id = ?",
+                                            (col["id"],))}
+            new = [a for a in done if a not in have]       # a removed member keeps its tombstone row: not re-added
+            if st.add_members(c, col["id"], new, "auto"):
+                st.collection_history(c, col["id"], "members", {"add": new, "remove": [], "import_plan": pid}, actor)
+            return col["id"]
+        if (col is not None and not recreate) or not done:
+            return None
+        cid = st.create_collection(c, name=p["folder"], task_id=p["task_id"], asset_ids=done, actor=actor,
+                                   description=f"导入批次 {p['seq']} · {Path(p['dest_root']) / p['folder']}")
+        c.execute("UPDATE import_plans SET collection_id = ? WHERE id = ?", (cid, pid))
+        t = now()
+        for part in st.chunks(done):
+            c.execute(f"UPDATE assets SET updated_at = ? WHERE id IN ({st.marks_in(part)})", [t, *part])
+        return cid
 
 
 def managed(store: st.Store, asset_id: str) -> list[dict[str, Any]]:
@@ -379,6 +477,10 @@ class Runner:
         status = "completed" if not k["failed"] else "partial" if k["done"] else "failed"
         with self.store.tx() as c:
             c.execute("UPDATE import_plans SET status = ?, finished_at = ? WHERE id = ?", (status, now(), pid))
+        try:                                          # 契约修订 7B: the batch becomes a collection
+            batch_collection(self.store, pid, actor="import", recreate=False)
+        except Exception:  # noqa: BLE001 - the import itself is done; the collection can be made on demand
+            log.exception("import batch collection")
 
     def place(self, i: dict[str, Any], folder: Path, dest: Path, protected: list[Path]) -> str:
         """Put one file where the plan says; returns the sha256 of the managed copy. ImportFailure when it

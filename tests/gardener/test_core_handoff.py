@@ -137,7 +137,7 @@ def test_a_handoff_freezes_edit_picks_writes_the_file_and_is_done_only_from_real
         plugin_result(h, [ok(first), {"asset_id": second["asset_id"], "status": "failed", "reason": "import failed: x"}])
         got = c.get(f"{API}/handoffs/{h['id']}").json()
         assert got["status"] == "partial" and got["counts"] == {"ok": 1, "skipped": 0, "failed": 1, "pending": 0,
-                                                                   "conflicts": 0}
+                                                                   "conflicts": 0, "preset_applied": 0, "exported": 0}
         assert [i["reason"] for i in got["items"] if i["status"] == "failed"] == ["import failed: x"]
 
         again = c.post(f"{API}/handoffs", json={"collection_id": all_col["id"], "name": "猫头鹰"}).json()

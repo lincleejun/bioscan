@@ -145,7 +145,7 @@ def render(cmd: str, out) -> str:
         return table(out, IMPORT_COLS)
     if cmd.startswith("import "):
         return import_text(out)
-    if cmd in ("handoff create", "handoff show", "cleanup plan", "cleanup show", "cleanup run"):
+    if cmd in ("handoff create", "handoff show", "handoff retry", "cleanup plan", "cleanup show", "cleanup run"):
         return _render_5e(cmd, out)
     if cmd in ("handoff list", "cleanup list"):
         return table(out, HANDOFF_COLS if cmd == "handoff list" else PLAN_COLS)
@@ -173,6 +173,16 @@ def import_text(p: dict) -> str:
              f"进度：{g.get('files_done', 0)}/{g.get('files_total', 0)} 个文件，{g.get('assets_done', 0)}/"
              f"{g.get('assets_total', 0)} 张已入库，失败 {g.get('files_failed', 0)}"]
     lines += [f"  失败 {f['path']}：{f['error']}" for f in p.get("failed", [])]
+    sp = p.get("species")                            # 契约修订 7B
+    if sp:
+        n = sp["counts"]
+        nm = lambda x: x.get("zh") or x.get("common") or x.get("taxon") or x["concept"]  # noqa: E731
+        lines.append(f"物种：新增 {n['new']} · 已有物种补充 {n['added']} · 待确认候选 {n['to_confirm']} · 唯一记录 "
+                     f"{n['sole']}（其中 {n['sole_left']} 张不导入，只留在卡片与来源中）")
+        lines += [f"  新增 {nm(x)}（{x['concept']}）{x['photos']} 张，导入 {x['importing']}" for x in sp["new"]]
+        lines += [f"  唯一记录 {x['name']} {nm(x)}：{'导入' if x['imported'] else '不导入'}" for x in sp["sole"]]
+    if p.get("collection_id"):
+        lines.append(f"Collection：{p['collection_id']}（{p['folder']}）")
     return "\n".join(lines)
 
 
@@ -222,6 +232,21 @@ def _scope_5e(a) -> dict:
     if a.assets:
         return {"asset_ids": a.assets}
     return {}
+
+
+def _options_7b(a) -> dict:
+    """契约修订 7B: --preset / --export-preset / --export-dir / --overwrite on `handoff create`."""
+    out: dict = {}
+    if a.preset:
+        out["develop"] = {"uuid": a.preset, "name": a.preset_name or a.preset}
+    if a.export_preset or a.export_dir:
+        if not (a.export_preset and a.export_dir and a.overwrite):
+            raise SystemExit("handoff create: 导出需要 --export-preset、--export-dir 和 --overwrite（gardener handoff presets 查预设）")
+        out["export"] = {"preset_path": os.path.abspath(os.path.expanduser(a.export_preset)),
+                         "dest_dir": os.path.abspath(os.path.expanduser(a.export_dir)), "overwrite": a.overwrite}
+    if a.no_remember:
+        out["remember"] = False
+    return out
 
 
 # ---- commands ----------------------------------------------------------------
@@ -321,7 +346,17 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
             body = _scope_5e(a) | ({"uses": a.use} if a.use else {}) | ({"name": a.name} if a.name else {})
             if not body:
                 raise SystemExit("handoff create: 需要 --collection、--concept 或 --assets")
+            body |= _options_7b(a)
             return "POST", "/handoffs", body, None
+        if sub == "retry":
+            return "POST", f"/handoffs/{a.id}/retry", {}, None
+        if sub == "presets":
+            return "GET", "/lightroom/presets", None, None
+        if sub == "preview":
+            body = _scope_5e(a) | ({"uses": a.use} if a.use else {})
+            if not body:
+                raise SystemExit("handoff preview: 需要 --collection、--concept 或 --assets")
+            return "POST", "/handoffs/preview", body, None
         return ("GET", "/handoffs", None, None) if sub == "list" else ("GET", f"/handoffs/{a.id}", None, None)
     if c == "cleanup":
         if sub == "plan":
@@ -366,6 +401,8 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
             return "POST", f"/imports/{a.id}/run", {}, None
         if sub == "show":
             return "GET", f"/imports/{a.id}", None, None
+        if sub == "collection":
+            return "POST", f"/imports/{a.id}/collection", {}, None
         return "GET", "/imports", None, {"task": a.task}
     raise SystemExit(f"unknown command {c}")
 
@@ -518,6 +555,7 @@ def parser() -> argparse.ArgumentParser:
     im.add_parser("run", help="执行或续跑导入计划").add_argument("id")
     im.add_parser("show", help="导入计划与进度、结果").add_argument("id")
     im.add_parser("list", help="导入计划列表").add_argument("--task")
+    im.add_parser("collection", help="把已导入的照片存为以批次目录命名的 Collection（契约修订 7B）").add_argument("id")
 
     # ---- 契约修订 5E ----
     def scope_args(x):
@@ -530,8 +568,19 @@ def parser() -> argparse.ArgumentParser:
     scope_args(hc)
     hc.add_argument("--use", action="append", help="只交这些用途（record / pending / ...；可重复）")
     hc.add_argument("--name", help="Lightroom 里的集合名（默认取集合或物种名）")
+    hc.add_argument("--preset", help="应用的显影预设 uuid（gardener handoff presets 查得；契约修订 7B）")
+    hc.add_argument("--preset-name", help="预设名（只用于显示）")
+    hc.add_argument("--export-preset", help="应用后导出：导出预设 .lrtemplate 的路径")
+    hc.add_argument("--export-dir", help="导出目标目录（不能在照片来源之内）")
+    hc.add_argument("--overwrite", choices=("rename", "skip", "overwrite"), help="目标已有同名文件时")
+    hc.add_argument("--no-remember", action="store_true", help="不为这个物种或集合记住预设与导出设置")
+    hp = ho.add_parser("preview", help="交接前看目标数量、离线张数、代表照片与记住的预设")
+    scope_args(hp)
+    hp.add_argument("--use", action="append")
+    ho.add_parser("presets", help="插件从 Lightroom 读到的显影预设与导出预设")
     ho.add_parser("show", help="逐张结果（成功 / 跳过 / 失败、字段冲突）").add_argument("id")
     ho.add_parser("list", help="交接历史")
+    ho.add_parser("retry", help="只重新交接失败和因离线跳过的照片（同名集合，按身份找回，不重复导入）").add_argument("id")
     cl = s.add_parser("cleanup", help="清理计划：淘汰的照片移到废纸篓（可恢复）").add_subparsers(dest="sub", required=True)
     scope_args(cl.add_parser("plan", help="列出范围内淘汰照片的全部文件、容量与物种影响（默认全库）"))
     cl.add_parser("show", help="计划与执行结果").add_argument("id")

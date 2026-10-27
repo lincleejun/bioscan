@@ -74,6 +74,37 @@ Additional SDK calls (from the SDK reference, unverified in Lightroom): `LrCatal
 `LrPhoto:getRawMetadata("keywords" | "uuid")`, `LrPhoto:removeKeyword`, `LrKeyword:getParent`, `LrFileUtils.files`,
 `LrFileUtils.move` / `delete`, and Lua `io.open` for writing the result file.
 
+### Develop presets and export (契约修订 7B, unverified in Lightroom)
+
+The watcher writes `~/Library/Application Support/bioscan/lightroom/presets.json` about once a minute: every develop
+preset (`LrApplication.developPresetFolders()`, uuid and name) and every saved export preset (`.lrtemplate` under
+`~/Library/Application Support/Adobe/Lightroom/Export Presets/`). Gardener offers those. A handoff file may carry
+`develop: {uuid, name}` and `export: {preset_path, dest_dir, overwrite}`; after the fields, for each ok photo:
+
+- Develop follows `Decide.develop` (same rules as `handoff.decide_develop`, tested against each other): the photo's
+  develop fingerprint (`Decide.fingerprint` of `getDevelopSettings()`) differing from the one recorded after
+  Gardener's last apply means it was edited in Lightroom since, so the preset is skipped and reported as a conflict;
+  the same preset already applied is left; otherwise `applyDevelopPreset` in a write gate, then a new fingerprint.
+- Export follows `Decide.export`: only photos that are in the catalog and whose preset did not fail. The settings are
+  the template's `s.value` (read with `loadstring` in an empty environment), sent to `dest_dir` with
+  `LR_collisionHandling` = the chosen policy; `doExportOnCurrentTask()`, then each rendition's `waitForRender()`
+  gives the real path or the failure message. The watcher waits while an export runs.
+
+Each photo's result gets `develop: {action, preset, fingerprint, reason}` and `export: {action, path, reason}`. An error
+in either step is written as that step's failure, so the handoff still gets its result file.
+
+Manual check (not done yet): hand off 3 photos with a develop preset and a JPEG export preset to an empty folder;
+the 3 files appear and the result lists their paths; edit one photo in Develop and hand off again with the preset:
+that photo is reported as a develop conflict and keeps the edit; run once with overwrite `skip` into the same folder
+and see what `waitForRender` reports.
+
+SDK calls (in the SDK 6.0 reference, unverified in Lightroom): `LrApplication.developPresetFolders`,
+`developPresetByUuid`, `LrDevelopPresetFolder:getDevelopPresets`/`getName`, `LrDevelopPreset:getUuid`/`getName`,
+`LrPhoto:applyDevelopPreset(preset, plugin)`, `LrPhoto:getDevelopSettings` (marked experimental), `LrExportSession`,
+`doExportOnCurrentTask`, `renditions`, `LrExportRendition:waitForRender`/`.photo`, `LrFileUtils.recursiveFiles`,
+`createAllDirectories`. Not in the reference: `loadstring`/`setfenv` inside the plug-in, the `LR_export_*` setting names
+and `LR_collisionHandling` values (`rename`, `skip`, `overwrite`). `LrDate.currentTime`/`timeToW3CDate` stamp presets.json.
+
 ## Acceptance checklist (manual, on the owner's Mac)
 
 1. Pick a folder with about 10 photos, some with animals and one without, and one already rated by hand.

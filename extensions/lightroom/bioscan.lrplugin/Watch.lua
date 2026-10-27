@@ -11,8 +11,14 @@ log:enable("logfile")
 -- A Plug-in Manager "Reload" starts a second loop until Lightroom restarts; applies are idempotent.
 LrTasks.startAsyncTask(function()
   LrTasks.sleep(5)
-  local seen
+  local seen, tick = nil, 0
   while true do
+    -- 契约修订 7B: the presets Gardener offers, refreshed about once a minute
+    if tick % 30 == 0 then
+      local ok, err = LrTasks.pcall(Handoff.writePresets)
+      if not ok then log:error("presets: " .. tostring(err)) end
+    end
+    tick = tick + 1
     local ok, err = LrTasks.pcall(function()
       local mtime = LrFileUtils.fileAttributes(Apply.PATH).fileModificationDate
       if mtime and mtime ~= seen then

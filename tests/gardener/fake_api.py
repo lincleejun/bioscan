@@ -536,7 +536,17 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             "duplicates": {"identical": 0, "reuse": 0, "duplicate": 0, "items": []}, "renamed": {"files": 0, "items": []},
             "progress": {"files_total": len(files), "files_done": 0, "files_failed": 0, "bytes_total": size,
                          "bytes_done": 0, "assets_total": len(take), "assets_done": 0, "assets_failed": 0},
-            "failed": []}
+            "failed": [], "collection_id": None,
+            # 契约修订 7B: the completion page's species stats (demo rows)
+            "species": {"new": [{"concept": "avibase:demo-wren", "taxon": "Nannus pacificus", "common": "Pacific Wren",
+                                 "zh": "太平洋鹪鹩", "photos": 2, "importing": 2, "before": 0}],
+                        "added": [{"concept": "avibase:demo-owl", "taxon": "Megascops asio",
+                                   "common": "Eastern Screech-Owl", "zh": None, "photos": 3, "importing": 2, "before": 5}],
+                        "to_confirm": [], "sole": [{"concept": "avibase:demo-kestrel", "taxon": "Falco tinnunculus",
+                                                    "common": "Common Kestrel", "zh": "红隼", "asset_id": mine[0]["id"]
+                                                    if mine else None, "name": mine[0]["name"] if mine else "",
+                                                    "use": "reject", "confirmed": True, "imported": False}],
+                        "counts": {"new": 1, "added": 1, "to_confirm": 0, "sole": 1, "sole_left": 1}}}
         return fk.imports[pid]
 
     def plan_of(pid: str) -> dict:
@@ -564,6 +574,16 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                  assets_done=g["assets_total"] - len(offline), assets_failed=len(offline))
         p.update(status="partial" if offline else "completed", started_at=fk.now(), finished_at=fk.now(),
                  failed=[{"asset_id": None, "path": f["path"], "error": "源文件不存在或离线"} for f in offline])
+        return p
+
+    @app.post(P + "/imports/{pid}/collection")
+    def import_collection(pid: str):
+        """契约修订 7B: the batch's manual collection, named after its folder."""
+        p = plan_of(pid)
+        if not p["progress"]["assets_done"]:
+            raise Err(400, "这个批次还没有已导入的照片", "bad_request")
+        mine = [a["id"] for a in fk.assets.values() if p["task_id"] in a["task_ids"]]
+        p["collection_id"] = fk.new_col({"name": p["folder"], "task_id": p["task_id"], "asset_ids": mine})["id"]
         return p
 
     @app.post(P + "/tasks/{tid}/{action}")
@@ -914,9 +934,10 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                  for i in ids]
         h = {"id": hid, "name": body.get("name") or "交接", "scope": body, "status": "written",
              "doc_path": f"/tmp/lr/handoffs/{hid}.json", "result_path": f"/tmp/lr/handoffs/{hid}.result.json",
-             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items,
+             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items, "retryable": 0,
+             "options": {k: body[k] for k in ("develop", "export") if body.get(k)},
              "counts": {k: sum(i["status"] == k for i in items) for k in ("ok", "skipped", "failed", "pending")}
-             | {"conflicts": 0}}
+             | {"conflicts": 0, "preset_applied": 0, "exported": 0}}
         fk.handoffs[hid] = h
         return h
 
@@ -929,6 +950,37 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         if hid not in fk.handoffs:
             raise Err(404, "没有这个交接", "not_found")
         return fk.handoffs[hid]
+
+    PRESETS = {"available": True, "at": "2026-10-27T08:00:00Z", "path": "/tmp/lr/presets.json",
+               "develop": [{"uuid": "P-WARM", "name": "Bird warm", "folder": "User Presets"}],
+               "export": [{"name": "JPEG 2048", "folder": "User Presets", "path": "/tmp/lr/JPEG 2048.lrtemplate"}]}
+
+    @app.get(P + "/lightroom/presets")
+    def lr_presets():
+        return PRESETS
+
+    @app.post(P + "/handoffs/preview")
+    def handoff_preview(body: dict):
+        """契约修订 7B: count, offline, representatives and the remembered preset before a handoff."""
+        ids = [i for i in scope_ids(body) if fk.assets[i]["flag"] == "pick" or (body.get("asset_ids") and
+                                                                                  fk.assets[i]["flag"] != "reject")]
+        return {"name": "预览", "scope": body, "uses": None, "count": len(ids),
+                "offline": sum(not fk.assets[i]["online"] for i in ids), "representatives": ids[:4],
+                "remembered": None, "presets": PRESETS}
+
+    @app.post(P + "/handoffs/{hid}/retry", status_code=201)
+    def handoff_retry(hid: str):
+        """契约修订 7B: a new handoff of the failed / offline-skipped photos, same name."""
+        h = handoff_get(hid)
+        if h["result_at"] is None:
+            raise Err(409, "Lightroom 还没有返回这次交接的结果", "conflict")
+        ids = [i["asset_id"] for i in h["items"] if i["status"] == "failed" or (i["status"] == "skipped" and
+                                                                                 i["reason"] in ("offline", "file_missing"))]
+        if not ids:
+            raise Err(400, "这次交接没有失败或因离线跳过的照片", "bad_request")
+        new = handoff_new({"asset_ids": ids, "name": h["name"]})
+        new["scope"] = {"retry_of": hid, "asset_ids": ids}
+        return new
 
     NOTE = "移到废纸篓的文件仍占用磁盘空间，可在废纸篓中恢复；在 Finder 中清空废纸篓后才真正释放。Gardener 不做永久删除。"
 
