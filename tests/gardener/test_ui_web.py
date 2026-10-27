@@ -187,6 +187,8 @@ def test_review_polish_ui_contract_7a():
     assert "Pick" not in app.replace("cmpPick", "").replace("cmp-pick", "")
     from fastapi.testclient import TestClient
     c = TestClient(create_app(static=False))
+    assert c.post("/api/v1/marks/keep-best", json={"asset_id": "a_0006", "dry_run": True}).json()["collections"] == []
+    mine = c.post("/api/v1/collections", json={"name": "行程精选", "asset_ids": ["a_0007"]}).json()   # auto groups never
     kb = c.post("/api/v1/marks/keep-best", json={"asset_id": "a_0006", "dry_run": True}).json()
-    assert kb["collections"] and {"id", "name", "asset_ids"} <= set(kb["collections"][0])
+    assert kb["collections"] == [{"id": mine["id"], "name": "行程精选", "asset_ids": ["a_0007"]}]
     assert c.get("/api/v1/assets/a_0006").json()["encounters"][0]["photos"] > 1

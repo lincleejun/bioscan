@@ -250,6 +250,11 @@ def test_revision_7a_commands_split_bursts_undo_encounters_and_show_other_collec
     assert req("burst", "split", "--at", "a_2") == ("POST", "/bursts/split", {"at": "a_2"}, None)
     assert req("burst", "split", "--assets", "a_2", "a_3")[2] == {"asset_ids": ["a_2", "a_3"]}
     assert req("encounter", "undo", "b_1") == ("POST", "/encounters/undo", {"batch_id": "b_1"}, None)
-    url, _ = svc
+    url, fake = svc
+    fake.new_col({"name": "行程精选", "asset_ids": ["a_0007"]})
     assert cli.main(["--url", url, "keep-best", "a_0006", "--dry-run"]) == 0
-    assert "也在集合" in capsys.readouterr().out
+    assert "也在集合「行程精选」：1 张" in capsys.readouterr().out
+    assert cli.main(["--url", url, "burst", "split", "--at", "a_0006"]) == 0
+    assert "t_0001:b1" in capsys.readouterr().out
+    assert cli.main(["--url", url, "encounter", "undo", "b_enc1"]) == 0
+    assert "split" in capsys.readouterr().out

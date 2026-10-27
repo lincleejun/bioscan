@@ -517,7 +517,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 物种身份按主体记录，拆连拍不碰识别与物种卡片（AC07 “不创建重复集合”）。
   - 已知上限：之后追加的帧若被 reducer 归入这个连拍，会落在机器那一半；需要时再拆一次。本版没有连拍拆分的撤销。
 - **拍摄段撤销**：`POST /encounters/{id}/split` 的响应增加 `batch_id`，`POST /encounters/merge` 返回 `{id, batch_id}`。`POST /encounters/undo {batch_id}` → `{undone（移回的照片数）, action}`：照片回到原拍摄段（连同原来的 `source`）；拆分新建的段记为 `merged_into` 原段，合并掉的段恢复。所涉拍摄段在这一批之后又有变化（成员或合并状态，包括重扫并入的新照片）→ 409 `{encounters}`；未知或已撤销的批次 404。更新所涉照片的 `assets.updated_at`。修订 5B 的“本版没有拍摄段的撤销接口”作废。
-- **保留此张并淘汰相似帧**：响应增加 `collections: [{id, name, asset_ids}]`——要淘汰的帧所在的集合（手动按成员，Smart 按规则），PRD §05“批量淘汰前提示是否涉及其他集合”。界面在预览对话框里列出（不含当前正在看的集合）；CLI `keep-best` 多打“也在集合…”。
+- **保留此张并淘汰相似帧**：响应增加 `collections: [{id, name, asset_ids}]`——要淘汰的帧所在的、人建的集合（手动按成员，Smart 按规则；不含自动分组），PRD §05“批量淘汰前提示是否涉及其他集合”。界面在预览对话框里列出（不含当前正在看的集合）；CLI `keep-best` 多打“也在集合…”。
 - **物种卡片**：`Card` 增加 `encounters`：含该物种照片的拍摄段数，与卡片同一口径（只计代表版本，不计已移到废纸篓的）；`task=` 时只数该任务的拍摄段。全库视图里同一照片在两个任务中时，每个任务的拍摄段各算一次。界面在日期后显示“N 个拍摄段”。
 - **用词**：界面不再出现 Pick / Reject，按四种用途说（保留记录、选入修图、待定、淘汰）；接口字段 `picks`、`flag` 不变。
 - **CLI 与 MCP**：CLI `burst split --at ID | --assets IDS`、`encounter undo BATCH`；MCP 新工具 `split_burst`，`edit_encounters` 的 `action` 增加 `undo`（`batch_id`）。

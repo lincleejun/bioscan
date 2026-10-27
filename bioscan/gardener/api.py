@@ -842,10 +842,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         with store.tx() as c:
             out = rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
                                dry_run=bool(body.get("dry_run")), expect=expect)
-        cols: dict[str, dict[str, Any]] = {}            # 7A: the other collections the rejected frames are in (PRD §05)
+        cols: dict[str, dict[str, Any]] = {}            # 7A: the person's collections the rejects are in (PRD §05)
+        auto = {r["id"] for r in store.all("SELECT id FROM collections WHERE origin = 'auto'")} if out["reject"] else set()
         for i in out["reject"]:
             for col in store.collections_of(i):
-                cols.setdefault(col["id"], col | {"asset_ids": []})["asset_ids"].append(i)
+                if col["id"] not in auto:
+                    cols.setdefault(col["id"], col | {"asset_ids": []})["asset_ids"].append(i)
         return out | {"collections": list(cols.values())}
 
     @r.get("/encounters")

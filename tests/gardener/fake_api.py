@@ -704,7 +704,8 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             fk.mark({"asset_ids": [a["id"]], "use": out["keep"]["use"]}, "ui")
             out["batch_id"] = fk.mark({"asset_ids": sibs, "use": "reject"}, "ui")["batch_id"] if sibs else None
         out["collections"] = [{"id": o["id"], "name": o["name"], "asset_ids": [m for m in sibs if m in fk.members(o)]}
-                              for o in fk.cols.values() if not o["deleted_at"] and set(sibs) & set(fk.members(o))]
+                              for o in fk.cols.values() if not o["deleted_at"] and o["origin"] != "auto"
+                              and set(sibs) & set(fk.members(o))]
         return out
 
     @app.get(P + "/encounters")

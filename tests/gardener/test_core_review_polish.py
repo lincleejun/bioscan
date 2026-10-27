@@ -116,8 +116,8 @@ def test_keep_best_preview_names_the_other_collections_its_rejects_are_in(env, t
         keep, a, b = ids(c, task=t["id"])
         trip = c.post(f"{API}/collections", json={"name": "行程精选", "kind": "manual", "asset_ids": [a]}).json()
         r = c.post(f"{API}/marks/keep-best", json={"asset_id": keep, "dry_run": True}).json()
-        got = {x["id"]: x for x in r["collections"]}
-        assert got[trip["id"]] == {"id": trip["id"], "name": "行程精选", "asset_ids": [a]}
+        assert c.get(f"{API}/collections", params={"task": t["id"]}).json()          # auto groups exist, never listed
+        assert r["collections"] == [{"id": trip["id"], "name": "行程精选", "asset_ids": [a]}]
 
 
 def test_species_cards_count_the_encounters_that_show_them(env, fakes, tmp_path):

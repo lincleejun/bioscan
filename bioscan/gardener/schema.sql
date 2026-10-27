@@ -321,6 +321,6 @@ CREATE TABLE IF NOT EXISTS burst_overrides (
 -- One encounter split or merge, so it can be undone as one batch: detail = the moves and the state right after.
 CREATE TABLE IF NOT EXISTS encounter_history (
   batch_id TEXT PRIMARY KEY, action TEXT NOT NULL,   -- split | merge
-  detail TEXT NOT NULL,          -- JSON {moves: [[asset_id, from, to, source]], created?, merged?, after: {eid: members}}
+  detail TEXT NOT NULL,          -- JSON {moves: [[asset_id, from, to, source]], before: {eid: merged_into}, after: {eid: {members, merged_into}}}
   actor TEXT NOT NULL, at TEXT NOT NULL, undone INTEGER NOT NULL DEFAULT 0
 );
