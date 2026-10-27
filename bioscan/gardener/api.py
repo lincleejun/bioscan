@@ -23,7 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import identities, people, query, tasks, taxa
+from bioscan.gardener import identities, imports, people, query, tasks, taxa
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
@@ -71,14 +71,17 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     tk = toolkit or tasks.Toolkit.default()
     holder = tasks.EngineHolder(engine)
     worker = tasks.Worker(store, tk, holder.get)
+    importer = imports.Runner(store, store.task_roots)        # 契约修订 5D: imports run beside the scan queue
     roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         job = asyncio.create_task(worker.run_forever()) if start_worker else None
+        await asyncio.to_thread(importer.start)
         try:
             yield
         finally:
+            await asyncio.to_thread(importer.close)
             worker.shutdown = True
             worker.wake()
             if job is not None:
@@ -90,6 +93,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     app = FastAPI(title="gardener", lifespan=lifespan)
     app.state.store, app.state.worker, app.state.toolkit, app.state.engine = store, worker, tk, holder
+    app.state.importer = importer
 
     @app.middleware("http")
     async def local_only(request: Request, call_next: Any) -> Any:
@@ -628,7 +632,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     @r.get("/assets/{aid}")
     def get_asset(aid: str) -> dict[str, Any]:
-        return store.asset_detail(aid)
+        return store.asset_detail(aid) | {"managed": imports.managed(store, aid)}
 
     def preview_file(aid: str, which: int) -> FileResponse:
         a = asset_or_404(aid)
@@ -1119,6 +1123,29 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def exports() -> list[dict[str, Any]]:
         return [{"id": x["id"], "created_at": x["created_at"], "request": loads(x["request"]),
                  "report": loads(x["report"])} for x in store.all("SELECT * FROM exports ORDER BY created_at DESC")]
+
+    # ---- import (契约修订 5D, PRD §06 正式导入 / §09) ----
+    @r.post("/tasks/{tid}/import-plan", status_code=201)
+    def import_plan(tid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+        task_or_404(tid)
+        place = text(body, "place").strip() or None
+        pending = body.get("include_pending", True)
+        if not isinstance(pending, bool):
+            raise Error("include_pending must be true or false")
+        pid = imports.build(store, tid, body.get("dest_root"), place, pending, store.task_roots())
+        return imports.plan_json(store, pid)
+
+    @r.get("/imports")
+    def get_imports(task: str | None = None) -> list[dict[str, Any]]:
+        return imports.plans(store, task)
+
+    @r.get("/imports/{pid}")
+    def get_import(pid: str) -> dict[str, Any]:
+        return imports.plan_json(store, pid)
+
+    @r.post("/imports/{pid}/run")
+    def run_import(pid: str) -> dict[str, Any]:
+        return imports.start(store, importer, pid, store.task_roots())
 
     app.include_router(r)
     if (WEB_DIR / "index.html").exists():
