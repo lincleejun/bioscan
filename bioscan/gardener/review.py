@@ -268,3 +268,139 @@ def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool
     if c.execute("SELECT 1 FROM mark_history WHERE batch_id = ?", (batch,)).fetchone():
         out["batch_id"] = batch
     return out
+
+
+# ---- 契约修订 7A: undoable encounter split/merge, a person's burst split -----------------------------------------
+
+
+def _enc_state(c: Any, eids: list[str]) -> dict[str, dict[str, Any]]:
+    """encounter id -> {members: {asset_id: source}, merged_into}."""
+    out = {e: {"members": {}, "merged_into": None} for e in eids}
+    for part in st.chunks(eids):
+        q = st.marks_in(part)
+        for r in c.execute(f"SELECT id, merged_into FROM encounters WHERE id IN ({q})", part):
+            out[r[0]]["merged_into"] = r[1]
+        for r in c.execute(f"SELECT encounter_id, asset_id, source FROM encounter_members WHERE encounter_id IN ({q})",
+                           part):
+            out[r[0]]["members"][r[1]] = r[2]
+    return out
+
+
+def logged(c: Any, action: str, eids: list[str], edit: Any, *, actor: str) -> tuple[str, str]:
+    """Run one encounter split or merge (`edit()` returns the encounter it made or kept) and record it as one
+    undoable batch: every photo that moved (from, to, its earlier source) and the involved encounters right after.
+    Returns (encounter id, batch id)."""
+    before = _enc_state(c, eids)
+    out = edit()
+    after = _enc_state(c, sorted(set(eids) | {out}))
+    where = {a: e for e, s in after.items() for a in s["members"]}
+    moves = [[a, e, where[a], src] for e, s in before.items() for a, src in s["members"].items() if where.get(a, e) != e]
+    batch = st.new_id("b")
+    detail = {"moves": moves, "before": {e: s["merged_into"] for e, s in before.items()},
+              "after": {e: {"members": sorted(s["members"]), "merged_into": s["merged_into"]} for e, s in after.items()}}
+    c.execute("INSERT INTO encounter_history (batch_id, action, detail, actor, at) VALUES (?, ?, ?, ?, ?)",
+              (batch, action, st.dumps(detail), actor, now()))
+    return out, batch
+
+
+def undo_encounters(c: Any, batch_id: str) -> dict[str, Any]:
+    """Undo one encounter split or merge: its photos go back where they were, an encounter it made is folded back
+    (merged_into its origin), one it merged away is live again. 409 when any involved encounter changed since."""
+    h = c.execute("SELECT * FROM encounter_history WHERE batch_id = ? AND undone = 0", (batch_id,)).fetchone()
+    if h is None:
+        raise st.NotFound(f"no encounter batch {batch_id} to undo")
+    d = st.loads(h["detail"])
+    cur = _enc_state(c, list(d["after"]))
+    changed = sorted(e for e, s in d["after"].items()
+                     if sorted(cur[e]["members"]) != s["members"] or cur[e]["merged_into"] != s["merged_into"])
+    if changed:
+        raise st.Conflict("这些拍摄段在之后又被修改，不能撤销", encounters=changed)
+    t, first = now(), next(iter(d["before"]))
+    for a, frm, to, src in d["moves"]:
+        c.execute("UPDATE encounter_members SET encounter_id = ?, source = ? WHERE encounter_id = ? AND asset_id = ?",
+                  (frm, src, to, a))
+        c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, a))         # pollers see it (§10 X7)
+    for e in d["after"]:                       # an encounter the edit made has no "before": fold it into the first
+        c.execute("UPDATE encounters SET merged_into = ?, updated_at = ? WHERE id = ?",
+                  (d["before"].get(e, first), t, e))
+    c.execute("UPDATE encounter_history SET undone = 1 WHERE batch_id = ?", (batch_id,))
+    return {"undone": len(d["moves"]), "action": h["action"]}
+
+
+USER_RUN = "user"   # ai_suggestions rows a person's burst split restamped (copies of the latest machine row)
+
+
+def _renumber(rows: list[dict[str, Any]]) -> None:
+    """Rank and size each burst of `rows` (by their burst_id) anew, keeping the earlier rank order; a burst of
+    one is no burst (id null), as the reducer reports it."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        groups.setdefault(r["burst_id"], []).append(r)
+    for g in groups.values():
+        g.sort(key=lambda r: (r["burst_rank"] or 10 ** 6, r["asset_id"]))
+        for i, r in enumerate(g):
+            r.update(burst_id=r["burst_id"] if len(g) > 1 else None, burst_rank=i + 1 if len(g) > 1 else None,
+                     burst_size=len(g) if len(g) > 1 else None)
+
+
+def split_burst(c: Any, *, at: str | None = None, asset_ids: list[str] | None = None, actor: str) -> dict[str, Any]:
+    """A person splits a wrong burst (PRD §07, AC07): `at` moves that frame and the later ones (capture time),
+    `asset_ids` exactly those, to a new burst. Both parts keep frames. The moved frames are written to
+    burst_overrides, which every later run applies over the reducer's bursts (apply_burst_overrides); the
+    burst fields shown now are restamped as new ai_suggestions rows (run_id USER_RUN). Species identity is
+    per subject and untouched."""
+    ids = [at] if at is not None else list(dict.fromkeys(asset_ids or []))
+    latest = {r["asset_id"]: dict(r) for part in st.chunks(ids) for r in c.execute(
+        f"SELECT * FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions WHERE asset_id IN "
+        f"({st.marks_in(part)}) GROUP BY asset_id)", part)}
+    bursts = {(latest.get(i) or {}).get("burst_id") for i in ids}
+    if not ids or len(bursts) != 1 or None in bursts:
+        raise st.Error("要拆的照片须在同一个连拍里")
+    b = bursts.pop()
+    members = [dict(r) for r in c.execute(
+        f"SELECT s.*, a.taken_at FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE s.id IN ({LATEST}) "
+        "AND s.burst_id = ? ORDER BY a.taken_at, a.id", (b,))]
+    order = [m["asset_id"] for m in members]
+    moving = order[order.index(at):] if at is not None else [a for a in order if a in set(ids)]
+    if not moving or len(moving) == len(order):
+        raise st.Error("拆分后两组都要有照片")
+    task_id, new, t = b.split(":", 1)[0], f"{b.split('~')[0]}~{st.new_id('p')}", now()
+    for a in moving:
+        c.execute("INSERT INTO burst_overrides (task_id, asset_id, burst_id, actor, created_at) VALUES (?, ?, ?, ?, ?) "
+                  "ON CONFLICT(task_id, asset_id) DO UPDATE SET burst_id = excluded.burst_id, actor = excluded.actor, "
+                  "created_at = excluded.created_at", (task_id, a, new, actor, t))
+    for m in members:
+        if m["asset_id"] in moving:
+            m["burst_id"] = new
+    _renumber(members)
+    for m in members:
+        c.execute("INSERT INTO ai_suggestions (asset_id, run_id, verdict, score, rank, reasons, burst_id, burst_rank, "
+                  "burst_size, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  (m["asset_id"], USER_RUN, m["verdict"], m["score"], m["rank"], m["reasons"], m["burst_id"],
+                   m["burst_rank"], m["burst_size"], m["version"], t))
+        c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, m["asset_id"]))   # pollers see it (§10 X7)
+    return {"burst_id": new if len(moving) > 1 else None, "from": b, "moved": moving}
+
+
+def apply_burst_overrides(c: Any, task_id: str, run_id: str) -> int:
+    """After a run saved its suggestions: frames a person split off get their override burst, and the bursts
+    that lost or gained frames are ranked and sized anew. Only a frame the reducer put in some burst is moved,
+    so a run without the burst capability makes none. Returns the frames moved.
+    ponytail: a frame added later that the reducer groups with a split burst joins the machine part, never the
+    person's; the person splits again (an override per part's members, not per frame, if that comes up)."""
+    over = {r[0]: r[1] for r in c.execute("SELECT asset_id, burst_id FROM burst_overrides WHERE task_id = ?", (task_id,))}
+    if not over:
+        return 0
+    rows = [dict(r) for r in c.execute("SELECT id, asset_id, burst_id, burst_rank FROM ai_suggestions WHERE run_id = ? "
+                                       "AND burst_id IS NOT NULL", (run_id,))]
+    hit = {r["id"] for r in rows if r["asset_id"] in over}
+    touched = {r["burst_id"] for r in rows if r["id"] in hit}
+    group = [r for r in rows if r["id"] in hit or r["burst_id"] in touched]
+    for r in group:
+        if r["id"] in hit:
+            r["burst_id"] = over[r["asset_id"]]
+    _renumber(group)
+    for r in group:
+        c.execute("UPDATE ai_suggestions SET burst_id = ?, burst_rank = ?, burst_size = ? WHERE id = ?",
+                  (r["burst_id"], r["burst_rank"], r["burst_size"], r["id"]))
+    return len(hit)

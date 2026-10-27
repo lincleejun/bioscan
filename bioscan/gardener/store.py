@@ -324,7 +324,8 @@ class Store:
                     for v in self.all("SELECT * FROM assets WHERE version_of = ? ORDER BY primary_path", (asset_id,))]
         ai_history = [{"run_id": r["run_id"], "verdict": r["verdict"], "score": r["score"],
                        "reasons": loads(r["reasons"], []), "version": r["version"], "at": r["created_at"]}
-                      for r in self.all("SELECT * FROM ai_suggestions WHERE asset_id = ? ORDER BY id", (asset_id,))]
+                      for r in self.all("SELECT * FROM ai_suggestions WHERE asset_id = ? AND run_id != 'user' "
+                                        "ORDER BY id", (asset_id,))]      # 7A: not a burst split's restamp
         mark_history = [{"batch_id": r["batch_id"], "field": r["field"], "old": loads(r["old"]), "new": loads(r["new"]),
                          "actor": r["actor"], "reason": r["reason"], "undone": bool(r["undone"]), "at": r["at"]}
                         for r in self.all("SELECT * FROM mark_history WHERE asset_id = ? ORDER BY id", (asset_id,))]
@@ -338,7 +339,11 @@ class Store:
                            "collections": self.collections_of(asset_id), "tags": tags,
                            "original": None if of is None else {"id": of["id"], "name": Path(of["primary_path"]).name,
                                                                 "reason": a["version_reason"]},
-                           "version_lock": bool(a["version_lock"]), "versions": versions}
+                           "version_lock": bool(a["version_lock"]), "versions": versions,
+                           "encounters": self.all(          # 7A: the identify scope "same encounter" needs its size
+                               "SELECT em.encounter_id id, em.task_id, (SELECT count(*) FROM encounter_members x WHERE "
+                               "x.encounter_id = em.encounter_id) photos FROM encounter_members em WHERE em.asset_id = ? "
+                               "ORDER BY em.task_id", (asset_id,))}
 
     def face_people(self, asset_id: str, faces: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Faces without their features, each with `person`: {id, name, confirmed} — confirmed when a user

@@ -63,6 +63,28 @@ print(json.encode(out))
     assert got == [c["want"] for c in cases]
 
 
+def test_the_plugin_decodes_json_into_plain_tables(tmp_path):
+    """Found in Lightroom Classic 14.2: dkjson's default decode tags every array with a metatable, and the SDK
+    (catalog:createKeyword's synonyms) rejects it with "Assertion failed: packed". Every decode in the plugin
+    passes explicit nil metatables, and that gives plain tables."""
+    import re
+
+    for lua in PLUGIN.glob("*.lua"):
+        if lua.name == "dkjson.lua":
+            continue
+        for call in re.findall(r"json\.decode\(([^\n]*)", lua.read_text()):
+            assert call.rstrip().endswith("1, nil, nil, nil)") or "1, nil, nil, nil)" in call, (lua.name, call)
+    driver = tmp_path / "plain.lua"
+    driver.write_text(f"""package.path = {json.dumps(str(PLUGIN) + "/?.lua;")} .. package.path
+local json = require "dkjson"
+local doc = json.decode('{{"photos": [{{"keywords": [{{"synonyms": ["Great Blue Heron"]}}]}}]}}', 1, nil, nil, nil)
+local syn = doc.photos[1].keywords[1].synonyms
+print(getmetatable(doc) == nil and getmetatable(doc.photos) == nil and getmetatable(syn) == nil and syn[1])
+""")
+    out = subprocess.run(["lua", str(driver)], check=True, capture_output=True, text=True).stdout.strip()
+    assert out == "Great Blue Heron"
+
+
 def test_plugin_parses():
     luac = shutil.which("luac")
     if not luac:
