@@ -316,6 +316,7 @@ CREATE TABLE IF NOT EXISTS cleanup_files (
 -- A develop preset / export step a person chose for a species (concept:<k>) or a collection, e.g. a batch (collection:<id>).
 CREATE TABLE IF NOT EXISTS editor_presets (
   scope_key TEXT PRIMARY KEY, develop TEXT, export TEXT, actor TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 
 -- ---- 契约修订 7A: a person's burst split, undoable encounter split/merge (review.py) ----
 -- A frame a person split off its burst: on every later run the reducer's burst for it is replaced by this id, so
