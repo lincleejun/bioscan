@@ -42,7 +42,7 @@
 
 ## 2 用户痛点（按出现频次排序）
 
-来源约 20 个读过的帖子：BCG Forums、BirdForum、Fred Miranda、Adobe Community、Lightroom Queen、Talk Photography、iNaturalist 论坛、知乎、小红书。Reddit、DPReview、NPN、鸟网都没能读到，所以样本偏向英文小论坛和小红书。
+来源约 20 个读过的帖子：BCG Forums、BirdForum、Fred Miranda、Adobe Community、Lightroom Queen、Talk Photography、iNaturalist 论坛、知乎、小红书。Reddit、DPReview、NPN、鸟网都没能读到，所以样本偏向英文小论坛和小红书。BCG Forums 的引文（包括 Specio 逐帧不一致那条）是调研代理用浏览器读到的；作者用 curl 只拿到空页，**未复核**。
 
 | # | 痛点 | 帖子数 | 代表原话 |
 |---|---|---|---|
@@ -134,6 +134,7 @@
 ## 未核实
 
 - Reddit、DPReview、NPN、鸟网都没能读取，痛点样本有偏；多条 2026 帖子是工具作者发起的 [V]。
+- BCG Forums 的全部引文（第 2 节）作者未复核：curl 只返回空页，只有调研代理通过浏览器读到。
 - SuperPicky 的授权：GPL-3.0 还是 AGPL-3.0。
 - Kestrel 是否把物种写进 XMP 关键词。
 - Lightroom 是否保留 `XMP-dwc` 和 `ImageRegion`。
