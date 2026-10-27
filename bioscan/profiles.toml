@@ -120,4 +120,15 @@ aerial   = ["an aerial photo from a drone", "a top-down view from above"]
 
 [profile.album.options.select]
 by = "group"                              # bucket by scene group (default) or "label"
-waive = { night = ["underexposed"] }   # keys: a group, a label or attribute=value; "light=night" is off: a -2 EV day photo reads as night (CI 2026-09-26)
+
+[profile.album.options.select.waive]   # keys: a group, a label or attribute=value
+# "light=night" is off: a -2 EV day photo reads as night (CI 2026-09-26)
+night        = ["underexposed", "no_subject"]
+# no_subject (the gate sees an animal, the detector boxes none) is a wildlife reject: elsewhere the gate's animal
+# share is macro / plant confusion (#46): flowers, food and grassland were thrown out (#85)
+landscape    = ["no_subject"]
+people       = ["no_subject"]
+macro        = ["no_subject"]
+architecture = ["no_subject"]
+food         = ["no_subject"]
+other        = ["no_subject"]

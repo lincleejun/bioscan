@@ -46,6 +46,18 @@ def test_builtin_profiles():
     assert wild.options["geotag"]["gpx"] == [] and "geotag" not in profile.resolve(BUILTIN, "full").want
 
 
+def test_facing_is_opt_in_through_a_bioscan_toml(tmp_path):
+    """The album profile leaves the facing stage out (one more OWLv2 call per photo, #27 step 2); a
+    bioscan.toml that lists it runs it after identify, with no new model to load."""
+    assert "facing" not in profile.resolve(BUILTIN, "album").want
+    cfg = profile.load(files(tmp_path, project='[profile.album]\nstages = ["identify", "embed", "aesthetics", "quality", '
+                                               '"scene", "facing"]\n'), env={})
+    album = profile.resolve(cfg, "album")
+    assert album.want == ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
+    assert album.plan.stages == ("aesthetics", "embed", "identify", "facing", "quality", "scene")
+    assert album.plan.models == ("owlv2", "siglip2") and album.options["identify"]["species"] is False
+
+
 def test_waive_keys_must_name_a_scene_category():
     with pytest.raises(ValueError, match="select.waive: unknown category 'nigth'"):
         profile.resolve(BUILTIN, "album", reducer_options={"select": {"waive": {"nigth": ["underexposed"]}}})

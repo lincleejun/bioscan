@@ -142,3 +142,26 @@ def quick_hash(path: str) -> str:
 def is_online(path: str) -> bool:
     """The file exists and this process can read it (an unmounted card is offline)."""
     return os.path.isfile(path) and os.access(path, os.R_OK)
+
+
+GROUP_EXT = SIDECAR_EXT | {".acr"}     # .acr: Adobe Camera Raw's newer sidecar (AI masks), kept with its photo
+
+
+def sidecars(paths: list[str]) -> dict[str, list[str]]:
+    """For each file in `paths`, the sidecars next to it (contract revision 5D): same folder, named
+    <stem><ext> or <name><ext> (IMG_1.xmp, IMG_1.ARW.xmp), case-insensitively, <ext> in GROUP_EXT.
+    discover() still skips them; this only finds them for an import plan. Each folder is listed once."""
+    listed: dict[str, list[str]] = {}
+    out: dict[str, list[str]] = {}
+    for p in paths:
+        d, name = os.path.split(p)
+        if d not in listed:
+            try:
+                listed[d] = sorted(os.listdir(d))
+            except OSError:
+                listed[d] = []
+        keys = {name.lower(), os.path.splitext(name)[0].lower()}
+        out[p] = [os.path.join(d, n) for n in listed[d]
+                  if os.path.splitext(n)[1].lower() in GROUP_EXT and os.path.splitext(n)[0].lower() in keys
+                  and os.path.isfile(os.path.join(d, n))]
+    return out

@@ -27,13 +27,13 @@ uv run bioscan names stats                # required once, online, before the fi
 
 Each folder must hold exactly one CSV. Sources, versions and checksums in detail (Chinese): [data/README.md](../data/README.md).
 
-- **Birds**, `data/avilist/AviList-v2025-11Jun-extended.csv`: AviList v2025 (CC BY 4.0), https://www.avilist.org/checklist/v2025/. Only the XLSX is published: https://www.avilist.org/wp-content/uploads/2025/06/AviList-v2025-11Jun-extended.xlsx (sha256 `5aa71c2eedd0a9e9a50b4908bfea7a412776d80460e666c0a2949ff567991f8e`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `a6024ec5680665489303f50bcefd6f222f5f9deca611868a849548a009aa83d3`):
+- **Birds**, `data/avilist/AviList-v2026-20Oct2026-extended-version.csv`: AviList v2026 (CC BY 4.0), https://www.avilist.org/checklist/. Only the XLSX is published: https://www.avilist.org/wp-content/uploads/2026/10/AviList-v2026-20Oct2026-extended-version.xlsx (sha256 `df031d392b766673ce8a9eb37b8e57a91baabf9576b6b2bcfd6cf9aa4902797d`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `02663bc97888d8940eab5628ef60b951c3818d998174f8d7549ccc94fe0c85d9`). A v2025 CSV still reads; its headers differ and are mapped:
 
   ```sh
   uv run --no-project --with openpyxl python -c "
   import csv, openpyxl
-  ws = openpyxl.load_workbook('AviList-v2025-11Jun-extended.xlsx', read_only=True).worksheets[0]
-  with open('AviList-v2025-11Jun-extended.csv', 'w', newline='', encoding='utf-8') as f:
+  ws = openpyxl.load_workbook('AviList-v2026-20Oct2026-extended-version.xlsx', read_only=True).worksheets[0]
+  with open('AviList-v2026-20Oct2026-extended-version.csv', 'w', newline='', encoding='utf-8') as f:
       csv.writer(f).writerows([('' if v is None else v) for v in r] for r in ws.iter_rows(values_only=True))"
   ```
 - **Mammals**, `data/mdd/MDD_v2.5_6904species.csv`: MDD v2.5, from `assets/data/MDD.zip` in https://github.com/mammaldiversity/mammaldiversity.github.io (commit `22ab0ad7`); unzip and take `MDD/MDD_v2.5_6904species.csv` (sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`).
@@ -66,12 +66,12 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 With `--json` the service's NDJSON is written as is, one line per image, for downstream programs:
 ```json
 {"type":"result","path":"/abs/a.ARW","sha256":"…","image":{"width":6000,"height":4000,"orientation":1},
- "engine":{"version":"0.1.0","models":{"species":"imageomics/bioclip-2.5-vith14","names":{"bird":"avilist-2025@…"}}},
+ "engine":{"version":"0.1.0","models":{"species":"imageomics/bioclip-2.5-vith14","names":{"bird":"avilist-2026@…"}}},
  "products":{"identify":{"gate":{"class":"bird","probs":{…}},
    "boxes":[{"id":0,"xyxy":[0.31,0.22,0.58,0.71],"score":0.84,"kind":"bird",
              "quality":{"sharpness":0.71,"exposure":0.05},
-             "species":{"list":"avilist-2025","level":"species","taxon":"Megascops kennicottii",
-               "top":[{"scientific":"Megascops kennicottii","common":"Western Screech-Owl",
+             "species":{"list":"avilist-2026","level":"species","taxon":"Megascops kennicottii",
+               "top":[{"scientific":"Megascops kennicottii","concept":"avibase:…","common":"Western Screech-Owl",
                        "taxonomy":["Animalia","Chordata","Aves","Strigiformes","Strigidae","Megascops","Megascops kennicottii"],
                        "p_visual":0.81,"p_geo":0.62,"posterior":0.91}]}}]}},
  "timing_ms":{"decode":650,"identify":210}}
@@ -143,7 +143,7 @@ A **profile** is a named request template: the stages a run wants and their opti
 |---|---|---|---|---|
 | `full` | identify (embed, jpg when `want` asks) | defaults | SigLIP2, OWLv2, BioCLIP | nothing: it is what a request without a profile gets, and no file can change it |
 | `wildlife` | geotag, identify | species, location prior and every accuracy fix on (`top_k` 5, `geo` true); geotag does nothing until `geotag.gpx` (or `run --gpx`) names a track | SigLIP2, OWLv2, BioCLIP | nothing planned |
-| `album` | identify, embed, aesthetics, quality, scene; reducers burst, select (run by `bioscan cull`, never the service) | identify `species: false`; aesthetics `head: builtin`; scene taxonomy (40 labels in 8 groups, 3 attributes); burst and select limits (select buckets by scene group) | SigLIP2, OWLv2 (BioCLIP never loads) | nothing planned |
+| `album` | identify, embed, aesthetics, quality, scene; reducers burst, select (run by `bioscan cull`, never the service); `facing` (the `no_lead_room` flag) is opt-in: add it to `stages` in a bioscan.toml ([album.md](album.md)) | identify `species: false`; aesthetics `head: builtin`; scene taxonomy (40 labels in 8 groups, 3 attributes); burst and select limits (select buckets by scene group) | SigLIP2, OWLv2 (BioCLIP never loads) | nothing planned |
 
 ```sh
 bioscan run DIR --profile album                  # the profile's stages and options; flags still win
@@ -180,7 +180,7 @@ candidates = ["Strigidae", "Accipitridae"]
 - **The service** expands a request's `"profile"` with its own files (read once at start). A request without `"profile"` always gets `full`: `default_profile` and `$BIOSCAN_PROFILE` are the CLI's, so HTTP clients see no change.
 - **Errors**: an unknown key, profile, stage or option is an error naming the file (a 400 for a request). `[profile.full]` in a user file is refused. Option values are checked by the service. `bioscan serve --launchd` bakes the flags, else the file's `[serve]` values, into the plist and points the job at this folder's `bioscan.toml` through `BIOSCAN_CONFIG`.
 - **Trust**: `./bioscan.toml` is read automatically from the folder you run in, so only run bioscan in folders whose file you trust: it can set `serve.host = "0.0.0.0"`, `allow_roots`, or a jpg `out_dir` to write to; `bioscan config show` lists every file read and the value each one set.
-- **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options and the check of their values; the service code in `stage.py`, imported only for the stages in a run's plan). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are listed in the order `identify, embed, jpg, geotag, aesthetics, quality, scene`. Stages built since v1.7 report what they ran with in `result.engine.plugins` when a run includes them: the head a stage's output depends on (aesthetics: `v1@<head id>`, nothing with `head: off`), else `v<version>@<settings fingerprint>` (quality, scene).
+- **Stages and plugins**: each stage is a plugin in `bioscan/plugins/<name>/` (a stdlib manifest: what it reads and provides, its models under the options, its options and the check of their values; the service code in `stage.py`, imported only for the stages in a run's plan). A run's plan orders the stages so that a stage runs after the ones providing what it reads (ties by name) and loads only the models they need; results are listed in the order `identify, embed, jpg, geotag, aesthetics, quality, scene, facing`. Stages built since v1.7 report what they ran with in `result.engine.plugins` when a run includes them: the head a stage's output depends on (aesthetics: `v1@<head id>`, nothing with `head: off`), else `v<version>@<settings fingerprint>` (quality, scene, facing).
 - **Reducers**: `reducers = ["burst", "select"]` names model-free units that run over a whole run's results in the CLI (`bioscan cull`, `bench`) or offline, never in the service, which stays stateless. Their options live beside the stages' (`[profile.album.options.select] per_category = 20`); a /run body may not set them.
 
 ### Run summary and report
@@ -214,7 +214,7 @@ Review reasons are rules, never a model: `unconfirmed` (level unconfirmed), `coa
 One-time install, then restart Lightroom Classic once:
 
 ```bash
-bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy)
+bioscan lr install                 # symlinks extensions/lightroom/bioscan.lrplugin into Lightroom's Modules folder (--copy to copy); relinks a stale link; an existing copy is kept (remove it to refresh)
 ```
 
 Every scan after that is one line. `wildlife` keeps species on; add the `aesthetics` stage to get aesthetic stars (`album` alone turns species off, so every photo would land in `待确认`):
@@ -231,6 +231,18 @@ bioscan run DIR --profile wildlife --want identify,embed,aesthetics --json --out
 
 Rerunning the same file adds no duplicates. The plugin and its manual acceptance steps are in `extensions/lightroom/README.md`.
 
+**From Gardener** (same plugin, same install): "在 Lightroom 打开" on a collection, species or selection (or
+`gardener handoff create --collection ID`) writes `~/Library/Application Support/bioscan/lightroom/handoffs/<id>.json`
+(`gardener serve --lightroom-dir DIR` puts it under `DIR/handoffs/`; the plugin only watches the default folder).
+The plugin's watcher (or Library > Plug-in Extras > **bioscan: Apply Gardener handoffs**) finds each photo by path (or by the
+Lightroom id of an earlier handoff, so a repeat never imports twice), adds missing ones in place, puts them in a
+collection named after the handoff under the `Gardener` set, writes your stars (never AI scores) and your confirmed
+species as `Aves|Order|Family|Species` keywords (English and Chinese names as synonyms), and writes
+`<id>.result.json` with ok / skipped / failed per photo. A star or keyword changed in Lightroom since the last
+handoff is skipped and reported, never overwritten; other keywords and develop settings are not touched. Gardener
+reads the result back (`gardener handoff show ID`); until then the handoff is only "written". Lightroom behaviour of
+this flow is unverified until run in Lightroom Classic. Rules: `docs/gardener/contract.md`, 契约修订 5E.
+
 ### HTTP API
 
 ```sh
@@ -240,8 +252,9 @@ curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' \
   -d '{"inputs":[{"path":"/abs/a.ARW","lat":37.4,"lon":-122.1}],"want":["identify","embed","jpg"],"options":{"jpg":{"out_dir":"/tmp/jpg"}}}'
 ```
 `want` may be left out: a request then runs its profile's stages (`full`, the default: identify). `"want": null` is a 400 unless the body names a `"profile"`, where it means the same as leaving it out.
+An input's `lat` and `lon` go together (one without the other is a 400) and must be finite, within ±90 and ±180; without them the photo's EXIF GPS is used, except a GPS of exactly (0, 0) or one marked void (GPSStatus `V`), which counts as none. A path with a NUL character is a 400. `/run` answers 403 to a request whose `Origin` header is not the service's own (a page in a browser; the CLI and Python clients send none), so no website can read your photos' results through it.
 The response is an NDJSON stream of `progress` / `result` / `error` / `done` events, defined in `bioscan/contract.py` together with the `identify` payload (gate, boxes, quality, species, candidates); `result` and `done` carry `schema: 1`. Concurrent requests take turns on the models one chunk at a time (a one-image request waits for at most one chunk); within a chunk every model stage is batched across images, and CPU decoding overlaps inference. `result.engine` holds the model versions, the name-list versions, `settings` (a fingerprint of rule thresholds, prompts and vocabularies: if it changes, results are not directly comparable) and `detail_edge`; when a run includes a stage that depends on a trained file, `engine.plugins` names it (`{"aesthetics": "v1@eva-head-v1:<sha12>+…"}`). The full contract is in section 4 of `docs/superpowers/specs/2026-09-22-bioscan-design.md`.
 
 `POST /apply` acts on a review's marks for the score page (docs/album.md): `{"keep": [paths], "keep_to": DIR}` copies the keeps there, `{"drop": [paths], "delete": true}` deletes the drops, each with its XMP sidecars; it answers `{"copied", "moved", "deleted", "sidecars", "skipped": [...], "missing": [...]}`. Every path must be inside the `--allow-root`s, and the request must carry `X-Bioscan-Token` equal to `~/.cache/bioscan/serve-token` (written by the first `bioscan serve`, mode 0600; `aesthetic score` bakes it into the page), so no other site the browser opens can call it. The service never moves drops; `bioscan aesthetic apply --drop-to` does.
 
-CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.
+CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `eval` follows them too (1 when any ground-truth image failed or got no answer, the report's `failed` column, 3 when the stream ended early). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.

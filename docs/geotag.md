@@ -16,7 +16,7 @@ bioscan run DIR --gpx hike.gpx --tz=-07:00             # per-image coordinates f
 - **Time.** GPX times are UTC; camera times are local wall time. A file's OffsetTimeOriginal is used when present. Otherwise the time is read in `--tz`: a fixed offset, or a zone name, which applies the right DST for each date. The default is this computer's zone. Write negative values with `=`, e.g. `--tz=-07:00` and `--offset=-3600`, or argparse takes them for options.
 - **Clock offset** (camera time minus true time). It comes from the first of these that applies:
   1. `--offset`;
-  2. a photo of a clock: `--clock PHOTO=TIME`, the time the clock shows, read in the photo's zone;
+  2. a photo of a clock: `--clock PHOTO=TIME`, the time the clock shows, read in the photo's zone (a clock photo without a readable capture time is an error, not skipped);
   3. an estimate from photos in the folder that already have GPS (a phone photo, or a camera with a GPS link). The estimate finds the offset at which those photos sit on the track. It is rejected when they sit more than 100 m off. When several offsets fit equally well, one under 5 min wins (plain drift), then whole hours, half hours and quarter hours (timezone and DST mistakes), and a warning says the fit was ambiguous. The estimate is skipped when every photo already has GPS;
   4. otherwise 0.
 

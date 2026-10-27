@@ -165,10 +165,18 @@ class RunQueue:
             self._lock.release()
 
     def _submit(self, ch: list[dict[str, Any]], edge: int | None) -> tuple[Executor, list[asyncio.Future]]:
-        """Start decoding `ch`; returns the executor used, so a crash rebuilds only that one."""
+        """Start decoding `ch`; returns the executor used, so a crash rebuilds only that one. A pool
+        already broken (its crash surfaced in a request that went away before rebuilding it) is
+        rebuilt here, else every later request would fail on submit."""
         loop = asyncio.get_running_loop()
         ex = self._decode.executor
-        return ex, [loop.run_in_executor(ex, timed_decode, inp["path"], edge) for inp in ch]
+        try:
+            return ex, [loop.run_in_executor(ex, timed_decode, inp["path"], edge) for inp in ch]
+        except BrokenProcessPool:
+            if not self._decode.rebuild(ex):
+                raise
+            ex = self._decode.executor
+            return ex, [loop.run_in_executor(ex, timed_decode, inp["path"], edge) for inp in ch]
 
     async def _one_by_one(self, ch: list[dict[str, Any]], edge: int | None) -> list[Any]:
         """After a worker died: decode files singly, rebuilding the pool after each crash, so the
