@@ -171,3 +171,12 @@ def test_a_failed_offset_estimate_counts_in_full(tmp_path):
     (g,) = rep["groups"]
     assert g["offset_method"] == "none" and g["offset_error_s"] == 37.0
     assert rep["metrics"]["all"]["offset_error_s"] == 37.0 and rep["metrics"]["all"]["offset_failed"] == 1
+
+
+def test_gt_out_finds_a_relative_source_from_another_directory(tmp_path, monkeypatch):
+    """scenarios.json made with a relative source CSV; bench geotag --gt-out run from elsewhere."""
+    monkeypatch.chdir(GOLDEN.parent)
+    synth.generate(GOLDEN.name, tmp_path / "sc", seed=7, scenarios=["perfect"], limit=OUTINGS)
+    monkeypatch.chdir(tmp_path)
+    cli.main(["bench", "geotag", str(tmp_path / "sc"), "--gt-out", str(tmp_path / "gt")])
+    assert (tmp_path / "gt" / "perfect.csv").is_file()
