@@ -52,6 +52,13 @@ class HeadError(ValueError):
     """A head file that cannot be used (unreadable, wrong format, wrong embedding, sha mismatch)."""
 
 
+HEAD_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+HEAD_NAME_RULE = "name: letters, digits, '.', '_' and '-' only"
+
+
+def valid_head_name(name: Any) -> bool:
+    return isinstance(name, str) and HEAD_NAME.fullmatch(name) is not None
+
 # ---- head files ------------------------------------------------------------------------------
 
 def _round(x: float) -> float:
@@ -67,7 +74,9 @@ def canonical_sha(doc: dict[str, Any]) -> str:
 def make_head(name: str, weights: Sequence[float], bias: float, mean: Sequence[float], std: Sequence[float],
               lo: float, hi: float, target: str, provenance: dict[str, Any],
               embedding: str = EMBEDDING) -> dict[str, Any]:
-    """A head document (floats rounded to DIGITS significant digits, then its sha)."""
+    """A head document (floats rounded to DIGITS significant digits, then its sha). HeadError on a bad name."""
+    if not valid_head_name(name):
+        raise HeadError(f"{HEAD_NAME_RULE} (got {name!r})")
     doc = {"format": HEAD_FORMAT, "version": HEAD_VERSION, "name": name, "embedding": embedding,
            "dim": len(weights), "weights": [_round(w) for w in weights], "bias": _round(bias),
            "mean": [_round(m) for m in mean], "std": [_round(s) for s in std],
@@ -156,8 +165,8 @@ def parse_head(doc: Any, where: str = "head") -> Head:
     if not isinstance(t, dict) or not all(isinstance(t.get(k), (int, float)) for k in ("lo", "hi")) \
             or not t["hi"] > t["lo"]:
         raise fail("target needs numbers lo < hi")
-    if not isinstance(doc["name"], str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", doc["name"]):
-        raise fail("name: letters, digits, '.', '_' and '-' only")
+    if not valid_head_name(doc["name"]):
+        raise fail(HEAD_NAME_RULE)
     if not isinstance(doc["provenance"], dict):
         raise fail("provenance must be an object")
     sha = canonical_sha(doc)

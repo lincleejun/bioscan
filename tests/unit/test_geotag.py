@@ -461,3 +461,9 @@ def test_run_warns_when_track_options_come_without_gpx(folder, capsys):
     assert "--offset, --tz only apply with --gpx" in capsys.readouterr().err
     cli.build_payload(cli.parser().parse_args(["run", str(folder / "photos")]))
     assert "warning" not in capsys.readouterr().err
+
+
+def test_clock_photo_without_capture_time_is_an_error_not_ignored():
+    photos = [photo_at("a.jpg", T0 + 100), gt.Photo("clock.jpg", None, clock="2026-05-01T08:00:23")]
+    with pytest.raises(ValueError, match="clock photo has no readable capture time"):
+        gt.geotag(photos, track(north_walk(601)), gt.resolve_tz("-07:00"))

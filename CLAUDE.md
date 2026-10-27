@@ -55,7 +55,8 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
 - Open source first; commercial use is not a goal for now.
 - The BioScan `/run` service stays stateless; state lives in files the user asks for (preds, baselines).
   Superseded for Gardener only (ADR 0001, 2026-10-21): `bioscan.gardener` is a persistent local service
-  (SQLite records + a separate preview cache) shared by its web UI, CLI and MCP; it never writes into photo sources.
+  (SQLite records + a separate preview cache) shared by its web UI, CLI and MCP; it never writes into photo sources,
+  except that a cleanup plan a person confirmed moves its files to the macOS Trash (ADR 0003).
 - Identification is all-taxa by default. A caller may narrow it to candidate taxa (e.g. "A, B or C") as a
   speed/accuracy aid, never as a requirement.
 - Where a list has no location label for a row, fall back to its genus; a box may move between kinds
@@ -69,10 +70,8 @@ When the owner gives a folder of photos and says nothing else, this is the job, 
    scratchpad). Leave it running: the review page's Export / Delete go through it (POST /apply); stop it only when told.
 2. Run, one request, names and aesthetics together, all three exports:
    `uv run bioscan --url http://127.0.0.1:8767 aesthetic score DIR --species --export json,csv,html --out DIR/bioscan`
-   (top level only unless told `-r`; the photos' own GPS is used). `aesthetic score` has no `--lat/--lon`: when the
-   photos have no GPS and the place is known, run `uv run bioscan --url http://127.0.0.1:8767 run DIR --want
-   identify,aesthetics,quality,scene --lat LAT --lon LON --json --out DIR/bioscan.ndjson`, then
-   `uv run bioscan aesthetic score --preds DIR/bioscan.ndjson --export json,csv,html --out DIR/bioscan`.
+   (top level only unless told `-r`; the photos' own GPS is used). When the photos have no GPS and the place is
+   known, add `--lat LAT --lon LON` (a photo's own GPS still wins).
 3. Report the run's own summary (scored / named / failed, score range, star cuts, top taxa, scene counts),
    open `DIR/bioscan.html`, and list names that look out of place for the location.
 4. If the flow cannot do what was asked, change the code (with tests and docs), then run it.

@@ -27,7 +27,7 @@ def cand(name, p, p_geo=None):
 def bx(i, kind="bird", level="species", top=None, sharp=1.0, species=True):
     b = {"id": i, "xyxy": [0, 0, 1, 1], "score": 0.9, "kind": kind, "quality": {"sharpness": sharp, "exposure": 0.0}}
     if species:
-        b["species"] = None if top is None else {"list": "avilist-2025", "level": level, "top": top}
+        b["species"] = None if top is None else {"list": "avilist-2026", "level": level, "top": top}
     return b
 
 
@@ -113,7 +113,7 @@ def _c(sci, common, family="Accipitridae"):
 
 
 def _sp(level, top):
-    return {"list": "avilist-2025", "level": level, "top": top}
+    return {"list": "avilist-2026", "level": level, "top": top}
 
 
 def test_common_of_species_is_the_first_candidates_common_name():

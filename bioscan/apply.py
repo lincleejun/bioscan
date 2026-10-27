@@ -7,6 +7,7 @@ The service only accepts /apply with the token in `~/.cache/bioscan/serve-token`
 token is one this user generated, and no other site can read the file."""
 from __future__ import annotations
 
+import glob
 import os
 import secrets
 import shutil
@@ -22,7 +23,9 @@ def token(create: bool = False, path: Path = TOKEN_FILE) -> str | None:
     """The machine's service token; `create` makes one when there is none."""
     p = path.expanduser()
     if p.is_file():
-        return p.read_text(encoding="utf-8").strip() or None
+        t = p.read_text(encoding="utf-8").strip()
+        if t:
+            return t
     if not create:
         return None
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -33,14 +36,19 @@ def token(create: bool = False, path: Path = TOKEN_FILE) -> str | None:
 
 
 def files_of(photo: str) -> list[Path]:
-    """The photo and the XMP sidecars it has."""
-    return [Path(photo), *(s for s in xmp.sidecar_paths(photo) if s.is_file())]
+    """The photo and the XMP sidecars it has. A shared `stem.xmp` goes along only when no other photo
+    with that stem (e.g. the RAW of a RAW+JPEG pair) stays in the folder."""
+    src = Path(photo)
+    shared = src.with_suffix(".xmp")
+    partner = any(f != src and f.suffix.lower() != ".xmp" and f.stem == src.stem
+                  for f in src.parent.glob(glob.escape(src.stem) + ".*"))
+    return [src, *(s for s in xmp.sidecar_paths(photo) if s.is_file() and not (partner and s == shared))]
 
 
 def apply(keep: list[str] | None = None, drop: list[str] | None = None, *, keep_to: str | None = None,
           drop_to: str | None = None, delete: bool = False, dry_run: bool = False) -> dict[str, Any]:
-    """Copy `keep` to `keep_to`; move `drop` to `drop_to`, or delete them when `delete`. A photo already
-    at the target (same name) is skipped, a missing one listed. Returns counts and the paths skipped
+    """Copy `keep` to `keep_to`; move `drop` to `drop_to`, or delete them when `delete`. A photo whose
+    file or any sidecar is already at the target (same name) is skipped, a missing one listed. Returns counts and the paths skipped
     or missing: {"copied", "moved", "deleted", "sidecars", "skipped": [...], "missing": [...]}."""
     out: dict[str, Any] = {"copied": 0, "moved": 0, "deleted": 0, "sidecars": 0, "skipped": [], "missing": []}
     jobs: list[tuple[list[str], str | None, str]] = []
@@ -48,16 +56,20 @@ def apply(keep: list[str] | None = None, drop: list[str] | None = None, *, keep_
         jobs.append((keep, keep_to, "copied"))
     if drop and (drop_to or delete):
         jobs.append((drop, None if delete else drop_to, "deleted" if delete else "moved"))
+    planned: set[Path] = set()  # targets a dry run would have filled
     for paths, dest, key in jobs:
         for p in paths:
             src = Path(p)
             if not src.is_file():
                 out["missing"].append(p)
                 continue
-            if dest and (Path(dest) / src.name).exists():
+            files = files_of(p)
+            targets = [Path(dest) / f.name for f in files] if dest else []
+            if any(t.exists() or t in planned for t in targets):
                 out["skipped"].append(p)
                 continue
-            for f in files_of(p):
+            planned.update(targets)
+            for f in files:
                 if not dry_run:
                     if dest is None:
                         f.unlink()

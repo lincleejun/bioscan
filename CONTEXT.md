@@ -34,7 +34,8 @@ _Avoid_: format (that is the extension)
 
 **Capture time**:
 `taken_at`: DateTimeOriginal as ISO 8601 with the sub-seconds and UTC offset when the file has them
-(`2026-05-01T08:00:00.37-07:00`); what orders burst frames and picks the location prior's week.
+(`2026-05-01T08:00:00.37-07:00`); what orders burst frames and picks the location prior's week. A blank or
+zeroed DateTimeOriginal counts as missing: IFD0 DateTime (with SubSecTime and OffsetTime) is used instead.
 _Avoid_: timestamp, date
 
 **Stage**:
@@ -149,8 +150,15 @@ becomes a default moves to the switches (`identify.SWITCHES`).
 _Avoid_: experiment, flag
 
 **Candidate**:
-One ranked name for a box: scientific, common, taxonomy, p_visual, p_geo, posterior.
+One ranked name for a box: scientific, concept, common, taxonomy, p_visual, p_geo, posterior.
 _Avoid_: confusing it with candidate taxa (the option)
+
+**Concept**:
+A taxon's stable id, independent of its names (ADR 0002): `avibase:<Avibase ID>` for AviList birds,
+`mdd:<id>` for MDD mammals, `name:<scientific>` where the list has no stable id (the all-taxa list).
+A rename keeps the concept (*Troglodytes pacificus* → *Nannus pacificus* is `avibase:avibase-CF5B7A9D`
+in both v2025 and v2026); a split makes new ones.
+_Avoid_: taxon id, species key; using the scientific name as identity
 
 **Candidate taxa**:
 The optional `candidates` identify option: scientific names or higher taxa species ranking is restricted
@@ -331,11 +339,20 @@ _Avoid_: flaw, defect, score
 A note `select` puts on a photo that never changes its status, rank, keep or stars (a flag is not a reject reason):
 `horizon_tilt` when the scene stage's horizon (landscapes only) tilts more than `horizon_flag_deg`, default 3°;
 `tight_headroom` when the subject's box starts less than `headroom_min` (default 0.02) of the frame height below the
-frame top and fills under half the frame. It shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
+frame top and fills under half the frame; `no_lead_room` when the subject faces the nearer side edge (its **facing**)
+with less than `lead_room_min` (default 0.1) of the frame width in front of its box and fills under half the frame.
+It shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
 _Avoid_: warning, soft reject
 
 **Subject**:
 The photo's main animal: identify's best box by score. A photo without a box is judged on its whole frame.
+
+**Facing**:
+Which way the subject looks, `left` or `right` in the upright frame, or null (at the camera, away, or unknown): the
+`facing` stage asks OWLv2 for the kind's head and eye inside the subject's box and reads the head's (else the
+eye's) offset from the box centre. In front of the subject is the frame on its facing side (lead room). The stage is
+opt-in (the album profile leaves it out: one more OWLv2 call per photo), so without it no photo gets `no_lead_room`.
+_Avoid_: direction, heading, gaze, pose
 
 **Keeper**:
 A photo worth keeping: no reject reason (after waivers). In ground truth, a row with `keep = 1`; losing one to a
@@ -494,8 +511,16 @@ _Avoid_: Duplicate (versions are kept, never removed)
 Someone a user named (by naming a face or a person group); their confirmed faces are matched in every task, now and
 in later scans. Faces matching no named person form clusters shown as 人物 1, 2, … until named.
 
-**Flag / Star**:
-The human pick/reject and 0–5 rating, global per asset, shared by every collection.
+**Use / Star** (选片用途 / 星级):
+The human decision and 0–5 rating, global per asset, shared by every collection. The use is one of record (保留记录:
+keep the photo as a species record, not for editing), edit (选入修图: keep and hand to the editor), pending (待定, the
+default) or reject (淘汰: a decision, never a file operation). The model never sets one.
+_Avoid_: Flag, Pick (the older two-state form; `flag` survives only as a derived field for older clients)
+
+**Encounter** (拍摄段):
+One continuous observation within a task: photos close in time (and showing the same species, when known); bursts
+nest inside. Suggested by the service, then a person may split or merge; a rescan only places photos not yet placed.
+_Avoid_: Event (an older time grouping), burst (a burst is a few near-identical frames inside one encounter)
 
 **AI suggestion**:
 A machine pick/reject/none with score and reasons, per task run; stored apart from Flag/Star.

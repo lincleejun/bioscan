@@ -104,6 +104,12 @@ def _from_exiftool(r: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _argfile(paths: list[str]) -> list[str]:
+    """The paths safe for exiftool's one-per-line argfile: a line break would start a new
+    argument (an injected option such as -all=), so such a path is left to the per-file reader."""
+    return [p for p in paths if "\n" not in p and "\r" not in p]
+
+
 def _exiftool(paths: list[str]) -> dict[str, dict[str, Any]]:
     """exiftool over `paths` in batches; paths go on stdin (no argument-length limit). A path
     exiftool could not read is left out."""
@@ -215,7 +221,7 @@ def read_meta(paths: list[str]) -> dict[str, dict[str, Any]]:
     photos = [p for p in paths if p not in videos]
     out: dict[str, dict[str, Any]] = {}
     if photos and _tool("exiftool"):
-        out.update(_exiftool(photos))
+        out.update(_exiftool(_argfile(photos)))
     for p in photos:
         if p not in out:
             out[p] = _from_file(p)

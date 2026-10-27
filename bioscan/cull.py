@@ -24,7 +24,9 @@ per scene group, label or attribute value `name=value`: underexposed is normal a
 Flags: notes that never change a status, rank or keep (a flag is not a reason): `horizon_tilt` when the
 scene stage's horizon (measured for landscapes only) tilts more than `horizon_flag_deg` either way;
 `tight_headroom` when the subject's box starts less than `headroom_min` of the frame height below the
-frame top and is not a fill-the-frame portrait (box area under PORTRAIT_AREA of the frame).
+frame top and is not a fill-the-frame portrait (box area under PORTRAIT_AREA of the frame);
+`no_lead_room` when the subject faces (the facing stage's side) the nearer side edge of the frame with
+less than `lead_room_min` of the frame width in front of its box, and is not a fill-the-frame portrait.
 
 Standard library only: the CLI imports it."""
 from __future__ import annotations
@@ -40,9 +42,10 @@ from typing import Any
 ONE_CAMERA = "(one camera)"
 UNCATEGORISED = "uncategorised"
 STATUSES = ("pick", "spare", "duplicate", "reject")
-FLAGS = ("horizon_tilt", "tight_headroom")
+FLAGS = ("horizon_tilt", "tight_headroom", "no_lead_room")
 HORIZON_FLAG_DEG = 3.0
 HEADROOM_MIN = 0.02     # a guess, unverified until #28's labelled trips
+LEAD_ROOM_MIN = 0.1     # a guess, unverified until #28's labelled trips
 PORTRAIT_AREA = 0.5     # a subject box at least this share of the frame fills it (quality's CUT_MAX_AREA): no headroom
 
 
@@ -148,12 +151,14 @@ def check_select(o: dict[str, Any]) -> None:
     n = o["per_category"]
     if isinstance(n, bool) or not isinstance(n, int) or n < 0:
         raise ValueError("select.per_category must be an integer >= 0 (0 = no limit)")
-    for k in ("dup_cosine", "sharp_tie", "exposure_ok", "horizon_flag_deg", "headroom_min"):
+    for k in ("dup_cosine", "sharp_tie", "exposure_ok", "horizon_flag_deg", "headroom_min", "lead_room_min"):
         v = o[k]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
             raise ValueError(f"select.{k} must be a number >= 0")
     if o["headroom_min"] > 1:
         raise ValueError("select.headroom_min must be at most 1 (a share of the frame height)")
+    if o["lead_room_min"] > 1:
+        raise ValueError("select.lead_room_min must be at most 1 (a share of the frame width)")
     if o["by"] not in ("group", "label"):
         raise ValueError("select.by must be group or label")
     w = o["waive"]
@@ -190,20 +195,29 @@ def _exposure(q: dict[str, Any]) -> float | None:
 
 
 def flags(ev: dict[str, Any], o: dict[str, Any] | None = None) -> list[str]:
-    """The photo's flags, in FLAGS order, with select's options `o` (horizon_flag_deg, headroom_min;
-    a missing one takes its default): horizon_tilt when products.scene.horizon tilts more than
-    horizon_flag_deg; tight_headroom when the subject (identify's best box by score, as the quality
+    """The photo's flags, in FLAGS order, with select's options `o` (horizon_flag_deg, headroom_min,
+    lead_room_min; a missing one takes its default): horizon_tilt when products.scene.horizon tilts more
+    than horizon_flag_deg; tight_headroom when the subject (identify's best box by score, as the quality
     stage picks it) has its top edge less than headroom_min of the frame height from the frame top and
-    covers under PORTRAIT_AREA of the frame. Existing boxes only: no model call."""
+    covers under PORTRAIT_AREA of the frame; no_lead_room when products.facing says that box faces left
+    or right, the side it faces has less frame in front of the box than behind it, under lead_room_min
+    of the frame width, and the box covers under PORTRAIT_AREA of the frame."""
     o, p, out = o or {}, products(ev), []
     h = (p.get("scene") or {}).get("horizon") or {}
     if abs(h.get("tilt_deg") or 0.0) > o.get("horizon_flag_deg", HORIZON_FLAG_DEG):
         out.append("horizon_tilt")
     boxes = [b for b in (p.get("identify") or {}).get("boxes") or [] if b.get("xyxy")]   # partial payloads: none
     if boxes:
-        x0, y0, x1, y1 = max(boxes, key=lambda b: b.get("score") or 0.0)["xyxy"]   # normalised 0-1, upright
-        if y0 < o.get("headroom_min", HEADROOM_MIN) and (x1 - x0) * (y1 - y0) < PORTRAIT_AREA:
+        best = max(boxes, key=lambda b: b.get("score") or 0.0)
+        x0, y0, x1, y1 = best["xyxy"]                                               # normalised 0-1, upright
+        portrait = (x1 - x0) * (y1 - y0) >= PORTRAIT_AREA
+        if y0 < o.get("headroom_min", HEADROOM_MIN) and not portrait:
             out.append("tight_headroom")
+        f = p.get("facing") or {}
+        if f.get("side") in ("left", "right") and f.get("box") == best.get("id") and not portrait:
+            front, back = (x0, 1 - x1) if f["side"] == "left" else (1 - x1, x0)
+            if front < back and front < o.get("lead_room_min", LEAD_ROOM_MIN):
+                out.append("no_lead_room")
     return out
 
 

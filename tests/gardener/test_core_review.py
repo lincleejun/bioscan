@@ -41,14 +41,14 @@ def test_marks_are_global_across_collections_and_completion_is_independent(env, 
         a, b, x = ids(c, task=t["id"])
         cols = [manual(c, f"集合{i}", [a, b]) for i in range(3)]
         r = c.post(f"{API}/marks", json={"asset_ids": [a], "flag": "pick", "stars": 4}, headers={"X-Gardener-Actor": "ui"})
-        assert r.status_code == 200 and r.json()["assets"] == [{"id": a, "flag": "pick", "stars": 4, "version": 1}]
+        assert r.status_code == 200 and r.json()["assets"] == [{"id": a, "use": "record", "flag": "pick", "stars": 4, "version": 1}]
         for col in cols:
             got = c.get(f"{API}/collections/{col['id']}").json()
             assert (got["picks"], got["judged"], got["review"]["unhandled"]) == (1, 1, 1)
         # omitted key = unchanged; null = clear (§10 X5)
         assert c.post(f"{API}/marks", json={"asset_ids": [a], "stars": 2}).json()["assets"][0]["flag"] == "pick"
         r = c.post(f"{API}/marks", json={"asset_ids": [a], "flag": None})
-        assert r.json()["assets"][0] == {"id": a, "flag": None, "stars": 2, "version": 3}
+        assert r.json()["assets"][0] == {"id": a, "use": "pending", "flag": None, "stars": 2, "version": 3}
         # stale expect -> 409 with the current versions
         r = c.post(f"{API}/marks", json={"asset_ids": [a], "flag": "reject", "expect": {a: 1}})
         assert r.status_code == 409 and r.json()["conflicts"] == [{"id": a, "version": 3}]
@@ -108,7 +108,7 @@ def test_manual_split_survives_regroup_and_rerun(env, fakes, tmp_path):
     with env.client() as c:
         t = scanned(c, src)
         group = next(x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json()
-                     if x["group_kind"] == "species")
+                     if x["group_kind"] == "scene")
         members = ids(c, collection=group["id"])
         assert len(members) == 4
         new = c.post(f"{API}/collections/{group['id']}/split", json={"asset_ids": members[:2], "name": "清晨"}).json()
@@ -118,7 +118,7 @@ def test_manual_split_survives_regroup_and_rerun(env, fakes, tmp_path):
         got = c.get(f"{API}/collections/{group['id']}").json()
         assert got["size"] == 2 and got["name"] == "我的分组" and got["user_edited"]
         assert c.get(f"{API}/collections/{new['id']}").json()["size"] == 2
-        same = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "species"]
+        same = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "scene"]
         assert len(same) == 1                           # the suggestion matched the edited one, no duplicate
         r = c.patch(f"{API}/collections/{group['id']}", json={"name": "x", "version": 1})
         assert r.status_code == 409
@@ -188,7 +188,7 @@ def test_delete_restore_keeps_marks_and_deleted_auto_collections_stay_deleted(en
     with env.client() as c:
         t = scanned(c, a)
         cols = c.get(f"{API}/collections", params={"task": t["id"]}).json()
-        scene = next(x for x in cols if x["group_kind"] == "species")
+        scene = next(x for x in cols if x["group_kind"] == "scene")
         first = ids(c, collection=scene["id"])
         c.post(f"{API}/marks", json={"asset_ids": first, "flag": "pick"})
         assert c.delete(f"{API}/collections/{scene['id']}").json()["deleted_at"]
@@ -197,7 +197,7 @@ def test_delete_restore_keeps_marks_and_deleted_auto_collections_stay_deleted(en
         assert ids(c, task=t["id"], flag="pick") == ids(c, task=t["id"])          # marks unchanged
         run = finish(c, c.post(f"{API}/tasks/{t['id']}/sources", json={"paths": [str(b)]}).json()["id"])
         assert run["status"] == "completed" and run["summary"]["groups_skipped_deleted"] >= 1
-        live = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "species"]
+        live = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["group_kind"] == "scene"]
         assert live == []                                                          # not revived, no duplicate
         kids = [x for x in c.get(f"{API}/collections", params={"task": t["id"]}).json() if x["parent_id"] == scene["id"]]
         assert all(x["size"] == 2 for x in kids)                                   # no new children under a deleted parent
@@ -318,7 +318,7 @@ def test_original_range_reveal_presets_settings(env, fakes, tmp_path):
         assert c.post(f"{API}/tasks/{t['id']}/archive").json()["archived"] is True
         assert c.get(f"{API}/tasks").json() == [] and len(c.get(f"{API}/tasks", params={"archived": "all"}).json()) == 1
         sd = st.Store(env.data)
-        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == "1"
+        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == str(st.SCHEMA_VERSION)
 
 
 def test_capability_check_reports_a_model_that_does_not_load(tmp_path, fakes):
@@ -421,3 +421,34 @@ def test_combined_filters_across_tasks(env, tmp_path):
         sm = c.post(f"{API}/collections", json={"name": "跨任务", "kind": "smart",
                                                 "rule": {"flag": "pick", "stars_min": 4}}).json()
         assert q(collection=sm["id"]) == sorted([ia[0], vid])
+
+
+def test_tag_merge_into_a_grandchild_leaves_no_parent_cycle(env):
+    with env.client() as c:
+        a, p, b = (c.post(f"{API}/tags", json={"name": n}).json() for n in ("A", "P", "B"))
+        c.patch(f"{API}/tags/{p['id']}", json={"parent_id": a["id"]})
+        c.patch(f"{API}/tags/{b['id']}", json={"parent_id": p["id"]})
+        assert c.post(f"{API}/tags/{a['id']}/merge", json={"into": b["id"]}).status_code == 200
+        parent = {x["id"]: x["parent_id"] for x in c.get(f"{API}/tags").json()}
+        assert parent[b["id"]] is None and parent[p["id"]] == b["id"]
+
+
+def test_clear_cache_tolerates_a_file_vanishing_meanwhile(env, tmp_path, monkeypatch):
+    src = tmp_path / "card"
+    photos(src, 2)
+    with env.client() as c:
+        t = scanned(c, src)
+        aid = ids(c, task=t["id"])[0]
+        real = os.path.getsize
+        gone = []
+
+        def getsize(p):              # a preview's .part renamed away between walk and stat
+            if not gone:
+                gone.append(p)
+                os.remove(p)
+            return real(p)
+        monkeypatch.setattr(os.path, "getsize", getsize)
+        r = c.post(f"{API}/storage/clear-cache")
+        monkeypatch.undo()
+        assert r.status_code == 200 and r.json()["removed_files"] == 3
+        assert c.get(f"{API}/assets/{aid}").json()["preview"] == "pending"

@@ -127,8 +127,13 @@ def cmd_open(a) -> int:
 
 def cmd_install(a) -> int:
     dest = (Path(a.modules) if a.modules else default_modules()) / "bioscan.lrplugin"
-    if dest.is_symlink() or dest.exists():
+    if dest.resolve() == PLUGIN.resolve():
         print(f"already installed: {dest}")
+        return 0
+    if dest.is_symlink():                      # dead, or pointing at another checkout: relink
+        dest.unlink()
+    elif dest.exists():
+        print(f"already installed (a copy): {dest}; to refresh it, remove it and re-run")
         return 0
     dest.parent.mkdir(parents=True, exist_ok=True)
     if a.copy:

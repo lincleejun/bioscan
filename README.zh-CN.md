@@ -58,13 +58,13 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 | **补 GPS**：用手表或手机的 GPX 轨迹；时钟偏差按相机（EXIF 品牌 + 型号）分别定，来自表盘照片或带 GPS 的照片；写 XMP sidecar | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
 | **挑片**：带理由的废片、连拍及其最佳一帧、每个场景类别的最佳照片、美学排序；HTML 审阅页、CSV、符号链接，可选把星级和颜色标签写进新的 XMP sidecar；从不删除 | `bioscan cull DIR -r --html review.html` | [album.md](docs/album.md) |
 | **汇总一次运行**：类别、物种和带规则理由的待审队列写成 `summary.json`，再渲染为 HTML 报告 | `bioscan summarize preds.ndjson --out run`, `bioscan report run` | [usage.md](docs/usage.md#run-summary-and-report) |
-| **给文件夹打分**：美学排序导出为 NDJSON、CSV 和/或 HTML 审片页（分类树可合并名称、保留/丢弃标记、大图灯箱）；`--species` 给动物命名；可从 NDJSON 离线重新导出；`aesthetic apply` 把保留的原片拷出、丢弃的移走 | `bioscan aesthetic score DIR -r --species --export json,csv,html --out aes` | [album.md](docs/album.md) |
+| **给文件夹打分**：美学排序导出为 NDJSON、CSV 和/或 HTML 审片页（分类树可合并名称、保留/丢弃标记、大图灯箱）；`--species` 给动物命名（照片无 GPS 时用 `--lat/--lon` 给出位置）；状态、拒绝原因与豁免取自 album 配置的 `select`，与 `bioscan cull` 一致；可从 NDJSON 离线重新导出；`aesthetic apply` 把保留的原片拷出、丢弃的移到 `--drop-to DIR`（从不删除） | `bioscan aesthetic score DIR -r --species --export json,csv,html --out aes` | [album.md](docs/album.md) |
 | **个人美学**：用你的 Lightroom 星级拟合一个头，与通用头混合 | `bioscan aesthetic train --ratings DIR` | [album.md](docs/album.md) |
 | **Profile** `full`、`wildlife`、`album`，以及 `bioscan.toml` 里你自己的 | `bioscan run DIR --profile album` | [usage.md](docs/usage.md#profiles-and-bioscantoml) |
 | **评测**：从文件夹或 iNaturalist 建真值，带 Wilson 区间的报告，基线与回归预算，失败分类，对照标准的记分卡 | `bioscan eval`、`bioscan bench` | [development.md](docs/development.md)、[harness.md](docs/harness.md) |
-| **HTTP API**：`/run` 流式返回 NDJSON；`/health`、`/products` | `curl 127.0.0.1:8765/run` | [usage.md](docs/usage.md#http-api) |
+| **HTTP API**：`/run` 流式返回 NDJSON；`/health`、`/products`、`/apply`（审片页的拷出 / 删除） | `curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}]}'` | [usage.md](docs/usage.md#http-api) |
 
-模型：SigLIP2（门控、embed）、OWLv2（检测）、BioCLIP 2.5 Huge（物种）、BirdNET geo（地理先验）、AviList 2025 与 MDD v2.5 名单、TreeOfLife-200M 全类群名单。来源和许可：[docs/how-it-works.md](docs/how-it-works.md#pipeline)。
+模型：SigLIP2（门控、embed）、OWLv2（检测）、BioCLIP 2.5 Huge（物种）、BirdNET geo（地理先验）、AviList v2026 与 MDD v2.5 名单、TreeOfLife-200M 全类群名单。来源和许可：[docs/how-it-works.md](docs/how-it-works.md#pipeline)。
 
 ## 现状
 
