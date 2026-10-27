@@ -1079,9 +1079,9 @@ scope = "bird"
 metric = "manual"
 op = ">="
 industry = 11000
-community = 11131
+community = 11172
 unit = "species"
-how = "uv run bioscan names stats (AviList 2025 rows)"
+how = "uv run bioscan names stats (AviList v2026 rows)"
 source = "Dongniao identifies 11,000+ bird species (vendor claim): https://apis.baidu.com/store/detail/ee97e453-2ce8-44b6-b04c-bd06fa484b5e"
 
 [[standard]]

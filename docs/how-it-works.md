@@ -7,7 +7,7 @@ What bioscan is for, the pipeline, the accuracy rules, the models and data, the 
 In scope:
 - Scan a directory in one pass and stream results as they are produced.
 - Three products, in any combination: `identify` (boxes + species), `embed` (whole-frame SigLIP2 vector), `jpg` (RAW to upright JPG).
-- **AviList 2025** (birds, 11131 species) and **MDD v2.5** (mammals, 6904 species) are the naming standards for birds and mammals; BirdNET, TreeOfLife/BioCLIP and iNaturalist names are mapped onto them through the tables in `data/names/`.
+- **AviList v2026** (birds, 11172 species) and **MDD v2.5** (mammals, 6904 species) are the naming standards for birds and mammals; BirdNET, TreeOfLife/BioCLIP and iNaturalist names are mapped onto them through the tables in `data/names/`.
 - All taxa by default: every other animal (reptiles, amphibians, fish, insects, spiders, …) is named from the TreeOfLife-200M all-taxa list. Naming candidate taxa first is optional (see [All taxa and candidates](usage.md#all-taxa-and-candidates)).
 - Built-in evaluation: `bioscan gt` builds a ground-truth set (from folder names or iNaturalist), `bioscan eval` writes a report.
 
@@ -63,7 +63,7 @@ Models and data:
 | Species | `imageomics/bioclip-2.5-vith14` (BioCLIP 2.5 Huge) | MIT |
 | Species-name text vectors | official precomputed `imageomics/TreeOfLife-200M` vectors; unmatched names encoded with the text tower | CC0 |
 | Location prior (birds, mammals) | BirdNET geo 3.0 (`birdnet` package) | CC BY-NC-SA 4.0 |
-| Bird list | AviList v2025 | CC BY 4.0 |
+| Bird list | AviList v2026 | CC BY 4.0 |
 | Mammal list | Mammal Diversity Database v2.5 | CC BY 4.0 |
 | All-taxa list (other animals) | species-level Animalia rows of `imageomics/TreeOfLife-200M`, birds and mammals excluded, official vectors | CC0 |
 
@@ -83,7 +83,7 @@ After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the m
 
 | List | Total | Official TreeOfLife vectors | BirdNET label |
 |---|---|---|---|
-| AviList 2025 | 11131 | 84.6% | 93.3% |
+| AviList v2026 | 11172 | 84.3% | 93.3% |
 | MDD v2.5 | 6904 | 55.5% | 15.1% (1042 rows carry all 1,048 BirdNET mammal labels; the rest back off to their genus) |
 
 ## Known limitations and roadmap

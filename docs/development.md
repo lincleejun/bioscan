@@ -4,7 +4,7 @@
 
 ```sh
 bioscan gt folders /path/to/photos --out data/groundtruth-own.csv \
-  --names data/avilist/AviList-v2025-11Jun-extended.csv --names data/mdd/MDD_v2.5_6904species.csv
+  --names data/avilist/AviList-v2026-20Oct2026-extended-version.csv --names data/mdd/MDD_v2.5_6904species.csv
 bioscan gt inat --place california --taxa data/taxa.csv --per-species 25 --out data/inat   # --dry-run only prints URLs
 bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>          # calls the service, writes preds.ndjson + report.md
 bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-nogeo --no-geo

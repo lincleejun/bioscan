@@ -15,6 +15,7 @@ from PIL import Image
 from bioscan import contract
 from bioscan.plugins.identify import SWITCHES, TRIALS
 from bioscan.service import candidates
+from bioscan.service import names as names_mod
 from bioscan.service.adapters.owlv2 import Detection
 from bioscan.service.rules import (
     RANGE_EPS,
@@ -143,7 +144,7 @@ def _named(names: Any, prior: Any, row: np.ndarray, p_geo: np.ndarray | None, op
     top = [
         contract.candidate(names.scientific[r], names.common[r] or None, list(names.taxonomy[r]),
                            round(float(row[j]), 6), None if p_geo is None else round(float(p_geo[j]), 6),
-                           round(float(post[j]), 6))
+                           round(float(post[j]), 6), names_mod.concept_of(names, r))
         for j, r in zip(order, at)]
     vetoed = False
     if veto:
