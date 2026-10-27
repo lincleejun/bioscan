@@ -513,7 +513,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 
 - **RAW 细节（5C）**：两张 Sony A1（ILCE-1，FE 16-35mm F2.8 GM）ARW，`_DSC1725`（方向 1，16 mm）与 `_DSC2286`（方向 8，24 mm）。
   - 方向：`_DSC2286` 的 `X-Detail-Orientation: 8`、`X-Detail-Full: 5760x8640`，`/large` 为 1067×1600 竖图；与素材的 `width/height` 一致。
-  - 画幅：LibRaw 给出整个有效区 8660×5784，相机 JPEG（`JpgFromRaw`，即预览的来源）是 DNG 默认裁切 8640×5760、起点 (12,12)。修订前细节因此比预览偏 12 px（竖图转正后为 12/8 px）。**已修复**：`detail.camera_crop` 用 exiftool 读 `DefaultCropOrigin/Size`，`detail.upright_crop` 按 `sizes.flip` 映射到转正后的画面再裁；旧的未裁缓存文件名不同，会重新解码。
+  - 画幅：LibRaw 给出整个有效区 8660×5784，相机 JPEG（`JpgFromRaw`，即预览的来源）是 DNG 默认裁切 8640×5760、起点 (12,12)。修订前细节因此比预览偏 12 px（竖图转正后为 12/8 px）。这里 LibRaw 的边距为 0，裁切起点按 LibRaw 画幅解释；只在 Sony A1 上核对过，其他机身（LibRaw 报出非零边距时）未验证。**已修复**：`detail.camera_crop` 用 exiftool 读 `DefaultCropOrigin/Size`，`detail.upright_crop` 按 `sizes.flip` 映射到转正后的画面再裁；旧的未裁缓存文件名不同，会重新解码。
   - 对齐（5×5 个 384 px 区块，高通后的对数亮度做归一化互相关，±60 px 搜索）：裁切后中心区块 0,0（`_DSC2286`，相关峰 0.88）与 +2,+1（`_DSC1725`，夜景、纹理少）。其余是相机 JPEG 的机内畸变校正（`DistortionCorrection: 1`，LibRaw 不做）：24 mm 的那张在 10 %/90 % 处最多 ±27 px（横）、±37 px（纵），16 mm 的那张最多 ±45 px，约为长边的 0.5 %。没有相机的校正模型就不能消除，所以 UI 叠放的原像素细节在画面边缘会与预览错开这么多。
   - 嵌入的 `PreviewImage`（exiftool `-b -PreviewImage`）是 1616×1080 的屏幕缩略图，宽高比 1.496，竖图也按横图存储且没有方向标记；预览不用它，不参与对齐。
   - 耗时写在 5C“测量”。
@@ -531,7 +531,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 没有 GPS 时（同一组照片）：5 框以上混杂 7 张（6 张会多出卡），3–4 框混杂 8 张（6 张）。
   - **决定：保留 5**。降到 3 能多挡住 4 张照片的错卡，却让 31 张逐框一致（多数正确）的照片失去种名；升到 6 只影响 5 框的 5 张（其中 2 张混杂）。代价是 5 框以上逐框一致的 11 张正确照片也只记到属，人确认一次即可（连拍范围可一起改）。“逐框一致的鸟群保留种名”是否值得做，由 owner 决定（未做）。
 - **拆分按位置选定（修订 4 S7 第二部分的后续）**：
-  - `identities.resolve_splits(c, p_geo_of)`：对当前结论仍是 `split:<版本>` 待重新确认、照片有 GPS 的主体，问 `p_geo_of(子种概念, lat, lon, taken_at)`（只返回位置先验直接标注的子种）。恰好一个子种 `p_geo ≥ RANGE_TAU`（0.05，BioScan 的“在分布区”线），其余都 `< RANGE_EPS`（0.01，“不在这里”线）时，追加一条 `source=user, actor=system, reason=split-geo:<版本>` 的识别：`level=species`、该子种的 `concept/taxon/common`、`candidates` 为各子种并带上 `p`（p_geo），本次调用一个 `batch_id`，可用 `POST /identifications/undo` 撤销。否则不动，留给人选。
+  - `identities.resolve_splits(c, p_geo_of)`：对当前结论仍是 `split:<版本>` 待重新确认、照片有 GPS 的主体，问 `p_geo_of(子种概念, lat, lon, taken_at)`（只返回位置先验直接标注的子种）。恰好一个子种 `p_geo ≥ RANGE_TAU`（0.05，BioScan 的“在分布区”线），其余都 `< RANGE_EPS`（0.01，“不在这里”线）时，追加一条 `source=user, actor=system, reason=split-geo:<版本>` 的识别：`level=species`、该子种的 `concept/taxon/common`、`candidates` 为各子种并带上 `p`（p_geo），本次调用一个 `batch_id`，可用 `POST /identifications/undo` 撤销。这里 `candidates[].p` 是位置先验 p_geo，不是视觉后验概率。否则不动，留给人选。
   - 每个主体每次拆分只尝试一次：撤销 `split-geo` 批次后不会再被自动选定。之后若撤销原来的 `split:<版本>` 批次，会因为其后有人工行而 409（与撤销规则一致，不特殊处理）。
   - 何时运行：一次运行的 BioScan 分析之后（`tasks.RunExec.resolve_splits`），只在引擎已加载 BioCLIP、因而有鸟类位置先验时（`tasks.split_prior`：`engine.priors["bird"]` 与 `engine.names["bird"].concept`）；全库范围；出错只记日志，不影响运行；名字同步（`taxa.sync`）不变。
   - **真实先验的结果**：BirdNET geo 3.0 用的是拆分前的分类。AviList v2026 的 35 个拆分中 34 个的所有子种都映射到同一个 BirdNET 标签（亲本，`birdnet_how=synonym`），p_geo 完全相同，所以一个也选不出；在 14 组地点上核对过（如 Willet 在新泽西海岸与北达科他、Great Horned Owl 在加州与利马、European Robin 在伦敦与特内里费），全部留给人选。第 35 个（Mixornis bornensis）在拆分表里只有一个子种、亲本概念不同。等位置先验认得这些子种（或给子种单独的标签映射）之后，这一步才会真正起作用。
