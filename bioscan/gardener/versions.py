@@ -100,10 +100,15 @@ def plan(rows: list[dict[str, Any]], hashes: Callable[[str], list[int] | None]) 
 def link(store: st.Store, task_id: str, thumb: Callable[[str], Path], model_caps: list[str]) -> dict[str, int]:
     """Apply `plan` to the task: (re)point versions, take versions out of auto collections (and put
     them back when they stop being versions), and mark their model capabilities 不适用 while they are
-    versions. Hashes are cached in assets.meta.dhash. Returns {"same_capture": n, "export": n}."""
-    rows = store.all("SELECT a.id, a.primary_path, a.taken_at, a.camera, a.width, a.height, a.version_of, "
-                     "a.version_reason, a.version_lock, a.preview_status, a.meta FROM task_assets ta JOIN assets a "
-                     "ON a.id = ta.asset_id WHERE ta.task_id = ? AND a.media = 'photo'", (task_id,))
+    versions. Hashes are cached in assets.meta.dhash. Returns {"same_capture": n, "export": n}.
+    A missing file stands for no capture (its versions stand on their own again) and is left as it is.
+    Assets are shared between tasks: a link to a representative outside this task is another task's and stays."""
+    every = store.all("SELECT a.id, a.primary_path, a.taken_at, a.camera, a.width, a.height, a.version_of, "
+                      "a.version_reason, a.version_lock, a.preview_status, a.meta, "
+                      "coalesce(json_extract(a.meta, '$.missing'), 0) missing FROM task_assets ta JOIN assets a "
+                      "ON a.id = ta.asset_id WHERE ta.task_id = ? AND a.media = 'photo'", (task_id,))
+    mine = {r["id"] for r in every}
+    rows = [r for r in every if not r["missing"]]
     by_id = {r["id"]: r for r in rows}
     fresh: dict[str, list[int]] = {}
 
@@ -127,25 +132,35 @@ def link(store: st.Store, task_id: str, thumb: Callable[[str], Path], model_caps
         for aid, hs in fresh.items():
             meta = loads(c.execute("SELECT meta FROM assets WHERE id = ?", (aid,)).fetchone()[0], {})
             c.execute("UPDATE assets SET meta = ? WHERE id = ?", (dumps(meta | {"dhash": [f"{h:016x}" for h in hs]}), aid))
+        # another task's link (representative outside this task) is not this task's to change; a planned
+        # representative that is such a version hands its versions to its own representative: no chains
+        outside = {r["id"]: r["version_of"] for r in rows if r["version_of"] and r["version_of"] not in mine}
         for r in rows:
+            if r["id"] in outside:
+                continue
             target = want.get(r["id"])
+            if target and target[0] in outside:
+                target = (outside[target[0]], target[1])
+            old = (r["version_of"], r["version_reason"]) if r["version_of"] else None
+            if target != old and not set_version(c, r["id"], target, model_caps, t):
+                continue
             if target:
                 counts[target[1]] += 1
-            old = (r["version_of"], r["version_reason"]) if r["version_of"] else None
-            if target == old:
-                continue
-            set_version(c, r["id"], target, model_caps, t)
     return counts
 
 
-def set_version(c: Any, aid: str, target: tuple[str, str] | None, model_caps: list[str], t: str) -> None:
-    """One asset becomes a version of target[0] (or its own capture again when target is None)."""
+def set_version(c: Any, aid: str, target: tuple[str, str] | None, model_caps: list[str], t: str) -> bool:
+    """One asset becomes a version of target[0] (or its own capture again when target is None). A person's
+    "not the same capture" (version_lock) wins, also when it lands while `link` is planning: False."""
     if target:
-        c.execute("UPDATE assets SET version_of = ?, version_reason = ?, updated_at = ? WHERE id = ?",
-                  (target[0], target[1], t, aid))
+        if not c.execute("UPDATE assets SET version_of = ?, version_reason = ?, updated_at = ? WHERE id = ? "
+                         "AND version_lock = 0", (target[0], target[1], t, aid)).rowcount:
+            return False
         c.execute("UPDATE assets SET version_of = ?, updated_at = ? WHERE version_of = ?", (target[0], t, aid))  # no chains
+        # out of the auto collections of the tasks the representative stands in; another task keeps it
         c.execute("UPDATE collection_members SET removed_at = ?, removed_by = 'version' WHERE asset_id = ? "
-                  "AND added_by = 'auto' AND removed_at IS NULL", (t, aid))
+                  "AND added_by = 'auto' AND removed_at IS NULL AND collection_id IN (SELECT co.id FROM collections co "
+                  "JOIN task_assets ta ON ta.task_id = co.task_id WHERE ta.asset_id = ?)", (t, aid, target[0]))
         for cap in model_caps:              # a result it already has stays; nothing new runs on a version
             c.execute("INSERT INTO asset_caps (asset_id, capability, state, error, updated_at) VALUES "
                       "(?, ?, 'not_applicable', ?, ?) ON CONFLICT(asset_id, capability) DO UPDATE SET "
@@ -157,3 +172,4 @@ def set_version(c: Any, aid: str, target: tuple[str, str] | None, model_caps: li
                   "AND removed_by = 'version'", (aid,))
         c.execute("UPDATE asset_caps SET state = 'pending', error = NULL, updated_at = ? WHERE asset_id = ? "
                   "AND state = 'not_applicable' AND error = ?", (t, aid, VERSION_NA))
+    return True

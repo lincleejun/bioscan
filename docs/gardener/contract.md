@@ -32,7 +32,7 @@
 ## 2 存储
 
 - 数据目录 `--data-dir`（默认 `$GARDENER_HOME`，否则 `~/.gardener`）：`gardener.sqlite`（WAL）、`cache/previews/<id[2:4]>/<id>.thumb.jpg|.large.jpg`、`exports/`（默认导出位置）、`logs/`。
-- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。
+- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
 - DDL 见 `schema.sql`；`meta.schema_version` = `1`。数据库只存预览索引（`assets.preview_status/method`），不存图片。
 - 原片只读：Gardener 绝不在来源目录写入、改名、移动、删除；不得调用 BioScan 的 `jpg` stage、`/apply`、XMP 写入。导出目的地若位于任何任务来源目录之内则拒绝（400）。
 - 清理缓存只删 `cache/`，把 `preview_status` 置回 `pending`；原片在线时按需重建（请求预览时同步生成）。
@@ -110,7 +110,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 
 - 创建任务即创建 `runs(kind=scan, status=queued)` 并返回任务 id；一个工作协程按 `queued_at` 顺序**一次执行一个运行**。Review 不占执行名额。
 - 运行阶段：`discover` → `preview`（逐项提交，UI 立即可见；结束时归并同一拍摄的版本，修订 2）→ `analyze`（分块，逐项提交；BioScan 能力之后跑人物）→ `group`（reduce + 最终分组）。照片的主体能力结束后才进入主体分组；分析中途的分组不做合并与细分（`final=False`）。
-- 状态机：`queued → running → (completed | partial | failed | stopped)`；`running → paused`（当前块结束后释放名额，下一个排队运行开始）；`paused → queued`（继续）；`queued|paused → cancelled`；服务重启时 `running → interrupted → queued`（自动恢复，从未完成项继续）。`partial` = 有单项失败、不可用能力或离线来源；不得统称完成。
+- 状态机：`queued → running → (completed | partial | failed | stopped)`；`running → paused`（当前块结束后释放名额，下一个排队运行开始）；`paused → queued`（继续）；暂停尚未生效时继续：运行在当前块结束后直接 `running → queued` 并从未完成项接着跑（不会停在 `paused`）；`queued|paused → cancelled`；服务重启时 `running → interrupted → queued`（自动恢复，从未完成项继续）。`partial` = 有单项失败、不可用能力或离线来源；不得统称完成。发现之后、登记之前消失的文件按缺失处理（`missing`），不使运行失败。
 - 追加来源 → 新运行 `append`，复用已有素材（路径 + size + mtime 未变即不重做）；重扫 `rescan`（可指定能力、素材子集，用于小批试跑新版本）；重试 `retry`（失败项）。新运行不改写旧运行与旧结果。
 - 来源离线：该来源素材 `online=0`，记录与预览保留，运行记为 `partial` 并在汇总列出；`POST /tasks/{id}/verify-sources` 重新核对，恢复在线后自动排队 `append` 继续。
 - 运行模式（`capabilities.RUN_MODES`）只调资源：解码进程数、块大小、预览线程、块间暂停。
@@ -230,8 +230,8 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 
 依据：真实语料全量扫描后 owner 判定“单纯按时间分组跟不分组没区别”；选定主轴为 **主体 → 地点/日期**，新增本地人脸聚类，导出图作为原片的版本合并（#88 评论）。
 
-- **同一拍摄（`versions.py`）**：预览阶段结束时在任务的照片间归并。规则依次为：① 相机文件编号（文件名开头的字母 + ≥3 位数字，如 `DSC01234`）、拍摄时间（到秒）、相机三者一致 → 同一拍摄（`same_capture`）；② 没有拍摄时间、编号与某次拍摄相同、且预览的 64 位差值哈希在任一 90° 旋转下相差 ≤ 10 位、并且没有另一个不同时间的拍摄同样接近（相差 ≤ 2 位以内）→ 导出图（`export`）。代表版本：RAW（DNG 次于其他 RAW）→ 像素多者 → 路径。其余版本写 `assets.version_of`、`version_reason`，从自动集合中移出（`collection_members.removed_by='version'`，人工加入的成员不动），已启用的模型能力记 `not_applicable`（原因“同一拍摄的其他版本”），不再分析；代表版本缺时间或 GPS 时分组借用版本的。哈希缓存在 `assets.meta.dhash`。`POST /assets/{id}/split-version` = 人确认“不是同一张”：取消归并、恢复自动集合成员、能力回到 `pending`（retry 补跑），并设 `version_lock=1`，以后永不再自动归并。
-- **查询**：筛选参数增加 `versions=hide|all|only`，缺省 `hide`（列表、Smart 规则、导出按筛选都只看代表版本）；`collection=` 按成员如实返回。`AssetItem` 增加 `version_of`（id）与 `versions`（数量）；`AssetDetail` 增加 `original {id, name, reason}`、`versions [{id, name, path, reason, preview, online}]`、`version_lock`。`Task.counts.versions`；`Task.review.total` 不含版本；运行 `summary.versions = {same_capture, export}`。
+- **同一拍摄（`versions.py`）**：预览阶段结束时在任务的照片间归并。规则依次为：① 相机文件编号（文件名开头的字母 + ≥3 位数字，如 `DSC01234`）、拍摄时间（到秒）、相机三者一致 → 同一拍摄（`same_capture`）；② 没有拍摄时间、编号与某次拍摄相同、且预览的 64 位差值哈希在任一 90° 旋转下相差 ≤ 10 位、并且没有另一个不同时间的拍摄同样接近（相差 ≤ 2 位以内）→ 导出图（`export`）。代表版本：RAW（DNG 次于其他 RAW）→ 像素多者 → 路径。其余版本写 `assets.version_of`、`version_reason`，从代表版本所在任务的自动集合中移出（`collection_members.removed_by='version'`，人工加入的成员不动；其他任务的自动集合不动），已启用的模型能力记 `not_applicable`（原因“同一拍摄的其他版本”），不再分析；代表版本缺时间或 GPS 时分组借用版本的。哈希缓存在 `assets.meta.dhash`。缺失的文件（`meta.missing`）不参与归并、不做代表：代表版本消失后，其版本在下次归并时恢复为独立素材并补做分析。素材在任务间共享：一个任务不改动指向本任务外代表版本的归并；计划的代表版本若本身是任务外某素材的版本，则归到那个代表版本（不形成版本链，重跑不改变归并）。代表版本不在本任务内的版本（如只扫描了大目录中的一个子目录），在本任务的列表、计数、筛选、分析（含连拍与 AI 建议）与分组中视为独立素材。`POST /assets/{id}/split-version` = 人确认“不是同一张”：取消归并、恢复自动集合成员、能力回到 `pending`（retry 补跑），并设 `version_lock=1`，以后永不再自动归并（归并进行中同时发生的也一样）。
+- **查询**：筛选参数增加 `versions=hide|all|only`，缺省 `hide`（列表、Smart 规则、导出按筛选都只看代表版本；带 `task=` 时，代表版本不在该任务内的版本算作代表）；`collection=` 按成员如实返回。`AssetItem` 增加 `version_of`（id）与 `versions`（数量）；`AssetDetail` 增加 `original {id, name, reason}`、`versions [{id, name, path, reason, preview, online}]`、`version_lock`。`Task.counts.versions`（代表版本在本任务内的版本）；`Task.review.total` 不含这些版本；运行 `summary.versions = {same_capture, export}`。
 - **人物（`faces.py`，能力 `people`，`local=True`）**：OpenCV YuNet（MIT）检测人脸与五点，SFace（Apache-2.0）对齐后出 128 维特征；两个 ONNX 文件在 Hugging Face 固定 revision（`opencv/face_detection_yunet@3cc26e7f`、`opencv/face_recognition_sface@3d708243`），CPU 运行。输入是 Gardener 自己的直立预览（长边 1600），不是原片。结果 `results.data = {faces: [{box: 比例坐标, score, vec: f16 base64}], count, input: "preview"}`，`done`（有脸）/ `unrecognized`（无脸）；置信度 < 0.85 或脸框短边 < 40 px 的不算。特征只存数据库，`AssetDetail.caps.people.data.faces` 不含 `vec`。分组时对任务内全部人脸贪心聚类（按脸的面积 × 置信度从高到低开新人，余弦 ≥ 0.40 归入最接近的人）。预设：`photo`、`wildlife` 含 `people`（已有数据库的内建预设保留其现值，可在管理页打开）。模型加载失败 → 人物对该运行 `unavailable` 并附原因。
 - **分组（`grouping.suggest`）**：主体 = 人物（每人一组，“人物 1, 2…”按照片数从多到少命名，可改名）、分类单元（种；只到属/科时“Fratercula（属）”）、未识别到种的动物类型（鸟类 / 哺乳动物 / 其他动物，取内容标签）、否则内容标签（山地、海岸、人像…；人像类但无已识别人脸 → “人物 · 其他”）；视频一组“视频”，无主体信息“未分类”。同一照片可同时在人物组与物种组；场景只收没有人物与动物主体的照片。少于 3 张的主体并入上一级（稀有物种 → 其动物类型，稀有场景 → “其他场景”，单人 → “人物 · 其他”）。≥ 10 张的主体再细分：多数成员有 GPS → 约 2 km 网格、相邻格合并为一个地点；否则按拍摄日（相机本地时间；任务有 `timezone` 时换算到该时区；无时区的 UTC 时间标为不确定）。细分少于 3 张的并入“其他日期 / 其他地点”，无时间/无 GPS 的单列，只分出一份时不细分。不再生成单纯按时间或单纯按地点的顶层分组。
 - **自动集合**：`collections.parent_id` 指向细分所属的主体集合；`group_kind` 取上面的 kind；`Collection` 增加 `parent_id`、`label`（细分的短名）。匹配：同 kind、同父集合内先按 `auto_key`；人物与地点（key 随规模漂移）再按成员重叠（重叠 ≥ 较小一方的一半），每个已有集合一轮只匹配一个建议组。父集合被删除时不建、不补其细分。分析进行中的重组只建达到 3 张的主体组，不做合并与细分；`group` 阶段（以及停止的运行）做最终分组。旧数据库已有的 `event`/`place` 自动集合原样保留。

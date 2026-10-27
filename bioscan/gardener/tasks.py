@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import identities, review
+from bioscan.gardener import identities, query, review
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
@@ -125,8 +125,8 @@ def set_status(c: Any, run_ids: list[str], status: str) -> None:
 
 
 class Worker:
-    """The background loop. `request(run_id, "pause"|"stop")` asks the running run to end at the next
-    item or chunk boundary; queued/paused runs change state directly in the API."""
+    """The background loop. `request(run_id, "pause"|"stop"|"resume")` asks the running run to end at the
+    next item or chunk boundary (resume: and queue again); queued/paused runs change state directly in the API."""
 
     def __init__(self, store: st.Store, toolkit: Toolkit, get_engine: Callable[[], Any]) -> None:
         self.store, self.toolkit, self.get_engine = store, toolkit, get_engine
@@ -318,8 +318,7 @@ class RunExec:
             for d in found:
                 if self.stopping():
                     return
-                seen.update(f.path for f in d.files)
-                reused += self.upsert(d, src["id"])
+                reused += self.upsert(d, src["id"], seen)
                 self.save_counts()
             missing += mark_missing(self.store, root, seen)
             self.counts["missing"] = missing
@@ -336,15 +335,23 @@ class RunExec:
             src = self.store.one("SELECT * FROM sources WHERE task_id = ? AND path = ?", (self.task_id, root))
         return src
 
-    def upsert(self, d: Any, source_id: str) -> int:
-        """One discovered asset into the records; 1 when it is unchanged and already previewed (reused)."""
+    def upsert(self, d: Any, source_id: str, seen: set[str]) -> int:
+        """One discovered asset into the records; 1 when it is unchanged and already previewed (reused).
+        Its files go into `seen`, unless one went away since discovery: then the asset waits for the next
+        scan and mark_missing records the vanished file."""
         old = {f["path"]: f for f in self.store.all(
             f"SELECT * FROM asset_files WHERE path IN ({st.marks_in(d.files)})", [f.path for f in d.files])}
-        hashes = {}
+        hashes, gone = {}, set()
         for f in d.files:          # outside the lock: size/mtime moved, so read the content identity
             o = old.get(f.path)
             if o is not None and (o["size"], o["mtime_ns"]) != (f.size, f.mtime_ns):
-                hashes[f.path] = self.tk.quick_hash(f.path)
+                try:
+                    hashes[f.path] = self.tk.quick_hash(f.path)
+                except OSError:
+                    gone.add(f.path)
+        seen.update(f.path for f in d.files if f.path not in gone)
+        if gone:
+            return 0
         t = now()
         with self.store.tx() as c:
             # identity: a registered file first (a RAW that gains a JPEG keeps its asset), the pair key second
@@ -475,8 +482,8 @@ class RunExec:
         rows = self.store.all(
             f"SELECT ra.asset_id, c.capability, c.state, c.run_id FROM run_assets ra JOIN assets a ON a.id = ra.asset_id "
             f"LEFT JOIN asset_caps c ON c.asset_id = ra.asset_id AND c.capability IN ({st.marks_in(caps)}) "
-            "WHERE ra.run_id = ? AND a.online = 1 AND a.media = 'photo' AND a.version_of IS NULL",
-            [*caps, self.id])   # videos: records only; versions: through their representative
+            f"WHERE ra.run_id = ? AND a.online = 1 AND a.media = 'photo' AND {query.IN_TASK_REP}",
+            [*caps, self.id, self.task_id])   # videos: records only; versions: through their representative
         have: dict[str, dict[str, dict[str, Any]]] = {}
         for r in rows:
             have.setdefault(r["asset_id"], {})
@@ -655,8 +662,8 @@ class RunExec:
                 "SELECT a.id, a.primary_path, a.taken_at, a.camera, x.capability, x.data FROM task_assets ta "
                 "JOIN assets a ON a.id = ta.asset_id JOIN results x ON x.id IN (SELECT max(id) FROM results "
                 "WHERE asset_id = a.id AND capability LIKE 'raw:%' AND status = 'done' GROUP BY capability) "
-                "WHERE ta.task_id = ? AND a.media = 'photo' AND a.version_of IS NULL ORDER BY a.taken_at, a.primary_path",
-                (self.task_id,)):
+                f"WHERE ta.task_id = ? AND a.media = 'photo' AND {query.IN_TASK_REP} ORDER BY a.taken_at, a.primary_path",
+                (self.task_id, self.task_id)):
             row = rows.setdefault(r["id"], {"asset_id": r["id"], "path": r["primary_path"], "taken_at": r["taken_at"],
                                             "camera": r["camera"], "products": {}})
             row["products"][r["capability"].removeprefix("raw:")] = loads(r["data"])
@@ -682,26 +689,29 @@ class RunExec:
 
     # ---- end ----
     def finish(self, error: str | None, cleanup: str | None = None) -> None:
-        flag = self.w.flags.get(self.id)
         summary = self.summary()
         if cleanup:
             summary["cleanup_error"] = cleanup
-        if error:
-            status = "failed"
-        elif flag == "stop":
-            status = "stopped"
-        elif flag == "pause":
-            status = "paused"
-        elif self.w.shutdown:
-            status = "interrupted"
-        elif (summary["failed"] or summary["preview_failed"] or summary["unavailable"] or summary["offline_sources"]
-              or summary["missing"] or summary["not_run"] or cleanup):     # a reused asset's old failure counts too
-            status = "partial"
-        else:
-            status = "completed"
-        ended = status in st.TERMINAL
         self.save_counts(force=True)
         with self.store.tx() as c:
+            # pause/resume/stop change the flag under this same lock: read it where the status is written
+            flag = self.w.flags.get(self.id)
+            if error:
+                status = "failed"
+            elif flag == "stop":
+                status = "stopped"
+            elif flag == "pause":
+                status = "paused"
+            elif flag == "resume":          # resumed before the pause landed: carry on from where it stopped
+                status = "queued"
+            elif self.w.shutdown:
+                status = "interrupted"
+            elif (summary["failed"] or summary["preview_failed"] or summary["unavailable"] or summary["offline_sources"]
+                  or summary["missing"] or summary["not_run"] or cleanup):  # a reused asset's old failure counts too
+                status = "partial"
+            else:
+                status = "completed"
+            ended = status in st.TERMINAL
             c.execute("UPDATE runs SET status = ?, phase = CASE WHEN ? THEN NULL ELSE phase END, summary = ?, "
                       "error = ?, finished_at = CASE WHEN ? THEN ? ELSE NULL END WHERE id = ?",
                       (status, ended, dumps(summary), error, ended, now(), self.id))
@@ -956,7 +966,9 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
     parent with its key; people and places, whose keys drift as they grow, on the one they overlap most;
     else a new one. Auto only adds members, never revives a tombstone, never renames a user-edited
     collection, never touches (or refills from) a deleted one, and makes no children under a deleted
-    parent. A representative without a time or GPS of its own takes its versions'."""
+    parent. A representative without a time or GPS of its own takes its versions'. A version whose
+    representative is not in this task (another task's wider folder) stands for itself here: it is analysed
+    here, and until then (its capabilities read 不适用 as a version) it is not settled."""
     latest: dict[tuple[str, str], Any] = {(r["asset_id"], r["capability"]): loads(r["data"]) for r in store.all(
         "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(x.id) FROM results x "
         "JOIN task_assets ta ON ta.asset_id = x.asset_id WHERE ta.task_id = ? AND x.capability IN "
@@ -966,15 +978,18 @@ def regroup(store: st.Store, tk: Toolkit, task_id: str, enabled: set[str], run_i
     subject_caps = [c for c in SUBJECT_CAPS if c in enabled]
     settled_caps: dict[str, set[str]] = {}               # a photo is grouped once each subject capability ended
     for r in store.all(f"SELECT c.asset_id, c.capability FROM asset_caps c JOIN task_assets ta ON ta.asset_id = "
-                       f"c.asset_id WHERE ta.task_id = ? AND c.state NOT IN ('pending', 'running') AND c.capability "
-                       f"IN ({st.marks_in(subject_caps)})", [task_id, *subject_caps]) if subject_caps else []:
+                       f"c.asset_id WHERE ta.task_id = ? AND c.state NOT IN ('pending', 'running') AND NOT "
+                       f"(c.state = 'not_applicable' AND c.error IS ?) AND c.capability IN ({st.marks_in(subject_caps)})",
+                       [task_id, vers.VERSION_NA, *subject_caps]) if subject_caps else []:
         settled_caps.setdefault(r["asset_id"], set()).add(r["capability"])
     unsettled = {r["id"] for r in rows if r["media"] == "photo" and len(settled_caps.get(r["id"], ())) < len(subject_caps)}
+    mine = {r["id"] for r in rows}
     by_rep: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
-        if r["version_of"]:
+        if r["version_of"] in mine:
             by_rep.setdefault(r["version_of"], []).append(r)
-    reps = [r for r in rows if not r["version_of"]]
+    reps = [r for r in rows if r["version_of"] not in mine]
+
     from bioscan.gardener.grouping import PEOPLE
 
     portraits = {a["id"] for a in reps if (latest.get((a["id"], "content")) or {}).get("label") in PEOPLE}
@@ -1090,8 +1105,14 @@ def pause(store: st.Store, worker: Worker, task_id: str) -> None:
 
 
 def resume(store: st.Store, worker: Worker, task_id: str) -> None:
+    """Paused runs queue again. A running run asked to pause and not yet paused ends its current step and
+    queues again at once instead (it may already have acted on the pause, so the flag cannot just go)."""
     with store.tx() as c:
-        set_status(c, [r["id"] for r in active_runs(store, task_id) if r["status"] == "paused"], "queued")
+        for r in active_runs(store, task_id):
+            if r["status"] == "paused":
+                set_status(c, [r["id"]], "queued")
+            elif r["status"] == "running" and worker.flags.get(r["id"]) == "pause":
+                worker.request(r["id"], "resume")
     worker.wake()
 
 

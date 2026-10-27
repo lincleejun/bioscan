@@ -21,6 +21,10 @@ ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user' AND ci.co
              "unresolved": "ci.level IN ('genus', 'family', 'unconfirmed')",
              "reconfirm": "ci.qualifier = 'slash'", "any": "1"}      # a person's claim a list split reopened
 BASENAME = "replace(a.primary_path, rtrim(a.primary_path, replace(a.primary_path, '/', '')), '')"
+# within one task (param: task id) an asset stands for its capture unless its representative is in that task too;
+# a version whose representative only another task holds (a wider folder) is that task's business
+IN_TASK_REP = ("(a.version_of IS NULL OR NOT EXISTS (SELECT 1 FROM task_assets tv WHERE tv.asset_id = a.version_of "
+               "AND tv.task_id = ?))")
 
 
 def clean(filters: dict[str, Any]) -> dict[str, str]:
@@ -73,7 +77,8 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
 
     versions = f.get("versions") or ("all" if "collection" in f else "hide")
     if versions != "all":
-        add("a.version_of IS NULL" if versions == "hide" else "a.version_of IS NOT NULL")
+        own, ps = (IN_TASK_REP, [f["task"]]) if "task" in f else ("a.version_of IS NULL", [])
+        add(own if versions == "hide" else f"NOT {own}", *ps)
 
     if "task" in f:
         add("EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.task_id = ?)", f["task"])
