@@ -197,6 +197,8 @@ def identify(c: Any, subject_ids: list[str], new_subjects: list[dict[str, Any]],
         burst = _bursts(c, [s["asset_id"]]).get(s["asset_id"])
         if burst is None:
             continue
+        # ponytail: scans every asset's latest suggestion per target; a burst_id index on a "latest" table if a
+        # library-wide batch of many targets gets slow.
         sibs = [r[0] for r in c.execute(
             "SELECT asset_id FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions GROUP BY asset_id) "
             "AND burst_id = ? AND asset_id != ? ORDER BY asset_id", (burst, s["asset_id"]))]
