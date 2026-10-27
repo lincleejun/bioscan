@@ -114,10 +114,10 @@ def genus_of(name: str | None) -> str:
 
 def read_name_list(path: str | Path) -> dict[str, str]:
     """norm(scientific) -> family from one list CSV: avilist_map.csv (scientific, family), the
-    AviList CSV (Scientific_name, Family, Taxon_rank) or MDD (genus, specificEpithet, family)."""
+    AviList CSV (v2025 or v2026 headers) or MDD (genus, specificEpithet, family)."""
     out: dict[str, str] = {}
     with open(path, newline="", encoding="utf-8-sig") as f:
-        for r in csv.DictReader(f):
+        for r in map(naming.avilist_row, csv.DictReader(f)):
             if r.get("Taxon_rank") not in (None, "species"):
                 continue
             sci = r.get("scientific") or r.get("Scientific_name") or " ".join(

@@ -27,13 +27,13 @@ uv run bioscan names stats                # required once, online, before the fi
 
 Each folder must hold exactly one CSV. Sources, versions and checksums in detail (Chinese): [data/README.md](../data/README.md).
 
-- **Birds**, `data/avilist/AviList-v2025-11Jun-extended.csv`: AviList v2025 (CC BY 4.0), https://www.avilist.org/checklist/v2025/. Only the XLSX is published: https://www.avilist.org/wp-content/uploads/2025/06/AviList-v2025-11Jun-extended.xlsx (sha256 `5aa71c2eedd0a9e9a50b4908bfea7a412776d80460e666c0a2949ff567991f8e`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `a6024ec5680665489303f50bcefd6f222f5f9deca611868a849548a009aa83d3`):
+- **Birds**, `data/avilist/AviList-v2026-20Oct2026-extended-version.csv`: AviList v2026 (CC BY 4.0), https://www.avilist.org/checklist/. Only the XLSX is published: https://www.avilist.org/wp-content/uploads/2026/10/AviList-v2026-20Oct2026-extended-version.xlsx (sha256 `df031d392b766673ce8a9eb37b8e57a91baabf9576b6b2bcfd6cf9aa4902797d`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `02663bc97888d8940eab5628ef60b951c3818d998174f8d7549ccc94fe0c85d9`). A v2025 CSV still reads; its headers differ and are mapped:
 
   ```sh
   uv run --no-project --with openpyxl python -c "
   import csv, openpyxl
-  ws = openpyxl.load_workbook('AviList-v2025-11Jun-extended.xlsx', read_only=True).worksheets[0]
-  with open('AviList-v2025-11Jun-extended.csv', 'w', newline='', encoding='utf-8') as f:
+  ws = openpyxl.load_workbook('AviList-v2026-20Oct2026-extended-version.xlsx', read_only=True).worksheets[0]
+  with open('AviList-v2026-20Oct2026-extended-version.csv', 'w', newline='', encoding='utf-8') as f:
       csv.writer(f).writerows([('' if v is None else v) for v in r] for r in ws.iter_rows(values_only=True))"
   ```
 - **Mammals**, `data/mdd/MDD_v2.5_6904species.csv`: MDD v2.5, from `assets/data/MDD.zip` in https://github.com/mammaldiversity/mammaldiversity.github.io (commit `22ab0ad7`); unzip and take `MDD/MDD_v2.5_6904species.csv` (sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`).
@@ -66,12 +66,12 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 With `--json` the service's NDJSON is written as is, one line per image, for downstream programs:
 ```json
 {"type":"result","path":"/abs/a.ARW","sha256":"…","image":{"width":6000,"height":4000,"orientation":1},
- "engine":{"version":"0.1.0","models":{"species":"imageomics/bioclip-2.5-vith14","names":{"bird":"avilist-2025@…"}}},
+ "engine":{"version":"0.1.0","models":{"species":"imageomics/bioclip-2.5-vith14","names":{"bird":"avilist-2026@…"}}},
  "products":{"identify":{"gate":{"class":"bird","probs":{…}},
    "boxes":[{"id":0,"xyxy":[0.31,0.22,0.58,0.71],"score":0.84,"kind":"bird",
              "quality":{"sharpness":0.71,"exposure":0.05},
-             "species":{"list":"avilist-2025","level":"species","taxon":"Megascops kennicottii",
-               "top":[{"scientific":"Megascops kennicottii","common":"Western Screech-Owl",
+             "species":{"list":"avilist-2026","level":"species","taxon":"Megascops kennicottii",
+               "top":[{"scientific":"Megascops kennicottii","concept":"avibase:…","common":"Western Screech-Owl",
                        "taxonomy":["Animalia","Chordata","Aves","Strigiformes","Strigidae","Megascops","Megascops kennicottii"],
                        "p_visual":0.81,"p_geo":0.62,"posterior":0.91}]}}]}},
  "timing_ms":{"decode":650,"identify":210}}
@@ -230,6 +230,18 @@ bioscan run DIR --profile wildlife --want identify,embed,aesthetics --json --out
 - **Collections** in the collection set `bioscan`: one per species, `待确认` (animal, no species) and `无动物` (no animal).
 
 Rerunning the same file adds no duplicates. The plugin and its manual acceptance steps are in `extensions/lightroom/README.md`.
+
+**From Gardener** (same plugin, same install): "在 Lightroom 打开" on a collection, species or selection (or
+`gardener handoff create --collection ID`) writes `~/Library/Application Support/bioscan/lightroom/handoffs/<id>.json`
+(`gardener serve --lightroom-dir DIR` puts it under `DIR/handoffs/`; the plugin only watches the default folder).
+The plugin's watcher (or Library > Plug-in Extras > **bioscan: Apply Gardener handoffs**) finds each photo by path (or by the
+Lightroom id of an earlier handoff, so a repeat never imports twice), adds missing ones in place, puts them in a
+collection named after the handoff under the `Gardener` set, writes your stars (never AI scores) and your confirmed
+species as `Aves|Order|Family|Species` keywords (English and Chinese names as synonyms), and writes
+`<id>.result.json` with ok / skipped / failed per photo. A star or keyword changed in Lightroom since the last
+handoff is skipped and reported, never overwritten; other keywords and develop settings are not touched. Gardener
+reads the result back (`gardener handoff show ID`); until then the handoff is only "written". Lightroom behaviour of
+this flow is unverified until run in Lightroom Classic. Rules: `docs/gardener/contract.md`, 契约修订 5E.
 
 ### HTTP API
 

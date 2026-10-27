@@ -56,7 +56,7 @@ def test_identify_detail_changes_only_the_species_crop():
 
     tax = [["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", f"Megascops {s}"]
            for s in ("kennicottii", "asio")]
-    birds = NameList("avilist-2025", "bird", [t[6] for t in tax], ["", ""], tax, np.zeros((2, 4), np.float32),
+    birds = NameList("avilist-2026", "bird", [t[6] for t in tax], ["", ""], tax, np.zeros((2, 4), np.float32),
                      ["exact"] * 2)
     full = frame()
     image, detail = full.resize((2048, 1365)), full.resize((3072, 2048))

@@ -63,7 +63,7 @@ def test_score_exports_json_csv_html_and_reads_its_own_ndjson_back(tmp_path, mon
 
     page = (out.parent / "aes.html").read_text()
     assert '"fl":["horizon_tilt"]' in page and page.count('"fl":') == 1
-    assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "const CUTS=[0.9, 0.7, 0.6, 0.5]" in page
+    assert "aes-files/c-0.jpg" in page and '"f":"e.jpg"' in page and "const CUTS=[0.9,0.7,0.6,0.5]" in page
     assert f'"p":"{d / "e.jpg"}"' in page and f'const ROOT="{d}"' in page                # marks and export need the path
     text = capsys.readouterr().out
     assert "7 photos: 5 scored, 1 without a score, 1 failed" in text and "note: no head" in text

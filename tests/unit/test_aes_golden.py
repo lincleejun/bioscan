@@ -201,8 +201,35 @@ def test_score_command_writes_report_and_split_filters(tmp_path):
     assert cli.main(["bench", "aesthetic", "score", str(g), str(f), "--out", str(tmp_path / "out")]) == 0
     rep = json.loads((tmp_path / "out" / "report.json").read_text())
     assert rep["schema"] == ag.SCHEMA and "Headline" in (tmp_path / "out" / "report.md").read_text()
-    none = ag.evaluate(ag.read_golden(g), ag.read_scores(f, g), split="dev")
-    assert none["metrics"]["all"]["n"] == 0            # every row defaults to the test split
+    with pytest.raises(ag.GoldenError, match="test"):    # every row defaults to the test split
+        ag.evaluate(ag.read_golden(g), ag.read_scores(f, g), split="dev")
+    with pytest.raises(SystemExit, match="test"):
+        cli.main(["bench", "aesthetic", "score", str(g), str(f), "--split", "dev", "--out", str(tmp_path / "o2")])
+    assert not (tmp_path / "o2").exists()
+
+
+def test_frames_match_through_a_symlinked_folder(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    g = build(real)
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    scores = {str(link / "golden" / p): s for p, s in good_scores(g).items()}
+    rep = ag.evaluate(ag.read_golden(link / "golden"), ag.read_scores(write_scores(tmp_path / "s.ndjson", scores),
+                                                                       link / "golden"))
+    assert rep["metrics"]["all"]["n"] == len([p for p in scores if "planted" not in p])
+    assert all(x["score"] is not None for x in rep["images"])
+
+
+def test_table_of_reports_without_grades_is_an_error_not_a_crash(tmp_path):
+    g = tmp_path / "g"
+    g.mkdir()
+    (g / "images.csv").write_text("path,split\na.jpg,test\nb.jpg,test\n")
+    f = write_scores(tmp_path / "s.csv.ndjson", {"a.jpg": 1.0, "b.jpg": 2.0})
+    assert cli.main(["bench", "aesthetic", "score", str(g), str(f), "--out", str(tmp_path / "R")]) == 0
+    with pytest.raises(bench.BenchError, match="grade"):
+        ag.arena([json.loads((tmp_path / "R" / "report.json").read_text())])
+    assert cli.main(["bench", "aesthetic", "table", str(tmp_path / "R" / "report.json")]) == bench.EXIT_INCOMPARABLE
 
 
 def test_plant_makes_known_answer_copies_once(tmp_path):

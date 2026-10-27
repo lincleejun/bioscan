@@ -17,6 +17,7 @@ import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from bioscan import contract, cull, formats, profile, xmp
 from bioscan.cli import client
@@ -227,7 +228,7 @@ def figure(path: str, jpg: str | None, base: Path, caption: str, cls: str = "") 
     """One photo tile (also `bioscan report`'s): the service's jpg copy, else the photo itself when a
     browser can show it, else its format. `caption` is HTML, already escaped."""
     shown = jpg or (path if Path(path).suffix.lower() in BROWSER_IMAGES else None)
-    img = (f'<img loading="lazy" src="{html.escape(os.path.relpath(shown, base))}" alt="">' if shown
+    img = (f'<img loading="lazy" src="{html.escape(quote(os.path.relpath(shown, base)))}" alt="">' if shown
            else f'<div class="noimg">{html.escape(Path(path).suffix.upper().lstrip("."))}</div>')
     return (f'<figure class="{html.escape(cls)}" title="{html.escape(path)}">{img}<figcaption>'
             f'{caption}</figcaption></figure>')

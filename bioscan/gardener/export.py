@@ -359,7 +359,7 @@ def _write_xml(dest: Path, title: str, scope: dict, collections: list[dict], ass
     for a in assets:
         el = _el(ae, "asset", {"id": a.get("id"), "media": a.get("media"), "name": a.get("name"),
                                "taken_at": a.get("taken_at"), "flag": a.get("flag") or "none",
-                               "stars": a.get("stars") or 0, "judged": a.get("judged")})
+                               "use": a.get("use") or "pending", "stars": a.get("stars") or 0, "judged": a.get("judged")})
         files = _el(el, "files")
         for f in a.get("files") or []:
             d = done.get(f["path"], {})

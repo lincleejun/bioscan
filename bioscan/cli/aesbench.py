@@ -154,6 +154,8 @@ def _prior(spec: str | None) -> aes.Head | None:
 def cmd_train(a) -> int:
     if bool(a.eva) == bool(a.ratings):
         raise SystemExit("error: give exactly one of --eva DIR (general head) or --ratings SRC (personal head)")
+    if a.name is not None and not aes.valid_head_name(a.name):
+        raise SystemExit(f"error: --name: {aes.HEAD_NAME_RULE} (got {a.name!r})")
     today = time.strftime("%Y-%m-%d", time.gmtime())
     if a.eva:
         eva = aes.read_eva(a.eva)
