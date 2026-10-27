@@ -434,9 +434,9 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 依据：owner 2026-10-26 决定——交接通过扩展现有 Lightroom Classic 插件（`extensions/lightroom/bioscan.lrplugin/`）完成，
 Gardener 不为此写入照片目录；清理为经人确认后把计划里的文件移到废纸篓（ADR 0003）。
 
-- **用途适配**：四种选片用途（保留记录 / 选入修图 / 待定 / 淘汰）落地前，`handoff.uses_of(c, asset_ids)` 是唯一换算处：
-  Pick → `record`，Reject → `reject`，其余 → `pending`。交接默认范围 `HANDOFF_USES = ("record",)`（即今天的 Pick）；
-  用途字段上线后改成 `("edit",)`。清理只看 `uses_of == "reject"`。
+- **用途**：`handoff.uses_of(c, asset_ids)` 读 `marks.use`（契约修订 5B）。交接默认范围 `HANDOFF_USES = ("edit",)`：只交选入修图（PRD §12）。清理只看用途为淘汰的照片。
+- **与导入（5D）的衔接**：每张的文件列表包括 `managed_files` 里已核验的受管理副本（角色 `managed`），交接时排在最前，清理时与原片、sidecar 一起移到废纸篓。
+- **与物种计数（修订 4）的衔接**：一张照片的全部文件都被确认过的清理计划移到废纸篓（`assets.meta.trashed`，且没有任何文件在线）后，不再计入物种卡片；离线只改在线状态，永远不改计数（AC12）。
 - **schema**（不改 `schema_version`，新表 `CREATE IF NOT EXISTS`）：`handoffs`、`handoff_items`、`editor_links`、
   `cleanup_plans`、`cleanup_files`，见 `schema.sql` 末尾的 5E 段。
 - **交接 `POST /handoffs {collection_id | concept | asset_ids | rule, uses?, name?}`** → 201 `Handoff`：
