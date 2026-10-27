@@ -11,6 +11,8 @@ from bioscan.gardener import store as st
 from bioscan.gardener.store import dumps, loads, now
 
 MATCH_IOU = 0.5          # a new box is the same subject as an earlier one at this overlap or more
+FLOCK_MIN = 5            # this many boxes of one kind in a photo are a flock: not named one by one (Merlin's restraint)
+FLOCK = "flock"          # the reason on a flock box's ai identification
 
 
 def iou(a: list[float], b: list[float]) -> float:
@@ -35,18 +37,49 @@ def claim(sp: dict[str, Any]) -> dict[str, Any]:
                             "common": c.get("common"), "p": c.get("posterior")} for c in top]}
 
 
+def _rank(sp: dict[str, Any], level: str) -> str | None:
+    """The genus or family of a box's top answer (its taxonomy, else the binomial's first word for genus)."""
+    first = (sp.get("top") or [{}])[0]
+    tax = first.get("taxonomy") or []
+    if level == "genus":
+        return tax[5] if len(tax) > 5 else (first.get("scientific") or "").split(" ")[0] or None
+    return tax[4] if len(tax) > 4 else None
+
+
+def flock(claims: list[dict[str, Any]], species: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A flock's claims, one level up: the genus all top answers share, else their shared family, else
+    unconfirmed; concept and common go, candidates stay, reason `flock`. Several species named in one flock
+    are mostly the classifier guessing per box, and each would become its own card."""
+    for level in ("genus", "family"):
+        names = {_rank(sp, level) for sp in species}
+        if len(names) == 1 and None not in names:
+            taxon = names.pop()
+            break
+    else:
+        level, taxon = "unconfirmed", None
+    return [f | {"concept": None, "common": None, "level": level, "taxon": taxon, "p": None, "reason": FLOCK}
+            for f in claims]
+
+
 def ingest(c: Any, asset_id: str, run_id: str | None, version: str | None, product: dict[str, Any] | None) -> int:
     """One raw:identify product -> subjects matched or made, one ai identification per box that carries a
     species result (none when species was off). An ai-only subject this run no longer sees is retired;
-    one a person identified stays. Returns the number of identifications written."""
+    one a person identified stays. FLOCK_MIN or more boxes of one kind are a flock, claimed at a coarser level
+    (flock()). Returns the number of identifications written."""
     t, written = now(), 0
+    boxes = (product or {}).get("boxes") or []
+    claims: dict[int, dict[str, Any]] = {i: claim(b["species"] or {}) for i, b in enumerate(boxes) if "species" in b}
+    for kind in {boxes[i].get("kind") for i in claims}:
+        group = [i for i in claims if boxes[i].get("kind") == kind]
+        if len(group) >= FLOCK_MIN:
+            claims.update(zip(group, flock([claims[i] for i in group], [boxes[i]["species"] or {} for i in group])))
     live = [dict(r) for r in c.execute(
         "SELECT s.id, s.xyxy, EXISTS(SELECT 1 FROM identifications i WHERE i.subject_id = s.id AND i.source = 'user' "
         "AND i.undone = 0) AS human FROM subjects s WHERE s.asset_id = ? AND s.removed_at IS NULL", (asset_id,))]
     for s in live:
         s["xyxy"] = loads(s["xyxy"])
     seen: set[str] = set()
-    for box in (product or {}).get("boxes") or []:
+    for n, box in enumerate(boxes):
         xyxy = [float(v) for v in box["xyxy"]]
         best = max((s for s in live if s["id"] not in seen), key=lambda s: iou(s["xyxy"], xyxy), default=None)
         if best is not None and iou(best["xyxy"], xyxy) >= MATCH_IOU:
@@ -58,13 +91,13 @@ def ingest(c: Any, asset_id: str, run_id: str | None, version: str | None, produ
             c.execute("INSERT INTO subjects (id, asset_id, xyxy, kind, origin, last_run_id, created_at) "
                       "VALUES (?, ?, ?, ?, 'ai', ?, ?)", (sid, asset_id, dumps(xyxy), box.get("kind"), run_id, t))
         seen.add(sid)
-        if "species" not in box:                       # species off: a box, no claim about it
+        if n not in claims:                            # species off: a box, no claim about it
             continue
-        f = claim(box["species"] or {})
+        f = claims[n]
         c.execute("INSERT INTO identifications (subject_id, asset_id, concept, taxon, common, level, candidates, p, "
-                  "source, run_id, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?)",
+                  "source, run_id, version, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?, ?)",
                   (sid, asset_id, f["concept"], f["taxon"], f["common"], f["level"], dumps(f["candidates"]), f["p"],
-                   run_id, version, t))
+                   run_id, version, f.get("reason"), t))
         written += 1
     for s in live:
         if s["id"] not in seen and not s["human"]:
@@ -85,7 +118,8 @@ def backfill(c: Any) -> int:
 def _row(r: Any) -> dict[str, Any]:
     return {"id": r["id"], "concept": r["concept"], "taxon": r["taxon"], "common": r["common"], "level": r["level"],
             "qualifier": r["qualifier"], "p": r["p"], "candidates": loads(r["candidates"]), "source": r["source"],
-            "run_id": r["run_id"], "version": r["version"], "actor": r["actor"], "at": r["created_at"]}
+            "run_id": r["run_id"], "version": r["version"], "actor": r["actor"], "reason": r["reason"], "batch_id": r["batch_id"],
+            "at": r["created_at"]}
 
 
 def subjects(c: Any, asset_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
@@ -105,7 +139,8 @@ def subjects(c: Any, asset_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
         user, ai = latest.get((s["id"], "user")), latest.get((s["id"], "ai"))
         out[s["asset_id"]].append({"id": s["id"], "xyxy": loads(s["xyxy"]), "kind": s["kind"], "origin": s["origin"],
                                    "current": user or ai, "ai": ai, "human": user is not None})
-    _rename([x for ss in out.values() for s in ss for x in (s["current"], s["ai"]) if x and x["level"] == "species"], c)
+    _rename([x for ss in out.values() for s in ss for x in (s["current"], s["ai"]) if x and x["concept"]
+             and x["level"] == "species"], c)
     return out
 
 
@@ -258,7 +293,10 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
     prefs = {r["concept"]: r for r in c.execute("SELECT * FROM species_prefs")}
     cards: dict[str, dict[str, Any]] = {}
     unresolved: dict[str, set[str]] = {"genus_family": set(), "unconfirmed": set()}
+    reconfirm: set[str] = set()
     for r in rows:
+        if r["qualifier"] == "slash":
+            reconfirm.add(r["asset_id"])
         if r["level"] in ("genus", "family"):
             unresolved["genus_family"].add(r["asset_id"])
         elif r["level"] == "unconfirmed":
@@ -300,7 +338,7 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
             n = names.get(x["concept"]) or {}
             x["taxon"], x["common"], x["zh"] = n.get("scientific") or x["taxon"], n.get("common") or x["common"], n.get("zh")
         v.sort(key=lambda x: (x["last_taken_at"] or "", x["concept"]), reverse=True)
-    return out | {"confirmed_total": len(out["species"]),
+    return out | {"confirmed_total": len(out["species"]), "to_reconfirm": len(reconfirm),
                   "unresolved": {k: len(v) for k, v in unresolved.items()}}
 
 
@@ -312,3 +350,27 @@ def set_prefs(c: Any, concept: str, *, cover_asset_id: Any = ..., hidden: bool |
     c.execute("INSERT INTO species_prefs (concept, cover_asset_id, hidden, updated_at) VALUES (?, ?, ?, ?) "
               "ON CONFLICT(concept) DO UPDATE SET cover_asset_id = excluded.cover_asset_id, hidden = excluded.hidden, "
               "updated_at = excluded.updated_at", (concept, cover, int(hide), now()))
+
+
+# ---- list splits (contract revision 4, S7 part 2) -------------------------------------------------------------
+
+
+def reconfirm(c: Any, version: str, parents: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    """A list version split the species `parents` (parent concept -> its daughters [{concept, scientific,
+    common}]): every subject whose current identification is a person's species claim on a parent gets a new
+    user row (actor system, reason split:<version>, one batch, undoable) that names no concept, qualifier
+    slash, the daughters as candidates. It then counts for no species until a person claims one again.
+    No auto-resolution by place: the location prior lives in the BioScan engine, not here."""
+    t, batch, changed = now(), st.new_id("b"), []
+    marks = st.marks_in(list(parents))
+    for r in c.execute(f"SELECT * FROM current_ids WHERE source = 'user' AND level = 'species' AND concept IN "
+                       f"({marks}) ORDER BY identification_id", list(parents)).fetchall():
+        kids = [{"concept": d["concept"], "scientific": d["scientific"], "common": d["common"], "p": None}
+                for d in parents[r["concept"]]]
+        c.execute("INSERT INTO identifications (subject_id, asset_id, concept, taxon, common, level, qualifier, "
+                  "candidates, source, batch_id, actor, reason, created_at) VALUES (?, ?, NULL, ?, ?, 'species', "
+                  "'slash', ?, 'user', ?, 'system', ?, ?)",
+                  (r["subject_id"], r["asset_id"], r["taxon"], r["common"], dumps(kids), batch, f"split:{version}", t))
+        c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, r["asset_id"]))
+        changed.append({"subject_id": r["subject_id"], "asset_id": r["asset_id"], "from": r["concept"]})
+    return {"batch_id": batch if changed else None, "changed": changed}

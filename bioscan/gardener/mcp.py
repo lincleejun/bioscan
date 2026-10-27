@@ -57,7 +57,7 @@ TOOLS = [
     _tool("capabilities", "能力列表：版本、可用状态与原因；check=true 时试加载模型（可能耗时）。",
           {"check": {"type": "boolean"}}),
     _tool("list_species", "物种卡片（契约修订 4）：species = 有人工确认的物种（数量即“已拍到 N 种”），to_confirm = 只有模型"
-          "候选，unresolved = 只到属/科或不确定的照片数。task 只看一个任务。成员用 query_assets 的 concept 筛选。",
+          "候选，unresolved = 只到属/科或不确定的照片数，to_reconfirm = 名录拆分后待重新确认的照片数（id_state=reconfirm）。task 只看一个任务。成员用 query_assets 的 concept 筛选。",
           {"task": _STR, "hidden": {"type": "boolean"}}),
     _tool("search_names", "按学名、英文名、同义名、旧学名或用户中文名查物种，得到 identify_species 需要的 concept 与学名。",
           {"q": _STR, "limit": {"type": "integer"}}, ("q",)),

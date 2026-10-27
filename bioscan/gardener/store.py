@@ -255,7 +255,7 @@ class Store:
                 f"SELECT version_of, count(*) n FROM assets WHERE version_of IN ({q}) GROUP BY version_of", part)}
             named: dict[str, dict[str, Any]] = {}            # the photo's species shown on its tile (revision 4)
             for r in self.all(f"SELECT asset_id, concept, taxon, common, source, p FROM current_ids WHERE asset_id IN "
-                              f"({q}) AND level = 'species'", part):
+                              f"({q}) AND level = 'species' AND concept IS NOT NULL", part):
                 key = (r["source"] == "user", r["p"] or 0.0)
                 if r["asset_id"] not in named or key > named[r["asset_id"]]["_key"]:
                     named[r["asset_id"]] = {"taxon": r["taxon"], "common": r["common"], "p": r["p"],

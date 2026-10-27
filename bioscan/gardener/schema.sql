@@ -208,7 +208,8 @@ CREATE INDEX IF NOT EXISTS identifications_concept ON identifications (concept);
 DROP VIEW IF EXISTS current_ids;
 CREATE VIEW current_ids AS
 SELECT s.asset_id, s.id AS subject_id, s.kind, i.id AS identification_id, i.concept, i.taxon, i.common, i.level,
-       i.source, i.p, i.created_at
+       i.source, i.p, i.created_at,
+       i.qualifier                    -- slash: one of `candidates`, to be confirmed again (a list split)
 FROM subjects s JOIN identifications i ON i.id = coalesce(
   (SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'user' AND x.undone = 0),
   (SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'ai' AND x.undone = 0))

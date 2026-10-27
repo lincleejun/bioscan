@@ -56,6 +56,9 @@
 | R48 | 中英文名、学名、同义名、旧学名检索同一物种；`species=` 跟随当前结论（PRD §10，AC13 部分） | `taxa.py`、`GET /names`、`query.where` | `test_core_identities.py::test_names_resolve_*`、`test_the_species_filter_*`、`test_the_name_index_rebuilds_*` | 已由测试证实；Smart 规则增减预览未做 |
 | R49 | 物种页、物种详情、任务内按物种查看、检查器逐主体确认纠错（PRD §05、§07） | `web/app.js`（vSpecies、vSpeciesOne、subjectsHTML） | `test_ui_web.py`（静态与契约路由）；真模型浏览器走查（Mac） | 部分验证：无自动化浏览器测试 |
 | R50 | CLI 与 MCP 覆盖物种动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_species_commands_*`、`test_ui_mcp.py::test_species_tools_*` | 已由测试证实（请求映射） |
+| A-R51 | 名录拆分：受影响的人工结论改为“待重新确认 A / B”，不计入任何子种，整批可撤销，每个名录版本只处理一次（PRD §15，S7 第二部分） | `data/names/avilist_splits.csv`（`scripts/build_splits.py`）、`taxa.apply_splits`、`identities.reconfirm`、`GET /species` 的 `to_reconfirm`、`id_state=reconfirm` | `test_core_splits_flock.py::test_a_split_reopens_*`、`test_a_split_waits_until_*` | 已由测试证实；不按坐标自动选定（见契约） |
+| A-R52 | 人工画框补上检测器漏掉的动物，再选物种（PRD §10，S3 `new_subjects`） | `web/app.js`（`startDraw`、`id-change` 画框模式） | 浏览器走查一次（假引擎、无 EXIF 旋转样本）；`test_core_identities.py::test_a_drawn_box_*`（接口） | 部分验证：无自动化浏览器测试，旋转样本未走查 |
+| A-R53 | 鸟群/兽群不逐只命名：同一张照片同类框 ≥ `FLOCK_MIN`（5）时 AI 结论上卷到共同属/科或“不确定”，人工结论不动 | `identities.flock`、`identities.ingest` | `test_core_splits_flock.py::test_a_flock_*` | 已由测试证实；阈值未用真实鸟群照片评估 |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。
