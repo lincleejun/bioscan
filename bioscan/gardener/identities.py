@@ -182,7 +182,8 @@ def _resolve(target: dict[str, Any], claim: dict[str, Any]) -> dict[str, Any] | 
 def identify(c: Any, subject_ids: list[str], new_subjects: list[dict[str, Any]], claim: dict[str, Any], *,
              scope: str, actor: str, reason: str | None, dry_run: bool) -> dict[str, Any]:
     """A person's identification of subjects (contract revision 4, S3). `new_subjects` = boxes a person drew
-    ({asset_id, xyxy}). scope=burst also writes the same claim to the other photos of each target's burst:
+    ({asset_id, xyxy}). scope=burst (or encounter) also writes the same claim to the other photos of each target's
+    burst (or encounter):
     there, the subjects the model named as the target's model claim did (or the photo's only subject), never
     one a person already identified (those come back in `skipped`). dry_run reports and writes nothing."""
     t, batch = now(), st.new_id("b")
@@ -227,16 +228,21 @@ def identify(c: Any, subject_ids: list[str], new_subjects: list[dict[str, Any]],
             continue
         write(s, fields, "target")
         done.add(s["id"])
-        if scope != "burst":
+        if scope == "burst":
+            burst = _bursts(c, [s["asset_id"]]).get(s["asset_id"])
+            if burst is None:
+                continue
+            # ponytail: scans every asset's latest suggestion per target; a burst_id index on a "latest" table if a
+            # library-wide batch of many targets gets slow.
+            sibs = [r[0] for r in c.execute(
+                "SELECT asset_id FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions GROUP BY asset_id) "
+                "AND burst_id = ? AND asset_id != ? ORDER BY asset_id", (burst, s["asset_id"]))]
+        elif scope == "encounter":       # contract revision 5B: the other photos of the target's encounter(s)
+            sibs = [r[0] for r in c.execute(
+                "SELECT DISTINCT asset_id FROM encounter_members WHERE encounter_id IN (SELECT encounter_id FROM "
+                "encounter_members WHERE asset_id = ?) AND asset_id != ? ORDER BY asset_id", (s["asset_id"], s["asset_id"]))]
+        else:
             continue
-        burst = _bursts(c, [s["asset_id"]]).get(s["asset_id"])
-        if burst is None:
-            continue
-        # ponytail: scans every asset's latest suggestion per target; a burst_id index on a "latest" table if a
-        # library-wide batch of many targets gets slow.
-        sibs = [r[0] for r in c.execute(
-            "SELECT asset_id FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions GROUP BY asset_id) "
-            "AND burst_id = ? AND asset_id != ? ORDER BY asset_id", (burst, s["asset_id"]))]
         model = (s["ai"] or {}).get("concept")
         for a, ss in subjects(c, sibs).items():
             same = [x for x in ss if model is not None and (x["ai"] or {}).get("concept") == model]
@@ -249,7 +255,7 @@ def identify(c: Any, subject_ids: list[str], new_subjects: list[dict[str, Any]],
                 if x["human"]:
                     skipped.append({"subject_id": x["id"], "asset_id": a, "reason": "human"})
                     continue
-                write(x | {"asset_id": a}, fields, "burst")
+                write(x | {"asset_id": a}, fields, scope)
                 done.add(x["id"])
     return {"batch_id": None if dry_run or not changed else batch, "dry_run": dry_run, "changed": changed,
             "skipped": skipped}

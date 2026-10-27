@@ -336,3 +336,51 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 人工结论不受影响（当前结论仍是人的）；少于 `FLOCK_MIN` 个的照片照常逐只命名。重跑与 schema 1 回填都经过同一规则。
   - 界面在该主体下显示“鸟群：不逐只命名”（哺乳为“兽群”，其他为“成群”）。
   - 照片级的 `species` 能力结果（`AssetItem.species` 在没有种级主体结论时的退路）不在本规则内。
+- **后续切片**：S7 第二部分（拆分），见 #106。
+  - 问题：拆分后原概念 ID 可能留给其中一个子种（如 Willet → Saltmarsh Willet 保留 avibase-6D372C9F，Prairie Willet 为新 ID），旧的人工确认会被静默算成那个子种。
+  - 计划：
+    - 提交由 AviList 变更页生成的拆分表；
+    - 名单升级时，受影响的人工结论追加一条 `qualifier=slash` 的待重新确认记录，候选为各子种；
+    - 能按坐标与日期判定的自动选定（eBird 的做法），其余进复核队列；
+    - 整批可撤销。
+
+## 契约修订 5B：四种用途、拍摄段、Smart 规则预览（2026-10-26，AfterShooting PRD v1 阶段 B；优先于上文冲突处）
+
+依据：PRD §05 状态轴、§07 第二级、§08 决定与批量动作、§04 Smart Collection 第一版（AC13）、§15 迁移。
+
+- **schema 3**：`marks.use`（`record | edit | reject`，NULL = 待定）与表 `encounters`、`encounter_members`。`schema_version` 2 的库启动时迁移：旧 Pick → `record`，Reject → `reject`，其余待定；每个改动写一行 `mark_history`（`field=use`、`actor=system`、`reason=migrate:flag:<旧值>`，同一 batch），并给每个已有任务分拍摄段。
+- **四种用途取代 Pick/Reject**（PRD §05、§08）：
+  - 保留记录 `record`、选入修图 `edit`、待定 `pending`（缺省）、淘汰 `reject`。按素材全局共享，与星级分开；模型不写用途；淘汰只是决定，不触发文件操作。
+  - `POST /marks {asset_ids, use?: record|edit|pending|reject, flag?, stars?, reason?, expect?}`；`use` 与 `flag` 不能同时给（400）。`flag` 是旧写法：`pick` → `record`（已是 `edit` 的保持 `edit`），`reject` → `reject`，`null` → 待定。
+  - `marks.flag` 保留为派生列，只由 `store.write_mark` 按用途写入（`record|edit` → `pick`，`reject` → `reject`）。所以旧客户端、`flag=` 筛选、`Collection.picks/rejects`、本组不留（`picks` = 记录或修图）、覆盖检查、导出 `scope=picked` 与导出 XML 的 `flag` 照旧可用。
+  - 响应与 `AssetItem` 增加 `use`（永远是四个值之一）；`judged` = 用途不是待定或有星级。标记历史的字段从此是 `use`；撤销旧的 `flag` 历史行时按上面的映射还原为用途。
+  - 筛选（含 Smart 规则）增加 `use=record|edit|pending|reject`。
+  - **保留此张并淘汰相似帧**：`POST /marks/keep-best {asset_id, keep_use?: record|edit（缺省 record）, dry_run?, expect?}` → `{dry_run, burst_id, keep: {id, use}, reject: [id], skipped: [{id, reason: human|only_record, concepts?}], expect: {id: version}, batch_id}`。
+    - 范围是该照片所在连拍（`ai_suggestions.burst_id`）的其他代表版本；已是淘汰的不再列出。
+    - 跳过 `human`：已有人工决定（记录、修图或星级）。
+    - 跳过 `only_record`：淘汰后某个物种（当前结论，种级）在全库不再有未淘汰的照片；显示该物种的帧全部保留，`concepts` 列出物种。
+    - 保留与淘汰同一 batch，`POST /marks/undo` 一次撤销。`dry_run` 不写入，返回的 `expect` 原样带回执行；期间被改过 → 409。不在连拍中 → 400。
+  - **界面键盘**：R 保留记录、E 选入修图、U 待定、X 淘汰、1–5 星级（0 清除）、⌘/Ctrl+Z 撤销；P 不再使用。输入框内不触发。
+- **拍摄段 Encounter**（PRD §03、§07）：
+  - 任务内一次连续观察；同一照片在每个任务里属于一个拍摄段；只收有拍摄时间的代表版本。
+  - 建议规则（`review.assign_encounters`）：按拍摄时间（相机本地，不换算）排序。停顿超过 600 s 断开；停顿超过 120 s 且前后照片的物种（当前种级结论）没有交集也断开；同一连拍内永不断开。
+  - 持久化：只有还没有拍摄段的照片会被机器放置（`group` 阶段与迁移时）。一段内已有放置的照片时，新照片并入时间上最近的那张的拍摄段；否则新建一段。已放置的照片机器永不移动，所以人的拆合在重扫、追加后保持，重扫不会静默恢复旧分组。
+  - `GET /encounters?task=&concept=`（至少一个）→ `{encounters: [Encounter], unassigned: [asset_id]}`。
+    - `Encounter = {id, task_id, origin: auto|user, start, end, photos, asset_ids, bursts: [{id|null, size, rep, asset_ids}], candidates: [≤3 asset_id], species: [{concept, taxon, common, zh}]}`。
+    - 给 `concept` 时只列该物种的照片。
+    - 连拍代表 `rep`：人工选入修图 > 保留记录 > 星级 > 连拍名次 > 美学分；`candidates` 是各连拍（与单张）代表中排名前三的。
+    - `unassigned` = 范围内没有拍摄段的照片（无拍摄时间，或扫描尚未到分组阶段）。
+  - `POST /encounters/{id}/split {at: asset_id | asset_ids: [..]}` → 201 `{id（新段）, from}`：`at` 把这张及之后的照片拆为新的一段（`origin=user`），`asset_ids` 恰好拆出这些。两段都要有照片，否则 400；已被合并的段 400。
+  - `POST /encounters/merge {ids}` → `{id}`：并入第一个，其余记 `merged_into`；须同一任务、两个以上。
+  - 放置、拆、合都更新所涉照片的 `assets.updated_at`（§10 X7），轮询 `changed_after` 的客户端据此重新取拍摄段。
+  - 本版没有拍摄段的撤销接口：拆与合互为逆操作。
+  - **识别范围**：`POST /identifications` 的 `scope` 增加 `encounter`。同一结论写到目标所在拍摄段的其他照片，选主体的规则与 `burst` 相同；`changed[].via = encounter`。
+  - **界面**：
+    - 任务 Preview 与物种详情的网格按拍摄段分组，可在工具栏切换“按拍摄段 / 不分段”（界面偏好 `enc`）。
+    - 每段有标题行：时间、张数、连拍数、物种。收起时只显示代表候选，可“展开全部”，也可“与上一段合并”。当前照片可“从这张起拆为新拍摄段”。
+    - 段内仍按连拍折叠；在连拍中的照片可用“保留此张并淘汰相似帧…”，先看影响范围再确认。
+    - 任务内“按物种看本次拍摄” → 物种卡片 → `#/species/task/<task>/<concept>`：本任务内的物种详情，即物种 → 拍摄段 → 连拍。
+- **Smart 规则预览**（PRD §04，AC13）：`POST /collections/{id}/preview-rule {rule}` → `{total, current, added_count, removed_count, added: [≤200 id], removed: [≤200 id]}`，不保存；非 Smart 集合 400；规则校验与保存时相同。Smart 集合目前没有人工加入或排除，所以成员 = 规则命中。界面编辑 Smart 集合时，规则改动先显示命中数与增减，再点一次“保存”才写入。
+- **CLI 与 MCP**：
+  - CLI：`mark --use`、`assets --use`、`keep-best ID [--edit] [--dry-run]`、`encounters --task|--concept`、`encounter split ID --at|--assets`、`encounter merge IDS`、`collection preview-rule ID --rule JSON`、`identify --encounter`。
+  - MCP：`set_marks` 增加 `use`；新工具 `keep_best`、`undo_marks`、`list_encounters`、`edit_encounters`、`preview_rule`；`identify_species` 的 `scope` 可为 `encounter`。

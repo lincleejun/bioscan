@@ -68,7 +68,7 @@ def test_schema_1_databases_are_backfilled_from_raw_identify(tmp_path):
         c.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
     store.close()
     again = st.Store(tmp_path / "d")
-    assert again.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == "2"
+    assert again.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == str(st.SCHEMA_VERSION)
     (s,) = identities.subjects(again.conn(), [aid])[aid]
     assert s["current"]["concept"] == "avibase:test-asio" and s["current"]["run_id"] == "r1"
 

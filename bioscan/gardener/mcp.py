@@ -39,8 +39,10 @@ TOOLS = [
            "limit": {"type": "integer"}, "offset": {"type": "integer"}}),
     _tool("get_asset", "素材详情：文件、元数据、逐能力状态、AI 建议历史（与人工判断分开）、标记历史、所在集合。",
           {"id": _STR}, ("id",)),
-    _tool("set_marks", "设置人工 Flag（pick/reject/null）和/或星级 0–5，全局共享；返回 batch_id 可撤销。",
-          {"asset_ids": _IDS, "flag": {"type": ["string", "null"], "enum": ["pick", "reject", None]},
+    _tool("set_marks", "设置人工用途 use（record 保留记录 / edit 选入修图 / pending 待定 / reject 淘汰；flag pick/reject/null "
+          "是旧写法，pick = record）和/或星级 0–5，全局共享；返回 batch_id 可撤销。",
+          {"asset_ids": _IDS, "use": {"type": "string", "enum": ["record", "edit", "pending", "reject"]},
+           "flag": {"type": ["string", "null"], "enum": ["pick", "reject", None]},
            "stars": {"type": "integer", "minimum": 0, "maximum": 5}, "reason": _STR}, ("asset_ids",)),
     _tool("list_collections", "集合列表，含审阅状态、Pick 数、AI 建议计数、低分提示、新增待审数。",
           {"task": _STR, "kind": {"type": "string", "enum": ["manual", "smart"]}, "deleted": {"type": "boolean"}}),
@@ -66,11 +68,25 @@ TOOLS = [
           "not_animal}。scope=burst 时同一连拍里模型认成同一种的主体一起改（已有人工结论的跳过）。先用 dry_run 看影响"
           "范围；返回 batch_id 可用 undo_identification 撤销。没看过图像证据时不要确认物种。",
           {"subject_ids": _IDS, "new_subjects": {"type": "array", "items": {"type": "object"}},
-           "claim": {"type": "object"}, "scope": {"type": "string", "enum": ["subject", "burst"]}, "reason": _STR,
+           "claim": {"type": "object"}, "scope": {"type": "string", "enum": ["subject", "burst", "encounter"]}, "reason": _STR,
            "dry_run": {"type": "boolean"}}, ("claim",)),
     _tool("undo_identification", "撤销一批物种结论（之后又被人工改过的主体会返回冲突）。", {"batch_id": _STR}, ("batch_id",)),
     _tool("set_species_card", "物种卡片的固定封面（cover_asset_id，null 取消）与隐藏（hidden）；只影响显示。",
           {"concept": _STR, "cover_asset_id": {"type": ["string", "null"]}, "hidden": {"type": "boolean"}}, ("concept",)),
+    # contract revision 5B
+    _tool("keep_best", "保留此张（keep_use record 或 edit）并淘汰同一连拍的其他帧；已有人工决定（用途或星级）与唯一物种记录的帧"
+          "跳过并列在 skipped。先 dry_run 看影响范围，再把返回的 expect 原样带上执行；返回 batch_id 可用 undo_marks 撤销。",
+          {"asset_id": _STR, "keep_use": {"type": "string", "enum": ["record", "edit"]}, "dry_run": {"type": "boolean"},
+           "expect": {"type": "object"}}, ("asset_id",)),
+    _tool("undo_marks", "撤销一批用途/星级（set_marks、keep_best 返回的 batch_id）。", {"batch_id": _STR}, ("batch_id",)),
+    _tool("list_encounters", "拍摄段（一次连续观察）：每段的连拍（代表帧 rep）、代表候选 candidates 与物种。task 或 concept "
+          "至少给一个；concept 只看该物种的照片。", {"task": _STR, "concept": _STR}),
+    _tool("edit_encounters", "人工拆合拍摄段（重扫不会恢复旧分组）：action=split 时给 id 和 at（这张及之后）或 asset_ids；"
+          "action=merge 时给 ids（并入第一个）。",
+          {"action": {"type": "string", "enum": ["split", "merge"]}, "id": _STR, "at": _STR, "asset_ids": _IDS,
+           "ids": _IDS}, ("action",)),
+    _tool("preview_rule", "Smart Collection 规则改动的预览：命中数 total、当前成员数 current、增减 added/removed（各至多 200 个 id）；"
+          "不保存。", {"id": _STR, "rule": {"type": "object"}}, ("id", "rule")),
 ]
 _NAMES = {t["name"] for t in TOOLS}
 
@@ -100,7 +116,7 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "get_asset":
         return "GET", f"/assets/{args['id']}", None, None
     if name == "set_marks":
-        return "POST", "/marks", _pick(args, ("asset_ids", "flag", "stars", "reason")), None
+        return "POST", "/marks", _pick(args, ("asset_ids", "use", "flag", "stars", "reason")), None
     if name == "list_collections":
         return "GET", "/collections", None, {**_pick(args, ("task", "kind")), "deleted": "1" if args.get("deleted") else "0"}
     if name == "review_collection":
@@ -122,6 +138,18 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "set_species_card":
         return ("PATCH", f"/species/{urllib.parse.quote(args['concept'], safe=':')}",
                 _pick(args, ("cover_asset_id", "hidden")), None)
+    if name == "keep_best":
+        return "POST", "/marks/keep-best", _pick(args, ("asset_id", "keep_use", "dry_run", "expect")), None
+    if name == "undo_marks":
+        return "POST", "/marks/undo", _pick(args, ("batch_id",)), None
+    if name == "list_encounters":
+        return "GET", "/encounters", None, _pick(args, ("task", "concept"))
+    if name == "edit_encounters":
+        if args["action"] == "merge":
+            return "POST", "/encounters/merge", {"ids": args["ids"]}, None
+        return "POST", f"/encounters/{args['id']}/split", _pick(args, ("at", "asset_ids")), None
+    if name == "preview_rule":
+        return "POST", f"/collections/{args['id']}/preview-rule", {"rule": args["rule"]}, None
     if name == "capabilities":
         return ("POST", "/capabilities/check", {}, None) if args.get("check") else ("GET", "/capabilities", None, None)
     raise KeyError(name)

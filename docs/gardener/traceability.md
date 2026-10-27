@@ -53,12 +53,18 @@
 | R45 | 按主体（每只动物）记录识别，ID 跨重跑稳定；一张照片多个物种（PRD §03，AC03） | `identities.ingest`、表 `subjects`/`identifications` | `test_core_identities.py::test_a_rerun_box_*`、`test_a_two_species_photo_*` | 已由测试证实 |
 | R46 | 人工结论优先，模型重跑不覆盖；纠错、连拍范围、先看影响范围、整批撤销（PRD §10，AC04、AC09） | `POST /identifications`、`/identifications/undo` | `test_core_identities.py::test_correcting_*`、`test_a_burst_claim_*`、`test_a_rescan_keeps_*`、`test_a_drawn_box_*` | 已由测试证实；真模型试用一次（Mac） |
 | R47 | 物种卡片跨任务累积、无最小张数，“已拍到 N 种”只计人工确认，候选不计（PRD §03、§04，AC02、AC05） | `GET /species`、视图 `current_ids` | `test_core_identities.py::test_species_cards_*`、`test_hiding_a_card_*` | 已由测试证实；真模型试用一次（Mac） |
-| R48 | 中英文名、学名、同义名、旧学名检索同一物种；`species=` 跟随当前结论（PRD §10，AC13 部分） | `taxa.py`、`GET /names`、`query.where` | `test_core_identities.py::test_names_resolve_*`、`test_the_species_filter_*`、`test_the_name_index_rebuilds_*` | 已由测试证实；Smart 规则增减预览未做 |
+| R48 | 中英文名、学名、同义名、旧学名检索同一物种；`species=` 跟随当前结论（PRD §10，AC13 部分） | `taxa.py`、`GET /names`、`query.where` | `test_core_identities.py::test_names_resolve_*`、`test_the_species_filter_*`、`test_the_name_index_rebuilds_*` | 已由测试证实；Smart 规则增减预览见 B-R5 |
 | R49 | 物种页、物种详情、任务内按物种查看、检查器逐主体确认纠错（PRD §05、§07） | `web/app.js`（vSpecies、vSpeciesOne、subjectsHTML） | `test_ui_web.py`（静态与契约路由）；真模型浏览器走查（Mac） | 部分验证：无自动化浏览器测试 |
 | R50 | CLI 与 MCP 覆盖物种动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_species_commands_*`、`test_ui_mcp.py::test_species_tools_*` | 已由测试证实（请求映射） |
 | A-R51 | 名录拆分：受影响的人工结论改为“待重新确认 A / B”，不计入任何子种，整批可撤销，每个名录版本只处理一次（PRD §15，S7 第二部分） | `data/names/avilist_splits.csv`（`scripts/build_splits.py`）、`taxa.apply_splits`、`identities.reconfirm`、`GET /species` 的 `to_reconfirm`、`id_state=reconfirm` | `test_core_splits_flock.py::test_a_split_reopens_*`、`test_a_split_waits_until_*` | 已由测试证实；不按坐标自动选定（见契约） |
 | A-R52 | 人工画框补上检测器漏掉的动物，再选物种（PRD §10，S3 `new_subjects`） | `web/app.js`（`startDraw`、`id-change` 画框模式） | 浏览器走查一次（假引擎、无 EXIF 旋转样本）；`test_core_identities.py::test_a_drawn_box_*`（接口） | 部分验证：无自动化浏览器测试，旋转样本未走查 |
 | A-R53 | 鸟群/兽群不逐只命名：同一张照片同类框 ≥ `FLOCK_MIN`（5）时 AI 结论上卷到共同属/科或“不确定”，人工结论不动 | `identities.flock`、`identities.ingest` | `test_core_splits_flock.py::test_a_flock_*` | 已由测试证实；阈值未用真实鸟群照片评估 |
+| B-R1 | 四种用途（保留记录 / 选入修图 / 待定 / 淘汰）取代 Pick/Reject，全局、可撤销、模型不写；旧 Pick → 记录、Reject → 淘汰并留来源（PRD §05、§08、§15，AC08、AC09） | `marks.use`、`store.apply_marks`/`write_mark`/`migrate_uses`、`POST /marks`、`query` 的 `use=` | `test_core_review_flow.py::test_four_uses_*`、`test_schema_2_picks_become_records_*`；`test_core_review.py`（旧 flag 客户端） | 已由测试证实 |
+| B-R2 | 保留此张并淘汰相似帧：先预览范围，跳过人工保护与唯一物种记录，整批撤销（PRD §08） | `review.keep_best`、`POST /marks/keep-best` | `test_core_review_flow.py::test_keep_best_*` | 已由测试证实 |
+| B-R3 | 拍摄段：按时间与物种连续性建议，连拍嵌套其中，人工拆合持久、重扫不恢复；按任务或物种列出连拍与代表候选；识别可按拍摄段（PRD §03、§07，AC07 部分） | `review.assign_encounters`/`encounters`/`split_encounter`/`merge_encounters`、`/encounters*`、`identities.identify(scope=encounter)` | `test_core_review_flow.py::test_encounters_*`、`test_identify_scope_encounter_*` | 已由测试证实；真实照片未验证 |
+| B-R4 | 界面：R/E/U/X 用途键，网格按拍摄段分组可展开收起，任务内物种 → 拍摄段 → 连拍（PRD §07、§08） | `web/app.js`（flagSeg、encHeadHTML、keepBest、vSpeciesOne） | `test_ui_web.py::test_review_flow_ui_contract_5b`、`test_ui_calls_only_contract_endpoints`；Chrome 对 §6 fake 走查一次（段标题与展开、R/E 键、保留此张预览、规则预览后二次保存，无控制台错误） | 部分验证：无自动化浏览器测试，未对真实服务走查 |
+| B-R5 | Smart 规则改动先显示命中数与增减，再保存（PRD §04，AC13） | `POST /collections/{id}/preview-rule`；`openEditCol` | `test_core_review_flow.py::test_rule_preview_*` | 已由测试证实 |
+| B-R6 | CLI 与 MCP 同样可做以上动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_review_flow_commands_*`、`test_ui_mcp.py::test_review_flow_tools_*` | 已由测试证实（请求映射） |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

@@ -46,7 +46,7 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idburst"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idburst", "enc"}, keys
 
 
 def test_nav_order():
@@ -143,3 +143,19 @@ def test_poll_cursor_and_order():
     assert "changed_after: ws.cursor" in app
     assert "makeWs('preview', { task: t.id }, 'discovered'" in app
     assert "makeWs('review', { collection: c.id }, 'discovered'" in app
+
+
+def test_review_flow_ui_contract_5b():
+    """R/E/U/X set the four uses (no P any more), keep-best previews before it writes, encounters group the grid,
+    and a changed Smart rule is previewed before it is saved."""
+    app = text("app.js")
+    assert "const KEY_USE = { r: 'record', e: 'edit', u: 'pending', x: 'reject' };" in app
+    assert "k === 'p'" not in app and "markKey({ flag" not in app and "{ use: v }" in app   # the UI writes uses only
+    assert "api('POST', '/marks/keep-best', { asset_id: id, dry_run: true })" in app
+    assert "api('GET', '/encounters', null, ws.encQuery)" in app and "e.candidates.includes(a.id)" in app
+    assert "dd.dataset.previewed !== ruleKey" in app and "/preview-rule`" in app
+    from fastapi.testclient import TestClient
+    c = TestClient(create_app(static=False))
+    t = c.get("/api/v1/tasks").json()[-1]
+    enc = c.get("/api/v1/encounters", params={"task": t["id"]}).json()["encounters"][0]
+    assert {"id", "start", "end", "photos", "asset_ids", "bursts", "candidates", "species"} <= set(enc)

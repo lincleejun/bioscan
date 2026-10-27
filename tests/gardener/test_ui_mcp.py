@@ -45,7 +45,8 @@ def test_handshake_list_and_errors(svc):
     names = [t["name"] for t in replies[1]["result"]["tools"]]
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
-                     "identify_species", "undo_identification", "set_species_card"]
+                     "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
+                     "list_encounters", "edit_encounters", "preview_rule"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -72,7 +73,7 @@ def test_tools_call_the_api(svc, tmp_path):
     d, _ = tool(url, "get_asset", id="a_0005")
     assert d["caps"]["subject"]["data"]["boxes"] and d["collections"]
     m, _ = tool(url, "set_marks", asset_ids=["a_0006"], flag="pick", stars=3)
-    assert m["assets"][0] == {"id": "a_0006", "flag": "pick", "stars": 3, "version": 3}
+    assert m["assets"][0] == {"id": "a_0006", "use": "record", "flag": "pick", "stars": 3, "version": 3}
     cols, _ = tool(url, "list_collections", task="t_0001")
     birds = next(c for c in cols if c["group_kind"] == "species")
     conflict, err = tool(url, "review_collection", id=birds["id"], action="zero")
@@ -123,3 +124,26 @@ def test_species_tools_map_to_the_revision_4_endpoints():
     assert route("search_names", {"q": "金雕"}) == ("GET", "/names", None, {"q": "金雕"})
     assert route("set_species_card", {"concept": "name:Corvus corax", "hidden": True}) == \
         ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
+
+
+def test_review_flow_tools_map_to_the_revision_5b_endpoints(svc):
+    from bioscan.gardener.mcp import route
+
+    assert route("set_marks", {"asset_ids": ["a_1"], "use": "edit"}) == ("POST", "/marks", {"asset_ids": ["a_1"], "use": "edit"}, None)
+    assert route("keep_best", {"asset_id": "a_1", "dry_run": True}) == \
+        ("POST", "/marks/keep-best", {"asset_id": "a_1", "dry_run": True}, None)
+    assert route("undo_marks", {"batch_id": "b_1"}) == ("POST", "/marks/undo", {"batch_id": "b_1"}, None)
+    assert route("list_encounters", {"concept": "avibase:x"}) == ("GET", "/encounters", None, {"concept": "avibase:x"})
+    assert route("edit_encounters", {"action": "split", "id": "e_1", "at": "a_2"}) == \
+        ("POST", "/encounters/e_1/split", {"at": "a_2"}, None)
+    assert route("edit_encounters", {"action": "merge", "ids": ["e_1", "e_2"]}) == \
+        ("POST", "/encounters/merge", {"ids": ["e_1", "e_2"]}, None)
+    assert route("preview_rule", {"id": "c_1", "rule": {"use": "edit"}}) == \
+        ("POST", "/collections/c_1/preview-rule", {"rule": {"use": "edit"}}, None)
+    url, fake = svc
+    m, err = tool(url, "set_marks", asset_ids=["a_0006"], use="edit")
+    assert not err and m["assets"][0]["use"] == "edit" and m["assets"][0]["flag"] == "pick"
+    kb, err = tool(url, "keep_best", asset_id="a_0006", dry_run=True)
+    assert not err and kb["dry_run"] and kb["reject"] == ["a_0005", "a_0007"]
+    es, err = tool(url, "list_encounters", task="t_0001")
+    assert not err and es["encounters"][0]["photos"] == 5

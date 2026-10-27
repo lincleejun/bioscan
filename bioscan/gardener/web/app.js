@@ -57,6 +57,9 @@
     failed: ['失败', 'fail'], unrecognized: ['未识别', 'muted'], unavailable: ['不可用', 'fail'],
   };
   const VERDICT = { pick: '建议保留', reject: '建议舍弃', none: '无明确建议' };
+  // 四种用途（契约修订 5B）：全局共享，与星级分开；flag 只是旧客户端的派生字段
+  const USE = { record: ['保留记录', 'R', 'pick', 'check'], edit: ['选入修图', 'E', 'pick', 'edit'], pending: ['待定', 'U', 'none', ''], reject: ['淘汰', 'X', 'reject', 'x'] };
+  const useZh = v => (USE[v] || [v])[0];
   const GROUP = { all: '全部素材', person: '人物', species: '物种', animal: '动物', scene: '场景', other: '其他', place: '地点', day: '日期（旧）', event: '事件（旧）' };
   const GROUP_ORDER = ['all', 'person', 'species', 'animal', 'scene', 'other'];
   const VERSION_WHY = { same_capture: '同一拍摄的副本', export: '导出图（无拍摄信息，按文件编号与画面确认）' };
@@ -105,8 +108,8 @@
   }
   function humanBadge(a) {
     let h = '';
-    if (a.flag === 'pick') h += `<span class="hb hb-pick">${ic('flag')}Pick</span>`;
-    else if (a.flag === 'reject') h += `<span class="hb hb-reject">${ic('x')}Reject</span>`;
+    const u = USE[a.use];
+    if (u && a.use !== 'pending') h += `<span class="hb hb-${u[2]}">${ic(u[3])}${u[0]}</span>`;
     if (a.stars) h += `<span class="hb hb-star" aria-label="${a.stars} 星">${'★'.repeat(a.stars)}</span>`;
     return h;
   }
@@ -114,8 +117,8 @@
   const tileTags = a => (a.media === 'video' ? `<span class="tb">${ic('play')}${a.duration_s ? Math.round(a.duration_s) + ' s' : '视频'}</span>` : '') + (a.online ? '' : '<span class="tb tb-off">离线</span>');
   const sigMedia = a => `${a.preview}|${a.online}`;
   const sigAi = a => [a.analysis, a.ai && a.ai.verdict, a.ai && a.ai.score, a.content_label_zh, a.species && a.species.taxon].join('|');
-  const sigHuman = a => `${a.flag}|${a.stars}`;
-  const tileLabel = a => `${a.name}${a.flag === 'pick' ? '，Pick' : a.flag === 'reject' ? '，Reject' : ''}${a.stars ? `，${a.stars} 星` : ''}${a.online ? '' : '，原片离线'}`;
+  const sigHuman = a => `${a.use}|${a.stars}`;
+  const tileLabel = a => `${a.name}${a.use && a.use !== 'pending' ? '，' + useZh(a.use) : ''}${a.stars ? `，${a.stars} 星` : ''}${a.online ? '' : '，原片离线'}`;
   function burstBtn(ws, a) {
     if (!ws || !ws.collapse || !a.burst || ws.burstRep.get(a.burst.id) !== a.id) return '';
     const open = ws.expanded.has(a.burst.id);
@@ -125,8 +128,8 @@
     return `<div class="tile-wrap" role="listitem" data-wrap="${esc(a.id)}"><button type="button" class="tile" data-asset="${esc(a.id)}" data-sm="${esc(sigMedia(a))}" data-sa="${esc(sigAi(a))}" data-sh="${esc(sigHuman(a))}" aria-label="${esc(tileLabel(a))}"><span class="tile-media">${photo(a, 'thumb')}<span class="tile-ai">${aiPill(a)}</span><span class="tile-human">${humanBadge(a)}</span><span class="tile-tags">${tileTags(a)}</span></span><span class="tile-cap"><span class="tile-name">${esc(a.name)}</span><span class="tile-file">${esc(tileSub(a))}</span></span></button><button type="button" class="tile-check" data-action="toggle-sel" data-id="${esc(a.id)}" aria-pressed="false" aria-label="多选：${esc(a.name)}">${ic('check')}</button>${burstBtn(ws, a)}</div>`;
   }
   function flagSeg(a) {
-    const b = (v, label, key, icon) => `<button type="button" class="seg-btn f-${v || 'none'}" data-action="flag" data-id="${esc(a.id)}" data-v="${v || ''}" data-key="f-${v || 'none'}-${esc(a.id)}" aria-pressed="${(a.flag || '') === (v || '')}">${icon ? ic(icon) : ''}${label}<kbd>${key}</kbd></button>`;
-    return `<div class="seg flagseg" role="group" aria-label="人工 Flag">${b('pick', 'Pick', 'P', 'flag')}${b(null, '未标记', 'U')}${b('reject', 'Reject', 'X', 'x')}</div>`;
+    const b = v => { const [label, key, tone, icon] = USE[v]; return `<button type="button" class="seg-btn f-${tone}" data-action="use" data-id="${esc(a.id)}" data-v="${v}" data-key="f-${v}-${esc(a.id)}" aria-pressed="${(a.use || 'pending') === v}">${icon ? ic(icon) : ''}${label}<kbd>${key}</kbd></button>`; };
+    return `<div class="seg flagseg" role="group" aria-label="选片用途">${Object.keys(USE).map(b).join('')}</div>`;
   }
   function starsHTML(a) {
     let h = '';
@@ -402,7 +405,7 @@
       return `<div class="wpage">${head}<div class="page-scroll">${colToolbarHTML(t.id)}<div id="col-area">${colAreaHTML()}</div></div></div>`;
     }
     if (tab === 'runs') return `<div class="wpage">${head}<div class="page-scroll"><div class="runs">${(t.runs || []).slice().reverse().map(runHTML).join('') || '<div class="empty">还没有运行。</div>'}</div></div></div>`;
-    makeWs('preview', { task: t.id }, 'discovered', { taskId: t.id, start: prefs.get('last.' + t.id, null) });
+    makeWs('preview', { task: t.id }, 'discovered', { taskId: t.id, start: prefs.get('last.' + t.id, null), encQuery: { task: t.id } });
     return `<div class="wpage">${head}<div class="phases" data-bind="task-phases" data-id="${esc(t.id)}">${phasesHTML(t)}</div>${wsHTML()}</div>`;
   }
   const KIND = { scan: '首次扫描', append: '追加来源', rescan: '重新分析', retry: '重试失败项' };
@@ -435,7 +438,7 @@
   // ---------- 工作区：网格 + 检视器 ----------
   const WSF = {
     preview: [['all', '全部'], ['waiting', '等待中'], ['analyzed', '已分析'], ['failed', '失败/不可用'], ['unjudged', '未判断']],
-    review: [['all', '全部'], ['unjudged', '未判断'], ['ai-pick', 'AI 建议保留'], ['ai-reject', 'AI 建议舍弃'], ['pick', '已 Pick'], ['reject', '已 Reject']],
+    review: [['all', '全部'], ['unjudged', '未判断'], ['ai-pick', 'AI 建议保留'], ['ai-reject', 'AI 建议舍弃'], ['edit', '选入修图'], ['record', '保留记录'], ['reject', '淘汰']],
   };
   function passF(a, f) {
     switch (f) {
@@ -445,18 +448,19 @@
       case 'unjudged': return !a.judged;
       case 'ai-pick': return !!a.ai && a.ai.verdict === 'pick';
       case 'ai-reject': return !!a.ai && a.ai.verdict === 'reject';
-      case 'pick': return a.flag === 'pick';
-      case 'reject': return a.flag === 'reject';
+      case 'edit': case 'record': case 'reject': return a.use === f;
       default: return true;
     }
   }
   function makeWs(kind, query, order, extra) {
-    const ws = Object.assign({ kind, query, order, filter: 'all', all: [], allSet: new Set(), ids: [], sel: new Set(), current: null, anchor: null, offset: 0, total: 0, loadedAll: false, cursor: '0', collapse: prefs.get('burst', '1') === '1', expanded: new Set(), burstRep: new Map(), loading: false }, extra);
+    const ws = Object.assign({ kind, query, order, filter: 'all', all: [], allSet: new Set(), ids: [], sel: new Set(), current: null, anchor: null, offset: 0, total: 0, loadedAll: false, cursor: '0', collapse: prefs.get('burst', '1') === '1', expanded: new Set(), burstRep: new Map(), loading: false, enc: null, encMode: prefs.get('enc', '1') === '1' }, extra);
     ui.ws = ws;
     return ws;
   }
   function visible(ws, a) {
     if (!passF(a, ws.filter)) return false;
+    const e = encOn(ws) && ws.enc.by.get(a.id);
+    if (e && !ws.enc.open.has(e.id)) return e.candidates.includes(a.id);   // 收起的拍摄段只露代表候选
     if (!ws.collapse || !a.burst || ws.expanded.has(a.burst.id)) return true;
     return ws.burstRep.get(a.burst.id) === a.id;
   }
@@ -470,10 +474,12 @@
     });
     const vis = fresh.filter(id => visible(ws, A(id)));
     if (!vis.length) return;
-    ws.ids.push(...vis);
+    if (encOn(ws)) ws.ids = encOrder(ws).filter(id => visible(ws, A(id)));    // 按拍摄段排序：整体重画
+    else ws.ids.push(...vis);
     if (ui.ws === ws) {
       const grid = $('#grid');
-      if (grid) { const e = $('.grid-empty', grid); if (e) e.remove(); grid.insertAdjacentHTML('beforeend', vis.map(id => tile(A(id), ws)).join('')); }
+      if (grid && encOn(ws)) grid.innerHTML = gridHTML(ws);
+      else if (grid) { const e = $('.grid-empty', grid); if (e) e.remove(); grid.insertAdjacentHTML('beforeend', vis.map(id => tile(A(id), ws)).join('')); }
       if (!ws.current) setCurrent(ws.start && ws.allSet.has(ws.start) ? ws.start : ws.ids[0]);
       else applySel();
     }
@@ -501,6 +507,7 @@
     // 已载入的就地更新；全部载入后才追加新素材（否则留给分页按原顺序载入）
     if (ws.loadedAll) addLoaded(ws, items); else items.forEach(a => { if (a.updated_at > ws.cursor) ws.cursor = a.updated_at; });
     patchTiles(known);
+    if (ws.encQuery) loadEnc(ws);
     if (known.includes(ws.current)) renderInspector();
     patchBinds('ws-filters'); patchBinds('ws-count');
     renderLightbox();
@@ -521,11 +528,12 @@
     if (!ws) return '';
     const n = ws.sel.size;
     const manual = ws.kind === 'review' && ui.col && ui.col.kind === 'manual';
-    if (n < 2) return '<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格放大 · P/X/U 标记，0–5 星级</span>';
+    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格放大 · R 保留记录 / E 选入修图 / U 待定 / X 淘汰，1–5 星级</span>${singleToolsHTML(ws)}`;
     return `<span class="batch-n">已选 <b>${n}</b> 张 · 快捷键作用于全部已选</span>
-      <button type="button" class="btn sm pick" data-action="batch" data-v="pick" data-key="b-pick">${ic('flag')}Pick</button>
-      <button type="button" class="btn sm reject" data-action="batch" data-v="reject" data-key="b-reject">${ic('x')}Reject</button>
-      <button type="button" class="btn sm ghost" data-action="batch" data-v="" data-key="b-none">清除 Flag</button>
+      <button type="button" class="btn sm pick" data-action="batch" data-v="record" data-key="b-record">${ic('check')}保留记录</button>
+      <button type="button" class="btn sm pick" data-action="batch" data-v="edit" data-key="b-edit">${ic('edit')}选入修图</button>
+      <button type="button" class="btn sm ghost" data-action="batch" data-v="pending" data-key="b-pending">待定</button>
+      <button type="button" class="btn sm reject" data-action="batch" data-v="reject" data-key="b-reject">${ic('x')}淘汰</button>
       <label class="batch-stars"><span class="sr-only">批量星级</span><select class="input sm" data-action-change="batch-stars" aria-label="批量星级"><option value="">星级…</option>${[0, 1, 2, 3, 4, 5].map(i => `<option value="${i}">${i ? i + ' 星' : '清除星级'}</option>`).join('')}</select></label>
       <button type="button" class="btn sm ghost" data-action="compare" data-key="b-cmp" ${n === 2 ? '' : 'disabled title="选择 2 张时可并排比较"'}>${ic('compare')}比较</button>
       <button type="button" class="btn sm ghost" data-action="add-to-col" data-key="b-add">加入集合…</button>
@@ -536,7 +544,7 @@
     const ws = ui.ws;
     return `<div class="ws grid-${esc(prefs.get('grid', 'm'))}">
       <section class="ws-pane" aria-label="素材网格">
-        <div class="ws-toolbar">${bindEl('ws-filters')}<div class="ws-tools">${bindEl('ws-count', '', 'span')}<button type="button" class="btn sm ghost" data-action="burst-collapse" aria-pressed="${ws.collapse}">连拍${ws.collapse ? '已折叠' : '已展开'}</button><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button>${bindEl('undo', '', 'span')}<button type="button" class="btn sm ghost" data-action="shortcuts">${ic('keyboard')}快捷键</button></div></div>
+        <div class="ws-toolbar">${bindEl('ws-filters')}<div class="ws-tools">${bindEl('ws-count', '', 'span')}${ws.encQuery ? `<button type="button" class="btn sm ghost" data-action="enc-mode" aria-pressed="${ws.encMode}">${ws.encMode ? '按拍摄段' : '不分段'}</button>` : ''}<button type="button" class="btn sm ghost" data-action="burst-collapse" aria-pressed="${ws.collapse}">连拍${ws.collapse ? '已折叠' : '已展开'}</button><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button>${bindEl('undo', '', 'span')}<button type="button" class="btn sm ghost" data-action="shortcuts">${ic('keyboard')}快捷键</button></div></div>
         <div class="grid-scroll" id="grid-scroll"><div class="grid" id="grid" role="list"><div class="grid-empty">${ws.kind === 'preview' ? '扫描开始后，素材会在这里逐步出现。' : '正在载入…'}</div></div><div id="grid-sentinel" aria-hidden="true"></div></div>
         <div class="batch-bar" data-bind="ws-batch">${batchHTML()}</div>
       </section>
@@ -546,12 +554,22 @@
   function renderGrid() {
     const ws = ui.ws, grid = $('#grid');
     if (!grid) return;
-    grid.innerHTML = ws.ids.length ? ws.ids.map(id => tile(A(id), ws)).join('') : `<div class="grid-empty">${ws.all.length ? '没有符合条件的素材。' : ws.kind === 'preview' ? '扫描开始后，素材会在这里逐步出现。' : '没有素材。'}</div>`;
+    grid.innerHTML = ws.ids.length ? gridHTML(ws) : `<div class="grid-empty">${ws.all.length ? '没有符合条件的素材。' : ws.kind === 'preview' ? '扫描开始后，素材会在这里逐步出现。' : '没有素材。'}</div>`;
     applySel();
+  }
+  function gridHTML(ws) {
+    if (!encOn(ws)) return ws.ids.map(id => tile(A(id), ws)).join('');
+    let last, prev = null, out = '';
+    ws.ids.forEach(id => {
+      const e = ws.enc.by.get(id) || null;
+      if (e !== last) { out += encHeadHTML(ws, e, prev); if (e) prev = e; last = e; }
+      out += tile(A(id), ws);
+    });
+    return out;
   }
   function recompute() {
     const ws = ui.ws;
-    ws.ids = ws.all.filter(id => visible(ws, A(id)));
+    ws.ids = (encOn(ws) ? encOrder(ws) : ws.all).filter(id => visible(ws, A(id)));
     ws.sel = new Set(Array.from(ws.sel).filter(id => ws.ids.includes(id)));
     if (!ws.ids.includes(ws.current)) ws.current = ws.ids[0] || null;
     if (ws.current) ws.sel.add(ws.current);
@@ -568,6 +586,58 @@
       if (c) c.setAttribute('aria-pressed', String(sel));
     });
     patchBinds('ws-batch');
+  }
+
+  // ---------- 拍摄段（契约修订 5B）：物种 → 拍摄段 → 连拍；收起的段只露代表候选 ----------
+  const encOn = ws => !!(ws && ws.encQuery && ws.encMode && ws.enc);
+  async function loadEnc(ws) {
+    try {
+      const r = await api('GET', '/encounters', null, ws.encQuery);
+      const sig = JSON.stringify(r.encounters.map(e => [e.id, e.asset_ids, e.candidates]));
+      if (ws.enc && ws.enc.sig === sig) return;
+      const by = new Map();
+      r.encounters.forEach((e, i) => { e.n = i + 1; e.asset_ids.forEach(id => by.set(id, e)); });
+      ws.enc = { list: r.encounters, by, sig, open: ws.enc ? ws.enc.open : new Set() };
+      if (ui.ws === ws) recompute();
+    } catch (e) { if (ui.ws === ws) toast(errMsg(e)); }
+  }
+  function encOrder(ws) {
+    const rank = new Map(ws.all.map((id, i) => [id, i]));
+    const key = id => { const e = ws.enc.by.get(id); return e ? e.n : Infinity; };
+    return ws.all.slice().sort((x, y) => key(x) - key(y) || rank.get(x) - rank.get(y));
+  }
+  function encHeadHTML(ws, e, prev) {
+    if (!e) return '<div class="enc-head" role="listitem"><b>未分段</b><span class="hint">没有拍摄时间，或扫描结束后才分段</span></div>';
+    const open = ws.enc.open.has(e.id), runs = e.bursts.filter(b => b.size > 1).length;
+    const names = e.species.map(x => x.zh || x.common || x.taxon).join('、');
+    return `<div class="enc-head" role="listitem" data-enc="${esc(e.id)}"><b>拍摄段 ${e.n}</b><span class="hint">${esc(fmtTime(e.start))} – ${esc(fmtTime(e.end).slice(11))} · ${e.photos} 张${runs ? ` · ${runs} 组连拍` : ''}${names ? ' · ' + esc(names) : ''}${open ? '' : ` · 显示 ${e.candidates.length} 张代表候选`}</span>
+      <button type="button" class="btn sm ghost" data-action="enc-toggle" data-id="${esc(e.id)}" aria-expanded="${open}">${open ? '收起为代表候选' : `展开全部 ${e.photos} 张`}</button>${prev && prev.task_id === e.task_id ? `<button type="button" class="btn sm ghost" data-action="enc-merge" data-id="${esc(prev.id)}" data-other="${esc(e.id)}">与上一段合并</button>` : ''}</div>`;
+  }
+  function singleToolsHTML(ws) {
+    const a = ws.current && A(ws.current);
+    if (!a) return '';
+    const e = encOn(ws) && ws.enc.by.get(a.id);
+    return (a.burst && a.burst.size > 1 ? `<button type="button" class="btn sm ghost" data-action="keep-best" data-id="${esc(a.id)}" data-key="b-keep">保留此张并淘汰相似帧…</button>` : '')
+      + (e && e.asset_ids.indexOf(a.id) > 0 ? `<button type="button" class="btn sm ghost" data-action="enc-split" data-id="${esc(e.id)}" data-at="${esc(a.id)}" data-key="b-split-enc">从这张起拆为新拍摄段</button>` : '');
+  }
+  const SKIP_WHY = { human: '已有人工决定', only_record: '唯一的物种记录' };
+  async function keepBest(id) {
+    let r;
+    try { r = await api('POST', '/marks/keep-best', { asset_id: id, dry_run: true }); } catch (e) { toast(errMsg(e)); return; }
+    const skipped = r.skipped.map(x => `<li>${esc((A(x.id) || { name: x.id }).name)} · ${esc(SKIP_WHY[x.reason] || x.reason)}</li>`).join('');
+    dialog({
+      title: '保留此张并淘汰相似帧',
+      body: `<p>保留「${esc((A(id) || { name: id }).name)}」，同一连拍里另外 <b>${r.reject.length}</b> 张标为淘汰。</p>${skipped ? `<p class="hint">不会改动：</p><ul class="conf-list">${skipped}</ul>` : ''}<p class="hint">淘汰只是决定，不删除或移动任何文件；整批可撤销。</p>`,
+      actions: [{ label: '保留记录并淘汰其余', value: 'record', kind: 'primary' }, { label: '选入修图并淘汰其余', value: 'edit' }],
+      onSubmit: async v => {
+        try {
+          const done = await api('POST', '/marks/keep-best', { asset_id: id, keep_use: v, expect: r.expect });
+          if (done.batch_id) { ui.undo.push({ batch: done.batch_id, label: '保留此张并淘汰相似帧' }); patchBinds('undo'); }
+          toast(`已${useZh(v)} 1 张，淘汰 ${done.reject.length} 张`, done.batch_id ? { action: { label: '撤销', run: doUndo } } : undefined);
+          await pollNow();
+        } catch (e) { if (e.status === 409) throw new Error('有素材刚被修改，请关闭后重新预览'); throw e; }
+      },
+    });
   }
 
   // 检视器：大图层只在换图、预览状态、放大模式变化时重建
@@ -652,7 +722,7 @@
     const meta = (d && d.meta) || {};
     const cols = (d && d.collections) || [];
     const hist = (d && d.mark_history) || [];
-    const FIELD = { flag: 'Flag', stars: '星级' };
+    const FIELD = { flag: 'Flag（旧）', use: '用途', stars: '星级' };
     const capsHTML = d ? S.caps.map(c => { const x = d.caps[c.id] || { state: 'not_enabled' }; const [l, tone] = CAPSTATE[x.state] || [x.state, 'muted']; const extra = capDataText(c.id, x); return `<li><span>${esc(c.name)}${extra ? `<small>${esc(extra)}</small>` : ''}${x.error ? `<small class="txt-fail">${esc(x.error)}</small>` : ''}</span>${pill(l, tone)}</li>`; }).join('') : '<li class="hint">载入中…</li>';
     return `<div class="insp-title"><h2>${esc(a.name)}</h2><p class="mono">${esc(fmtTime(a.taken_at))}${a.camera ? ' · ' + esc(a.camera) : ''}</p></div>
       ${a.online ? '' : `<p class="note warn block">${ic('warn')}${meta.missing ? '文件缺失：来源在线但找不到原文件。' : '原片离线：只显示已有记录与预览，原片当前不可用。'}</p>`}
@@ -662,7 +732,7 @@
         <div class="star-row">${starsHTML(a)}<span class="hint">1–5 星，0 清除</span></div>
         <label class="field-inline"><span class="hint">理由（可选，随下一次标记保存）</span><input id="mark-reason" class="input sm" maxlength="200" autocomplete="off"></label>
         <label class="check-row"><input type="checkbox" data-pref="advance" ${prefs.get('advance', '0') === '1' ? 'checked' : ''}> 键盘标记后自动前进到下一张</label>
-        ${hist.length ? `<details><summary class="hint">标记历史 ${hist.length} 条</summary><ul class="hist">${hist.slice().reverse().map(h => `<li>${esc(fmtTime(h.at))} · ${esc(FIELD[h.field] || h.field)} ${esc(h.old == null ? '无' : h.old)} → ${esc(h.new == null ? '无' : h.new)} · ${esc(h.actor)}${h.reason ? ' · ' + esc(h.reason === 'content_changed' ? '内容变化，系统清空' : h.reason) : ''}</li>`).join('')}</ul></details>` : '<p class="hint">尚无人工判断。浏览经过不计为已审。</p>'}
+        ${hist.length ? `<details><summary class="hint">标记历史 ${hist.length} 条</summary><ul class="hist">${hist.slice().reverse().map(h => `<li>${esc(fmtTime(h.at))} · ${esc(FIELD[h.field] || h.field)} ${esc(h.old == null ? (h.field === 'use' ? '待定' : '无') : h.field === 'use' ? useZh(h.old) : h.old)} → ${esc(h.new == null ? (h.field === 'use' ? '待定' : '无') : h.field === 'use' ? useZh(h.new) : h.new)} · ${esc(h.actor)}${h.reason ? ' · ' + esc(h.reason === 'content_changed' ? '内容变化，系统清空' : h.reason) : ''}</li>`).join('')}</ul></details>` : '<p class="hint">尚无人工判断。浏览经过不计为已审。</p>'}
         ${cols.length ? `<div class="in-cols"><span class="hint">出现在 ${cols.length} 个集合，标记一致：</span>${cols.map(c => `<a class="col-ref" href="#/review/${esc(c.id)}">${esc(c.name)}</a>`).join('')}</div>` : ''}
       </section>
       ${subjectsHTML(a, d)}
@@ -809,7 +879,7 @@
 
   // ---------- 人工标记与撤销 ----------
   function afterMarks(assets) {
-    assets.forEach(x => { const a = A(x.id); if (a) Object.assign(a, { flag: x.flag, stars: x.stars, mark_version: x.version, judged: !!(x.flag || x.stars) }); S.details.delete(x.id); });
+    assets.forEach(x => { const a = A(x.id); if (a) Object.assign(a, { use: x.use, flag: x.flag, stars: x.stars, mark_version: x.version, judged: x.use !== 'pending' || !!x.stars }); S.details.delete(x.id); });
     patchTiles(assets.map(x => x.id)); renderInspector(); renderLightbox(); patchBinds();
     $$('dialog.compare[open] [data-cmp]').forEach(el => swap(el, cmpCapHTML(el.dataset.cmp)));
   }
@@ -936,7 +1006,7 @@
       <p class="col-sub">${c.size} 张 · ${esc(colKindText(c))}${showTask && t ? ` · ${esc(t.title)}` : ''}</p>
       ${c.description ? `<p class="col-desc">${esc(c.description)}</p>` : ''}
       <div class="col-progress">${bar(pct(c.judged, c.size), 'bar-review')}<span>已判断 ${c.judged}/${c.size}</span></div>
-      <div class="col-stats"><span class="chip c-${tone}">${label}</span><span class="stat"><b>${c.picks}</b> Pick</span><span class="stat"><b>${c.rejects}</b> Reject</span><span class="stat ai">AI 保留 ${c.ai_picks} · 舍弃 ${c.ai_rejects}</span></div>
+      <div class="col-stats"><span class="chip c-${tone}">${label}</span><span class="stat"><b>${c.picks}</b> 保留</span><span class="stat"><b>${c.rejects}</b> 淘汰</span><span class="stat ai">AI 保留 ${c.ai_picks} · 舍弃 ${c.ai_rejects}</span></div>
       <div class="col-warn">${colNotes(c)}</div>`;
   }
   const COLF = [['all', '全部'], ['open', '未完成'], ['done', '已完成'], ['nopick', '尚无人工入选'], ['new', '新增待审']];
@@ -1009,7 +1079,7 @@
     const [label, tone] = colState(c);
     return `<span class="chip c-${tone}">${label}</span>
       <div class="rh-progress">${bar(pct(c.judged, c.size), 'bar-review')}<span>已判断 <b>${c.judged}</b>/${c.size}</span></div>
-      <span class="stat"><b>${c.picks}</b> Pick</span><span class="stat"><b>${c.rejects}</b> Reject</span><span class="stat ai">AI 保留 ${c.ai_picks} · 舍弃 ${c.ai_rejects}</span><span class="stat muted">${c.review.unhandled} 张未逐张处理</span>${colNotes(c)}`;
+      <span class="stat"><b>${c.picks}</b> 保留</span><span class="stat"><b>${c.rejects}</b> 淘汰</span><span class="stat ai">AI 保留 ${c.ai_picks} · 舍弃 ${c.ai_rejects}</span><span class="stat muted">${c.review.unhandled} 张未逐张处理</span>${colNotes(c)}`;
   }
   function colActionsHTML(c) {
     const closed = c.review.state !== 'open';
@@ -1045,10 +1115,10 @@
   }
 
   // ---------- 物种 ----------
-  const speciesHref = k => `#/species/${encodeURIComponent(k)}`;
-  function speciesCardHTML(k) {
+  const speciesHref = (k, task) => (task ? `#/species/task/${encodeURIComponent(task)}/${encodeURIComponent(k)}` : `#/species/${encodeURIComponent(k)}`);
+  function speciesCardHTML(k, task) {
     const when = k.first_taken_at === k.last_taken_at ? fmtTime(k.first_taken_at).slice(0, 10) : `${fmtTime(k.first_taken_at).slice(0, 10)} – ${fmtTime(k.last_taken_at).slice(0, 10)}`;
-    return `<a class="sp-card" href="${esc(speciesHref(k.concept))}">
+    return `<a class="sp-card" href="${esc(speciesHref(k.concept, task))}">
       <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy">
       <span class="sp-name"><b>${esc(k.zh || k.common || k.taxon)}</b>${k.zh && k.common ? `<small>${esc(k.common)}</small>` : ''}<i>${esc(k.taxon)}</i></span>
       <span class="sp-meta">${k.confirmed ? `已确认 ${k.confirmed}` : ''}${k.confirmed && k.candidates ? ' · ' : ''}${k.candidates ? `待确认 ${k.candidates}` : ''}${k.only_one ? ' · <b class="pill p-wait">仅 1 张</b>' : ''}</span>
@@ -1059,7 +1129,7 @@
     const t = p.task && (taskById(p.task) || await api('GET', `/tasks/${encodeURIComponent(p.task)}`));
     const kind = ui.spKind || '';
     const pass = k => !kind || k.kind === kind;
-    const grid = list => `<div class="sp-grid">${list.filter(pass).map(speciesCardHTML).join('') || '<p class="hint">没有。</p>'}</div>`;
+    const grid = list => `<div class="sp-grid">${list.filter(pass).map(k => speciesCardHTML(k, p.task)).join('') || '<p class="hint">没有。</p>'}</div>`;
     const un = lib.unresolved;
     return `<div class="page">
       <header class="page-head"><div>${t ? `<nav class="crumbs" aria-label="位置"><a href="#/task/${esc(t.id)}/preview">${esc(t.title)}</a><span aria-hidden="true">/</span><a href="#/species">全部物种</a></nav>` : ''}<h1 tabindex="-1">${t ? '本次拍摄的物种' : '物种'}</h1>
@@ -1072,19 +1142,21 @@
     </div>`;
   }
   async function vSpeciesOne(p) {
-    const lib = await api('GET', '/species', null, { hidden: '1' });
+    const lib = await api('GET', '/species', null, { hidden: '1', task: p.task });
     const k = lib.species.concat(lib.to_confirm).find(x => x.concept === p.concept);
     if (!k) throw Object.assign(new Error('没有这个物种的照片'), { status: 404 });
     ui.sp = k;
-    makeWs('query', { concept: k.concept }, 'time', {});
+    const scope = p.task ? { concept: k.concept, task: p.task } : { concept: k.concept };
+    makeWs('query', scope, 'time', { encQuery: scope });
+    const t = p.task && (taskById(p.task) || await api('GET', `/tasks/${encodeURIComponent(p.task)}`));
     return `<div class="wpage">
       <header class="rv-head">
-        <nav class="crumbs" aria-label="位置"><a href="#/species">物种</a><span aria-hidden="true">/</span><span>${esc(k.common || k.taxon)}</span></nav>
+        <nav class="crumbs" aria-label="位置">${t ? `<a href="#/task/${esc(t.id)}/preview">${esc(t.title)}</a><span aria-hidden="true">/</span><a href="#/species/task/${esc(t.id)}">本次拍摄的物种</a>` : '<a href="#/species">物种</a>'}<span aria-hidden="true">/</span><span>${esc(k.common || k.taxon)}</span></nav>
         <div class="rh-row">
           <div class="rh-title"><h1 tabindex="-1">${esc(k.zh || k.common || k.taxon)}</h1>${k.zh && k.common ? `<span class="hint">${esc(k.common)}</span>` : ''}<i class="hint">${esc(k.taxon)}</i>${k.kind ? `<span class="hint">${esc(KIND_ZH[k.kind] || k.kind)}</span>` : ''}</div>
           <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="sp-cover">设当前照片为封面</button><button type="button" class="btn sm ghost" data-action="sp-hide">${k.hidden ? '在物种页显示' : '在物种页隐藏'}</button></div>
         </div>
-        <p class="hint">已确认 ${k.confirmed} 张 · 待确认 ${k.candidates} 张 · 首次 ${esc(fmtTime(k.first_taken_at))} · 最近 ${esc(fmtTime(k.last_taken_at))}。成员来自每张照片的物种结论：在右侧「物种」卡片确认或纠正。</p>
+        <p class="hint">已确认 ${k.confirmed} 张 · 待确认 ${k.candidates} 张 · 首次 ${esc(fmtTime(k.first_taken_at))} · 最近 ${esc(fmtTime(k.last_taken_at))}。成员来自每张照片的物种结论：在右侧「物种」卡片确认或纠正。按拍摄段与连拍折叠：收起的拍摄段只显示代表候选。</p>
       </header>
       ${wsHTML()}
     </div>`;
@@ -1093,7 +1165,7 @@
   // ---------- 全部素材 ----------
   const LIBF = [
     ['task', '任务', 'sel'], ['collection', '集合', 'sel'], ['media', '媒体', [['', '不限'], ['photo', '照片'], ['video', '视频']]],
-    ['flag', '人工 Flag', [['', '不限'], ['pick', 'Pick'], ['reject', 'Reject'], ['none', '未标记']]],
+    ['use', '选片用途', [['', '不限'], ['record', '保留记录'], ['edit', '选入修图'], ['pending', '待定'], ['reject', '淘汰']]],
     ['stars_min', '星级', [['', '不限'], ['1', '≥ 1 星'], ['3', '≥ 3 星'], ['5', '5 星']]],
     ['ai', 'AI 建议', [['', '不限'], ['pick', '建议保留'], ['reject', '建议舍弃'], ['none', '无建议']]],
     ['judged', '判断状态', [['', '不限'], ['yes', '已判断'], ['no', '未判断']]],
@@ -1154,7 +1226,7 @@
           <dt>数据目录</dt><dd class="mono">${esc(storage.data_dir)}</dd>
           <dt>整理记录</dt><dd><span class="mono">${esc(storage.db_path)}</span> · ${fmtBytes(storage.db_bytes)}</dd>
           <dt>预览缓存</dt><dd><span class="mono">${esc(storage.cache_dir)}</span> · ${fmtBytes(storage.cache_bytes)} · ${esc(storage.cache_files)} 个文件</dd>
-          <dt>原片</dt><dd>保留原位置，Gardener 不移动、改名或删除；Reject 不触发任何文件操作。</dd>
+          <dt>原片</dt><dd>保留原位置，Gardener 不移动、改名或删除；淘汰不触发任何文件操作。</dd>
         </dl>
         <div class="set-actions"><button type="button" class="btn sm danger-ghost" data-action="clear-cache">清理预览缓存…</button></div></section>
       ${S.tags = tags, ''}
@@ -1231,7 +1303,7 @@
       title: person ? '给人物命名' : '编辑集合', focus: '#ec-name',
       body: `${nameField}
         <div class="field"><label for="ec-desc">描述</label><textarea id="ec-desc" class="input" rows="3" maxlength="1000">${esc(c.description)}</textarea></div>
-        ${c.kind === 'smart' ? `<div class="field"><label for="ec-rule">规则（JSON，键同全部素材筛选）</label><textarea id="ec-rule" class="input mono" rows="3">${esc(JSON.stringify(c.rule || {}))}</textarea></div>` : ''}
+        ${c.kind === 'smart' ? `<div class="field"><label for="ec-rule">规则（JSON，键同全部素材筛选）</label><textarea id="ec-rule" class="input mono" rows="3">${esc(JSON.stringify(c.rule || {}))}</textarea></div><p id="ec-preview" class="note info block" aria-live="polite" hidden></p>` : ''}
         <p class="hint">${person ? '命名后，这一组的脸成为此人的参考：所有任务里认出是此人的照片都归入这个名字的分组，以后的扫描也会直接加进来。名字与已有的人相同，就合并为同一个人。' : '改名不影响成员和人工标记；之后重新分组也不会覆盖人工命名。'}</p>`,
       actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, dd) => {
@@ -1239,6 +1311,15 @@
         if (!name) throw new Error('名称不能为空');
         const body = { name, description: val(dd, '#ec-desc'), version: c.version };
         if (c.kind === 'smart') { try { body.rule = JSON.parse(val(dd, '#ec-rule') || '{}'); } catch (e) { throw new Error('规则不是有效的 JSON'); } }
+        const ruleKey = c.kind === 'smart' ? JSON.stringify(body.rule) : '';
+        if (ruleKey && ruleKey !== JSON.stringify(c.rule || {}) && dd.dataset.previewed !== ruleKey) {   // 改规则先看增减，再保存
+          const pv = await api('POST', `/collections/${encodeURIComponent(c.id)}/preview-rule`, { rule: body.rule });
+          const box = $('#ec-preview', dd);
+          box.hidden = false;
+          box.textContent = `新规则命中 ${pv.total} 张（当前 ${pv.current} 张）：新增 ${pv.added_count} 张，移出 ${pv.removed_count} 张。核对无误后再次点击「保存」。`;
+          dd.dataset.previewed = ruleKey;
+          return false;
+        }
         let got;
         try { got = await api('PATCH', `/collections/${encodeURIComponent(c.id)}`, body); } catch (e) { if (e.status === 409) { await rerender(); throw new Error('集合已被其他客户端修改，已载入最新版本，请重新编辑'); } throw e; }
         S.details.clear();
@@ -1309,7 +1390,7 @@
     const radio = (v, label, on, dis) => `<label class="radio-row"><input type="radio" name="scope" value="${v}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}><span>${label}</span></label>`;
     const d = dialog({
       title: isCol ? `导出「${ui.col.name}」` : '导出筛选结果', cls: 'export',
-      body: `<fieldset class="fs"><legend>范围</legend>${radio('picked', '已 Pick', true)}${radio('all', isCol ? '本组全部成员' : '全部结果')}${radio('selected', `当前选中（${sel.length} 张）`, false, !sel.length)}</fieldset>
+      body: `<fieldset class="fs"><legend>范围</legend>${radio('picked', '已保留（记录或修图）', true)}${radio('all', isCol ? '本组全部成员' : '全部结果')}${radio('selected', `当前选中（${sel.length} 张）`, false, !sel.length)}</fieldset>
         <div class="field"><label for="ex-dest">目标目录</label><input id="ex-dest" class="input mono" placeholder="默认：服务数据目录下的 exports/" autocomplete="off"></div>
         <label class="switch-row boxed"><span class="sw-text"><b>复制内容</b><small>默认关闭</small></span><input type="checkbox" role="switch" class="switch" id="copy-toggle"></label>
         <div id="copy-note" class="copy-note" aria-live="polite"></div>
@@ -1373,7 +1454,7 @@
     const row = (k, t) => `<tr><td>${k.split(' ').map(x => `<kbd>${x}</kbd>`).join(' ')}</td><td>${t}</td></tr>`;
     dialog({
       title: '键盘快捷键', cls: 'small',
-      body: `<table class="kbd-table">${row('P', '标记 Pick')}${row('X', '标记 Reject')}${row('U', '清除 Flag')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('空格', '放大查看')}${row('C', '比较已选 2 张')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
+      body: `<table class="kbd-table">${row('R', '保留记录')}${row('E', '选入修图')}${row('U', '待定')}${row('X', '淘汰（不删除文件）')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('空格', '放大查看')}${row('C', '比较已选 2 张')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
         <p class="hint">在输入框中打字时快捷键不会触发。多选时标记作用于全部已选素材。</p>`,
     });
   }
@@ -1411,7 +1492,7 @@
       case 'review': return ['review', { id: parts[1] }];
       case 'collections': return parts[1] === 'deleted' ? ['deleted', {}] : ['collections', {}];
       case 'library': return ['library', {}];
-      case 'species': return parts[1] === 'task' ? ['species', { task: parts[2] }] : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
+      case 'species': return parts[1] === 'task' ? (parts[3] ? ['species-one', { concept: parts[3], task: parts[2] }] : ['species', { task: parts[2] }]) : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
       case 'settings': return ['settings', {}];
       case 'tasks': return ['tasks', { archived: parts[1] === 'archived' }];
       default: return null;
@@ -1443,6 +1524,7 @@
       renderInspector();
       observeSentinel(ui.ws);
       await loadMore(ui.ws);
+      if (ui.ws && ui.ws.encQuery) await loadEnc(ui.ws);
     }
   }
   function observeSentinel(ws) {
@@ -1609,6 +1691,11 @@
     'clear-sel': () => { const ws = ui.ws; ws.sel = new Set(ws.current ? [ws.current] : []); applySel(); },
     'ws-filter': el => { ui.ws.filter = el.dataset.f; recompute(); },
     burst: el => { const ws = ui.ws, b = el.dataset.id; if (ws.expanded.has(b)) ws.expanded.delete(b); else ws.expanded.add(b); recompute(); },
+    'enc-mode': () => { const ws = ui.ws; ws.encMode = !ws.encMode; prefs.set('enc', ws.encMode ? '1' : '0'); const b = $('[data-action="enc-mode"]'); b.setAttribute('aria-pressed', String(ws.encMode)); b.textContent = ws.encMode ? '按拍摄段' : '不分段'; recompute(); },
+    'enc-toggle': el => { const o = ui.ws.enc.open, id = el.dataset.id; if (o.has(id)) o.delete(id); else o.add(id); recompute(); },
+    'enc-split': async el => { const ws = ui.ws; try { await api('POST', `/encounters/${encodeURIComponent(el.dataset.id)}/split`, { at: el.dataset.at }); toast('已拆为新拍摄段；重新扫描不会恢复旧分段'); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'enc-merge': async el => { const ws = ui.ws; try { await api('POST', '/encounters/merge', { ids: [el.dataset.id, el.dataset.other] }); toast('已合并拍摄段'); await loadEnc(ws); } catch (e) { toast(errMsg(e)); } },
+    'keep-best': el => keepBest(el.dataset.id),
     'burst-collapse': () => { const ws = ui.ws; ws.collapse = !ws.collapse; prefs.set('burst', ws.collapse ? '1' : '0'); const b = $('[data-action="burst-collapse"]'); b.setAttribute('aria-pressed', String(ws.collapse)); b.textContent = ws.collapse ? '连拍已折叠' : '连拍已展开'; recompute(); },
     'grid-size': () => { const n = prefs.get('grid', 'm') === 'm' ? 'l' : 'm'; prefs.set('grid', n); const w = $('.ws'); w.classList.remove('grid-m', 'grid-l'); w.classList.add('grid-' + n); },
     prev: () => move(-1),
@@ -1617,9 +1704,9 @@
     zoom: () => { ui.zoom = !ui.zoom; renderInspector(); renderLightbox(); },
     compare: () => openCompare(),
     reveal: async el => { try { await api('POST', `/assets/${encodeURIComponent(el.dataset.id)}/reveal`); toast('已在 Finder 中显示'); } catch (e) { toast(errMsg(e)); } },
-    flag: el => { const v = el.dataset.v || null; doMark([el.dataset.id], { flag: v }, v === 'pick' ? 'Pick' : v === 'reject' ? 'Reject' : '清除 Flag'); },
+    use: el => { const v = el.dataset.v; doMark([el.dataset.id], { use: v }, useZh(v)); },
     star: el => { const id = el.dataset.id, v = Number(el.dataset.v); const n = A(id).stars === v ? 0 : v; doMark([id], { stars: n }, n ? `${n} 星` : '清除星级'); },
-    batch: el => { const v = el.dataset.v || null; doMark(Array.from(ui.ws.sel), { flag: v }, `批量${v === 'pick' ? ' Pick' : v === 'reject' ? ' Reject' : '清除 Flag'}`); },
+    batch: el => { const v = el.dataset.v; doMark(Array.from(ui.ws.sel), { use: v }, `批量${useZh(v)}`); },
     undo: () => doUndo(),
     shortcuts: () => showShortcuts(),
     'edit-col': el => openEditCol(el.dataset.id),
@@ -1759,6 +1846,7 @@
     if (tl && ui.ws) { setCurrent(tl.dataset.asset); openLightbox(); }
   });
 
+  const KEY_USE = { r: 'record', e: 'edit', u: 'pending', x: 'reject' };
   document.addEventListener('keydown', e => {
     const tg = e.target;
     if (tg && tg.id === 'path-input' && e.key === 'Enter') { e.preventDefault(); addPath(); return; }
@@ -1778,9 +1866,7 @@
     if (k === 'ArrowRight') { e.preventDefault(); move(1); }
     else if (k === 'ArrowLeft') { e.preventDefault(); move(-1); }
     else if ((k === 'ArrowDown' || k === 'ArrowUp') && !lb) { e.preventDefault(); move(k === 'ArrowDown' ? gridCols() : -gridCols()); }
-    else if (k === 'p' || k === 'P') markKey({ flag: 'pick' }, 'Pick');
-    else if (k === 'x' || k === 'X') markKey({ flag: 'reject' }, 'Reject');
-    else if (k === 'u' || k === 'U') markKey({ flag: null }, '清除 Flag');
+    else if (KEY_USE[k.toLowerCase()]) markKey({ use: KEY_USE[k.toLowerCase()] }, useZh(KEY_USE[k.toLowerCase()]));
     else if (/^[0-5]$/.test(k)) markKey({ stars: Number(k) }, k === '0' ? '清除星级' : `${k} 星`);
     else if (k === ' ' && !lb && (tg === document.body || tg.classList.contains('tile') || tg.tagName === 'H1' || tg === main)) { e.preventDefault(); openLightbox(); }
     else if ((k === 'c' || k === 'C') && !lb) openCompare();

@@ -743,3 +743,7 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .ph.is-drawing { cursor: crosshair; touch-action: none; }
 .ph.is-drawing img { pointer-events: none; }
 .draw-box { position: absolute; border: 2px solid var(--accent, #3a7); background: rgba(255, 255, 255, .12); pointer-events: none; }
+/* 拍摄段（契约修订 5B）：占满网格一行的段标题 */
+.enc-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 2px 2px; border-top: 1px solid var(--line); }
+.enc-head:first-child { border-top: 0; padding-top: 0; }
+.enc-head .hint { flex: 1 1 auto; min-width: 0; }
