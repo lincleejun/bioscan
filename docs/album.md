@@ -51,8 +51,10 @@ name of its surest box (species, or genus / family when only that held up, as `b
 
 `bioscan aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
 **copied** to `--keep-to` (originals and their XMP sidecars), the drops **moved** to `--drop-to`; `--dry-run` only
-reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo already at the target is
-skipped and a missing one reported (exit 1).
+reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo whose file or any of its
+sidecars is already at the target (or would be, from an earlier photo in the same run, `--dry-run` included) is
+skipped and a missing one reported (exit 1). A shared `<stem>.xmp` stays behind while another photo with that stem
+(the RAW of a RAW+JPEG pair) stays in the folder; the same holds for the page's **Delete drops…**.
 
 Stars are quintiles of the run's own scores (5 = top fifth), a relative rank and not a rating. A photo without a
 score (no head installed) sorts last with the head's note; nothing is rated, moved or deleted.
