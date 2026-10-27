@@ -189,6 +189,29 @@ def test_partial_failure_is_reported_and_only_failures_are_retried(env, tmp_path
         assert p["status"] == "completed" and calls.count("B.JPG") == 2 and len(calls) == 7
 
 
+def test_a_destination_that_goes_offline_fails_the_rest_plainly_and_resumes(env, tmp_path, monkeypatch):
+    """Contract revision 7D: a real exFAT image force-unmounted mid-import fails the files left with ENOENT/EIO
+    on our temporary file; the reason shown is the disk, and the next run goes on."""
+    src, lib = card(tmp_path / "card"), tmp_path / "lib"
+    real, gone = imports._copy, []
+
+    def unplugged(s, d):
+        if os.path.basename(s) == "B.JPG" and not gone:
+            gone.append(d.parent)
+            d.parent.rename(tmp_path / "unplugged")              # the mount point goes, with what is on it
+            raise FileNotFoundError(2, "No such file or directory", str(d))
+        return real(s, d)
+    monkeypatch.setattr(imports, "_copy", unplugged)
+    with env.client() as c:
+        tid, ids = scanned(c, src)
+        p = run(c, plan(c, tid, lib)["id"])
+        assert p["status"] == "partial" and p["failed"]
+        assert {f["error"] for f in p["failed"]} == {f"目标目录不可用（磁盘已断开？）：{gone[0]}；重新连接后再执行一次即可继续"}
+        (tmp_path / "unplugged").rename(gone[0])                    # plugged in again
+        p = run(c, p["id"])
+        assert p["status"] == "completed" and p["progress"]["files_done"] == p["progress"]["files_total"]
+
+
 class Crash(BaseException):
     """The process dying mid-copy: not caught by the runner."""
 
