@@ -1,6 +1,6 @@
 # Album: aesthetics and culling
 
-The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Nothing here deletes or moves a photo or writes into one; only `cull --xmp` rates photos, in new XMP sidecars.
+The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Scoring and culling never delete, move or write into a photo; only `cull --xmp` rates photos, in new XMP sidecars. Acting on the marks is a separate, explicit step: the review page's Delete drops removes them through the running service (`POST /apply`), and `aesthetic apply --drop-to DIR` moves them.
 
 ## Aesthetics
 
