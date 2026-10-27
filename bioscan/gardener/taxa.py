@@ -135,3 +135,18 @@ def search(c: Any, q: str, limit: int = 20) -> list[dict[str, Any]]:
                     "_rank": (h["rank"], -min(photos.get(k, 0), 1), n.get("sci") or taxon or k)})
     out.sort(key=lambda x: x.pop("_rank"))
     return out[:limit]
+
+
+def display(c: Any, concepts: list[str]) -> dict[str, dict[str, str | None]]:
+    """concept -> the names the current lists give it ({scientific, common, zh}); concepts no list knows are left
+    out (callers keep the names stored with the identification). A rename shows the new name everywhere while
+    the stored rows keep what was said at the time."""
+    concepts = [k for k in dict.fromkeys(concepts) if k]
+    out: dict[str, dict[str, str | None]] = {}
+    for part in (concepts[i:i + 500] for i in range(0, len(concepts), 500)):
+        for r in c.execute(f"SELECT concept, name, lang FROM taxon_names WHERE concept IN ({st.marks_in(part)}) AND "
+                           f"lang IN ('sci', 'en', 'zh') ORDER BY rowid", part):
+            key = {"sci": "scientific", "en": "common", "zh": "zh"}[r["lang"]]
+            out.setdefault(r["concept"], {"scientific": None, "common": None, "zh": None})
+            out[r["concept"]][key] = out[r["concept"]][key] or r["name"]
+    return out

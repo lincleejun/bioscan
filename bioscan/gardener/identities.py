@@ -105,7 +105,24 @@ def subjects(c: Any, asset_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
         user, ai = latest.get((s["id"], "user")), latest.get((s["id"], "ai"))
         out[s["asset_id"]].append({"id": s["id"], "xyxy": loads(s["xyxy"]), "kind": s["kind"], "origin": s["origin"],
                                    "current": user or ai, "ai": ai, "human": user is not None})
+    _rename([x for ss in out.values() for s in ss for x in (s["current"], s["ai"]) if x and x["level"] == "species"], c)
     return out
+
+
+def _rename(claims: list[dict[str, Any]], c: Any) -> None:
+    """Show each species claim under its concept's current names (taxa.display), keeping the stored ones as
+    `said` when they differ; adds `zh`."""
+    from bioscan.gardener import taxa
+
+    names = taxa.display(c, [x["concept"] for x in claims])
+    for x in claims:
+        n = names.get(x["concept"])
+        x.setdefault("zh", None)
+        if not n:
+            continue
+        if n["scientific"] and n["scientific"] != x["taxon"]:
+            x["said"] = {"taxon": x["taxon"], "common": x["common"]}
+        x["taxon"], x["common"], x["zh"] = n["scientific"] or x["taxon"], n["common"] or x["common"], n["zh"]
 
 
 LEVELS = ("species", "genus", "family", "unconfirmed", "not_animal")
@@ -273,7 +290,13 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
                 "cover_id": pref["cover_asset_id"] if pinned else best, "cover_pinned": pinned,
                 "hidden": bool(pref is not None and pref["hidden"])}
         out["species" if k["confirmed"] else "to_confirm"].append(card)
+    from bioscan.gardener import taxa
+
+    names = taxa.display(c, [x["concept"] for v in out.values() for x in v])
     for v in out.values():
+        for x in v:
+            n = names.get(x["concept"]) or {}
+            x["taxon"], x["common"], x["zh"] = n.get("scientific") or x["taxon"], n.get("common") or x["common"], n.get("zh")
         v.sort(key=lambda x: (x["last_taken_at"] or "", x["concept"]), reverse=True)
     return out | {"confirmed_total": len(out["species"]),
                   "unresolved": {k: len(v) for k, v in unresolved.items()}}

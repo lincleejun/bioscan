@@ -286,3 +286,17 @@ def test_the_web_ui_revalidates_so_an_upgrade_is_never_served_stale(env):
         r = c.get("/app.js")
         assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
         assert "cache-control" not in c.get(f"{API}/health").headers
+
+
+def test_a_renamed_species_shows_its_current_names_and_keeps_what_was_said(env, fakes, tmp_path):
+    (env.data).mkdir(parents=True, exist_ok=True)
+    (env.data / "names-zh.csv").write_text("scientific,zh\nNannus pacificus,太平洋鹪鹩\n", encoding="utf-8")
+    old = owl_box(scientific="Troglodytes pacificus", common="Pacific Wren", concept=WREN["concept"])   # a v2025 answer
+    with env.client(name_lists=lists_dir(tmp_path)) as c:
+        t = task_of(c, tmp_path, "trip", ["A1.jpg"], fakes, [[old]])
+        (card,) = c.get(f"{API}/species").json()["to_confirm"]
+        (item,) = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
+        (s,) = c.get(f"{API}/assets/{item['id']}").json()["subjects"]
+    assert (card["taxon"], card["zh"]) == ("Nannus pacificus", "太平洋鹪鹩")
+    assert (item["species"]["taxon"], item["species"]["zh"]) == ("Nannus pacificus", "太平洋鹪鹩")
+    assert s["current"]["taxon"] == "Nannus pacificus" and s["current"]["said"]["taxon"] == "Troglodytes pacificus"

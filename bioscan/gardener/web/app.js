@@ -695,7 +695,7 @@
   // 照片里的动物（主体）：每只一行，人工确认优先；确认或改名可同时作用于同一连拍（契约修订 4）
   function idText(x) {
     if (!x) return '未识别';
-    if (x.level === 'species') return x.common ? `${x.common} · ${x.taxon}` : x.taxon;
+    if (x.level === 'species') return [x.zh, x.common, x.taxon].filter(Boolean).join(' · ');
     return x.taxon ? `${x.taxon}（${LEVEL_ZH[x.level]}）` : LEVEL_ZH[x.level] || x.level;
   }
   function subjectsHTML(a, d) {
@@ -711,8 +711,9 @@
       const cur = s.current, ai = s.ai;
       const src = !cur ? '' : s.human ? '<small class="pill p-ok">人工确认</small>' : `<small class="hint">AI 候选${cur.p != null ? ' · ' + esc(fmtScore(cur.p)) : ''}</small>`;
       const aiDiff = s.human && ai && ai.concept !== cur.concept ? `<small class="hint">模型：${esc(idText(ai))}</small>` : '';
+      const said = cur && cur.said ? `<small class="hint">当时记作 ${esc(cur.said.taxon)}（名录已更名）</small>` : '';
       return `<li><span class="face subj" style="${esc(crop(s))}" role="img" aria-label="动物 ${i + 1}"></span>
-        <span><b>${esc(idText(cur))}</b>${src}${aiDiff}</span>
+        <span><b>${esc(idText(cur))}</b>${src}${aiDiff}${said}</span>
         <span class="face-acts">${!s.human && ai && ai.level === 'species' ? btn('id-accept', s, '确认') : ''}${btn('id-change', s, '改为…')}${btn('id-unsure', s, '不确定')}</span></li>`;
     }).join('')}</ul>${burst ? `<label class="check-row"><input type="checkbox" data-pref="idburst" ${prefs.get('idburst', '1') === '1' ? 'checked' : ''}> 同一连拍（${a.burst.size} 张）里模型认成同一种的也一起改</label>` : ''}</section>`;
   }
@@ -999,7 +1000,7 @@
     const when = k.first_taken_at === k.last_taken_at ? fmtTime(k.first_taken_at).slice(0, 10) : `${fmtTime(k.first_taken_at).slice(0, 10)} – ${fmtTime(k.last_taken_at).slice(0, 10)}`;
     return `<a class="sp-card" href="${esc(speciesHref(k.concept))}">
       <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy">
-      <span class="sp-name"><b>${esc(k.common || k.taxon)}</b><i>${esc(k.taxon)}</i></span>
+      <span class="sp-name"><b>${esc(k.zh || k.common || k.taxon)}</b>${k.zh && k.common ? `<small>${esc(k.common)}</small>` : ''}<i>${esc(k.taxon)}</i></span>
       <span class="sp-meta">${k.confirmed ? `已确认 ${k.confirmed}` : ''}${k.confirmed && k.candidates ? ' · ' : ''}${k.candidates ? `待确认 ${k.candidates}` : ''}${k.only_one ? ' · <b class="pill p-wait">仅 1 张</b>' : ''}</span>
       <span class="sp-meta mono">${esc(when)}</span></a>`;
   }
@@ -1029,7 +1030,7 @@
       <header class="rv-head">
         <nav class="crumbs" aria-label="位置"><a href="#/species">物种</a><span aria-hidden="true">/</span><span>${esc(k.common || k.taxon)}</span></nav>
         <div class="rh-row">
-          <div class="rh-title"><h1 tabindex="-1">${esc(k.common || k.taxon)}</h1><i class="hint">${esc(k.taxon)}</i>${k.kind ? `<span class="hint">${esc(KIND_ZH[k.kind] || k.kind)}</span>` : ''}</div>
+          <div class="rh-title"><h1 tabindex="-1">${esc(k.zh || k.common || k.taxon)}</h1>${k.zh && k.common ? `<span class="hint">${esc(k.common)}</span>` : ''}<i class="hint">${esc(k.taxon)}</i>${k.kind ? `<span class="hint">${esc(KIND_ZH[k.kind] || k.kind)}</span>` : ''}</div>
           <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="sp-cover">设当前照片为封面</button><button type="button" class="btn sm ghost" data-action="sp-hide">${k.hidden ? '在物种页显示' : '在物种页隐藏'}</button></div>
         </div>
         <p class="hint">已确认 ${k.confirmed} 张 · 待确认 ${k.candidates} 张 · 首次 ${esc(fmtTime(k.first_taken_at))} · 最近 ${esc(fmtTime(k.last_taken_at))}。成员来自每张照片的物种结论：在右侧「物种」卡片确认或纠正。</p>
