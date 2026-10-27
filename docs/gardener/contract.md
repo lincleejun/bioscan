@@ -408,6 +408,8 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - JPEG 细节，20 % 区域：中位 69 ms，P95 74 ms（每次完整解码原图）。整幅缩到 2048 px：中位 168 ms，P95 176 ms。
   - RAW（2026-10-27，同一台机器，Apple M4 Max，64 GB；两张 Sony A1 ARW，8640×5760，107/111 MB，刚复制过、在系统页缓存里，不是冷盘读取）：第一次请求（LibRaw 全尺寸解码约 0.9–1.1 s + exiftool + 写 150 MB 的 .npy）1.2–1.9 s；之后同一张的 20 % 区域中位 12 ms，P95 21 ms；整幅缩到 2048 px 中位 134 ms，P95 152 ms；缩到 4096 px 340–391 ms。预览切换中位 1.6 ms，P95 2.1 ms。
 - **未做**：四图以上比较（PRD 允许后置）；眼部裁切建议（没有眼部检测）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与相机 JPEG 的对齐：常量偏移已由默认裁切消除，剩下相机 JPEG 的机内畸变校正（LibRaw 不做），中心 0 px、画面边缘最多约 45 px（见 7D）。
+  - RAW 解码耗时**未测**：用 `--photos <真实目录>` 在 owner 的 Mac 上补测。
+- **未做**：四图以上比较（PRD 允许后置；四图比较与头部 / 眼部建议见修订 7C）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与同拍 JPEG 若尺寸略有不同，比例坐标会有几个像素的偏差（未在真实文件上核对）。
 ## 契约修订 5D：正式导入（2026-10-26，AfterShooting PRD v1 §06“正式导入”、§09、AC10、AC11；优先于上文冲突处）
 
 依据：PRD §06 要求 Review 后先生成导入计划、再复制并核对，§09 要求完成页能核对目标、待定、重复、容量与失败项后再“导入 N 张”。
@@ -499,6 +501,13 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   `getRawMetadata("keywords"|"uuid")`、`removeKeyword`、`createKeyword` 的同义词（已存在的关键词保持原同义词）、
   `setRawMetadata("rating", nil)`、`LrFileUtils.files` 轮询、插件中的 `io.open` 写结果文件。真实废纸篓：本机临时文件，以及
   一个 exFAT 磁盘映像上的真实清理（文件进入该卷的 `.Trashes/<uid>`，可恢复，见契约修订 7D）；网络卷未验证。
+- **在 Lightroom Classic 14.2 里实测（2026-10-27，新建的测试目录，4 张照片含一张 Sony A1 ARW）**：
+  - 轮询器自动处理交接文件、按路径就地导入、在 `Gardener` 集合组下建集合、写星级、写 `Aves|目|科|种` 层级关键词及英文名同义词、写结果文件：4/4 成功。
+  - 同一批再交接：不重复导入，只有星级变了的那张写入，其余 `same`。
+  - 在 Lightroom 里手动改过星级的照片再交接：星级字段跳过并报告 `conflicts: ["stars"]`，Lightroom 的值保留。
+  - 实测发现并修复：dkjson 默认给解析出的数组挂元表，SDK 对 `createKeyword` 的同义词报 `Assertion failed: packed`；插件的 `json.decode` 现在都显式不挂元表（测试 `test_the_plugin_decodes_json_into_plain_tables`）。
+- **仍未验证**：`findPhotoByUuid`（路径不变时用不到）、`removeKeyword`（物种更正）、`setRawMetadata("rating", nil)`（清除星级）、已存在关键词的同义词。真实磁盘上的废纸篓只在本机
+  临时文件上试过 `/usr/bin/trash`；外置盘与网络卷未验证。
 - **未做**：被移走照片的物种卡片计数排除（PRD §11）；交接失败项的单独重试（重复交接即可，身份复用）；预设与导出（P1）。
 
 ## 契约修订 6：任务视图按任务判断代表版本（2026-10-27，#102 与修订 4/5B/5D 的衔接）
@@ -535,3 +544,41 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 每个主体每次拆分只尝试一次：撤销 `split-geo` 批次后不会再被自动选定。之后若撤销原来的 `split:<版本>` 批次，会因为其后有人工行而 409（与撤销规则一致，不特殊处理）。
   - 何时运行：一次运行的 BioScan 分析之后（`tasks.RunExec.resolve_splits`），只在引擎已加载 BioCLIP、因而有鸟类位置先验时（`tasks.split_prior`：`engine.priors["bird"]` 与 `engine.names["bird"].concept`）；全库范围；出错只记日志，不影响运行；名字同步（`taxa.sync`）不变。
   - **真实先验的结果**：BirdNET geo 3.0 用的是拆分前的分类。AviList v2026 的 35 个拆分中 34 个的所有子种都映射到同一个 BirdNET 标签（亲本，`birdnet_how=synonym`），p_geo 完全相同，所以一个也选不出；在 14 组地点上核对过（如 Willet 在新泽西海岸与北达科他、Great Horned Owl 在加州与利马、European Robin 在伦敦与特内里费），全部留给人选。第 35 个（Mixornis bornensis）在拆分表里只有一个子种、亲本概念不同。等位置先验认得这些子种（或给子种单独的标签映射）之后，这一步才会真正起作用。
+## 契约修订 7C：四图比较、头部 / 眼部裁切建议（2026-10-27，AfterShooting PRD §08 第三级“提供眼部或主体裁切建议”、AC06，#110；优先于上文冲突处）
+
+- **比较 2–4 张**（`web/app.js` 的 dvCompare）：
+  - 选中 2–4 张后按 C 或点“比较”。两张时仍是原来的并排比较（默认不变）；3、4 张为 2×2 网格，每格左上角有格号。
+  - 每格各自标明“快速预览 / 原像素细节加载中 / 原像素细节可用 · 原像素 N% / 不可用：原因”（同 5C）。
+  - “同步缩放与平移”（偏好 `cmpsync`）对所有格生效：各格保持同一原像素比例。点动物框时，其余各格对准离它最近的动物；点“看头部 / 看眼部”时，其余各格保持同一比例，各自对准自己找到的同一部位（没找到的格不动）。
+  - 按 1–4 选中一格（高亮），点胶片条缩略图替换这一格。比较打开时数字键不改星级。
+  - 前两张不比两图比较慢：第 3、4 格的原像素请求要等前两格不在“加载中”时才发出（细节池只有 2 个线程）。快速预览照常并行加载。
+- **`GET /assets/{id}/parts?subject=<subject id>`**（`parts.py`）：
+  - 返回 `{asset_id, subject, kind, file: raw|image, parts: [{name: head|eye, xyxy, score}], floor: {head, eye}, ms}`，`xyxy` 是直立画面的 0–1 比例（与 `subjects.xyxy` 同一坐标）。
+  - 做法：没有眼部检测模型，用 identify 已加载的 OWLv2（开放词表）。在主体框的**原像素**裁切上（RAW 用 5C 的全尺寸解码与缓存，走细节池，但不与查看器的请求互相取代；裁切长边超过 960 px 先缩小），按主体种类用 facing 阶段的提示词（`bird head` / `bird eye`，`mammal …`，其他与人画的框用 `animal …`）。每个部位只留最高分的一个，分数 ≥ 0.2，且面积不超过主体框的 60 %（否则就是整只动物）。都没有时 `parts` 为空，界面如实说“没有足够确定的头部 / 眼部”，不放大。
+  - 只在按需时运行：不改 identify，不写库，BioScan 的识别结果与契约测试的 golden 都不变，所以不需要 `bench compare`。
+  - 错误：缺 `subject` 400；主体不存在或已移除、原片离线 404；视频 400；原像素解码超时、OWLv2 加载失败 503（附原因）。
+- **设备锁**：同一台 Mac 上两个线程同时在 MPS 上跑模型会使进程直接中止（torch 2.14 实测：`failed assertion _status < MTLCommandBufferStatusCommitted`）。所以 `Engine.device_lock`（可重入）由 RunQueue 的模型线程（每个阶段每批一次）、`Engine.ensure`（加载模型时也要把权重拷到设备上）与 parts 路由共同持有。分析进行中请求头部 / 眼部时，会等当前阶段的这一批跑完（实测最长 2.7 s），不会出错。BioScan 服务只有一条模型线程，结果不变。
+- **测量**（2026-10-27，owner 的 Mac，MPS；脚本与原始数据在 agent 草稿目录，未入库）：
+  - 鸟类：iNat 照片 50 张（42 个种，`data/inat`），49 张有主体框。按最高分的主体框统计：头部 34/49（69 %），眼部 20/49（41 %），头部或眼部 36/49。按全部 65 个框统计：头部 42，眼部 26。头部中位面积为主体框的 8 %；另有 2 个高分“头部”超过 60 % 而被去掉。
+  - 抽查 12 张联系表：分数 ≥ 0.2 的头部 12/12 位置正确，眼部 6/6 正确。被下限挡掉的眼部（0.03–0.16）多半是错的，例如蜂鸟的“眼部”0.05 框住了整个身体。
+  - 哺乳动物：iNat 20 张。头部 6/20，眼部 11/20。头部分数普遍偏低（0.14–0.19 时多半也对，但臭鼬、野兔各错一次），所以下限不降。抽查 12 张：眼部 ≥ 0.2 的 11 个里 10 个正确（臭鼬那个错）。
+  - 提示词：facing 的短提示词好于任务建议的长提示词（`the head of a bird` 的中位面积为主体框的 95 %，几乎就是整只鸟）。
+  - 每个框一次 OWLv2 约 130 ms（Gardener 路由实测中位 131 ms，42 次调用），首次调用要加载模型。
+  - **局限**：iNat 照片长边只有 500 px，主体框中位 137 px，眼部只有几个像素，所以眼部召回偏低可能部分是分辨率所致。这次测量分不出原像素与 2048 px 画面的差别。真实 RAW（`/Volumes/Media`）被 macOS 拒绝读取，没有测，RAW 路径只在假 rawpy 上测过。眼部按同一下限保留：命中率不高，但达到下限的基本都对。
+- **未做**：胶片条只能替换，不能往比较里加一格（先在网格里多选）；头部 / 眼部不进分析、不缓存（每次打开视图第一次点时都会请求一次）；没有对焦判断，只是放大到那里。
+
+## 契约修订 7A：Review 收尾——一起改的范围、拆分错误连拍、拍摄段撤销（2026-10-27，#110；AfterShooting PRD §05、§07、AC07；优先于上文冲突处）
+
+- **schema**（不改 `schema_version`，新表 `CREATE IF NOT EXISTS`，见 `schema.sql` 末尾 7A 段）：`burst_overrides`、`encounter_history`。
+- **一起改的范围**（检查器“物种”卡片）：下拉框“仅此主体 / 同一连拍（N 张）/ 同一拍摄段（M 张）”，只列出当前照片实际有的范围；选择记在界面偏好 `idscope`（取代 `idburst`，缺省 `burst`；记的范围当前照片没有时退回同一连拍，再退回仅此主体）。画出的框仍只改它自己。`AssetDetail` 增加 `encounters: [{id, task_id, photos}]`，界面据此判断有没有拍摄段。
+- **拆分错误连拍**（AC07）：`POST /bursts/split {at: asset_id | asset_ids: [..]}` → 201 `{burst_id（新连拍，只剩一帧时为 null）, from, moved}`。
+  - `at`：这帧及之后（按拍摄时间）的帧；`asset_ids`：恰好这些帧。都须在同一个连拍里，两边都要有帧，否则 400。
+  - 持久：被拆出的帧写入 `burst_overrides(task_id, asset_id, burst_id)`（`burst_id` = `<原连拍>~p_<hex>`，仍以任务 id 开头）。连拍 reducer 每次运行都重新推导 `ai_suggestions.burst_id`，所以每次保存建议之后由 `review.apply_burst_overrides` 把这些帧改到人的连拍，并重新给受影响的连拍排名次、计张数；一帧的连拍记为不在连拍中（与 reducer 相同）。只有 reducer 放进某个连拍的帧才会被移动，关掉连拍能力的运行不凭空造出连拍。
+  - 当下的显示：拆分时为原连拍的每一帧追加一行 `ai_suggestions`（`run_id = user`，复制最新一行的建议，只改连拍字段），所以所有读最新建议的地方（网格、拍摄段、保留此张并淘汰相似帧、`scope=burst`）不用改动；`AssetDetail.ai_history` 不列这类行。
+  - 物种身份按主体记录，拆连拍不碰识别与物种卡片（AC07 “不创建重复集合”）。
+  - 已知上限：之后追加的帧若被 reducer 归入这个连拍，会落在机器那一半；需要时再拆一次。本版没有连拍拆分的撤销。
+- **拍摄段撤销**：`POST /encounters/{id}/split` 的响应增加 `batch_id`，`POST /encounters/merge` 返回 `{id, batch_id}`。`POST /encounters/undo {batch_id}` → `{undone（移回的照片数）, action}`：照片回到原拍摄段（连同原来的 `source`）；拆分新建的段记为 `merged_into` 原段，合并掉的段恢复。所涉拍摄段在这一批之后又有变化（成员或合并状态，包括重扫并入的新照片）→ 409 `{encounters}`；未知或已撤销的批次 404。更新所涉照片的 `assets.updated_at`。修订 5B 的“本版没有拍摄段的撤销接口”作废。
+- **保留此张并淘汰相似帧**：响应增加 `collections: [{id, name, asset_ids}]`——要淘汰的帧所在的、人建的集合（手动按成员，Smart 按规则；不含自动分组），PRD §05“批量淘汰前提示是否涉及其他集合”。界面在预览对话框里列出（不含当前正在看的集合）；CLI `keep-best` 多打“也在集合…”。
+- **物种卡片**：`Card` 增加 `encounters`：含该物种照片的拍摄段数，与卡片同一口径（只计代表版本，不计已移到废纸篓的）；`task=` 时只数该任务的拍摄段。全库视图里同一照片在两个任务中时，每个任务的拍摄段各算一次。界面在日期后显示“N 个拍摄段”。
+- **用词**：界面不再出现 Pick / Reject，按四种用途说（保留记录、选入修图、待定、淘汰）；接口字段 `picks`、`flag` 不变。
+- **CLI 与 MCP**：CLI `burst split --at ID | --assets IDS`、`encounter undo BATCH`；MCP 新工具 `split_burst`，`edit_encounters` 的 `action` 增加 `undo`（`batch_id`）。

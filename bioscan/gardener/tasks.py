@@ -697,6 +697,7 @@ class RunExec:
                            dumps(s.get("reasons") or []), None if not b else f"{self.task_id}:{b['id']}",
                            b and b.get("rank"), b and b.get("size"), version, t))
                 c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, aid))
+            review.apply_burst_overrides(c, self.task_id, self.id)     # a person's burst split survives (7A)
 
     def regroup(self, final: bool = False) -> None:
         """Non-final while the run still analyses (grouping.suggest `final`); the group phase is final."""
