@@ -200,3 +200,30 @@ def test_species_keywords_use_the_lists_hierarchy(monkeypatch):
         ["Aves", "Strigiformes", "Strigidae", "Megascops asio"]
     assert handoff.keyword("mdd:9", "Vulpes vulpes", None, None) == ["Mammalia", "Vulpes vulpes"]
     assert handoff.keyword("name:Foo bar", "Foo bar", None, None) == ["Animalia", "Foo bar"]
+
+
+def test_export_templates_are_read_without_setfenv_and_only_hard_drive_exports_are_used(tmp_path):
+    """Found in Lightroom Classic 14.2: the SDK's Lua has no setfenv, so every export failed; and the owner's
+    export presets were other plug-ins' services (DxO, LRTimelapse), which must be refused, not run."""
+    hard = 's = {\n\ttitle = "JPEG 2048",\n\ttype = "Export",\n\tvalue = {\n\t\texportServiceProvider = ' \
+           '"com.adobe.ag.export.file",\n\t\tLR_format = "JPEG",\n\t\tLR_size_maxHeight = 2048,\n\t},\n\tversion = 0,\n}\n'
+    other = hard.replace("com.adobe.ag.export.file", "com.lrtimelapse.export.LRTExport")
+    cases = [hard, other, "not lua at all {{", 'x = { value = {} }']
+    (tmp_path / "t.json").write_text(json.dumps(cases))
+    driver = tmp_path / "templates.lua"
+    driver.write_text(f"""package.path = {json.dumps(str(PLUGIN) + "/?.lua;")} .. package.path
+setfenv = nil                                    -- as in Lightroom
+local json, D = require "dkjson", require "Decide"
+local f = io.open(arg[1]); local cases = json.decode(f:read("*a")); f:close()
+local out = {{}}
+for i, t in ipairs(cases) do
+  local s, why = D.templateSettings(t)
+  out[i] = s and {{"ok", s.LR_format, s.LR_size_maxHeight}} or {{"no", why}}
+end
+print(json.encode(out))
+""")
+    got = json.loads(subprocess.run(["lua", str(driver), str(tmp_path / "t.json")], check=True,
+                                    capture_output=True, text=True).stdout)
+    assert got[0] == ["ok", "JPEG", 2048]
+    assert got[1][0] == "no" and "Hard Drive" in got[1][1]
+    assert got[2] == ["no", "not an export template"] and got[3] == ["no", "not an export template"]

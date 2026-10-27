@@ -201,16 +201,8 @@ local function exportSettings(spec)
   if not COLLISION[spec.overwrite] then return nil, "unknown overwrite policy: " .. tostring(spec.overwrite) end
   local text = spec.preset_path and LrFileUtils.readFile(spec.preset_path)
   if not text then return nil, "export preset not readable: " .. tostring(spec.preset_path) end
-  local chunk, err = loadstring(text)
-  if not chunk then return nil, "export preset: " .. tostring(err) end
-  local env = {}
-  setfenv(chunk, env)
-  local ran, e = pcall(chunk)
-  if not ran or type(env.s) ~= "table" or type(env.s.value) ~= "table" then
-    return nil, "export preset: not an export template (" .. tostring(e) .. ")"
-  end
-  local settings = {}
-  for k, v in pairs(env.s.value) do settings[k] = v end
+  local settings, why = Decide.templateSettings(text)
+  if not settings then return nil, why end
   settings.LR_export_destinationType = "specificFolder"
   settings.LR_export_destinationPathPrefix = spec.dest_dir
   settings.LR_export_useSubfolder = false
