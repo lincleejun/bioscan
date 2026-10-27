@@ -23,7 +23,7 @@
 #   how        tier and command that measures it
 #   source     where the industry number comes from (URL), or why there is none
 #
-# Tiers (id's second segment): smoke = CI 77 iNat photos on reduced lists; golden = 1,625 iNat California
+# Tiers (id's second segment): smoke = CI 95 iNat photos on reduced lists; golden = 1,625 iNat California
 # photos (+ an "other animals" slice still to be built); own = the owner's RAW set; public = the future
 # multi-region CC0/CC-BY set; mac = speed on Apple Silicon; scene = open CC0/CC BY photos per scene label
 # (bioscan gt scene, profile album). Variant "nogeo" = a run with --no-geo.
@@ -859,7 +859,7 @@ source = "no published figure"
 [[standard]]
 id = "directory.smoke.all.top1"
 dimension = "directory"
-title = "CI smoke folder (77 iNat, reduced lists): named correctly at species level"
+title = "CI smoke folder (95 iNat, reduced lists): named correctly at species level"
 scope = "all"
 metric = "top1"
 op = ">="

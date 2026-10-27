@@ -135,4 +135,4 @@ md5 一致就跳过，否则下载；下载结果 md5 不符直接报错。这�
 
 ## aesthetic/ — 通用美学头（`eva-head-v1.json`）
 
-`aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。**头文件尚未提交**（目前只有 README），在 CI（`aesthetic.yml`）或 Mac 上训练后再提交；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`bioscan aesthetic train --ratings`）只留在本机，不进仓库。
+`aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。头文件 `eva-head-v1.json` 已提交（在 CI（`aesthetic.yml`）或 Mac 上训练）；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`bioscan aesthetic train --ratings`）只留在本机，不进仓库。
