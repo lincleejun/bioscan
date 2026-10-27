@@ -315,10 +315,24 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 改学名不改概念，所以人工结论自动跟随新名字。
   - 物种卡片、`AssetItem.species` 与主体的 `current`/`ai` 都按概念显示当前名单的学名、英文名和中文名（`zh`，来自 `taxon_names`）。
   - 识别行里存的名字保持原样不改写；与当前学名不同时，作为 `said: {taxon, common}` 一并返回，界面显示“当时记作 …（名录已更名）”。
-- **后续切片**：S7 第二部分（拆分），见 #106。
-  - 问题：拆分后原概念 ID 可能留给其中一个子种（如 Willet → Saltmarsh Willet 保留 avibase-6D372C9F，Prairie Willet 为新 ID），旧的人工确认会被静默算成那个子种。
-  - 计划：
-    - 提交由 AviList 变更页生成的拆分表；
-    - 名单升级时，受影响的人工结论追加一条 `qualifier=slash` 的待重新确认记录，候选为各子种；
-    - 能按坐标与日期判定的自动选定（eBird 的做法），其余进复核队列；
-    - 整批可撤销。
+- **名录升级（S7，第二部分：拆分）**：
+  - 问题：拆分后旧的人工确认要么挂在一个新名单里已不存在的概念上（还算作“已拍到”的一种），要么在原 ID 留给某个子种时被静默算成那个子种。AviList v2026 的 35 个拆分实际都是前一种：亲本的种级 Avibase ID 全部退役，子种用的是原来的亚种 ID（如 Willet 在 v2025 是 `avibase-E7A14E91`；Saltmarsh Willet 的 `avibase-6D372C9F` 在 v2025 是指名亚种 *T. s. semipalmata*）。两种情况同样处理。
+  - **拆分表** `data/names/avilist_splits.csv`（`scripts/build_splits.py` 由 AviList 变更页生成，见 `data/README.md`）：每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。
+  - **何时生效**：名字索引同步（`taxa.sync`，服务启动时）时，对还没处理过的名录版本，若索引里已有它的全部子种（即已加载该版本名单）就处理一次；已处理的版本及其撤销批次记在 `meta.splits_applied`（`{版本: batch_id|null}`），之后不再重复。
+  - **怎么改**：当前结论是人工（`source=user`）种级、概念为某个亲本的主体，追加一条 `source=user, actor=system, reason=split:<版本>` 的识别：`level=species`、`qualifier=slash`、`concept` 为空、`taxon/common` 保留原来记的名字、`candidates` 为各子种 `[{concept, scientific, common, p: null}]`。同一版本一个 `batch_id`，可用 `POST /identifications/undo` 整批撤销。AI 结论不动（不计入已拍到的种数）。
+  - **不自动选定**：按坐标判定子种需要 BioScan 引擎里的 BirdNET 位置先验（`bioscan/service/geo.py`，要加载模型），名字索引同步时拿不到，所以全部留给人选，不做近似判断。
+  - **效果**：
+    - 这些主体不计入任何物种卡片，也不计入“已拍到 N 种”；`GET /species` 增加 `to_reconfirm`（这样的照片数）。
+    - `GET /assets` 的 `id_state` 增加 `reconfirm`；`confirmed` 只算有概念的人工结论。视图 `current_ids` 增加 `qualifier` 列。
+    - `AssetItem.species` 不取这类结论（退回模型的照片级结论）。`Identification` 增加 `reason`、`batch_id`。
+    - 人用普通的 `POST /identifications` 选定一个子种（或任意物种）即解决。
+  - **界面**：主体一行显示“待重新确认：A / B”和“名录拆分：原记作 …”，每个子种一个按钮；物种页在待确认与待鉴定之间增加“待重新确认”区，链接到 `id_state=reconfirm`；全部素材的“物种结论”筛选增加同一项。CLI `gardener species` 多打一行，MCP `list_species` 说明里写明 `to_reconfirm`。
+- **标出漏掉的动物（S3 的界面）**：检查器“物种”卡片（照片有预览时总是显示，没有主体时提示“模型没有标出动物”）增加“标出漏掉的动物”：
+  - 在大图上按住拖出一个框（Esc 取消；“主体放大”会先关掉）。大图已按 EXIF 摆正，`xyxy` 是摆正后图像的 0–1 比例；图按 contain 显示，换算时只算图像实际显示的区域，不算留白。
+  - 松开后打开与“改为…”相同的名字检索，选中即 `POST /identifications {new_subjects: [{asset_id, xyxy}], claim, scope: subject}`；也可“只标出，不确定是什么”（`claim: {level: unconfirmed}`）。画的框不按连拍范围扩散。提示条可整批撤销，撤销后这个框随之退役。
+- **鸟群不逐只命名**：一张照片里同一 `kind` 的带物种结果的框达到 `identities.FLOCK_MIN`（5）个时，按 Merlin 的克制做法不逐只命名：
+  - 这些框的 AI 识别改记为所有框首选答案共同的属（`level=genus`），没有共同属时取共同的科（需要候选带 `taxonomy`），都没有则 `unconfirmed`；`concept`、`common`、`p` 为空，`candidates` 保留每个框原来的候选，`reason=flock`。
+  - 原因：一群鸟里分类器逐只猜测，往往给出几种不同的近缘种，每种都会变成物种库里的一张卡片（实测一张雨燕群照片出了三种雨燕）。
+  - 人工结论不受影响（当前结论仍是人的）；少于 `FLOCK_MIN` 个的照片照常逐只命名。重跑与 schema 1 回填都经过同一规则。
+  - 界面在该主体下显示“鸟群：不逐只命名”（哺乳为“兽群”，其他为“成群”）。
+  - 照片级的 `species` 能力结果（`AssetItem.species` 在没有种级主体结论时的退路）不在本规则内。
