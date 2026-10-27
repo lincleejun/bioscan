@@ -103,11 +103,15 @@ def identify(models) -> list:
 
 
 def canonical(outs) -> list:
-    """JSON round trip, without species.taxon: the base predates it (#57), and it adds a field, not a change."""
+    """JSON round trip, without species.taxon (#57) or each candidate's concept (ADR 0002): the base predates
+    both, and they add fields, not changes."""
     outs = json.loads(json.dumps(outs))
     for o in outs:
         for b in o["boxes"]:
-            (b.get("species") or {}).pop("taxon", None)
+            sp = b.get("species") or {}
+            sp.pop("taxon", None)
+            for c in sp.get("top") or []:
+                c.pop("concept", None)
     return outs
 
 

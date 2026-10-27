@@ -13,7 +13,7 @@ N = "{" + NS + "}"
 
 def detail(i, *paths, flag="pick", stars=3):
     return {"id": i, "media": "photo", "name": paths[0].name, "taken_at": "2025-03-01T08:12:00",
-            "flag": flag, "stars": stars, "judged": True,
+            "flag": flag, "use": {"pick": "record", "reject": "reject"}.get(flag, "pending"), "stars": stars, "judged": True,
             "files": [{"path": str(p), "role": "raw" if p.suffix == ".ARW" else "jpeg", "size": p.stat().st_size}
                       for p in paths],
             "ai": {"verdict": "pick", "score": 0.71, "reasons": ["「野生动物」中排第 1", "bad\x01char <&>"]},
@@ -59,7 +59,7 @@ def test_xml_only_by_default(tmp_path, src):
     col = root.find(f"{N}collections/{N}collection")
     assert col.get("review") == "completed" and col.find(N + "member").get("asset") == "a1"
     a = root.find(f"{N}assets/{N}asset")
-    assert a.get("flag") == "pick" and a.get("stars") == "3"
+    assert a.get("flag") == "pick" and a.get("use") == "record" and a.get("stars") == "3"
     assert [f.get("path") for f in a.iter(N + "file")] == [str(d / "A.ARW"), str(d / "A.JPG")]
     ai = a.find(N + "ai")
     assert ai.get("version") == "aesthetics@v1@abc" and [r.text for r in ai] == ["「野生动物」中排第 1", "badchar <&>"]
