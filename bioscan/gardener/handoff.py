@@ -377,7 +377,8 @@ def preview(c: Any, ids: list[str], uses: tuple[str, ...] | None, key: str | Non
         paths = [f[0] for f in c.execute("SELECT path FROM asset_files WHERE asset_id = ? UNION SELECT path FROM "
                                          "managed_files WHERE asset_id = ?", (aid, aid))]
         offline += not any(os.path.exists(x) for x in paths)
-    reps = sorted(ids, key=lambda a: (-(stars.get(a) or 0), ids.index(a)))[:4]
+    order = {a: i for i, a in enumerate(ids)}
+    reps = sorted(ids, key=lambda a: (-(stars.get(a) or 0), order[a]))[:4]
     return {"count": len(ids), "offline": offline, "representatives": reps, "remembered": remembered(c, key)}
 
 

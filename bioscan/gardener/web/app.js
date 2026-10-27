@@ -2329,17 +2329,17 @@
   const OVERWRITE_ZH = [['rename', '换一个新文件名（不覆盖）'], ['skip', '跳过，保留已有文件'], ['overwrite', '覆盖已有文件']];
   function handoffPreviewHTML(pv) {
     const ps = pv.presets || {}, mem = pv.remembered || {}, md = mem.develop || {}, me = mem.export || {};
-    const opt = (v, text, on) => `<option value="${esc(v)}" ${on ? 'selected' : ''}>${esc(text)}</option>`;
+    const opt = (v, text, on, name) => `<option value="${esc(v)}" data-name="${esc(name || text)}" ${on ? 'selected' : ''}>${esc(text)}</option>`;
     const reps = (pv.representatives || []).map(id => `<img src="${esc(mediaUrl(id, 'thumb'))}" alt="" loading="lazy">`).join('');
     const where = pv.scope && pv.scope.concept ? '这个物种' : pv.scope && pv.scope.collection_id ? '这个集合' : '';
     return `<section class="card"><h3>将交给 Lightroom <b>${pv.count}</b> 张${pv.offline ? `<span class="sub">${pv.offline} 张原片离线，会跳过</span>` : ''}</h3>
       ${reps ? `<div class="montage n${Math.min(4, pv.representatives.length)}">${reps}</div>` : ''}
       ${ps.available ? '' : '<p class="hint">还没有读到 Lightroom 的预设列表：Lightroom Classic 运行且装有 bioscan 插件时会写出（约每分钟一次）。</p>'}
-      <div class="field"><label for="ho-dev">显影预设</label><select id="ho-dev" class="input"><option value="">不应用预设</option>${(ps.develop || []).map(p => opt(p.uuid, (p.folder ? p.folder + ' / ' : '') + p.name, p.uuid === md.uuid)).join('')}${md.uuid && !(ps.develop || []).some(p => p.uuid === md.uuid) ? opt(md.uuid, md.name + '（上次所用）', true) : ''}</select>
+      <div class="field"><label for="ho-dev">显影预设</label><select id="ho-dev" class="input"><option value="">不应用预设</option>${(ps.develop || []).map(p => opt(p.uuid, (p.folder ? p.folder + ' / ' : '') + p.name, p.uuid === md.uuid, p.name)).join('')}${md.uuid && !(ps.develop || []).some(p => p.uuid === md.uuid) ? opt(md.uuid, md.name + '（上次所用）', true, md.name) : ''}</select>
         <p class="hint">${md.uuid ? `${where}上次用「${esc(md.name)}」。` : ''}同种动物在不同光照下不一定适合同一预设，请对照上面的代表照片。Gardener 应用过之后又在 Lightroom 里改过的照片不再覆盖，列为冲突。</p></div>
       <label class="check-row"><input type="checkbox" id="ho-exp-on" ${me.preset_path ? 'checked' : ''}> 应用后导出</label>
       <div id="ho-exp" ${me.preset_path ? '' : 'hidden'}>
-        <div class="field"><label for="ho-exp-preset">导出预设</label><select id="ho-exp-preset" class="input">${(ps.export || []).map(p => opt(p.path, (p.folder ? p.folder + ' / ' : '') + p.name, p.path === me.preset_path)).join('')}${me.preset_path && !(ps.export || []).some(p => p.path === me.preset_path) ? opt(me.preset_path, me.preset + '（上次所用）', true) : ''}</select></div>
+        <div class="field"><label for="ho-exp-preset">导出预设</label><select id="ho-exp-preset" class="input">${(ps.export || []).map(p => opt(p.path, (p.folder ? p.folder + ' / ' : '') + p.name, p.path === me.preset_path, p.name)).join('')}${me.preset_path && !(ps.export || []).some(p => p.path === me.preset_path) ? opt(me.preset_path, me.preset + '（上次所用）', true, me.preset) : ''}</select></div>
         <div class="field"><label for="ho-exp-dest">目标目录</label><input id="ho-exp-dest" class="input mono" autocomplete="off" placeholder="/Volumes/Photos/Exports" value="${esc(me.dest_dir || '')}"><p class="hint">不能在照片来源目录之内。</p></div>
         <div class="field"><label for="ho-exp-ow">已有同名文件时</label><select id="ho-exp-ow" class="input">${OVERWRITE_ZH.map(([v, t]) => opt(v, t, v === (me.overwrite || 'rename'))).join('')}</select></div>
       </div>
@@ -2348,12 +2348,12 @@
   function handoffOptions(d) {
     const out = {};
     const dev = $('#ho-dev', d);
-    if (dev && dev.value) out.develop = { uuid: dev.value, name: dev.selectedOptions[0].textContent.replace(/（上次所用）$/, '').split(' / ').pop() };
+    if (dev && dev.value) out.develop = { uuid: dev.value, name: dev.selectedOptions[0].dataset.name };
     if ($('#ho-exp-on', d) && $('#ho-exp-on', d).checked) {
       const ps = $('#ho-exp-preset', d);
       if (!ps.value) throw new Error('请选择导出预设');
       if (!val(d, '#ho-exp-dest')) throw new Error('请填写导出目标目录（绝对路径）');
-      out.export = { preset: ps.selectedOptions[0].textContent.replace(/（上次所用）$/, '').split(' / ').pop(), preset_path: ps.value, dest_dir: val(d, '#ho-exp-dest'), overwrite: $('#ho-exp-ow', d).value };
+      out.export = { preset: ps.selectedOptions[0].dataset.name, preset_path: ps.value, dest_dir: val(d, '#ho-exp-dest'), overwrite: $('#ho-exp-ow', d).value };
     }
     if ($('#ho-remember', d)) out.remember = $('#ho-remember', d).checked;
     return out;
