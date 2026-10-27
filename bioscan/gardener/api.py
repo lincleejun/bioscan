@@ -18,12 +18,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Body, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import identities, people, query, tasks, taxa
+from bioscan.gardener import detail, identities, people, query, tasks, taxa
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import Conflict, Error, NotFound, dumps, loads, now
@@ -72,6 +72,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     holder = tasks.EngineHolder(engine)
     worker = tasks.Worker(store, tk, holder.get)
     roots = [Path(r).expanduser().resolve() for r in allow_roots or []]
+    details = detail.Details(store.cache_dir)       # contract revision 5C: original-pixel detail
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -86,6 +87,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                     await asyncio.wait_for(job, 60)
                 except (Exception, asyncio.CancelledError):  # noqa: BLE001 - shutting down never raises
                     log.exception("worker did not stop cleanly")
+            details.close()
             store.close()
 
     app = FastAPI(title="gardener", lifespan=lifespan)
@@ -657,6 +659,32 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             raise NotFound("原片离线或已不存在")
         return FileResponse(a["primary_path"], media_type=mimetypes.guess_type(a["primary_path"])[0]
                             or "application/octet-stream")
+
+    # ---- contract revision 5C: original-pixel detail (detail.py) ----
+    @r.get("/assets/{aid}/detail")
+    def asset_detail_crop(aid: str, xyxy: str = "0,0,1,1",
+                          edge: int = Query(detail.DEFAULT_EDGE, ge=64, le=detail.MAX_EDGE, alias="max")) -> Response:
+        """A JPEG crop of the original pixels (the RAW of a RAW+JPEG pair) for `xyxy` (0-1 of the upright
+        image), long edge <= `max`; X-Detail-* headers say what it is. Off the request threads' work:
+        decoded on the detail pool, superseded by a newer request for the same asset, time-limited."""
+        box = detail.parse_xyxy(xyxy)
+        a = asset_or_404(aid)
+        if a["media"] != "photo":
+            raise Error("只有照片有原像素细节")
+        files = store.all("SELECT path, role FROM asset_files WHERE asset_id = ?", (aid,))
+        path = next((f["path"] for f in files if f["role"] == "raw" and os.path.isfile(f["path"])), a["primary_path"])
+        if not os.path.isfile(path):
+            raise NotFound("原片离线或已不存在：只有快速预览")
+        try:
+            got = details.get(aid, path, box, edge)
+        except detail.Superseded:
+            raise Conflict("已被同一素材更新的细节请求取代") from None
+        except TimeoutError:
+            raise st.Unavailable("原像素解码超时，可稍后重试（解码完成后会缓存）") from None
+        except Exception as exc:  # noqa: BLE001 - an unreadable original is a reason, not a crash
+            raise NotFound(f"无法读取原像素：{type(exc).__name__}: {exc}") from None
+        return Response(got.jpeg, media_type="image/jpeg", headers=got.headers())
+    # ---- end revision 5C ----
 
     @r.post("/assets/{aid}/reveal")
     def reveal(aid: str) -> dict[str, Any]:
