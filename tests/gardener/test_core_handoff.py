@@ -124,6 +124,16 @@ def test_a_handoff_freezes_picks_writes_the_file_and_is_done_only_from_real_resu
         assert doc2[first["asset_id"]]["baseline"] == {"stars": 4, "keywords": ["|".join(OWL)]}
         assert doc2[second["asset_id"]]["baseline"] == {"stars": None, "keywords": None}
         assert [h["id"] for h in c.get(f"{API}/handoffs").json()] == [again["id"], h["id"]]
+        plugin_result(again, [ok(doc2[first["asset_id"]], stars="same", keywords="same")])   # second never came back
+        got = c.get(f"{API}/handoffs/{again['id']}").json()
+        assert got["status"] == "partial" and [(i["status"], i["reason"]) for i in got["items"]] == \
+            [("ok", None), ("failed", "插件未返回结果")]
+
+        sp = c.post(f"{API}/handoffs", json={"concept": "avibase:test-asio"}).json()     # from the species page
+        assert sp["name"] == "Eastern Screech-Owl" and {i["asset_id"] for i in sp["items"]} == set(aids[:2])
+        Path(sp["result_path"]).write_text("{not json")
+        bad = c.get(f"{API}/handoffs/{sp['id']}").json()
+        assert bad["status"] == "failed" and bad["items"][0]["reason"].startswith("结果文件无法读取")
 
 
 def test_a_conflicting_field_keeps_its_baseline_and_is_reported(env, tmp_path):

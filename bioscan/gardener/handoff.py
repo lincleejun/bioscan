@@ -162,8 +162,11 @@ def ingest(c: Any, hid: str) -> bool:
     rp = result_path(h["doc_path"])
     if h["result_at"] is not None or not rp.is_file():
         return False
-    doc = json.loads(rp.read_text(encoding="utf-8"))
     t = now()
+    try:
+        doc = json.loads(rp.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        doc = {"error": f"结果文件无法读取: {exc}", "photos": []}
     sent = {r["asset_id"]: loads(r["sent"]) for r in c.execute(
         "SELECT asset_id, sent FROM handoff_items WHERE handoff_id = ? AND sent IS NOT NULL", (hid,))}
     for r in doc.get("photos") or []:
@@ -184,6 +187,8 @@ def ingest(c: Any, hid: str) -> bool:
                   "handoff_id = excluded.handoff_id, updated_at = excluded.updated_at",
                   (aid, EDITOR, None if r.get("photo_id") is None else str(r["photo_id"]), r.get("uuid"), r.get("path"),
                    dumps(base), hid, t))
+    c.execute("UPDATE handoff_items SET status = 'failed', reason = ? WHERE handoff_id = ? AND status = 'pending'",
+              (doc.get("error") or "插件未返回结果", hid))
     states = [r[0] for r in c.execute("SELECT status FROM handoff_items WHERE handoff_id = ?", (hid,))]
     status = "applied" if all(s == "ok" for s in states) else "partial" if "ok" in states else "failed"
     c.execute("UPDATE handoffs SET status = ?, result_at = ? WHERE id = ?", (status, t, hid))
