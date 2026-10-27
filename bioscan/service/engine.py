@@ -122,6 +122,10 @@ class Engine:
         self.priors: dict[str, Any] = {}      # kind -> geo.LocationPrior
         self.extra: dict[str, Any] = {}       # plugin model name -> its adapter, once loaded
         self._lock = threading.Lock()
+        # One caller on the device at a time: two threads running models on MPS at once abort the process
+        # ("failed assertion _status < MTLCommandBufferStatusCommitted", torch 2.14, 2026-10-27). RunQueue's
+        # model thread and Gardener's on-demand head/eye call (gardener/parts.py) both take it.
+        self.device_lock = threading.Lock()
 
     # ---- loading ----
     def loaded(self) -> list[str]:

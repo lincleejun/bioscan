@@ -126,24 +126,40 @@ class Details:
             fut.cancel()        # still queued: never runs; already decoding: finishes and fills the cache
             raise
 
-    def _run(self, asset_id: str, token: int, path: str, xyxy: tuple[float, float, float, float],
-             edge: int) -> Detail:
-        if self._latest.get(asset_id) != token:
-            raise Superseded(asset_id)
-        t0 = time.perf_counter()
+    def region(self, asset_id: str, path: str, xyxy: tuple[float, float, float, float],
+               timeout: float | None = None) -> tuple[Image.Image, str]:
+        """The original pixels of `xyxy` and the file read (raw | image), on the same pool and RAW cache as
+        get() but never superseded by, nor superseding, the viewer's requests (contract revision 7C)."""
+        fut = self.pool.submit(self._region, asset_id, path, xyxy)
+        try:
+            region, file, *_ = fut.result(timeout=DETAIL_TIMEOUT_S if timeout is None else timeout)
+        except TimeoutError:
+            fut.cancel()
+            raise
+        return region, file
+
+    def _region(self, asset_id: str, path: str, xyxy: tuple[float, float, float, float]
+                ) -> tuple[Image.Image, str, str, int, tuple[int, int], tuple[int, int, int, int], str]:
+        """(region, file, decoder, orientation, upright size, pixel box, cache)."""
         if is_raw(path):
             pixels, orientation, cache = self._raw_pixels(asset_id, path)
             h, w = pixels.shape[:2]
             box = pixel_box(xyxy, w, h)
             region = Image.fromarray(np.ascontiguousarray(pixels[box[1]:box[3], box[0]:box[2]]))
-            file, decoder = "raw", "libraw-full"
-        else:
-            with Image.open(path) as im:
-                orientation = int(im.getexif().get(0x0112, 1) or 1)
-                upright = ImageOps.exif_transpose(im)
-            w, h = upright.size
-            box = pixel_box(xyxy, w, h)
-            region, file, decoder, cache = upright.crop(box), "image", "pillow", "none"
+            return region, "raw", "libraw-full", orientation, (w, h), box, cache
+        with Image.open(path) as im:
+            orientation = int(im.getexif().get(0x0112, 1) or 1)
+            upright = ImageOps.exif_transpose(im)
+        w, h = upright.size
+        box = pixel_box(xyxy, w, h)
+        return upright.crop(box), "image", "pillow", orientation, (w, h), box, "none"
+
+    def _run(self, asset_id: str, token: int, path: str, xyxy: tuple[float, float, float, float],
+             edge: int) -> Detail:
+        if self._latest.get(asset_id) != token:
+            raise Superseded(asset_id)
+        t0 = time.perf_counter()
+        region, file, decoder, orientation, (w, h), box, cache = self._region(asset_id, path, xyxy)
         jpeg, out = _encode(region, edge)
         return Detail(jpeg, file, decoder, orientation, (w, h), box, out, cache,
                       round((time.perf_counter() - t0) * 1000))
