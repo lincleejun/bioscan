@@ -59,7 +59,7 @@
 | B-R1 | 四种用途（保留记录 / 选入修图 / 待定 / 淘汰）取代 Pick/Reject，全局、可撤销、模型不写；旧 Pick → 记录、Reject → 淘汰并留来源（PRD §05、§08、§15，AC08、AC09） | `marks.use`、`store.apply_marks`/`write_mark`/`migrate_uses`、`POST /marks`、`query` 的 `use=` | `test_core_review_flow.py::test_four_uses_*`、`test_schema_2_picks_become_records_*`；`test_core_review.py`（旧 flag 客户端） | 已由测试证实 |
 | B-R2 | 保留此张并淘汰相似帧：先预览范围，跳过人工保护与唯一物种记录，整批撤销（PRD §08） | `review.keep_best`、`POST /marks/keep-best` | `test_core_review_flow.py::test_keep_best_*` | 已由测试证实 |
 | B-R3 | 拍摄段：按时间与物种连续性建议，连拍嵌套其中，人工拆合持久、重扫不恢复；按任务或物种列出连拍与代表候选；识别可按拍摄段（PRD §03、§07，AC07 部分） | `review.assign_encounters`/`encounters`/`split_encounter`/`merge_encounters`、`/encounters*`、`identities.identify(scope=encounter)` | `test_core_review_flow.py::test_encounters_*`、`test_identify_scope_encounter_*` | 已由测试证实；真实照片未验证 |
-| B-R4 | 界面：R/E/U/X 用途键，网格按拍摄段分组可展开收起，任务内物种 → 拍摄段 → 连拍（PRD §07、§08） | `web/app.js`（flagSeg、encHeadHTML、keepBest、vSpeciesOne） | `test_ui_web.py::test_review_flow_ui_contract_5b`、`test_ui_calls_only_contract_endpoints` | 部分验证：无自动化浏览器测试 |
+| B-R4 | 界面：R/E/U/X 用途键，网格按拍摄段分组可展开收起，任务内物种 → 拍摄段 → 连拍（PRD §07、§08） | `web/app.js`（flagSeg、encHeadHTML、keepBest、vSpeciesOne） | `test_ui_web.py::test_review_flow_ui_contract_5b`、`test_ui_calls_only_contract_endpoints`；Chrome 对 §6 fake 走查一次（段标题与展开、R/E 键、保留此张预览、规则预览后二次保存，无控制台错误） | 部分验证：无自动化浏览器测试，未对真实服务走查 |
 | B-R5 | Smart 规则改动先显示命中数与增减，再保存（PRD §04，AC13） | `POST /collections/{id}/preview-rule`；`openEditCol` | `test_core_review_flow.py::test_rule_preview_*` | 已由测试证实 |
 | B-R6 | CLI 与 MCP 同样可做以上动作（PRD §02、§13） | `cli.py`、`mcp.py` | `test_ui_cli.py::test_review_flow_commands_*`、`test_ui_mcp.py::test_review_flow_tools_*` | 已由测试证实（请求映射） |
 
