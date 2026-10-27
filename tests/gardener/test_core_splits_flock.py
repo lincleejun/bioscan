@@ -92,9 +92,20 @@ def test_a_flock_is_claimed_at_its_shared_genus_and_a_few_birds_are_still_named(
     assert {s["current"]["level"] for s in out[mixed]} == {"unconfirmed"}       # no shared genus or family
 
 
+def test_a_flock_that_names_one_species_on_every_box_keeps_that_species(tmp_path):
+    store = st.Store(tmp_path / "d")
+    boxes = [swift((0.1 * i, 0.1, 0.1 * i + 0.05, 0.2)) for i in range(identities.FLOCK_MIN + 2)]
+    with store.tx() as c:
+        aid = asset(c, store)
+        identities.ingest(c, aid, "r1", "v1", {"boxes": boxes})
+        cur = [s["current"] for s in identities.subjects(c, [aid])[aid]]
+    assert {(x["level"], x["concept"], x.get("reason")) for x in cur} == {("species", "avibase:test-apus", None)}
+
+
 def test_a_flock_leaves_a_persons_claim_and_other_kinds_alone(tmp_path):
     store = st.Store(tmp_path / "d")
-    boxes = [swift((0.1 * i, 0.1, 0.1 * i + 0.05, 0.2)) for i in range(identities.FLOCK_MIN)]
+    boxes = [swift((0.1 * i, 0.1, 0.1 * i + 0.05, 0.2)) for i in range(identities.FLOCK_MIN - 1)]
+    boxes.append(swift((0.9, 0.1, 0.95, 0.2), "Apus pacificus", "avibase:test-pacificus"))     # the flock disagrees
     deer = owl_box((0.5, 0.5, 0.9, 0.9), scientific="Odocoileus hemionus", concept="mdd:1")
     deer["kind"] = "mammal"
     with store.tx() as c:

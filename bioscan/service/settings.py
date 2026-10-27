@@ -26,7 +26,8 @@ def snapshot() -> dict[str, Any]:
                     "unlabelled": {kind: src.unlabelled for kind, src in names.LISTS.items()},
                     # the committed label maps' content: editing mdd_map.csv moves answers but not the list sha
                     "label_maps": {kind: names.label_map_sha(naming.DATA_DIR / naming.NAMES_DIR / src.label_map)
-                                   for kind, src in names.LISTS.items() if src.label_map}},
+                                   for kind, src in names.LISTS.items() if src.label_map},
+                    "split_ranges": names.label_map_sha(naming.SPLIT_RANGES_CSV), "range_margin": geo.RANGE_MARGIN},
             "switches": pipeline.SWITCHES, "prior_switch": pipeline.PRIOR_SWITCH, "max_edge": decode.MAX_EDGE}
 
 

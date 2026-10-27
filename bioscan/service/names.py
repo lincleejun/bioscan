@@ -27,7 +27,16 @@ from typing import Callable, NamedTuple
 
 import numpy as np
 
-from bioscan.naming import DATA_DIR, NAMES_DIR, aliases, avilist_row, map_problems, norm_binomial, read_synonyms
+from bioscan.naming import (
+    DATA_DIR,
+    NAMES_DIR,
+    aliases,
+    avilist_row,
+    map_problems,
+    norm_binomial,
+    read_ranges,
+    read_synonyms,
+)
 from bioscan.service.taxa import NOT_WILDLIFE
 
 log = logging.getLogger(__name__)
@@ -61,6 +70,8 @@ class NameList:
     source: str = ""             # the taxonomy the rows follow (engine info), "" = not stated
     # Stable concept id per row (avibase:<id> | mdd:<id>); "" or no list = none (contract.candidate: name:<scientific>).
     concept: list[str] = field(default_factory=list)
+    # Where a split daughter occurs (naming.read_ranges), per row; None = no range (the label's value stands).
+    ranges: list = field(default_factory=list)
 
 
 def concept_of(nl: NameList, row: int) -> str:
@@ -494,7 +505,8 @@ def wildlife(nl: NameList) -> NameList:
 
     return replace(nl, scientific=cut(nl.scientific), common=cut(nl.common), taxonomy=cut(nl.taxonomy),
                    matrix=nl.matrix[keep], tol_how=cut(nl.tol_how), birdnet=cut(nl.birdnet),
-                   birdnet_how=cut(nl.birdnet_how), concept=cut(nl.concept))
+                   birdnet_how=cut(nl.birdnet_how), concept=cut(nl.concept),
+                   ranges=cut(nl.ranges))
 
 
 def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
@@ -507,6 +519,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
     cache_dir = Path(cache_dir).expanduser()
     syn_path = data_dir / NAMES_DIR / "synonyms.csv"
     synonyms = read_synonyms(syn_path)
+    ranges = read_ranges(data_dir / NAMES_DIR / "split_ranges.csv")
     out, tol = {}, None
     for kind, src in LISTS.items():
         amap, map_path = _read_label_map(data_dir, src, kind, synonyms)
@@ -535,7 +548,8 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
                       "birdnet_how": [x.get("birdnet_how") or "none" for x in m],
                       "label_map_sha": label_map_sha(map_path)}
         out[kind] = wildlife(NameList(src.list_id, kind, **cols, sha=sha, **labels, unlabelled=src.unlabelled,
-                                      source=src.source, concept=[r[3] for r in rows]))
+                                      source=src.source, concept=[r[3] for r in rows],
+                                      ranges=[ranges.get(r[3]) for r in rows] if ranges else []))
     try:
         other = load_all_taxa(cache_dir, tol_files=tol_files, tol=tol)
     except Exception as exc:  # noqa: BLE001 - an optional list must not cost birds and mammals

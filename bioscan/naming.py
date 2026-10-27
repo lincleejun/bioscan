@@ -13,6 +13,7 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 NAMES_DIR = "names"                 # under data_dir: synonyms.csv, avilist_map.csv
 SYNONYMS_CSV = DATA_DIR / NAMES_DIR / "synonyms.csv"
 AVILIST_MAP_CSV = DATA_DIR / NAMES_DIR / "avilist_map.csv"
+SPLIT_RANGES_CSV = DATA_DIR / NAMES_DIR / "split_ranges.csv"   # where split daughters occur (scripts/build_split_ranges.py)
 
 
 def norm(s: str | None) -> str:
@@ -42,6 +43,15 @@ AVILIST_V2026_COLS = {"RANK": "Taxon_rank", "ORDER": "Order", "FAMILY": "Family"
 def avilist_row(r: dict[str, str]) -> dict[str, str]:
     """An AviList CSV row (v2025 or v2026 headers) keyed by the v2025 column names."""
     return {AVILIST_V2026_COLS.get(k, k): v for k, v in r.items()}
+
+
+def read_ranges(path: Path = SPLIT_RANGES_CSV) -> dict[str, frozenset[tuple[int, int]]]:
+    """concept -> its 1-degree cells (floor lat, floor lon) from split_ranges.csv; {} when the file is absent."""
+    if not Path(path).is_file():
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {r["concept"]: frozenset(tuple(int(x) for x in c.split(",")) for c in r["cells"].split(";") if c)
+                for r in csv.DictReader(f) if r.get("concept") and r.get("cells")}
 
 
 def read_synonyms(path: Path = SYNONYMS_CSV) -> list[dict[str, str]]:

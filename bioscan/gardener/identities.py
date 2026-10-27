@@ -65,13 +65,15 @@ def ingest(c: Any, asset_id: str, run_id: str | None, version: str | None, produ
     """One raw:identify product -> subjects matched or made, one ai identification per box that carries a
     species result (none when species was off). An ai-only subject this run no longer sees is retired;
     one a person identified stays. FLOCK_MIN or more boxes of one kind are a flock, claimed at a coarser level
-    (flock()). Returns the number of identifications written."""
+    (flock()), unless every box names the same species: then they keep it (owner, 2026-10-27; on 300 real photos
+    11 such flocks were all correct). Returns the number of identifications written."""
     t, written = now(), 0
     boxes = (product or {}).get("boxes") or []
     claims: dict[int, dict[str, Any]] = {i: claim(b["species"] or {}) for i, b in enumerate(boxes) if "species" in b}
     for kind in {boxes[i].get("kind") for i in claims}:
         group = [i for i in claims if boxes[i].get("kind") == kind]
-        if len(group) >= FLOCK_MIN:
+        agree = {(claims[i]["level"], claims[i]["concept"]) for i in group}
+        if len(group) >= FLOCK_MIN and not (len(agree) == 1 and next(iter(agree))[0] == "species"):
             claims.update(zip(group, flock([claims[i] for i in group], [boxes[i]["species"] or {} for i in group])))
     live = [dict(r) for r in c.execute(
         "SELECT s.id, s.xyxy, EXISTS(SELECT 1 FROM identifications i WHERE i.subject_id = s.id AND i.source = 'user' "

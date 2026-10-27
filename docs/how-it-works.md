@@ -75,7 +75,9 @@ The BirdNET prior model is licensed non-commercially; for commercial use, drop t
 
 `data/names/mdd_map.csv`: for each MDD species, its BirdNET label(s) and how they matched. Only BirdNET labels of class Mammalia count. Matching is exact name first, then the MDD synonym table (reviewed; see `data/README.md`). MDD lumps some species that BirdNET splits (e.g. four white-fronted capuchins into *Cebus albifrons*); such a row lists every label joined by `|`, and the prior takes the largest. Rebuild with `uv run python scripts/build_name_map.py --list mammal --mdd-synonyms MDD/Species_Syn_Current_v2.5.csv --force` (refuses to overwrite the committed file without it).
 
-The 748 AviList species without a BirdNET label get 0 in the location prior (mostly extinct species or species BirdNET lumps with a sister, such as *Tyto javanica*, which should stay suppressed). To find the gaps that actually matter at a place:
+**Split daughters.** BirdNET geo 3.0 predates AviList v2026, so the daughters of a split share their parent's label (`synonyms.csv`, source `birdnet`). `data/names/split_ranges.csv` gives 71 of the 80 daughters their own range: 1-degree cells built from GBIF records. A daughter's p_geo is its parent's value inside its cells (±1 cell) and 0 outside. This separates Prairie from Saltmarsh Willet, and Eastern from Western Marsh Wren, by place (`geo.RANGE_MARGIN`; built by `scripts/build_split_ranges.py`, see `data/README.md`).
+
+The 744 AviList species without a BirdNET label get 0 in the location prior (mostly extinct species or species BirdNET lumps with a sister, such as *Tyto javanica*, which should stay suppressed). To find the gaps that actually matter at a place:
 ```sh
 bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # unlabelled species whose genus occurs there
 ```

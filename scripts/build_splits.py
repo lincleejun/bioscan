@@ -2,7 +2,8 @@
 "Changes from previous version" tab, section "SPLITS (including descriptions of taxa that alter existing
 taxa)". One row per daughter: list_version, parent_scientific, parent_concept, concept, scientific, common.
 parent_concept is the parent's Avibase ID in the previous list (its CSV, column AvibaseID); one daughter may
-keep it (Willet -> Saltmarsh Willet keeps avibase-6D372C9F), which is why Gardener asks again (taxa.py).
+keep it; in v2026 every split retires the parent's id instead (Willet was avibase-E7A14E91), which is why Gardener
+asks again (taxa.py).
 
     uv run --no-project --with openpyxl python scripts/build_splits.py \\
         --xlsx AviList-v2026-20Oct2026-extended-version.xlsx --previous AviList-v2025-11Jun-extended.csv --force
