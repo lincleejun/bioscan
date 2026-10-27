@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import csv
+from types import SimpleNamespace
 
+import pytest
 from core_fixtures import *  # noqa: F403 - fixtures (env, fakes)
-from core_fixtures import owl_box
+from core_fixtures import owl_box, wait_until
 from test_core_identities import API, asset, lists_dir, task_of
 
 from bioscan.gardener import identities, taxa
@@ -105,3 +107,94 @@ def test_a_flock_leaves_a_persons_claim_and_other_kinds_alone(tmp_path):
     person = next(s for s in out if s["id"] == first)
     assert person["current"]["concept"] == "avibase:test-apus" and person["ai"]["reason"] == "flock"
     assert next(s for s in out if s["kind"] == "mammal")["current"]["concept"] == "mdd:1"
+
+
+# ---- a split settled by place (contract revision 7D) -----------------------------------------------------------
+DAUGHTERS = {WILLET: [{"concept": SALTMARSH, "scientific": "Tringa semipalmata", "common": "Saltmarsh Willet"},
+                      {"concept": PRAIRIE, "scientific": "Tringa inornata", "common": "Prairie Willet"}]}
+
+
+def reopened(store, lat=40.7, lon=-74.0):
+    """A photo (with GPS unless lat is None) whose confirmed Willet a v2026 split reopened."""
+    with store.tx() as c:
+        aid = asset(c, store)
+        c.execute("UPDATE assets SET lat = ?, lon = ?, taken_at = '2026-05-01T08:00:00' WHERE id = ?", (lat, lon, aid))
+        identities.ingest(c, aid, "r1", "v1", {"boxes": [owl_box(scientific="Tringa semipalmata", concept=WILLET)]})
+        sid = identities.subjects(c, [aid])[aid][0]["id"]
+        identities.identify(c, [sid], [], {"accept": True}, scope="subject", actor="ui", reason=None, dry_run=False)
+        identities.reconfirm(c, "avilist-2026", DAUGHTERS)
+    return aid
+
+
+def prior(values, calls=None):
+    def p_geo_of(concepts, lat, lon, taken_at):
+        if calls is not None:
+            calls.append((tuple(concepts), lat, lon, taken_at))
+        return {k: values[k] for k in concepts if k in values}
+    return p_geo_of
+
+
+def current(store, aid):
+    with store.tx() as c:
+        return identities.subjects(c, [aid])[aid][0]["current"]
+
+
+def test_a_place_where_only_one_daughter_lives_settles_the_split_in_its_own_undoable_batch(tmp_path):
+    store = st.Store(tmp_path / "d")
+    aid, calls = reopened(store), []
+    with store.tx() as c:
+        out = identities.resolve_splits(c, prior({SALTMARSH: 0.31, PRAIRIE: 0.004}, calls))
+    assert calls == [((SALTMARSH, PRAIRIE), 40.7, -74.0, "2026-05-01T08:00:00")]
+    cur = current(store, aid)
+    assert (cur["concept"], cur["level"], cur["qualifier"], cur["source"], cur["actor"], cur["reason"]) == (
+        SALTMARSH, "species", None, "user", "system", "split-geo:avilist-2026")
+    assert [x["p"] for x in cur["candidates"]] == [0.31, 0.004] and out["batch_id"] == cur["batch_id"]
+    with store.tx() as c:
+        assert [k["concept"] for k in identities.species(c)["species"]] == [SALTMARSH]
+        identities.undo(c, out["batch_id"])                                    # back to the person
+        assert identities.resolve_splits(c, prior({SALTMARSH: 0.31, PRAIRIE: 0.004}))["changed"] == []
+    assert current(store, aid)["qualifier"] == "slash"                          # tried once: an undo sticks
+
+
+@pytest.mark.parametrize("values", [{SALTMARSH: 0.31, PRAIRIE: 0.02},        # the other is not clearly absent
+                                    {SALTMARSH: 0.31, PRAIRIE: 0.2},         # both live here
+                                    {SALTMARSH: 0.04, PRAIRIE: 0.0},         # the one is below the in-range bar
+                                    {SALTMARSH: 0.31}])                      # the prior cannot speak for one
+def test_an_unclear_place_leaves_the_split_for_the_person(tmp_path, values):
+    store = st.Store(tmp_path / "d")
+    aid = reopened(store)
+    with store.tx() as c:
+        assert identities.resolve_splits(c, prior(values)) == {"batch_id": None, "changed": []}
+    assert current(store, aid)["qualifier"] == "slash"
+
+
+def test_a_photo_without_gps_never_asks_the_prior(tmp_path):
+    store = st.Store(tmp_path / "d")
+    aid, calls = reopened(store, lat=None), []
+    with store.tx() as c:
+        assert identities.resolve_splits(c, prior({SALTMARSH: 0.9, PRAIRIE: 0.0}, calls))["changed"] == []
+    assert calls == [] and current(store, aid)["qualifier"] == "slash"
+
+
+def test_a_run_with_the_location_prior_loaded_settles_splits(env, fakes, tmp_path):
+    import numpy as np
+
+    concepts = ["avibase:other", SALTMARSH, PRAIRIE]
+    bird = SimpleNamespace(p_geo=lambda lat, lon, t: np.array([0.5, 0.3, 0.001]), direct=np.array([True] * 3))
+    env.engine.priors, env.engine.names = {"bird": bird}, {"bird": SimpleNamespace(concept=concepts)}
+    willet = owl_box(scientific="Tringa semipalmata", common="Willet", concept=WILLET)
+    with env.client() as c:
+        t = task_of(c, tmp_path, "trip", ["A1.jpg"], fakes, [[willet]])
+        (item,) = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
+        sid = c.get(f"{API}/assets/{item['id']}").json()["subjects"][0]["id"]
+        c.post(f"{API}/identifications", json={"subject_ids": [sid], "claim": {"accept": True}})
+    store = st.Store(env.data)
+    with store.tx() as c:
+        c.execute("UPDATE assets SET lat = 40.7, lon = -74.0 WHERE id = ?", (item["id"],))
+        identities.reconfirm(c, "avilist-2026", DAUGHTERS)
+    store.close()
+    with env.client() as c:
+        rid = c.post(f"{API}/tasks/{t['id']}/rescan", json={}).json()["id"]
+        wait_until(lambda: c.get(f"{API}/runs/{rid}").json()["status"] in ("completed", "partial"), what="rescan")
+        cur = c.get(f"{API}/assets/{item['id']}").json()["subjects"][0]["current"]
+    assert (cur["concept"], cur["reason"]) == (SALTMARSH, "split-geo:avilist-2026")
