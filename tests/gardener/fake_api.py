@@ -561,6 +561,13 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             if not a["online"]:
                 raise Err(404, "原片离线", "not_found")
             return Response(b"\0" * 64, media_type="video/quicktime")
+        if kind == "detail":         # contract revision 5C: an original-pixel crop and what it is
+            if not a["online"]:
+                raise Err(404, "原片离线或已不存在：只有快速预览", "not_found")
+            return Response(_jpeg((200, 40, 40)), media_type="image/jpeg", headers={
+                "X-Detail-Source": "original", "X-Detail-File": "image", "X-Detail-Decoder": "pillow",
+                "X-Detail-Orientation": "1", "X-Detail-Full": "64x48", "X-Detail-Crop": "0,0,64,48",
+                "X-Detail-Size": "64x48", "X-Detail-Scale": "1.0000", "X-Detail-Cache": "none"})
         if kind not in ("thumb", "large"):
             raise Err(404, "未知资源", "not_found")
         if a["preview"] != "ready":
