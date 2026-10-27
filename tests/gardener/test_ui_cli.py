@@ -175,3 +175,69 @@ def test_species_commands_build_the_revision_4_requests():
     assert req("names", "金雕") == ("GET", "/names", None, {"q": "金雕", "limit": 20})
     assert req("species-card", "name:Corvus corax", "--hide") == ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
     assert req("assets", "--concept", "avibase:a", "--id-state", "confirmed")[3]["id_state"] == "confirmed"
+
+
+def test_review_flow_commands_build_the_revision_5b_requests():
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("mark", "a_1", "--use", "edit") == ("POST", "/marks", {"asset_ids": ["a_1"], "use": "edit"}, None)
+    assert req("assets", "--use", "pending")[3]["use"] == "pending"
+    assert req("keep-best", "a_1", "--edit", "--dry-run") == \
+        ("POST", "/marks/keep-best", {"asset_id": "a_1", "keep_use": "edit", "dry_run": True}, None)
+    assert req("encounters", "--task", "t_1") == ("GET", "/encounters", None, {"task": "t_1", "concept": None})
+    assert req("encounter", "split", "e_1", "--at", "a_2") == ("POST", "/encounters/e_1/split", {"at": "a_2"}, None)
+    assert req("encounter", "split", "e_1", "--assets", "a_2", "a_3")[2] == {"asset_ids": ["a_2", "a_3"]}
+    assert req("encounter", "merge", "e_1", "e_2") == ("POST", "/encounters/merge", {"ids": ["e_1", "e_2"]}, None)
+    assert req("collection", "preview-rule", "c_1", "--rule", '{"use": "edit"}') == \
+        ("POST", "/collections/c_1/preview-rule", {"rule": {"use": "edit"}}, None)
+    assert req("identify", "s_1", "--accept", "--encounter")[2]["scope"] == "encounter"
+
+
+def test_keep_best_and_encounters_render(svc, capsys):
+    url, _ = svc
+    assert cli.main(["--url", url, "keep-best", "a_0006", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "预览（未写入）" in out and "淘汰 2 张" in out
+    assert cli.main(["--url", url, "encounters", "--task", "t_0001"]) == 0
+    assert "e_fake1" in capsys.readouterr().out
+
+
+def test_import_commands(svc, capsys, tmp_path):
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("import", "plan", "t_1", "--dest", "/lib", "--place", "东滩", "--no-pending") == \
+        ("POST", "/tasks/t_1/import-plan", {"dest_root": "/lib", "include_pending": False, "place": "东滩"}, None)
+    assert req("import", "run", "ip_1") == ("POST", "/imports/ip_1/run", {}, None)
+    assert req("import", "show", "ip_1") == ("GET", "/imports/ip_1", None, None)
+    assert req("import", "list", "--task", "t_1") == ("GET", "/imports", None, {"task": "t_1"})
+    url, fake = svc
+    tid = next(iter(fake.tasks))
+    p = run_json(capsys, url, "import", "plan", tid, "--dest", str(tmp_path))
+    assert p["status"] == "planned" and p["dest_root"] == str(tmp_path)
+    code, out, _ = run(capsys, url, "import", "run", p["id"])
+    assert code == 0 and "partial" in out and "源文件不存在或离线" in out and "选入修图" in out
+
+
+def test_handoff_and_cleanup_commands(svc, capsys):
+    """契约修订 5E: handoff create/show and cleanup plan/run (run refuses without --yes)."""
+    url, fake = svc
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("handoff", "create", "--concept", "avibase:x", "--use", "record") == \
+        ("POST", "/handoffs", {"concept": "avibase:x", "uses": ["record"]}, None)
+    assert req("cleanup", "plan") == ("POST", "/cleanup-plans", {}, None)
+    with pytest.raises(SystemExit):
+        req("cleanup", "run", "p_1")
+    col = next(c for c in fake.cols.values() if c["group_kind"] == "all")
+    code, out, err = run(capsys, url, "handoff", "create", "--collection", col["id"])
+    assert code == 0, err
+    assert "等待 Lightroom 插件返回结果" in out
+    hid = next(iter(fake.handoffs))
+    assert run(capsys, url, "handoff", "show", hid)[0] == 0
+    fake.assets[next(iter(fake.assets))]["flag"] = "reject"
+    plan = run_json(capsys, url, "cleanup", "plan")
+    code, out, _ = run(capsys, url, "cleanup", "run", plan["id"], "--yes")
+    assert code == 0 and "可恢复，未释放空间" in out and "清空废纸篓后才真正释放" in out

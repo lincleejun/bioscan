@@ -46,6 +46,9 @@ class Fake:
         self.cols: dict[str, dict] = {}
         self.history: list[dict] = []          # mark history rows with batch_id
         self.exports: list[dict] = []
+        self.imports: dict[str, dict] = {}     # import plans (契约修订 5D)
+        self.handoffs: dict[str, dict] = {}    # 契约修订 5E
+        self.plans: dict[str, dict] = {}
         self.mark_bodies: list[dict] = []      # every POST /marks body as received (X5: omitted key = unchanged)
         self.presets = [{"id": k, "name": v["name"], "capabilities": list(v["capabilities"]), "builtin": True}
                         for k, v in PRESETS.items()]
@@ -133,7 +136,7 @@ class Fake:
         self.review(c, "completed")
         c["snapshot"] = [ids[3], ids[0]]        # ids[4] arrived after completion, ids[0] left
         c["changed"] = [ids[3]]
-        self.assets[ids[0]].update(flag="pick", stars=4, judged=True, mark_version=2)
+        self.assets[ids[0]].update(flag="pick", use="record", stars=4, judged=True, mark_version=2)
         t2 = self.new_task({"title": "洱海湿地 · 越冬水鸟", "sources": ["/Volumes/SD3/DCIM"], "preset": "quick"},
                            status="running")
         self.new_asset(t2, "DSC_1001.NEF", "photo")
@@ -176,7 +179,7 @@ class Fake:
         src = t["sources"][0]["path"]
         a = {"id": aid, "media": media, "name": name, "taken_at": self.now(), "camera": "SONY ILCE-7RM5",
              "width": 6000, "height": 4000, "duration_s": 12.5 if media == "video" else None, "online": online,
-             "preview": "ready", "flag": None, "stars": 0, "mark_version": 1, "judged": False, "ai": None,
+             "preview": "ready", "flag": None, "use": "pending", "stars": 0, "mark_version": 1, "judged": False, "ai": None,
              "content_label_zh": None, "species": None, "burst": None, "analysis": "pending", "task_ids": [t["id"]],
              "updated_at": self.now(),
              "files": [{"path": f"{src}/{name}", "role": "video" if media == "video" else "raw",
@@ -205,6 +208,8 @@ class Fake:
         if g("media") and a["media"] != g("media"):
             return False
         if g("flag") and (a["flag"] or "none") != g("flag"):
+            return False
+        if g("use") and a["use"] != g("use"):
             return False
         if g("stars_min") not in (None, "") and a["stars"] < int(g("stars_min")):
             return False
@@ -298,7 +303,11 @@ class Fake:
         batch, at, out = self.nid("b"), self.now(), []
         for aid in ids:
             a = self.assets[aid]
-            for field in ("flag", "stars"):
+            if "flag" in body and "use" not in body:     # contract revision 5B: flag is the older form of use
+                keep = body["flag"] == "pick" and a["use"] in ("record", "edit")
+                body = {**body, "use": a["use"] if keep else {"pick": "record", "reject": "reject"}.get(body["flag"],
+                                                                                                        "pending")}
+            for field in ("use", "stars"):
                 if field in body and body[field] != a[field]:
                     row = {"batch_id": batch, "asset_id": aid, "field": field, "old": a[field], "new": body[field],
                            "actor": actor, "reason": reason or body.get("reason"), "at": at, "undone": False,
@@ -308,9 +317,10 @@ class Fake:
                                                                   "reason", "at")})
                     a[field] = body[field]
                     a["mark_version"] += 1
-            a["judged"] = bool(a["flag"] or a["stars"])
+            a["flag"] = FLAG_OF_USE[a["use"]]
+            a["judged"] = a["use"] != "pending" or bool(a["stars"])
             a["updated_at"] = at
-            out.append({"id": aid, "flag": a["flag"], "stars": a["stars"], "version": a["mark_version"]})
+            out.append({"id": aid, "use": a["use"], "flag": a["flag"], "stars": a["stars"], "version": a["mark_version"]})
         return {"batch_id": batch, "assets": out}
 
     def undo(self, batch: str) -> dict:
@@ -325,10 +335,14 @@ class Fake:
             a = self.assets[r["asset_id"]]
             a[r["field"]] = r["old"]
             a["mark_version"] += 1
-            a["judged"] = bool(a["flag"] or a["stars"])
+            a["flag"] = FLAG_OF_USE[a["use"]]
+            a["judged"] = a["use"] != "pending" or bool(a["stars"])
             a["updated_at"] = self.now()
             r["undone"] = True
         return {"undone": len({r["asset_id"] for r in rows})}
+
+
+FLAG_OF_USE = {"record": "pick", "edit": "pick", "reject": "reject", "pending": None}
 
 
 def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
@@ -492,6 +506,65 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             t["sources"].append({"id": fk.nid("s"), "path": p, "online": True})
         return fk.new_run(t, "append", scope={"sources": body["paths"]})
 
+    # ---- import (契约修订 5D); registered before the /tasks/{tid}/{action} catch-all ----
+    USE = {"pick": "record", "reject": "reject"}
+
+    @app.post(P + "/tasks/{tid}/import-plan", status_code=201)
+    def import_plan(tid: str, body: dict):
+        fk.task(tid)
+        if not str(body.get("dest_root") or "").startswith("/"):
+            raise Err(400, "dest_root must be an absolute path", "bad_request")
+        pending = body.get("include_pending", True)
+        mine = [a for a in fk.assets.values() if tid in a["task_ids"]]
+        uses = {a["id"]: USE.get(a["flag"], "pending") for a in mine}
+        n = {u: sum(v == u for v in uses.values()) for u in ("record", "edit", "pending", "reject")}
+        take = [a for a in mine if uses[a["id"]] in ({"record", "edit"} | ({"pending"} if pending else set()))]
+        files = [f for a in take for f in a["files"]]
+        size = sum(f["size"] for f in files)
+        pid = fk.nid("ip")
+        folder = f"2026-10-20_{body.get('place') or '未标注地点'}"
+        fk.imports[pid] = {
+            "id": pid, "task_id": tid, "seq": len(fk.imports) + 1, "status": "planned", "dest_root": body["dest_root"],
+            "folder": folder, "dest_dir": f"{body['dest_root']}/{folder}", "place": body.get("place"),
+            "include_pending": pending, "created_at": fk.now(), "started_at": None, "finished_at": None, "error": None,
+            "interruptions": 0, "stale": False, "uses": n | {"total": len(mine)},
+            "not_copied": {"reject": n["reject"], "pending": 0 if pending else n["pending"], "versions": 0},
+            "unfinished": {"offline": sum(not a["online"] for a in take), "analysis_pending": 1, "scan_active": False},
+            "assets": len(take), "files": len(files), "bytes": size, "sidecars": 0, "copy_files": len(files),
+            "copy_bytes": size, "needed_bytes": size, "free_bytes": 500_000_000_000, "enough_space": True,
+            "duplicates": {"identical": 0, "reuse": 0, "duplicate": 0, "items": []}, "renamed": {"files": 0, "items": []},
+            "progress": {"files_total": len(files), "files_done": 0, "files_failed": 0, "bytes_total": size,
+                         "bytes_done": 0, "assets_total": len(take), "assets_done": 0, "assets_failed": 0},
+            "failed": []}
+        return fk.imports[pid]
+
+    def plan_of(pid: str) -> dict:
+        if pid not in fk.imports:
+            raise Err(404, "没有这个导入计划", "not_found")
+        return fk.imports[pid]
+
+    @app.get(P + "/imports")
+    def imports_list(task: str = ""):
+        return [p for p in fk.imports.values() if not task or p["task_id"] == task]
+
+    @app.get(P + "/imports/{pid}")
+    def import_get(pid: str):
+        return plan_of(pid)
+
+    @app.post(P + "/imports/{pid}/run")
+    def import_run(pid: str):
+        """Runs at once: offline files fail, so the result is partial when any were offline."""
+        p = plan_of(pid)
+        offline = [f for a in fk.assets.values() if p["task_id"] in a["task_ids"] for f in a["files"]
+                   if not f["online"] and USE.get(a["flag"], "pending") != "reject"]
+        g = p["progress"]
+        g.update(files_done=g["files_total"] - len(offline), files_failed=len(offline),
+                 bytes_done=g["bytes_total"] - sum(f["size"] for f in offline),
+                 assets_done=g["assets_total"] - len(offline), assets_failed=len(offline))
+        p.update(status="partial" if offline else "completed", started_at=fk.now(), finished_at=fk.now(),
+                 failed=[{"asset_id": None, "path": f["path"], "error": "源文件不存在或离线"} for f in offline])
+        return p
+
     @app.post(P + "/tasks/{tid}/{action}")
     def task_action(tid: str, action: str, body: dict | None = None):
         t, body = fk.task(tid), body or {}
@@ -561,6 +634,13 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             if not a["online"]:
                 raise Err(404, "原片离线", "not_found")
             return Response(b"\0" * 64, media_type="video/quicktime")
+        if kind == "detail":         # contract revision 5C: an original-pixel crop and what it is
+            if not a["online"]:
+                raise Err(404, "原片离线或已不存在：只有快速预览", "not_found")
+            return Response(_jpeg((200, 40, 40)), media_type="image/jpeg", headers={
+                "X-Detail-Source": "original", "X-Detail-File": "image", "X-Detail-Decoder": "pillow",
+                "X-Detail-Orientation": "1", "X-Detail-Full": "64x48", "X-Detail-Crop": "0,0,64,48",
+                "X-Detail-Size": "64x48", "X-Detail-Scale": "1.0000", "X-Detail-Cache": "none"})
         if kind not in ("thumb", "large"):
             raise Err(404, "未知资源", "not_found")
         if a["preview"] != "ready":
@@ -607,6 +687,55 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
     @app.get(P + "/names")
     def names(q: str = "", limit: int = 20):
         return []
+
+    # ---- contract revision 5B (review flow): shapes only; behaviour is tested on the real service ----
+    @app.post(P + "/marks/keep-best")
+    def keep_best(body: dict):
+        a = fk.asset(body["asset_id"])
+        if not a["burst"]:
+            raise Err(400, "这张照片不在连拍中", "bad_request")
+        sibs = [x["id"] for x in fk.assets.values() if x["burst"] and x["burst"]["id"] == a["burst"]["id"]
+                and x["id"] != a["id"]]
+        out = {"dry_run": bool(body.get("dry_run")), "burst_id": a["burst"]["id"],
+               "keep": {"id": a["id"], "use": body.get("keep_use", "record")}, "reject": sibs, "skipped": [],
+               "expect": {i: fk.assets[i]["mark_version"] for i in [a["id"], *sibs]}, "batch_id": None}
+        if not body.get("dry_run"):
+            fk.mark({"asset_ids": [a["id"]], "use": out["keep"]["use"]}, "ui")
+            out["batch_id"] = fk.mark({"asset_ids": sibs, "use": "reject"}, "ui")["batch_id"] if sibs else None
+        return out
+
+    @app.get(P + "/encounters")
+    def encounters(task: str = "", concept: str = ""):
+        if not task and not concept:
+            raise Err(400, "task or concept is required", "bad_request")
+        ms = [a for a in fk.assets.values() if (not task or task in a["task_ids"]) and a["media"] == "photo"]
+        bursts: dict = {}
+        for a in ms:
+            bursts.setdefault((a["burst"] or {}).get("id") or a["id"], []).append(a["id"])
+        bs = [{"id": k if k not in bursts[k] else None, "size": len(v), "rep": v[0], "asset_ids": v}
+              for k, v in bursts.items()]
+        enc = {"id": "e_fake1", "task_id": task or ms[0]["task_ids"][0], "origin": "auto", "start": ms[0]["taken_at"],
+               "end": ms[-1]["taken_at"], "photos": len(ms), "asset_ids": [a["id"] for a in ms], "bursts": bs,
+               "candidates": [b["rep"] for b in bs][:3], "species": []} if ms else None
+        return {"encounters": [enc] if enc else [], "unassigned": []}
+
+    @app.post(P + "/encounters/{eid}/split", status_code=201)
+    def encounter_split(eid: str, body: dict):
+        return {"id": "e_fake2", "from": eid}
+
+    @app.post(P + "/encounters/merge")
+    def encounter_merge(body: dict):
+        return {"id": body["ids"][0]}
+
+    @app.post(P + "/collections/{cid}/preview-rule")
+    def preview_rule(cid: str, body: dict):
+        c = fk.col(cid)
+        if c["kind"] != "smart":
+            raise Err(400, "only a smart collection has a rule", "bad_request")
+        cur, hits = fk.members(c), [a["id"] for a in fk.assets.values() if fk.match(a, body.get("rule") or {})]
+        added, removed = [i for i in hits if i not in cur], [i for i in cur if i not in hits]
+        return {"total": len(hits), "current": len(cur), "added_count": len(added), "removed_count": len(removed),
+                "added": added, "removed": removed}
 
     # ---- 6.5 ----
     @app.get(P + "/collections")
@@ -738,6 +867,82 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
     @app.get(P + "/exports")
     def exports():
         return fk.exports
+
+    # ---- 契约修订 5E (Lightroom handoff, cleanup plans): shapes only; behaviour is tested on the real service ----
+    def scope_ids(body: dict) -> list[str]:
+        if body.get("collection_id"):
+            return fk.members(fk.col(body["collection_id"]))
+        if body.get("asset_ids"):
+            return [fk.asset(i)["id"] for i in body["asset_ids"]]
+        return [a["id"] for a in fk.assets.values()]
+
+    @app.post(P + "/handoffs", status_code=201)
+    def handoff_new(body: dict):
+        ids = [i for i in scope_ids(body) if fk.assets[i]["flag"] == "pick" or (body.get("asset_ids") and
+                                                                                  fk.assets[i]["flag"] != "reject")]
+        if not ids:
+            raise Err(400, "范围内没有要交接的照片（默认只交接已 Pick 的）", "bad_request")
+        hid = fk.nid("h")
+        items = [{"asset_id": i, "name": fk.assets[i]["name"], "status": "pending" if fk.assets[i]["online"] else "skipped",
+                  "reason": None if fk.assets[i]["online"] else "offline", "conflicts": [], "sent": None, "result": None}
+                 for i in ids]
+        h = {"id": hid, "name": body.get("name") or "交接", "scope": body, "status": "written",
+             "doc_path": f"/tmp/lr/handoffs/{hid}.json", "result_path": f"/tmp/lr/handoffs/{hid}.result.json",
+             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items,
+             "counts": {k: sum(i["status"] == k for i in items) for k in ("ok", "skipped", "failed", "pending")}
+             | {"conflicts": 0}}
+        fk.handoffs[hid] = h
+        return h
+
+    @app.get(P + "/handoffs")
+    def handoffs():
+        return [{k: v for k, v in h.items() if k != "items"} for h in reversed(list(fk.handoffs.values()))]
+
+    @app.get(P + "/handoffs/{hid}")
+    def handoff_get(hid: str):
+        if hid not in fk.handoffs:
+            raise Err(404, "没有这个交接", "not_found")
+        return fk.handoffs[hid]
+
+    NOTE = "移到废纸篓的文件仍占用磁盘空间，可在废纸篓中恢复；在 Finder 中清空废纸篓后才真正释放。Gardener 不做永久删除。"
+
+    @app.post(P + "/cleanup-plans", status_code=201)
+    def plan_new(body: dict | None = None):
+        ids = [i for i in scope_ids(body or {}) if fk.assets[i]["flag"] == "reject"]
+        items = [{"asset_id": i, "name": fk.assets[i]["name"], "state": "ready", "bytes": 25_000_000, "versions": [],
+                  "species": [], "files": [{"path": f["path"], "role": f["role"], "size": 25_000_000, "exists": True,
+                                            "result": None, "reason": None} for f in fk.assets[i]["files"]]}
+                 for i in ids]
+        pid = fk.nid("p")
+        fk.plans[pid] = {"id": pid, "scope": body or {}, "status": "planned", "actor": "ui", "created_at": fk.now(),
+                         "ran_at": None, "report": None, "items": items, "note": NOTE,
+                         "summary": {"in_scope": len(ids), "rejected": len(ids), "ready": len(ids), "offline": 0,
+                                     "files": sum(len(i["files"]) for i in items), "bytes": 25_000_000 * len(ids),
+                                     "last_species": []}}
+        return fk.plans[pid]
+
+    @app.get(P + "/cleanup-plans")
+    def plans():
+        return [{k: v for k, v in p.items() if k != "items"} for p in reversed(list(fk.plans.values()))]
+
+    @app.get(P + "/cleanup-plans/{pid}")
+    def plan_get(pid: str):
+        if pid not in fk.plans:
+            raise Err(404, "没有这个清理计划", "not_found")
+        return fk.plans[pid]
+
+    @app.post(P + "/cleanup-plans/{pid}/run")
+    def plan_run(pid: str, body: dict):
+        p = plan_get(pid)
+        if body.get("confirm") is not True:
+            raise Err(400, "清理需要人确认：confirm 必须为 true", "bad_request")
+        files = [f for i in p["items"] for f in i["files"]]
+        for f in files:
+            f["result"] = "trashed"
+        p.update(status="ran", ran_at=fk.now(), report={
+            "trashed_files": len(files), "trashed_bytes": sum(f["size"] for f in files), "freed_bytes": 0,
+            "recoverable": True, "failed": [], "skipped": [], "note": NOTE})
+        return p
 
     if static and WEB.is_dir():
         app.mount("/", StaticFiles(directory=WEB, html=True), name="web")

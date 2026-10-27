@@ -41,6 +41,19 @@ async function apiAll(query) {
   return items;
 }
 
+/* 取一张图片与它的响应头（原像素细节，契约修订 5C）：失败时抛出带服务原因的 ApiError；signal 取消请求。 */
+async function apiImage(path, query, signal) {
+  const q = query ? Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== '') : [];
+  const url = API + path + (q.length ? '?' + new URLSearchParams(q).toString() : '');
+  let r;
+  try { r = await fetch(url, { headers: { 'X-Gardener-Actor': 'ui' }, signal }); } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    throw new ApiError(0, { error: '无法连接 Gardener 服务', code: 'unreachable' });
+  }
+  if (!r.ok) { let data = null; try { data = await r.json(); } catch (e) { data = null; } throw new ApiError(r.status, data); }
+  return { blob: await r.blob(), headers: r.headers };
+}
+
 const mediaUrl = (id, kind) => `${API}/assets/${encodeURIComponent(id)}/${kind}`;
 
 /* 只保存 UI 偏好（上次页面、网格尺寸），键统一以 gardener.ui. 开头；不可用时忽略。 */

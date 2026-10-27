@@ -87,6 +87,11 @@
   - 一行多个标签（MDD 并了 BirdNET 分开的种）用 `|` 连接，先验取其中最大值：*Cebus albifrons*（4 个）、*Cebus capucinus*、*Plecturocebus cupreus*、*Plecturocebus toppini*（各 2 个）。
   - 结果：1042 行有标签（exact 1028、synonym 14），1048 个哺乳标签全部用上；golden 集 23 种哺乳里 21 种有标签，*Lepus californicus*、*Sylvilagus audubonii* 按属回退。
   - 没有标签的行按名单的 unlabelled policy 处理：哺乳为 `genus`（取同属有标签种的最大 p_geo，同属都没有时取 `geo.UNLABELLED_NEUTRAL` 0.05），鸟为 `zero`（按 0，行为不变）。属回退得到的 p_geo 不触发分布否决。
+- `avilist_splits.csv`（`uv run --no-project --with openpyxl python scripts/build_splits.py --xlsx AviList-v2026-20Oct2026-extended-version.xlsx --previous AviList-v2025-11Jun-extended.csv --force` 生成，不加 `--force` 拒绝覆盖；下一版名录用 `--version avilist-2027 --append` 追加，保留旧版本的行；2026-10-26）：AviList 某个版本拆分的种，每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。Gardener 用它把旧的人工确认改成“待重新确认”（`docs/gardener/contract.md` 契约修订 4，S7 第二部分）；BioScan 识别不读它。
+  - 来源：xlsx 的 `Changes from previous version` 页 “SPLITS (including descriptions of taxa that alter existing taxa)” 一节（表头 `#, AVIBASE ID, FAMILY, SCIENTIFIC NAME: AVILIST v2026, ENGLISH NAME: AVILIST v2026, AVILIST v2025 SCIENTIFIC NAME, AVILIST v2025 ENGLISH NAME`），到下一节 “LUMPS” 为止。`concept` 取该行的 Avibase ID；`parent_concept` 取 v2025 CSV 里亲本学名那一行种级的 `AvibaseID`（亲本不是 v2025 的种就报错）。
+  - 结果：80 个子种、35 个亲本，80 个子种的 ID 都在 v2026 CSV 里。35 个亲本的种级 ID 在 v2026 里全部不再使用，没有子种沿用亲本 ID；留下原学名的子种用的是原来指名亚种的 ID（如 Willet `avibase-E7A14E91` → Saltmarsh Willet `avibase-6D372C9F`，后者在 v2025 是 *Tringa semipalmata semipalmata*）。
+  - *Mixornis bornensis* 只有一行：变更页把从 *M. gularis* 分出的 *M. woodi* 记在 *M. gularis* 名下，*M. bornensis* 自己换了新 ID，所以它的旧人工确认会变成只有一个候选的“待重新确认”。这是原表的样子，没有手工补行。
+  - 不含 LUMPS（并种）：并种后旧确认仍指向一个确定的种，没有歧义。
 
 覆盖率（avilist 2026-10-26，mdd 2026-09-23）：
 

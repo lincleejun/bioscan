@@ -7,18 +7,19 @@ from typing import Any
 
 KEYS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "ai", "judged", "online",
         "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "concept", "id_state", "q",
-        "changed_after", "versions")
+        "changed_after", "versions", "use")
 CHOICES = {"media": ("photo", "video"), "flag": ("pick", "reject", "none"), "ai": ("pick", "reject", "none"),
            "judged": ("yes", "no"), "online": ("1", "0"), "has_gps": ("1", "0"),
            "analysis": ("pending", "done", "failed", "unavailable"), "versions": ("hide", "all", "only"),
-           "id_state": ("confirmed", "candidate", "unresolved")}
+           "id_state": ("confirmed", "candidate", "unresolved", "reconfirm"), "use": ("record", "edit", "pending", "reject")}
 MAX_DEPTH = 4    # smart rules may name other collections; this bounds the chain (and cycles)
 
 LATEST_AI = "(SELECT s.verdict FROM ai_suggestions s WHERE s.asset_id = a.id ORDER BY s.id DESC LIMIT 1)"
 JUDGED = "EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND (m.flag IS NOT NULL OR m.stars > 0))"
-ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user'",
+ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user' AND ci.concept IS NOT NULL",
              "candidate": "ci.level = 'species' AND ci.source = 'ai'",
-             "unresolved": "ci.level IN ('genus', 'family', 'unconfirmed')", "any": "1"}
+             "unresolved": "ci.level IN ('genus', 'family', 'unconfirmed')",
+             "reconfirm": "ci.qualifier = 'slash'", "any": "1"}      # a person's claim a list split reopened
 BASENAME = "replace(a.primary_path, rtrim(a.primary_path, replace(a.primary_path, '/', '')), '')"
 
 
@@ -98,6 +99,11 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
             add("NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.flag IS NOT NULL)")
         else:
             add("EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.flag = ?)", f["flag"])
+    if "use" in f:          # contract revision 5B; pending = no use set
+        if f["use"] == "pending":
+            add("NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use IS NOT NULL)")
+        else:
+            add("EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = ?)", f["use"])
     if "stars_min" in f:
         add("coalesce((SELECT m.stars FROM marks m WHERE m.asset_id = a.id), 0) >= ?", int(f["stars_min"]))
     if "stars" in f:

@@ -77,6 +77,7 @@ def sync(store: Any, lists_dir: Path = naming.DATA_DIR) -> bool:
     sha = h.hexdigest()[:16]
     row = store.one("SELECT value FROM meta WHERE key = 'names_sha'")
     if row is not None and row["value"] == sha:
+        apply_splits(store, lists_dir)
         return False
     new, unmatched = rows(store.data_dir, lists_dir)
     if unmatched:
@@ -87,7 +88,47 @@ def sync(store: Any, lists_dir: Path = naming.DATA_DIR) -> bool:
                       [(k, n, norm(n), lang, src, kind) for k, n, lang, src, kind in new])
         c.execute("INSERT INTO meta VALUES ('names_sha', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (sha,))
     log.info("name index: %d names of %d concepts", len(new), len({r[0] for r in new}))
+    apply_splits(store, lists_dir)
     return True
+
+
+SPLITS_FILE = "avilist_splits.csv"      # scripts/build_splits.py, from AviList's changes tab
+
+
+def apply_splits(store: Any, lists_dir: Path = naming.DATA_DIR) -> dict[str, str | None]:
+    """Reopen a person's species claims on a concept a list version split (identities.reconfirm), once per
+    version: a version applies when the name index holds all its daughters (that list is the one loaded).
+    Applied versions and their undo batch live in meta `splits_applied` ({version: batch_id | null}).
+    Returns the versions applied now."""
+    import json
+
+    from bioscan.gardener import identities
+
+    path = lists_dir / naming.NAMES_DIR / SPLITS_FILE
+    if not path.is_file():
+        return {}
+    versions: dict[str, dict[str, list[dict[str, str]]]] = {}
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            versions.setdefault(r["list_version"], {}).setdefault(r["parent_concept"], []).append(r)
+    row = store.one("SELECT value FROM meta WHERE key = 'splits_applied'")
+    applied: dict[str, str | None] = json.loads(row["value"]) if row else {}
+    now_applied: dict[str, str | None] = {}
+    for version, parents in versions.items():
+        kids = sorted({d["concept"] for ds in parents.values() for d in ds})
+        # ponytail: needs every daughter in the loaded list; a library that skips a list year whose next version
+        # retires one of them never applies the earlier split. Apply versions in order, or on any daughter, then.
+        if version in applied or store.one(f"SELECT count(DISTINCT concept) n FROM taxon_names WHERE concept IN "
+                                           f"({st.marks_in(kids)})", kids)["n"] < len(kids):
+            continue
+        with store.tx() as c:
+            out = identities.reconfirm(c, version, parents)
+            applied[version] = now_applied[version] = out["batch_id"]
+            c.execute("INSERT INTO meta VALUES ('splits_applied', ?) ON CONFLICT(key) DO UPDATE SET value = "
+                      "excluded.value", (json.dumps(applied),))
+        log.info("list split %s: %d identifications to confirm again (undo batch %s)", version, len(out["changed"]),
+                 out["batch_id"])
+    return now_applied
 
 
 def norm(name: str) -> str:

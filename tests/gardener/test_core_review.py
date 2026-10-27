@@ -41,14 +41,14 @@ def test_marks_are_global_across_collections_and_completion_is_independent(env, 
         a, b, x = ids(c, task=t["id"])
         cols = [manual(c, f"集合{i}", [a, b]) for i in range(3)]
         r = c.post(f"{API}/marks", json={"asset_ids": [a], "flag": "pick", "stars": 4}, headers={"X-Gardener-Actor": "ui"})
-        assert r.status_code == 200 and r.json()["assets"] == [{"id": a, "flag": "pick", "stars": 4, "version": 1}]
+        assert r.status_code == 200 and r.json()["assets"] == [{"id": a, "use": "record", "flag": "pick", "stars": 4, "version": 1}]
         for col in cols:
             got = c.get(f"{API}/collections/{col['id']}").json()
             assert (got["picks"], got["judged"], got["review"]["unhandled"]) == (1, 1, 1)
         # omitted key = unchanged; null = clear (§10 X5)
         assert c.post(f"{API}/marks", json={"asset_ids": [a], "stars": 2}).json()["assets"][0]["flag"] == "pick"
         r = c.post(f"{API}/marks", json={"asset_ids": [a], "flag": None})
-        assert r.json()["assets"][0] == {"id": a, "flag": None, "stars": 2, "version": 3}
+        assert r.json()["assets"][0] == {"id": a, "use": "pending", "flag": None, "stars": 2, "version": 3}
         # stale expect -> 409 with the current versions
         r = c.post(f"{API}/marks", json={"asset_ids": [a], "flag": "reject", "expect": {a: 1}})
         assert r.status_code == 409 and r.json()["conflicts"] == [{"id": a, "version": 3}]
@@ -318,7 +318,7 @@ def test_original_range_reveal_presets_settings(env, fakes, tmp_path):
         assert c.post(f"{API}/tasks/{t['id']}/archive").json()["archived"] is True
         assert c.get(f"{API}/tasks").json() == [] and len(c.get(f"{API}/tasks", params={"archived": "all"}).json()) == 1
         sd = st.Store(env.data)
-        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == "2"
+        assert sd.one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == str(st.SCHEMA_VERSION)
 
 
 def test_capability_check_reports_a_model_that_does_not_load(tmp_path, fakes):
