@@ -255,3 +255,15 @@ def test_import_species_stats_and_batch_collection_commands(svc, capsys, tmp_pat
     run(capsys, url, "import", "run", p["id"])
     code, out, _ = run(capsys, url, "import", "collection", p["id"])
     assert code == 0 and "Collection：c" in out
+
+
+def test_handoff_retry_command(svc, capsys):
+    """契约修订 7B: `handoff retry` maps to POST /handoffs/{id}/retry; before a result it is refused (409)."""
+    from bioscan.gardener.cli import parser, request
+
+    assert request(parser().parse_args(["handoff", "retry", "h_1"])) == ("POST", "/handoffs/h_1/retry", {}, None)
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    h = run_json(capsys, url, "handoff", "create", "--assets", pick["id"])
+    code, _, err = run(capsys, url, "handoff", "retry", h["id"])
+    assert code != 0 and "还没有返回" in err

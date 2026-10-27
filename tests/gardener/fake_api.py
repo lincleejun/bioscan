@@ -908,7 +908,7 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                  for i in ids]
         h = {"id": hid, "name": body.get("name") or "交接", "scope": body, "status": "written",
              "doc_path": f"/tmp/lr/handoffs/{hid}.json", "result_path": f"/tmp/lr/handoffs/{hid}.result.json",
-             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items,
+             "actor": "ui", "created_at": fk.now(), "result_at": None, "items": items, "options": {}, "retryable": 0,
              "counts": {k: sum(i["status"] == k for i in items) for k in ("ok", "skipped", "failed", "pending")}
              | {"conflicts": 0}}
         fk.handoffs[hid] = h
@@ -923,6 +923,20 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         if hid not in fk.handoffs:
             raise Err(404, "没有这个交接", "not_found")
         return fk.handoffs[hid]
+
+    @app.post(P + "/handoffs/{hid}/retry", status_code=201)
+    def handoff_retry(hid: str):
+        """契约修订 7B: a new handoff of the failed / offline-skipped photos, same name."""
+        h = handoff_get(hid)
+        if h["result_at"] is None:
+            raise Err(409, "Lightroom 还没有返回这次交接的结果", "conflict")
+        ids = [i["asset_id"] for i in h["items"] if i["status"] == "failed" or (i["status"] == "skipped" and
+                                                                                 i["reason"] in ("offline", "file_missing"))]
+        if not ids:
+            raise Err(400, "这次交接没有失败或因离线跳过的照片", "bad_request")
+        new = handoff_new({"asset_ids": ids, "name": h["name"]})
+        new["scope"] = {"retry_of": hid, "asset_ids": ids}
+        return new
 
     NOTE = "移到废纸篓的文件仍占用磁盘空间，可在废纸篓中恢复；在 Finder 中清空废纸篓后才真正释放。Gardener 不做永久删除。"
 

@@ -81,6 +81,7 @@
 | R73 | UI、CLI、MCP 同一交接与清理接口，清理需确认（PRD §13，AC16 部分） | `web/app.js`（openHandoff、vCleanup、vCleanupPlan）、`cli.py`、`mcp.py` | `test_ui_web.py`、`test_ui_cli.py::test_handoff_and_cleanup_commands`、`test_ui_mcp.py::test_handoff_and_cleanup_tools_*` | 部分验证：页面在 headless Chrome 中对 fake API 渲染过（#/cleanup、计划页、Review 按钮）；对话框未点击，无自动化浏览器测试 |
 | U2-R1 | 完成页物种统计：新增物种、已有物种补充、待确认候选、唯一记录影响（导入或只留在卡片），可点击核对（PRD §09；修订 7B） | `imports.species_stats`、`ImportPlan.species`；`web/app.js`（importSpeciesHTML） | `test_core_import_followups.py::test_completion_stats_show_new_added_candidates_and_sole_records`；`test_ui_cli.py::test_import_species_stats_*` | 服务端已由测试证实；页面无自动化浏览器测试 |
 | U2-R2 | 导入批次成为手动 Collection，重试补入同一个，删除后可按需再建（PRD §09；修订 7B） | `imports.batch_collection`、`POST /imports/{id}/collection`、`import_plans.collection_id` | `test_core_import_followups.py::test_a_finished_batch_becomes_a_collection_*`；`test_ui_mcp.py::test_import_collection_tool` | 已由测试证实 |
+| U2-R3 | 交接只重试失败与因离线跳过的照片：同名集合、同一用途与选项，按身份找回不重复导入（PRD §09、§12；修订 7B） | `handoff.retry`、`POST /handoffs/{id}/retry`；`web/app.js`（lr-retry） | `test_core_handoff_followups.py::test_retry_sends_only_failed_and_offline_photos_*`；`test_ui_cli.py::test_handoff_retry_command`、`test_ui_mcp.py::test_retry_handoff_tool` | 服务端已由测试证实；Lightroom 内未验证 |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。

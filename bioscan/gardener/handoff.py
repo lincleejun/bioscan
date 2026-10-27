@@ -104,12 +104,20 @@ def _keywords(c: Any, asset_id: str, lists_dir: Path | None) -> list[dict[str, A
     return list(out.values())
 
 
-def create(c: Any, ids: list[str], *, name: str, scope: dict[str, Any], uses: tuple[str, ...] | None,
-           actor: str, lightroom_dir: Path, lists_dir: Path | None) -> str:
-    """Freeze `ids` (filtered to `uses`; None = all but reject), check each asset's files are online, and write
-    `<lightroom_dir>/handoffs/<id>.json`. An offline asset is recorded as skipped and not sent."""
+def select(c: Any, ids: list[str], uses: tuple[str, ...] | None) -> list[str]:
+    """`ids` filtered to `uses` (None = all but reject)."""
     use = uses_of(c, ids)
-    ids = [a for a in ids if (use[a] in uses if uses else use[a] != "reject")]
+    return [a for a in ids if (use[a] in uses if uses else use[a] != "reject")]
+
+
+def create(c: Any, ids: list[str], *, name: str, scope: dict[str, Any], uses: tuple[str, ...] | None,
+           actor: str, lightroom_dir: Path, lists_dir: Path | None, options: dict[str, Any] | None = None) -> str:
+    """Freeze `ids` (filtered to `uses`; None = all but reject), check each asset's files are online, and write
+    `<lightroom_dir>/handoffs/<id>.json`. An offline asset is recorded as skipped and not sent. `options`
+    (契约修订 7B): {develop, export} the plugin applies after the fields, recorded for a retry."""
+    use = uses_of(c, ids)
+    ids = select(c, ids, uses)
+    options = options or {}
     if not ids:
         raise st.Error("范围内没有要交接的照片（默认只交接选入修图的）")
     hid, t = st.new_id("h"), now()
@@ -134,14 +142,16 @@ def create(c: Any, ids: list[str], *, name: str, scope: dict[str, Any], uses: tu
         photos.append(p)
         rows.append((hid, aid, i, dumps(p), "pending", None, None))
     doc_path = Path(lightroom_dir) / "handoffs" / f"{hid}.json"
-    c.execute("INSERT INTO handoffs (id, name, scope, doc_path, status, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              (hid, name, dumps(scope), str(doc_path), "written" if photos else "failed", actor, t))
+    c.execute("INSERT INTO handoffs (id, name, scope, doc_path, status, actor, created_at, options) "
+              "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+              (hid, name, dumps(scope), str(doc_path), "written" if photos else "failed", actor, t, dumps(options)))
     c.executemany("INSERT INTO handoff_items VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
     if photos:                         # raises inside the transaction: no handoff is recorded without its file
         doc_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = doc_path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"schema": DOC_SCHEMA, "kind": "gardener-handoff", "id": hid, "name": name,
-                                   "collection_set": ROOT_SET, "created_at": t, "photos": photos},
+                                   "collection_set": ROOT_SET, "created_at": t, "photos": photos,
+                                   "develop": options.get("develop"), "export": options.get("export")},
                                   ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(tmp, doc_path)
     return hid
@@ -205,6 +215,34 @@ def get(c: Any, hid: str) -> dict[str, Any]:
                       "reason": r["reason"], "conflicts": conflicts, "sent": loads(r["sent"]), "result": res or None})
     counts = {k: sum(i["status"] == k for i in items) for k in ("ok", "skipped", "failed", "pending")}
     counts["conflicts"] = sum(bool(i["conflicts"]) for i in items)
+    retryable = sum(i["status"] == "failed" or (i["status"] == "skipped" and i["reason"] in RETRY_SKIPS) for i in items)
     return {"id": h["id"], "name": h["name"], "scope": loads(h["scope"]), "status": h["status"],
+            "options": loads(h["options"], {}), "retryable": retryable if h["result_at"] else 0,
             "doc_path": h["doc_path"], "result_path": str(result_path(h["doc_path"])), "actor": h["actor"],
             "created_at": h["created_at"], "result_at": h["result_at"], "counts": counts, "items": items}
+
+
+# ---- 契约修订 7B: retry only what did not reach Lightroom -----------------------------------------------------
+RETRY_SKIPS = ("offline", "file_missing")      # a skip a person can fix (bring the disk back), unlike a conflict
+
+
+def retry(c: Any, hid: str, *, actor: str, lightroom_dir: Path, lists_dir: Path | None) -> str:
+    """A new handoff of the failed photos of `hid` and those skipped for an offline or missing file, with the same
+    name (so the same Lightroom collection), uses and options. editor_links make it find photos already in the
+    catalog, so nothing is imported twice. 409 before the plugin returned a result; 400 when nothing failed."""
+    h = c.execute("SELECT * FROM handoffs WHERE id = ?", (hid,)).fetchone()
+    if h is None:
+        raise st.NotFound(f"no handoff {hid}")
+    ingest(c, hid)
+    h = c.execute("SELECT * FROM handoffs WHERE id = ?", (hid,)).fetchone()
+    if h["result_at"] is None:
+        raise st.Conflict("Lightroom 还没有返回这次交接的结果；先刷新结果，再重试失败项")
+    ids = [r[0] for r in c.execute(
+        f"SELECT asset_id FROM handoff_items WHERE handoff_id = ? AND (status = 'failed' OR (status = 'skipped' AND "
+        f"reason IN ({st.marks_in(list(RETRY_SKIPS))}))) ORDER BY ord", (hid, *RETRY_SKIPS))]
+    if not ids:
+        raise st.Error("这次交接没有失败或因离线跳过的照片")
+    scope = loads(h["scope"], {})
+    uses = tuple(scope["uses"]) if scope.get("uses") else None
+    return create(c, ids, name=h["name"], scope={"retry_of": hid, "asset_ids": ids, "uses": uses}, uses=uses,
+                  actor=actor, lightroom_dir=lightroom_dir, lists_dir=lists_dir, options=loads(h["options"], {}))

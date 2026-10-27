@@ -2291,7 +2291,8 @@
       ${h.status === 'written' ? '<p class="hint">写出交接文件不等于完成。Lightroom Classic 运行且装有 bioscan 插件（bioscan lr install）时几秒内处理；没有运行就打开它，或在 Library &gt; Plug-in Extras &gt; bioscan: Apply Gardener handoffs 手动执行，然后刷新。</p>' : ''}
       <p class="hint mono">${esc(h.doc_path)}</p>
       <ul class="hist">${h.items.map(i => { const [l, t] = ITEM_ST[i.status] || [i.status, 'wait']; return `<li>${pill(l, t)} ${esc(i.name)}${i.reason ? ` · ${why(i.reason)}` : ''}${i.conflicts.length ? ` · 冲突：${i.conflicts.map(why).join('、')}` : ''}</li>`; }).join('')}</ul>
-      <button type="button" class="btn sm" data-action="lr-refresh" data-id="${esc(h.id)}">${ic('retry')}刷新结果</button></section>`;
+      <button type="button" class="btn sm" data-action="lr-refresh" data-id="${esc(h.id)}">${ic('retry')}刷新结果</button>
+      ${h.retryable ? `<button type="button" class="btn sm" data-action="lr-retry" data-id="${esc(h.id)}">只重试未成功的 ${h.retryable} 张</button>` : ''}</section>`;
   }
   function openHandoff() {
     const sel = ui.ws ? Array.from(ui.ws.sel) : [];
@@ -2349,6 +2350,7 @@
   Object.assign(TITLES, { cleanup: '清理计划', 'cleanup-plan': '清理计划' });
   Object.assign(ACTIONS, {
     'lr-handoff': () => openHandoff(),
+    'lr-retry': async el => { el.disabled = true; try { const h = await api('POST', `/handoffs/${encodeURIComponent(el.dataset.id)}/retry`); const box = el.closest('#ho-report'); if (box) setHTML(box, handoffHTML(h)); toast(`已重新交接 ${h.items.length} 张；已在 Lightroom 中的照片按身份找回，不重复导入`); } catch (e) { toast(errMsg(e)); el.disabled = false; } },
     'lr-refresh': async el => { try { const h = await api('GET', `/handoffs/${encodeURIComponent(el.dataset.id)}`); const box = el.closest('#ho-report'); if (box) setHTML(box, handoffHTML(h)); } catch (e) { toast(errMsg(e)); } },
     'cleanup-new': () => newPlan({}),
     'cleanup-col': () => newPlan({ collection_id: ui.col.id }),

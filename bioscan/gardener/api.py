@@ -1305,6 +1305,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 handoff.ingest(c, hid)
             return handoff.get(c, hid)
 
+    @r.post("/handoffs/{hid}/retry", status_code=201)
+    def retry_handoff(hid: str, actor: str = ACTOR) -> dict[str, Any]:
+        """契约修订 7B: a new handoff of only the failed / offline-skipped photos of `hid`."""
+        with store.tx() as c:
+            return handoff.get(c, handoff.retry(c, hid, actor=actor, lightroom_dir=lr_dir, lists_dir=name_lists))
+
     @r.post("/cleanup-plans", status_code=201)
     def post_cleanup_plan(body: dict[str, Any] = OPT_BODY, actor: str = ACTOR) -> dict[str, Any]:
         """The rejected assets in a scope (default: the whole library) with every file and species impact."""

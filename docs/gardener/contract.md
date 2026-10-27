@@ -524,3 +524,8 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - 同一计划再次执行（失败项重试）时，新完成的素材加入同一个 Collection（以 `auto` 加入：人移除的成员不会被加回）。人删除了该 Collection 后，执行不再重建；`POST /imports/{id}/collection` 按需新建（还没有已导入的照片 → 400）。
 - 建 Collection 失败不影响导入结果（记日志，可按需再建）。
 - CLI `gardener import collection <id>`；MCP `import_collection`。
+
+### 交接只重试未成功的照片（PRD §09“可分别执行与重试”、§12）
+- `POST /handoffs/{id}/retry` → 201 `Handoff`：先读回结果文件；插件还没返回结果 → 409。取 `status=failed` 的照片，以及 `skipped` 且原因为 `offline`（原片离线）或 `file_missing`（Lightroom 找不到文件）的照片；字段冲突不在其中（要人处理）。一张都没有 → 400。
+- 新建一次交接：同一 `name`（落进同一个 Lightroom 集合）、同一 `uses` 过滤（之后改为淘汰的不再发送）、同一 `options`（预设与导出），`scope = {retry_of, asset_ids, uses}`。`editor_links` 照常带上 Lightroom 身份与基线，已在目录中的照片按路径或 uuid 找回，不重复导入。
+- `Handoff` 增加 `options`（见下节）与 `retryable`（有结果后可重试的张数；没有结果时为 0）。界面在交接结果里给“只重试未成功的 N 张”。CLI `gardener handoff retry <id>`；MCP `retry_handoff`。

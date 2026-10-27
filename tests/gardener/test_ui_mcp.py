@@ -48,7 +48,7 @@ def test_handshake_list_and_errors(svc):
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
                      "list_encounters", "edit_encounters", "preview_rule", "plan_import", "run_import", "get_import",
                      "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan",
-                     "import_collection"]
+                     "import_collection", "retry_handoff"]
     assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
@@ -205,3 +205,16 @@ def test_import_collection_tool(svc):
     tool(url, "run_import", plan_id=p["id"])
     done, err = tool(url, "import_collection", plan_id=p["id"])
     assert not err and done["collection_id"] in fake.cols
+
+
+def test_retry_handoff_tool(svc):
+    from bioscan.gardener.mcp import route
+
+    assert route("retry_handoff", {"id": "h_1"}) == ("POST", "/handoffs/h_1/retry", {}, None)
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    h, _ = tool(url, "lightroom_handoff", asset_ids=[pick["id"]])
+    fake.handoffs[h["id"]].update(result_at=fake.now())
+    fake.handoffs[h["id"]]["items"][0].update(status="failed", reason="no write access")
+    again, err = tool(url, "retry_handoff", id=h["id"])
+    assert not err and again["scope"]["retry_of"] == h["id"]

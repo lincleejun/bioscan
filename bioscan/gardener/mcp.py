@@ -116,6 +116,8 @@ TOOLS = [
     # ---- 契约修订 7B: import batch collection, handoff retry, presets and export ----
     _tool("import_collection", "把导入批次中已导入的照片存为以批次目录命名的手动 Collection（运行结束时已自动建立；"
           "被删除后可再建）。", {"plan_id": _STR}, ("plan_id",)),
+    _tool("retry_handoff", "只重新交接一次交接中失败的、因原片离线或 Lightroom 找不到文件而跳过的照片：新建一次同名交接，"
+          "已在 Lightroom 中的照片按身份找回，不重复导入。插件还没返回结果时 409。", {"id": _STR}, ("id",)),
     # ---- end 契约修订 7B ----
 ]
 _NAMES = {t["name"] for t in TOOLS}
@@ -204,6 +206,8 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
         return "POST", f"/imports/{args['plan_id']}/run", {}, None
     if name == "get_import":
         return "GET", f"/imports/{args['plan_id']}", None, None
+    if name == "retry_handoff":
+        return "POST", f"/handoffs/{args['id']}/retry", {}, None
     if name == "import_collection":
         return "POST", f"/imports/{args['plan_id']}/collection", {}, None
     raise KeyError(name)

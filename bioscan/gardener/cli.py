@@ -144,7 +144,7 @@ def render(cmd: str, out) -> str:
         return table(out, IMPORT_COLS)
     if cmd.startswith("import "):
         return import_text(out)
-    if cmd in ("handoff create", "handoff show", "cleanup plan", "cleanup show", "cleanup run"):
+    if cmd in ("handoff create", "handoff show", "handoff retry", "cleanup plan", "cleanup show", "cleanup run"):
         return _render_5e(cmd, out)
     if cmd in ("handoff list", "cleanup list"):
         return table(out, HANDOFF_COLS if cmd == "handoff list" else PLAN_COLS)
@@ -327,6 +327,8 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
             if not body:
                 raise SystemExit("handoff create: 需要 --collection、--concept 或 --assets")
             return "POST", "/handoffs", body, None
+        if sub == "retry":
+            return "POST", f"/handoffs/{a.id}/retry", {}, None
         return ("GET", "/handoffs", None, None) if sub == "list" else ("GET", f"/handoffs/{a.id}", None, None)
     if c == "cleanup":
         if sub == "plan":
@@ -535,6 +537,7 @@ def parser() -> argparse.ArgumentParser:
     hc.add_argument("--name", help="Lightroom 里的集合名（默认取集合或物种名）")
     ho.add_parser("show", help="逐张结果（成功 / 跳过 / 失败、字段冲突）").add_argument("id")
     ho.add_parser("list", help="交接历史")
+    ho.add_parser("retry", help="只重新交接失败和因离线跳过的照片（同名集合，按身份找回，不重复导入）").add_argument("id")
     cl = s.add_parser("cleanup", help="清理计划：淘汰的照片移到废纸篓（可恢复）").add_subparsers(dest="sub", required=True)
     scope_args(cl.add_parser("plan", help="列出范围内淘汰照片的全部文件、容量与物种影响（默认全库）"))
     cl.add_parser("show", help="计划与执行结果").add_argument("id")

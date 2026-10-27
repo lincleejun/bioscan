@@ -242,6 +242,9 @@ species as `Aves|Order|Family|Species` keywords (English and Chinese names as sy
 handoff is skipped and reported, never overwritten; other keywords and develop settings are not touched. Gardener
 reads the result back (`gardener handoff show ID`); until then the handoff is only "written". Lightroom behaviour of
 this flow is unverified until run in Lightroom Classic. Rules: `docs/gardener/contract.md`, 契约修订 5E.
+`gardener handoff retry ID` (or "只重试未成功的 N 张" in the result) hands off again only the photos that failed or
+were skipped for an offline / missing file, into the same Lightroom collection; photos already in the catalog are found
+by their Lightroom id, never imported twice.
 
 ### HTTP API
 
