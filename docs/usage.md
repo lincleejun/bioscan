@@ -240,8 +240,8 @@ collection named after the handoff under the `Gardener` set, writes your stars (
 species as `Aves|Order|Family|Species` keywords (English and Chinese names as synonyms), and writes
 `<id>.result.json` with ok / skipped / failed per photo. A star or keyword changed in Lightroom since the last
 handoff is skipped and reported, never overwritten; other keywords and develop settings are not touched. Gardener
-reads the result back (`gardener handoff show ID`); until then the handoff is only "written". Lightroom behaviour of
-this flow is unverified until run in Lightroom Classic. Rules: `docs/gardener/contract.md`, 契约修订 5E.
+reads the result back (`gardener handoff show ID`); until then the handoff is only "written". Checked in Lightroom
+Classic 14.2 (import, collection, stars, keywords with synonyms, repeat, a conflicting star kept). Rules: `docs/gardener/contract.md`, 契约修订 5E.
 
 ### HTTP API
 
