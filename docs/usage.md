@@ -232,7 +232,8 @@ bioscan run DIR --profile wildlife --want identify,embed,aesthetics --json --out
 Rerunning the same file adds no duplicates. The plugin and its manual acceptance steps are in `extensions/lightroom/README.md`.
 
 **From Gardener** (same plugin, same install): "在 Lightroom 打开" on a collection, species or selection (or
-`gardener handoff create --collection ID`) writes `~/Library/Application Support/bioscan/lightroom/handoffs/<id>.json`.
+`gardener handoff create --collection ID`) writes `~/Library/Application Support/bioscan/lightroom/handoffs/<id>.json`
+(`gardener serve --lightroom-dir DIR` puts it under `DIR/handoffs/`; the plugin only watches the default folder).
 The plugin's watcher (or Library > Plug-in Extras > **bioscan: Apply Gardener handoffs**) finds each photo by path (or by the
 Lightroom id of an earlier handoff, so a repeat never imports twice), adds missing ones in place, puts them in a
 collection named after the handoff under the `Gardener` set, writes your stars (never AI scores) and your confirmed
