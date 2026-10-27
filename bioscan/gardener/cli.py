@@ -14,7 +14,7 @@ DEFAULT_URL = "http://127.0.0.1:8770"
 API = "/api/v1"
 FILTERS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "ai", "judged", "online",
            "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "concept", "id_state", "q",
-           "changed_after")
+           "changed_after", "use")
 EXIT_OK, EXIT_ERROR, EXIT_SERVICE = 0, 1, 2
 
 
@@ -86,13 +86,16 @@ TASK_COLS = [("id", "id"), ("标题", "title"), ("扫描", "scan.status"), ("阶
              ("已判断", "review.judged"), ("总数", "review.total"), ("归档", "archived")]
 RUN_COLS = [("run", "id"), ("#", "seq"), ("类型", "kind"), ("状态", "status"), ("阶段", "phase"),
             ("排队", "queued_at"), ("结束", "finished_at")]
-ASSET_COLS = [("id", "id"), ("文件", "name"), ("媒体", "media"), ("拍摄", "taken_at"), ("Flag", "flag"),
+ASSET_COLS = [("id", "id"), ("文件", "name"), ("媒体", "media"), ("拍摄", "taken_at"), ("用途", "use"),
               ("星", "stars"), ("AI", "ai.verdict"), ("分", "ai.score"), ("分析", "analysis"), ("在线", "online")]
 COL_COLS = [("id", "id"), ("名称", "name"), ("类型", "kind"), ("分组", "group_kind"), ("张数", "size"),
             ("已判断", "judged"), ("Pick", "picks"), ("审阅", "review.state"), ("新增待审", "review.new_since")]
 CAP_COLS = [("id", "id"), ("名称", "name"), ("状态", "state"), ("版本", "version"), ("原因", "reason")]
 SPECIES_COLS = [("状态", "state"), ("中文", "zh"), ("名称", "common"), ("学名", "taxon"), ("已确认", "confirmed"),
                 ("待确认", "candidates"), ("最近", "last_taken_at"), ("concept", "concept")]
+ENC_COLS = [("id", "id"), ("开始", "start"), ("结束", "end"), ("张数", "photos"), ("连拍/单张", "bursts_n"),
+            ("物种", "names"), ("代表候选", "candidates")]
+SKIP_WHY = {"human": "已有人工决定", "only_record": "唯一物种记录"}
 NAME_COLS = [("中文", "zh"), ("名称", "common"), ("学名", "scientific"), ("命中", "matched"), ("库中", "photos"),
              ("concept", "concept")]
 
@@ -112,7 +115,7 @@ def render(cmd: str, out) -> str:
     if cmd == "assets":
         return table(out["items"], ASSET_COLS) + f"\n共 {out['total']} 张（从 {out['offset']} 起显示 {len(out['items'])} 张）"
     if cmd == "mark":
-        return f"batch_id: {out['batch_id']}\n" + table(out["assets"], [("id", "id"), ("Flag", "flag"),
+        return f"batch_id: {out['batch_id']}\n" + table(out["assets"], [("id", "id"), ("用途", "use"),
                                                                           ("星", "stars"), ("版本", "version")])
     if cmd in ("collections",):
         return table(out, COL_COLS)
@@ -127,6 +130,15 @@ def render(cmd: str, out) -> str:
                 + f"\n待鉴定：属/科 {un['genus_family']} 张，不确定 {un['unconfirmed']} 张")
     if cmd == "names":
         return table(out, NAME_COLS)
+    if cmd == "encounters":          # contract revision 5B
+        rows = [e | {"bursts_n": len(e["bursts"]), "names": "、".join(x.get("zh") or x.get("common") or x["taxon"]
+                                                                  for x in e["species"])} for e in out["encounters"]]
+        return table(rows, ENC_COLS) + (f"\n未分段 {len(out['unassigned'])} 张（无拍摄时间或尚未分组）"
+                                        if out["unassigned"] else "")
+    if cmd == "keep-best":
+        skipped = "；".join(f"{x['id']}（{SKIP_WHY.get(x['reason'], x['reason'])}）" for x in out["skipped"]) or "无"
+        return (f"{'预览（未写入）' if out['dry_run'] else 'batch_id: ' + str(out['batch_id'])}\n保留 {out['keep']['id']}"
+                f"（{out['keep']['use']}）\n淘汰 {len(out['reject'])} 张：{' '.join(out['reject']) or '无'}\n跳过：{skipped}")
     if isinstance(out, dict):
         return pairs(out)
     return _cell(out)
@@ -174,6 +186,8 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         return "GET", "/assets", None, {**_filters(a), "order": a.order, "limit": a.limit, "offset": a.offset}
     if c == "mark":
         body: dict = {"asset_ids": a.ids}
+        if a.use is not None:
+            body["use"] = a.use
         if a.flag is not None:
             body["flag"] = None if a.flag == "none" else a.flag
         if a.stars is not None:
@@ -181,7 +195,7 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         if a.reason:
             body["reason"] = a.reason
         if len(body) == 1:
-            raise SystemExit("mark: 需要 --flag 或 --stars")
+            raise SystemExit("mark: 需要 --use、--flag 或 --stars")
         return "POST", "/marks", body, None
     if c == "undo":
         return "POST", "/marks/undo", {"batch_id": a.batch_id}, None
@@ -194,7 +208,8 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
                  {"level": "not_animal"} if a.not_animal else
                  {"level": a.level, "taxon": a.taxon, **({"concept": a.concept, "common": a.common}
                                                          if a.level == "species" else {})})
-        body = {"subject_ids": a.subjects, "claim": claim, "scope": "burst" if a.burst else "subject",
+        body = {"subject_ids": a.subjects, "claim": claim,
+                "scope": "encounter" if a.encounter else "burst" if a.burst else "subject",
                 "dry_run": a.dry_run, **({"reason": a.reason} if a.reason else {})}
         return "POST", "/identifications", body, None
     if c == "identify-undo":
@@ -205,6 +220,18 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         if not body:
             raise SystemExit("species-card: 需要 --cover、--no-cover、--hide 或 --show")
         return "PATCH", f"/species/{urllib.parse.quote(a.concept, safe=':')}", body, None
+    if c == "keep-best":
+        return "POST", "/marks/keep-best", {"asset_id": a.id, "keep_use": "edit" if a.edit else "record",
+                                            "dry_run": a.dry_run}, None
+    if c == "encounters":
+        if not a.task and not a.concept:
+            raise SystemExit("encounters: 需要 --task 或 --concept")
+        return "GET", "/encounters", None, {"task": a.task, "concept": a.concept}
+    if c == "encounter":
+        if sub == "merge":
+            return "POST", "/encounters/merge", {"ids": a.ids}, None
+        body = {"at": a.at} if a.at else {"asset_ids": a.assets}
+        return "POST", f"/encounters/{a.id}/split", body, None
     if c == "collections":
         return "GET", "/collections", None, {"task": a.task, "kind": a.kind, "deleted": "1" if a.deleted else "0"}
     if c == "collection":
@@ -214,6 +241,12 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
             return "POST", f"/collections/{a.id}/complete", {"note": a.note} if a.note else {}, None
         if sub == "zero":
             return "POST", f"/collections/{a.id}/zero", {"resolution": a.resolution} if a.resolution else {}, None
+        if sub == "preview-rule":
+            try:
+                rule = json.loads(a.rule)
+            except ValueError:
+                raise SystemExit("preview-rule: --rule 不是有效的 JSON") from None
+            return "POST", f"/collections/{a.id}/preview-rule", {"rule": rule}, None
         return "POST", f"/collections/{a.id}/{sub}", {}, None
     if c == "export":
         body = {"scope": a.scope, "copy": a.copy, "conflict": a.conflict}
@@ -282,8 +315,10 @@ def parser() -> argparse.ArgumentParser:
     a.add_argument("--limit", type=int, default=200)
     a.add_argument("--offset", type=int, default=0)
 
-    m = s.add_parser("mark", help="人工 Flag / 星级")
+    m = s.add_parser("mark", help="人工用途 / 星级（--flag 是旧写法：pick = 保留记录）")
     m.add_argument("ids", nargs="+")
+    m.add_argument("--use", choices=("record", "edit", "pending", "reject"),
+                   help="保留记录 / 选入修图 / 待定 / 淘汰")
     m.add_argument("--flag", choices=("pick", "reject", "none"))
     m.add_argument("--stars", type=int, choices=range(6))
     m.add_argument("--reason")
@@ -307,6 +342,7 @@ def parser() -> argparse.ArgumentParser:
     idf.add_argument("--concept", help="种的 concept（gardener names 查得）")
     idf.add_argument("--common")
     idf.add_argument("--burst", action="store_true", help="同一连拍里模型认成同一种的一起改")
+    idf.add_argument("--encounter", action="store_true", help="同一拍摄段里模型认成同一种的一起改")
     idf.add_argument("--dry-run", action="store_true", help="只报告影响范围，不写入")
     idf.add_argument("--reason")
     iu = s.add_parser("identify-undo", help="撤销一批物种结论")
@@ -317,6 +353,22 @@ def parser() -> argparse.ArgumentParser:
     sc.add_argument("--no-cover", action="store_true", help="取消固定封面")
     sc.add_argument("--hide", action="store_const", const=True, default=None)
     sc.add_argument("--show", dest="hide", action="store_const", const=False)
+
+    kb = s.add_parser("keep-best", help="保留此张并淘汰同一连拍的其他帧（跳过人工保护与唯一物种记录）")
+    kb.add_argument("id")
+    kb.add_argument("--edit", action="store_true", help="保留的这张选入修图（默认保留记录）")
+    kb.add_argument("--dry-run", action="store_true", help="只报告影响范围，不写入")
+    en = s.add_parser("encounters", help="拍摄段：连拍与代表候选")
+    en.add_argument("--task")
+    en.add_argument("--concept", help="只看一个物种的照片")
+    eo = s.add_parser("encounter", help="拆分或合并拍摄段（重扫不会恢复旧分组）").add_subparsers(dest="sub", required=True)
+    es = eo.add_parser("split", help="拆出一个新拍摄段")
+    es.add_argument("id")
+    how_split = es.add_mutually_exclusive_group(required=True)
+    how_split.add_argument("--at", help="这张及之后的照片拆为新的一段")
+    how_split.add_argument("--assets", nargs="+", help="恰好这些照片拆为新的一段")
+    em = eo.add_parser("merge", help="合并为第一个拍摄段")
+    em.add_argument("ids", nargs="+")
 
     cs = s.add_parser("collections", help="集合列表")
     cs.add_argument("--task")
@@ -329,6 +381,9 @@ def parser() -> argparse.ArgumentParser:
     cz = co.add_parser("zero", help="本组不留")
     cz.add_argument("id")
     cz.add_argument("--resolution", choices=("keep_picks", "clear_picks"), help="本组含 Pick 时必须选择")
+    cp = co.add_parser("preview-rule", help="Smart 规则改动的命中数与增减（不保存）")
+    cp.add_argument("id")
+    cp.add_argument("--rule", required=True, help="JSON，键同 assets 筛选")
     for name, hlp in (("reopen", "重新打开"), ("delete", "删除集合（可恢复）"), ("restore", "恢复已删除集合")):
         co.add_parser(name, help=hlp).add_argument("id")
 

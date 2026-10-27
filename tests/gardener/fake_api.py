@@ -133,7 +133,7 @@ class Fake:
         self.review(c, "completed")
         c["snapshot"] = [ids[3], ids[0]]        # ids[4] arrived after completion, ids[0] left
         c["changed"] = [ids[3]]
-        self.assets[ids[0]].update(flag="pick", stars=4, judged=True, mark_version=2)
+        self.assets[ids[0]].update(flag="pick", use="record", stars=4, judged=True, mark_version=2)
         t2 = self.new_task({"title": "洱海湿地 · 越冬水鸟", "sources": ["/Volumes/SD3/DCIM"], "preset": "quick"},
                            status="running")
         self.new_asset(t2, "DSC_1001.NEF", "photo")
@@ -176,7 +176,7 @@ class Fake:
         src = t["sources"][0]["path"]
         a = {"id": aid, "media": media, "name": name, "taken_at": self.now(), "camera": "SONY ILCE-7RM5",
              "width": 6000, "height": 4000, "duration_s": 12.5 if media == "video" else None, "online": online,
-             "preview": "ready", "flag": None, "stars": 0, "mark_version": 1, "judged": False, "ai": None,
+             "preview": "ready", "flag": None, "use": "pending", "stars": 0, "mark_version": 1, "judged": False, "ai": None,
              "content_label_zh": None, "species": None, "burst": None, "analysis": "pending", "task_ids": [t["id"]],
              "updated_at": self.now(),
              "files": [{"path": f"{src}/{name}", "role": "video" if media == "video" else "raw",
@@ -205,6 +205,8 @@ class Fake:
         if g("media") and a["media"] != g("media"):
             return False
         if g("flag") and (a["flag"] or "none") != g("flag"):
+            return False
+        if g("use") and a["use"] != g("use"):
             return False
         if g("stars_min") not in (None, "") and a["stars"] < int(g("stars_min")):
             return False
@@ -298,7 +300,11 @@ class Fake:
         batch, at, out = self.nid("b"), self.now(), []
         for aid in ids:
             a = self.assets[aid]
-            for field in ("flag", "stars"):
+            if "flag" in body and "use" not in body:     # contract revision 5B: flag is the older form of use
+                keep = body["flag"] == "pick" and a["use"] in ("record", "edit")
+                body = {**body, "use": a["use"] if keep else {"pick": "record", "reject": "reject"}.get(body["flag"],
+                                                                                                        "pending")}
+            for field in ("use", "stars"):
                 if field in body and body[field] != a[field]:
                     row = {"batch_id": batch, "asset_id": aid, "field": field, "old": a[field], "new": body[field],
                            "actor": actor, "reason": reason or body.get("reason"), "at": at, "undone": False,
@@ -308,9 +314,10 @@ class Fake:
                                                                   "reason", "at")})
                     a[field] = body[field]
                     a["mark_version"] += 1
-            a["judged"] = bool(a["flag"] or a["stars"])
+            a["flag"] = FLAG_OF_USE[a["use"]]
+            a["judged"] = a["use"] != "pending" or bool(a["stars"])
             a["updated_at"] = at
-            out.append({"id": aid, "flag": a["flag"], "stars": a["stars"], "version": a["mark_version"]})
+            out.append({"id": aid, "use": a["use"], "flag": a["flag"], "stars": a["stars"], "version": a["mark_version"]})
         return {"batch_id": batch, "assets": out}
 
     def undo(self, batch: str) -> dict:
@@ -325,10 +332,14 @@ class Fake:
             a = self.assets[r["asset_id"]]
             a[r["field"]] = r["old"]
             a["mark_version"] += 1
-            a["judged"] = bool(a["flag"] or a["stars"])
+            a["flag"] = FLAG_OF_USE[a["use"]]
+            a["judged"] = a["use"] != "pending" or bool(a["stars"])
             a["updated_at"] = self.now()
             r["undone"] = True
         return {"undone": len({r["asset_id"] for r in rows})}
+
+
+FLAG_OF_USE = {"record": "pick", "edit": "pick", "reject": "reject", "pending": None}
 
 
 def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
@@ -607,6 +618,55 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
     @app.get(P + "/names")
     def names(q: str = "", limit: int = 20):
         return []
+
+    # ---- contract revision 5B (review flow): shapes only; behaviour is tested on the real service ----
+    @app.post(P + "/marks/keep-best")
+    def keep_best(body: dict):
+        a = fk.asset(body["asset_id"])
+        if not a["burst"]:
+            raise Err(400, "这张照片不在连拍中", "bad_request")
+        sibs = [x["id"] for x in fk.assets.values() if x["burst"] and x["burst"]["id"] == a["burst"]["id"]
+                and x["id"] != a["id"]]
+        out = {"dry_run": bool(body.get("dry_run")), "burst_id": a["burst"]["id"],
+               "keep": {"id": a["id"], "use": body.get("keep_use", "record")}, "reject": sibs, "skipped": [],
+               "expect": {i: fk.assets[i]["mark_version"] for i in [a["id"], *sibs]}, "batch_id": None}
+        if not body.get("dry_run"):
+            fk.mark({"asset_ids": [a["id"]], "use": out["keep"]["use"]}, "ui")
+            out["batch_id"] = fk.mark({"asset_ids": sibs, "use": "reject"}, "ui")["batch_id"] if sibs else None
+        return out
+
+    @app.get(P + "/encounters")
+    def encounters(task: str = "", concept: str = ""):
+        if not task and not concept:
+            raise Err(400, "task or concept is required", "bad_request")
+        ms = [a for a in fk.assets.values() if (not task or task in a["task_ids"]) and a["media"] == "photo"]
+        bursts: dict = {}
+        for a in ms:
+            bursts.setdefault((a["burst"] or {}).get("id") or a["id"], []).append(a["id"])
+        bs = [{"id": k if k not in bursts[k] else None, "size": len(v), "rep": v[0], "asset_ids": v}
+              for k, v in bursts.items()]
+        enc = {"id": "e_fake1", "task_id": task or ms[0]["task_ids"][0], "origin": "auto", "start": ms[0]["taken_at"],
+               "end": ms[-1]["taken_at"], "photos": len(ms), "asset_ids": [a["id"] for a in ms], "bursts": bs,
+               "candidates": [b["rep"] for b in bs][:3], "species": []} if ms else None
+        return {"encounters": [enc] if enc else [], "unassigned": []}
+
+    @app.post(P + "/encounters/{eid}/split", status_code=201)
+    def encounter_split(eid: str, body: dict):
+        return {"id": "e_fake2", "from": eid}
+
+    @app.post(P + "/encounters/merge")
+    def encounter_merge(body: dict):
+        return {"id": body["ids"][0]}
+
+    @app.post(P + "/collections/{cid}/preview-rule")
+    def preview_rule(cid: str, body: dict):
+        c = fk.col(cid)
+        if c["kind"] != "smart":
+            raise Err(400, "only a smart collection has a rule", "bad_request")
+        cur, hits = fk.members(c), [a["id"] for a in fk.assets.values() if fk.match(a, body.get("rule") or {})]
+        added, removed = [i for i in hits if i not in cur], [i for i in cur if i not in hits]
+        return {"total": len(hits), "current": len(cur), "added_count": len(added), "removed_count": len(removed),
+                "added": added, "removed": removed}
 
     # ---- 6.5 ----
     @app.get(P + "/collections")

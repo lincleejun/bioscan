@@ -175,3 +175,29 @@ def test_species_commands_build_the_revision_4_requests():
     assert req("names", "金雕") == ("GET", "/names", None, {"q": "金雕", "limit": 20})
     assert req("species-card", "name:Corvus corax", "--hide") == ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
     assert req("assets", "--concept", "avibase:a", "--id-state", "confirmed")[3]["id_state"] == "confirmed"
+
+
+def test_review_flow_commands_build_the_revision_5b_requests():
+    from bioscan.gardener.cli import parser, request
+
+    req = lambda *argv: request(parser().parse_args(list(argv)))  # noqa: E731
+    assert req("mark", "a_1", "--use", "edit") == ("POST", "/marks", {"asset_ids": ["a_1"], "use": "edit"}, None)
+    assert req("assets", "--use", "pending")[3]["use"] == "pending"
+    assert req("keep-best", "a_1", "--edit", "--dry-run") == \
+        ("POST", "/marks/keep-best", {"asset_id": "a_1", "keep_use": "edit", "dry_run": True}, None)
+    assert req("encounters", "--task", "t_1") == ("GET", "/encounters", None, {"task": "t_1", "concept": None})
+    assert req("encounter", "split", "e_1", "--at", "a_2") == ("POST", "/encounters/e_1/split", {"at": "a_2"}, None)
+    assert req("encounter", "split", "e_1", "--assets", "a_2", "a_3")[2] == {"asset_ids": ["a_2", "a_3"]}
+    assert req("encounter", "merge", "e_1", "e_2") == ("POST", "/encounters/merge", {"ids": ["e_1", "e_2"]}, None)
+    assert req("collection", "preview-rule", "c_1", "--rule", '{"use": "edit"}') == \
+        ("POST", "/collections/c_1/preview-rule", {"rule": {"use": "edit"}}, None)
+    assert req("identify", "s_1", "--accept", "--encounter")[2]["scope"] == "encounter"
+
+
+def test_keep_best_and_encounters_render(svc, capsys):
+    url, _ = svc
+    assert cli.main(["--url", url, "keep-best", "a_0006", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "预览（未写入）" in out and "淘汰 2 张" in out
+    assert cli.main(["--url", url, "encounters", "--task", "t_0001"]) == 0
+    assert "e_fake1" in capsys.readouterr().out
