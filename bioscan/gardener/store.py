@@ -497,11 +497,13 @@ class Store:
             sql, ps = query.where(self, loads(row["rule"], {}) or {})
         except ValueError:
             sql, ps = "0", []
-        hits = {r["id"] for r in self.all(f"SELECT a.id FROM assets a WHERE {sql}", ps)}
-        rows = self.all("SELECT asset_id, removed_at FROM collection_members WHERE collection_id = ?", (row["id"],))
-        pins = [r["asset_id"] for r in rows if r["removed_at"] is None and r["asset_id"] not in hits]
-        out = [r["asset_id"] for r in rows if r["removed_at"] is not None]
-        return {"rule_hits": len(hits), "exceptions": {"added": pins, "excluded": out}}
+        hits = self.one(f"SELECT count(*) n FROM assets a WHERE {sql}", ps)["n"]
+        pins = [r["asset_id"] for r in self.all(
+            f"SELECT cm.asset_id FROM collection_members cm JOIN assets a ON a.id = cm.asset_id WHERE cm.collection_id = ? "
+            f"AND cm.removed_at IS NULL AND NOT ({sql}) ORDER BY cm.added_at", [row["id"], *ps])]
+        out = [r["asset_id"] for r in self.all("SELECT asset_id FROM collection_members WHERE collection_id = ? AND "
+                                               "removed_at IS NOT NULL ORDER BY removed_at", (row["id"],))]
+        return {"rule_hits": hits, "exceptions": {"added": pins, "excluded": out}}
 
     def collections(self, *, task: str | None = None, kind: str | None = None, deleted: bool = False) -> list[dict]:
         conds, ps = ["deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"], []

@@ -2672,10 +2672,7 @@
     imp.task = t;
     const plans = await api('GET', '/imports', null, { task: t.id });
     imp.plan = p.plan ? await api('GET', `/imports/${encodeURIComponent(p.plan)}`) : plans[0] ? await api('GET', `/imports/${encodeURIComponent(plans[0].id)}`) : null;
-    if (!imp.plan) {                      // 用上次（任意任务）的目标根目录生成一份计划；没有就请人填写
-      const any = (await api('GET', '/imports'))[0];
-      if (any) { try { imp.plan = await api('POST', `/tasks/${encodeURIComponent(t.id)}/import-plan`, { dest_root: any.dest_root, place: '', include_pending: true }); } catch (e) { imp.plan = null; } }
-    }
+    imp.last = plans[0] || (imp.plan ? null : (await api('GET', '/imports'))[0]) || null;   // 只预填目标；生成计划要人点
     imp.tab = IMP_TABS.some(x => x[0] === imp.tab) ? imp.tab : 'record';
     const [sp, ...pages] = await Promise.all([api('GET', '/species', null, { task: t.id })].concat(IMP_TABS.map(([u]) => api('GET', '/assets', null, { task: t.id, use: u, limit: u === imp.tab ? IMP_N : 1, order: 'time' }))));
     imp.sp = sp; imp.n = {}; IMP_TABS.forEach(([u], i) => { imp.n[u] = pages[i].total; if (u === imp.tab) { store(pages[i].items); imp.items = pages[i].items; } });
@@ -2685,7 +2682,7 @@
         <section class="im-sec" id="imp-grid">${impGridHTML()}</section>
         <section class="im-checks" id="imp-checks">${imp.plan ? importChecksHTML(imp.plan) : ''}</section>
       </div>
-      <aside class="fl-panel im-panel" id="imp-body">${imp.plan ? importPlanHTML(imp.plan) : importFormHTML(plans[0] || null)}</aside></div></div>`;
+      <aside class="fl-panel im-panel" id="imp-body">${imp.plan ? importPlanHTML(imp.plan) : importFormHTML(imp.last)}</aside></div></div>`;
   }
   function impGridHTML() {
     const tab = IMP_TABS.find(x => x[0] === imp.tab), n = imp.n[imp.tab] || 0;
@@ -2700,7 +2697,7 @@
   function importFormHTML(last) {
     return `<h2>确认导入</h2><div class="im-form">
       <div class="field"><label for="imp-dest">目标根目录</label><input id="imp-dest" class="input mono" autocomplete="off" placeholder="/Volumes/Photos/Wildlife" value="${esc(last ? last.dest_root : '')}"><p class="hint">其下新建 YYYY-MM-DD_地点 目录；跨日拍摄用日期范围。</p></div>
-      <div class="field"><label for="imp-place">地点</label><input id="imp-place" class="input" autocomplete="off" placeholder="未填写则为“未标注地点”" value="${esc(last && last.place ? last.place : '')}"></div>
+      <div class="field"><label for="imp-place">地点</label><input id="imp-place" class="input" autocomplete="off" placeholder="未填写则为“未标注地点”" value="${esc(last && last.task_id === imp.task.id && last.place ? last.place : '')}"></div>
       <label class="check-row"><input type="checkbox" id="imp-pending-new" ${last && !last.include_pending ? '' : 'checked'}> 待定照片一起导入</label>
       <p class="field-err" id="imp-err" aria-live="polite"></p>
       <button type="button" class="btn primary wide" data-action="import-plan">${ic('check')}生成导入计划</button></div>
@@ -2749,7 +2746,7 @@
   }
   function impPaint() {
     const b = $('#imp-body'), c = $('#imp-checks');
-    if (b) setHTML(b, imp.plan ? importPlanHTML(imp.plan) : importFormHTML(null));
+    if (b) setHTML(b, imp.plan ? importPlanHTML(imp.plan) : importFormHTML(imp.last));
     if (c && imp.plan) setHTML(c, importChecksHTML(imp.plan));
   }
   function importResultHTML(p) {
