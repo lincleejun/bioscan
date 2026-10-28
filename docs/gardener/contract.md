@@ -636,3 +636,12 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **物种卡片**：`Card` 增加 `encounters`：含该物种照片的拍摄段数，与卡片同一口径（只计代表版本，不计已移到废纸篓的）；`task=` 时只数该任务的拍摄段。全库视图里同一照片在两个任务中时，每个任务的拍摄段各算一次。界面在日期后显示“N 个拍摄段”。
 - **用词**：界面不再出现 Pick / Reject，按四种用途说（保留记录、选入修图、待定、淘汰）；接口字段 `picks`、`flag` 不变。
 - **CLI 与 MCP**：CLI `burst split --at ID | --assets IDS`、`encounter undo BATCH`；MCP 新工具 `split_burst`，`edit_encounters` 的 `action` 增加 `undo`（`batch_id`）。
+
+## 契约修订 8：界面按 AfterShooting PRD 设计稿重做（2026-10-27，#120；PRD §05、§23–§28）
+
+界面产品名为 **AfterShooting**（服务、模块与 CLI 仍叫 Gardener）。主导航按 §05：待整理 · 所有照片 · Collections（Wildlife · 旅行 · 精选 · 待修图）· 任务与导入；设计稿里较早的 Landscape / People / Cities 不采用（§23）。为此 API 增加以下只读字段，旧字段不变：
+
+- `GET /storage` 增加 `disk_total`、`disk_free`：数据目录所在磁盘的容量与可用空间（字节），侧栏“本地存储”用。
+- `Task` 增加 `import`：最近一次导入计划 `{plan_id, status}`，没有计划为 `null`；待整理据此显示 扫描 → Review → 导入 三步。
+- 物种 `Card` 增加 `years`（有照片的年份，升序）与 `task_ids`（含该物种照片的任务）；Wildlife 的年份与拍摄任务筛选用。
+- `Collection` 增加 `created_at`、`updated_at`、`batch`（是否某次导入的批次集合）。全局 Collections 总览只列：旅行 = 导入批次与各任务的“全部素材”；待修图 = 规则含 `use: edit` 的 Smart Collection；精选 = 其余自建集合。任务里按主体自动建议的分组属于该批次的 Review，留在任务里。

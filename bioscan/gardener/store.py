@@ -235,6 +235,8 @@ class Store:
                           "collections_total": len(acts)},
                "counts": {"assets": n["assets"], "photos": n["photos"], "videos": n["videos"],
                           "versions": n["versions"], "files": f["files"], "bytes": f["bytes"]}}
+        imp = self.one("SELECT id, status FROM import_plans WHERE task_id = ? ORDER BY seq DESC LIMIT 1", (task_id,))
+        out["import"] = {"plan_id": imp["id"], "status": imp["status"]} if imp else None   # 待整理的「导入」一步
         if with_runs:
             out["runs"] = [run_json(r) for r in self.all("SELECT * FROM runs WHERE task_id = ? ORDER BY seq", (task_id,))]
         return out
@@ -484,7 +486,8 @@ class Store:
                            "changed_since": changed_since},
                 "user_edited": bool(row["user_edited"]),
                 "time_basis": summ.get("time_basis"), "uncertain": len(summ.get("uncertain_ids") or []),
-                "label": summ.get("label")}
+                "label": summ.get("label"), "created_at": row["created_at"], "updated_at": row["updated_at"],
+                "batch": bool(self.one("SELECT 1 FROM import_plans WHERE collection_id = ?", (row["id"],)))}
 
     def collections(self, *, task: str | None = None, kind: str | None = None, deleted: bool = False) -> list[dict]:
         conds, ps = ["deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"], []

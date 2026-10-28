@@ -304,7 +304,8 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
     # which include a version whose representative lies in another task (#102).
     rule, scope = (IN_TASK_REP, "AND a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)") if task_id \
         else ("a.version_of IS NULL", "")
-    rows = c.execute(f"SELECT ci.*, a.taken_at, coalesce(m.stars, 0) stars FROM current_ids ci JOIN assets a ON "
+    rows = c.execute(f"SELECT ci.*, a.taken_at, coalesce(m.stars, 0) stars, (SELECT group_concat(task_id) FROM "
+                     f"task_assets WHERE asset_id = a.id) tasks FROM current_ids ci JOIN assets a ON "
                      f"a.id = ci.asset_id LEFT JOIN marks m ON m.asset_id = a.id WHERE {rule} {scope} {GONE} "
                      f"ORDER BY ci.created_at", [task_id, task_id] if task_id else []).fetchall()
     prefs = {r["concept"]: r for r in c.execute("SELECT * FROM species_prefs")}
@@ -330,6 +331,7 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
         if r["source"] == "user":
             k["confirmed"].add(r["asset_id"])
         k["seen"][r["asset_id"]] = (r["taken_at"], r["stars"])
+        k.setdefault("tasks", set()).update((r["tasks"] or "").split(",") if r["tasks"] else ())
     encs = _species_encounters(c, rule, scope, task_id)          # 契约修订 7A
     out: dict[str, list[dict[str, Any]]] = {"species": [], "to_confirm": []}
     for concept, k in cards.items():
@@ -346,7 +348,8 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
                 "photos": len(k["seen"]), "only_one": len(k["seen"]) == 1,
                 "first_taken_at": times[0] if times else None, "last_taken_at": times[-1] if times else None,
                 "cover_id": pref["cover_asset_id"] if pinned else best, "cover_pinned": pinned,
-                "hidden": bool(pref is not None and pref["hidden"]), "encounters": encs.get(concept, 0)}
+                "hidden": bool(pref is not None and pref["hidden"]), "encounters": encs.get(concept, 0),
+                "years": sorted({t[:4] for t in times}), "task_ids": sorted(k.get("tasks", ()))}
         out["species" if k["confirmed"] else "to_confirm"].append(card)
     from bioscan.gardener import taxa
 

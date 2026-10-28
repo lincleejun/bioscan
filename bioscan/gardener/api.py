@@ -9,6 +9,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, nullcontext
@@ -332,8 +333,10 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     def storage() -> dict[str, Any]:
         files, size = cache_usage()
         db = sum(p.stat().st_size for p in store.data_dir.glob("gardener.sqlite*"))
+        disk = shutil.disk_usage(store.data_dir)
         return {"data_dir": str(store.data_dir), "db_path": str(store.db_path), "db_bytes": db,
-                "cache_dir": str(store.cache_dir), "cache_bytes": size, "cache_files": files}
+                "cache_dir": str(store.cache_dir), "cache_bytes": size, "cache_files": files,
+                "disk_total": disk.total, "disk_free": disk.free}
 
     @r.post("/storage/clear-cache")
     def clear_cache() -> dict[str, Any]:

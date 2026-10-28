@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gardener</title>
+  <title>AfterShooting</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,22 +11,28 @@
   <div class="shell">
     <aside class="side">
       <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/><path d="M5 19 13 11"/></svg>
-        <span class="brand-name">Gardener</span>
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 2.5 15.6 12M21.5 12h-9.6M16.7 20.2 9.8 13.2M7.3 20.2l2.5-9.3M2.5 12 9 5.2"/></svg>
+        <span class="brand-name">AfterShooting</span>
       </div>
       <nav class="nav" aria-label="主导航">
-        <a href="#/library" data-nav="library"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 8"/></svg>全部素材</a>
-        <a href="#/species" data-nav="species"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15c3-1 5-4 6-7 2 3 5 4 8 3-1 4-4 7-8 7-3 0-5-1-6-3z"/><circle cx="15.5" cy="9.5" r="1"/></svg>物种</a>
-        <a href="#/collections" data-nav="collections"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>Collections</a>
-        <a href="#/tasks" data-nav="tasks"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>任务<span data-bind="nav-tasks"></span></a>
-        <a href="#/settings" data-nav="settings"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>管理</a>
+        <a href="#/inbox" data-nav="inbox"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 13.5 6 5.5h12l2.5 8v5h-17z"/><path d="M3.5 13.5h5l1 2h5l1-2h5"/></svg>待整理<span data-bind="nav-inbox"></span></a>
+        <a href="#/library" data-nav="library"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 8"/></svg>所有照片</a>
+        <div class="nav-sep" role="presentation"></div>
+        <a href="#/collections" data-nav="collections"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Collections</a>
+        <a href="#/species" data-nav="species" class="nav-sub"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4 0 7-2 9-6l3-5 3 1-2 3c3 0 4 2 5 3-3 0-5 0-7 2-2 3-6 4-11 2z"/><circle cx="16" cy="7.6" r=".6" fill="currentColor"/></svg>Wildlife</a>
+        <a href="#/collections/trip" data-nav="col-trip" class="nav-sub"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 19 6-10 4 6 2-3 6 7z"/></svg>旅行</a>
+        <a href="#/collections/featured" data-nav="col-featured" class="nav-sub"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>精选</a>
+        <a href="#/collections/edit" data-nav="col-edit" class="nav-sub"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="m7 15 3-3 2 2 4-4"/><path d="M15.5 4.5v3"/></svg>待修图</a>
+        <div class="nav-sep" role="presentation"></div>
+        <a href="#/tasks" data-nav="tasks"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>任务与导入<span data-bind="nav-tasks"></span></a>
+        <a href="#/settings" data-nav="settings"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>管理</a>
       </nav>
-      <div class="side-foot"><section class="svc" data-bind="svc" aria-live="polite" aria-label="服务状态"></section></div>
+      <div class="side-foot"><section class="disk" data-bind="disk" aria-label="本地存储"></section><section class="svc" data-bind="svc" aria-live="polite" aria-label="服务状态"></section></div>
     </aside>
     <main id="main" tabindex="-1"></main>
   </div>
   <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
-  <noscript><p class="noscript">Gardener 需要启用 JavaScript。</p></noscript>
+  <noscript><p class="noscript">AfterShooting 需要启用 JavaScript。</p></noscript>
   <script src="api.js"></script>
   <script src="app.js"></script>
 </body>
