@@ -1121,7 +1121,7 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         reset = strs(body.get("reset") or [], "reset")
         if reset and col["kind"] != "smart":
             raise Error("reset is for a Smart Collection's pins and exclusions")
-        check_assets(add + rem)
+        check_assets(add + (rem if col["kind"] == "smart" else []))   # a Smart exclusion writes a row for the photo
         with store.tx() as c:
             n_add = st.add_members(c, cid, add, "user")
             n_rem = st.remove_members(c, cid, rem, "user")
