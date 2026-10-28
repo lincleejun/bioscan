@@ -645,3 +645,6 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - `Task` 增加 `import`：最近一次导入计划 `{plan_id, status}`，没有计划为 `null`；待整理据此显示 扫描 → Review → 导入 三步。
 - 物种 `Card` 增加 `years`（有照片的年份，升序）与 `task_ids`（含该物种照片的任务）；Wildlife 的年份与拍摄任务筛选用。
 - `Collection` 增加 `created_at`、`updated_at`、`batch`（是否某次导入的批次集合）。全局 Collections 总览只列：旅行 = 导入批次与各任务的“全部素材”；待修图 = 规则含 `use: edit` 的 Smart Collection；精选 = 其余自建集合。任务里按主体自动建议的分组属于该批次的 Review，留在任务里。
+- `GET /encounters` 增加 `candidates`（1–8，默认 3）：每个拍摄段给几张代表候选；Review 总览的“每组推荐 N 张”用它。
+- **Smart Collection 的人工例外（PRD §04）**：成员 = (规则命中 ∪ 人工固定) − 人工排除，按 Asset 去重。`POST /collections/{id}/members` 对 Smart 也可用：`add` 固定规则没命中的照片，`remove` 排除一张（规则以后也不会把它加回来），`reset` 去掉固定或排除、交回规则决定（`reset` 只用于 Smart）。Smart 的 `Collection` 增加 `rule_hits`（只按规则命中的张数）与 `exceptions: {added, excluded}`（固定与排除的 Asset ID）。Lightroom 交接仍用当次成员快照。
+- 规则编辑提供常用条件的表单（物种、用途、星级、物种结论、日期、拍摄任务，全部满足），JSON 只作为“高级”选项；改规则仍先显示增减再保存。

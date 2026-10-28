@@ -155,7 +155,8 @@
     queue: () => queueHTML(),
     'task-scan': id => { const t = taskById(id); return t ? taskScanHTML(t) : ''; },
     'task-review': id => { const t = taskById(id); return t ? taskReviewHTML(t) : ''; },
-    'task-steps': id => { const t = taskById(id); return t ? stepsHTML(t, ui.view === 'inbox' ? null : ui.params.tab) : ''; },
+    'task-steps': id => { const t = taskById(id); return t ? stepsHTML(t, { scan: 'scan', 'flow-review': 'review', compare: 'review', import: 'import' }[ui.view] || null) : ''; },
+    'scan-lanes': id => { const t = taskById(id); return t ? scanLanesHTML(t) : ''; },
     'task-phase': id => { const t = taskById(id); return t ? esc(phaseText(t)) : ''; },
     'task-actions': id => { const t = taskById(id); return t ? taskActionsHTML(t) : ''; },
     'task-head': id => { const t = taskById(id); return t ? taskHeadHTML(t) : ''; },
@@ -308,6 +309,300 @@
     </div>`;
   }
 
+  // ---------- 批次流程：扫描（图 1）→ Review 总览（图 2）→ 原像素比较（图 3）；导入确认见「完成与导入」 ----------
+  const RAW_EXT = /\.(arw|cr2|cr3|nef|nrw|raf|orf|rw2|dng|pef|srw|3fr|iiq|x3f)$/i;
+  const fmtOf = a => (a.media === 'video' ? '视频' : RAW_EXT.test(a.name) ? 'RAW' : (a.name.split('.').pop() || '').toUpperCase());
+  const fl = { cursor: '0' };             // 流程页共用：当前任务、物种与轮询游标
+  function flowHead(t, here, title, sub) {
+    return `<header class="fl-head"><div class="fl-title"><h1 tabindex="-1">${esc(title)}</h1><p class="fl-sub">${sub}</p></div>
+      <div class="fl-steps" data-bind="task-steps" data-id="${esc(t.id)}">${stepsHTML(t, here)}</div><div class="fl-aside"><a class="btn ghost sm" href="#/task/${esc(t.id)}/preview">任务详情</a></div></header>`;
+  }
+  const taskDate = t => { const s = t.scan && t.scan.discovered ? '' : ''; return esc(fmtTime(t.created_at).slice(0, 10)) + s; };
+  async function flowAssets(query) {
+    const items = await apiAll(query);
+    store(items);
+    items.forEach(a => { if (a.updated_at > fl.cursor) fl.cursor = a.updated_at; });
+    return items;
+  }
+
+  // 扫描与归类：发现、预览与识别分别推进；有可浏览的预览就能开始 Review（PRD §06、图 1）
+  function scanLanesHTML(t) {
+    const s = t.scan || {}, run = ['running', 'queued'].includes(s.status);
+    const lane = (label, v, n, active, unit) => {
+      const done = n > 0 && v >= n && !(run && active);
+      return `<div class="sc-lane${done ? ' is-done' : run && active ? ' is-run' : ''}"><div class="sc-lane-top">${done ? `<span class="sc-ok">${ic('check')}</span>` : `<span class="sc-spin${run && active ? ' on' : ''}" aria-hidden="true"></span>`}<span><b>${label}</b>${done && label === '读取文件' ? ' · 完成' : ''} · ${v.toLocaleString()} / ${n.toLocaleString()}${unit || ''}</span></div>${bar(pct(v, n))}</div>`;
+    };
+    return lane('读取文件', s.discovered || 0, s.discovered || 0, s.phase === 'discover') + lane('生成预览', s.previewed || 0, s.discovered || 0, s.phase === 'preview')
+      + lane('识别归类', s.analyzed || 0, s.total_analysis || 0, s.phase === 'analyze' || s.phase === 'group', ' 项');
+  }
+  function scanTileHTML(a) {
+    const st = a.preview !== 'ready' ? ['wait', a.preview === 'failed' ? '预览失败' : '等待预览'] : ['pending', 'running'].includes(a.analysis) ? ['run', '识别中']
+      : ['failed', 'unavailable'].includes(a.analysis) ? ['fail', '识别失败'] : ['done', '已归类'];
+    const sub = [a.species && (a.species.zh || a.species.common || a.species.taxon), a.camera, fmtTime(a.taken_at).slice(11)].filter(Boolean).join(' · ');
+    return `<figure class="sc-tile">${photo(a, 'large')}<span class="sc-fmt">${esc(fmtOf(a))}</span><span class="sc-st st-${st[0]}">${st[0] === 'run' ? '<i class="sc-spin on"></i>' : ''}${st[1]}</span>
+      <figcaption><b>${esc(a.name)}</b><small>${esc(sub)}</small></figcaption></figure>`;
+  }
+  function groupsHTML(t, sp) {
+    const list = sp.species.concat(sp.to_confirm).sort((x, y) => y.photos - x.photos);
+    const un = sp.unresolved.genus_family + sp.unresolved.unconfirmed;
+    const row = k => `<a class="sg-row" href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(k.concept))}"><img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy">
+      <span class="sg-text"><b>${esc(spName(k))}</b><small>${k.photos <= 2 ? `仅 ${k.photos} 张 · 单独保留` : `${k.photos.toLocaleString()} 张`}</small>${k.confirmed ? '<span class="tag ok">已确认</span>' : '<span class="tag soft">已识别</span>'}</span>${ic('right')}</a>`;
+    return (list.map(row).join('') || '<p class="hint sg-empty">识别出物种后在这里逐步建立分组。</p>')
+      + (un ? `<a class="sg-row" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved" data-task="${esc(t.id)}"><span class="sg-ph">${ic('warn')}</span><span class="sg-text"><b>待鉴定</b><small>${un} 张</small><span class="tag warn">待鉴定</span></span>${ic('right')}</a>` : '');
+  }
+  const SCAN_N = 48;
+  async function vScan(p) {
+    const t = await api('GET', `/tasks/${encodeURIComponent(p.id)}`);
+    S.tasks = S.tasks.filter(x => x.id !== t.id).concat([t]);
+    const [page, sp] = await Promise.all([api('GET', '/assets', null, { task: t.id, order: 'discovered', limit: SCAN_N }), api('GET', '/species', null, { task: t.id })]);
+    store(page.items);
+    Object.assign(fl, { task: t.id, scanSig: '' });
+    const s = t.scan || {}, run = ['running', 'queued'].includes(s.status), paused = s.status === 'paused';
+    const src = t.sources.map(x => `<span class="mono">${esc(x.path.split('/').filter(Boolean).slice(-2).join(' / '))}</span>`).join('、');
+    return `<div class="page fl sc">${flowHead(t, 'scan', '扫描与归类', `${taskDate(t)} · ${esc(t.title)}`)}
+      <div class="fl-body"><div class="fl-main">
+        <section class="sc-src">${ic('folder')}<div><b>${src}</b><p class="hint">${(t.counts || {}).assets ? `${t.counts.assets.toLocaleString()} 张 · ${fmtBytes(t.counts.bytes)}` : '正在读取…'}${t.sources.some(x => !x.online) ? ' · <span class="txt-warn">有来源离线</span>' : ''}</p></div></section>
+        <section class="sc-lanes" data-bind="scan-lanes" data-id="${esc(t.id)}">${scanLanesHTML(t)}</section>
+        <div class="sc-grid" id="sc-grid">${page.items.map(scanTileHTML).join('') || '<div class="empty">读取文件后，预览会在这里逐步出现。</div>'}</div>
+        ${page.total > SCAN_N ? `<p class="hint sc-more">显示最先发现的 ${SCAN_N} 张，共 ${page.total.toLocaleString()} 张 · <a href="#/task/${esc(t.id)}/preview">浏览全部</a></p>` : ''}
+      </div>
+      <aside class="fl-panel"><h2>${run ? '正在建立分组' : '本次分组'}</h2><div id="sc-groups">${groupsHTML(t, sp)}</div></aside></div>
+      <footer class="fl-foot"><div class="fl-note">${ic('warn')}<div><b>${s.previewed ? '预览就绪即可开始筛选' : '等待第一批预览'}</b><p class="hint">${run ? '后台仍在生成预览和识别归类，您可以随时开始 Review。' : paused ? '扫描已暂停；已有的预览和识别结果都可以先 Review。' : '扫描已结束。识别归类只是建议，Review 时可以纠正。'}</p></div></div>
+        ${run ? `<button type="button" class="btn lg" data-action="task-pause" data-id="${esc(t.id)}">${ic('pause')}暂停扫描</button>` : paused ? `<button type="button" class="btn lg" data-action="task-resume" data-id="${esc(t.id)}">${ic('play')}继续扫描</button>` : ''}
+        <a class="btn primary lg${s.previewed ? '' : ' is-disabled'}" href="#/task/${esc(t.id)}/review" ${s.previewed ? '' : 'aria-disabled="true" tabindex="-1"'}>${ic('play')}开始 Review</a></footer>
+    </div>`;
+  }
+  async function pollScan() {
+    const t = taskById(fl.task);
+    if (!t) return;
+    const sig = JSON.stringify([t.scan, t.counts]);
+    if (sig === fl.scanSig) return;
+    fl.scanSig = sig;
+    const [page, sp] = await Promise.all([api('GET', '/assets', null, { task: t.id, order: 'discovered', limit: SCAN_N }), api('GET', '/species', null, { task: t.id })]);
+    if (ui.view !== 'scan') return;
+    store(page.items);
+    const g = $('#sc-grid'), gr = $('#sc-groups');
+    if (g && page.items.length) swap(g, page.items.map(scanTileHTML).join(''));
+    if (gr) swap(gr, groupsHTML(t, sp));
+    patchBinds('scan-lanes');
+  }
+
+  // Review 总览：本次拍到的物种 → 拍摄段 → 代表候选（PRD §07、图 2）。全部照片仍在物种工作区（检视器与批量）。
+  const fr = { open: new Set() };
+  const candN = () => Number(prefs.get('cands', '2')) || 2;
+  function railHTML(t, sp, concept) {
+    const list = sp.species.concat(sp.to_confirm).sort((x, y) => y.photos - x.photos);
+    const un = sp.unresolved.genus_family + sp.unresolved.unconfirmed;
+    return list.map(k => `<a class="rl-row${k.concept === concept ? ' is-here' : ''}" href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(k.concept))}"${k.concept === concept ? ' aria-current="page"' : ''}>
+      <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy"><span class="rl-text"><b>${esc(spName(k))}</b><small>${k.photos.toLocaleString()}${k.photos <= 2 ? `<span class="rl-prot">${ic('check')}仅 ${k.photos} 张 · 保护记录</span>` : ''}${k.confirmed ? '' : '<span class="rl-cand">待确认</span>'}</small></span>${ic('right')}</a>`).join('')
+      + (un ? `<a class="rl-row" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved" data-task="${esc(t.id)}"><span class="rl-ph">${ic('warn')}</span><span class="rl-text"><b>待鉴定</b><small>${un}</small></span>${ic('right')}</a>` : '')
+      + `<a class="rl-row" href="#/task/${esc(t.id)}/collections"><span class="rl-ph">${ic('grid')}</span><span class="rl-text"><b>其他分组</b><small>人物、场景与未识别的动物</small></span>${ic('right')}</a>`;
+  }
+  function thumbHTML(t, k, e, id, cand) {
+    const a = A(id);
+    if (!a) return '';
+    const u = USE[a.use];
+    return `<a class="et${cand ? ' is-cand' : ''}" href="#/task/${esc(t.id)}/compare/${esc(encodeURIComponent(k))}/${esc(e.id)}/${esc(id)}" aria-label="${esc(tileLabel(a))}${cand ? '，候选' : ''}">${photo(a, 'large')}${cand ? '<span class="et-cand">候选</span>' : ''}${u && a.use !== 'pending' ? `<span class="et-use u-${a.use}">${ic(u[3] || 'check')}${u[0]}</span>` : ''}${a.stars ? `<span class="et-star">${'★'.repeat(a.stars)}</span>` : ''}</a>`;
+  }
+  function encRowHTML(t, k, e) {
+    const open = fr.open.has(e.id), cands = new Set(e.candidates);
+    const rest = e.asset_ids.filter(id => !cands.has(id));
+    const ids = open ? e.asset_ids : e.candidates.concat(rest).slice(0, Math.max(4, e.candidates.length));
+    const runs = e.bursts.filter(b => b.size > 1);
+    return `<section class="er" data-enc="${esc(e.id)}"><header class="er-head"><h3>拍摄段 ${String(e.n).padStart(2, '0')}</h3><span>${esc(fmtTime(e.start).slice(11) || '—')}${e.end && e.end !== e.start ? ' – ' + esc(fmtTime(e.end).slice(11)) : ''}</span>
+      <span class="er-meta">${e.photos} 张${runs.length ? ` · ${runs.length} 组连拍` : ''}</span>${e.photos > ids.length || open ? `<button type="button" class="er-more" data-action="fr-toggle" data-id="${esc(e.id)}" aria-expanded="${open}">${open ? '收起' : `展开全部 ${e.photos} 张`}${ic('right')}</button>` : ''}</header>
+      <div class="er-strip${open ? ' is-open' : ''}">${ids.map(id => thumbHTML(t, k, e, id, cands.has(id))).join('')}</div></section>`;
+  }
+  function frCenterHTML() {
+    const { t, k, enc } = fr;
+    if (!k) return '<div class="empty">本次还没有识别出物种。可以在「其他分组」里浏览全部照片，或等扫描继续。</div>';
+    const rows = enc.encounters.map(e => encRowHTML(t, k.concept, e)).join('');
+    const un = enc.unassigned || [];
+    return `<div class="fr-top"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i>${k.confirmed ? '' : ' · <span class="txt-warn">只有模型候选，进入后可确认或纠正</span>'}</p></div>
+      <div class="seg pillseg" role="group" aria-label="浏览方式"><span class="seg-btn" aria-pressed="true">按拍摄段</span><a class="seg-btn" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div>
+      ${rows}${un.length ? `<section class="er"><header class="er-head"><h3>未分段</h3><span class="er-meta">${un.length} 张没有拍摄时间，或扫描结束后才分段</span></header><div class="er-strip">${un.slice(0, 8).map(id => thumbHTML(t, k.concept, { id: '-' }, id, false)).join('')}</div></section>` : ''}
+      ${!rows && !un.length ? '<div class="empty">这个物种在本次拍摄中还没有分段。</div>' : ''}`;
+  }
+  function frRulesHTML() {
+    const { k } = fr;
+    const ids = fr.ids || [], as = ids.map(A).filter(Boolean);
+    const n = u => as.filter(a => a.use === u).length;
+    return `<h2>本组规则</h2>
+      <label class="rule"><span class="rule-ic">${ic('grid')}</span><span>每组推荐</span><select class="input sm" data-action-change="fr-cands" aria-label="每个拍摄段推荐几张">${[1, 2, 3, 4].map(i => `<option value="${i}" ${candN() === i ? 'selected' : ''}>${i} 张</option>`).join('')}</select></label>
+      <div class="rule"><span class="rule-ic ok">${ic('check')}</span><span>保护唯一记录<small>某物种只有一张时不会被自动淘汰</small></span><span class="rule-on">始终</span></div>
+      <div class="rule"><span class="rule-ic warn">${ic('warn')}</span><span>未知物种进入待鉴定<small>只识别到属、科或不确定的照片不会消失</small></span><span class="rule-on">始终</span></div>
+      ${k ? `<h2 class="rule-h">这个物种</h2><dl class="rule-n"><dt>已判断</dt><dd>${as.filter(a => a.judged).length} / ${as.length}</dd><dt>选入修图</dt><dd>${n('edit')}</dd><dt>保留记录</dt><dd>${n('record')}</dd><dt>待定</dt><dd>${n('pending')}</dd><dt>淘汰</dt><dd>${n('reject')}</dd></dl>` : ''}
+      <p class="hint">候选只是建议：拍摄段内按清晰度、主体完整度排序，各连拍取最好的一张。决定由你在比较里做。</p>`;
+  }
+  async function vFlowReview(p) {
+    const t = await api('GET', `/tasks/${encodeURIComponent(p.id)}`);
+    S.tasks = S.tasks.filter(x => x.id !== t.id).concat([t]);
+    const sp = await api('GET', '/species', null, { task: t.id });
+    const list = sp.species.concat(sp.to_confirm).sort((x, y) => y.photos - x.photos);
+    const k = list.find(x => x.concept === p.concept) || list[0] || null;
+    const [enc] = await Promise.all([k ? api('GET', '/encounters', null, { task: t.id, concept: k.concept, candidates: candN() }) : { encounters: [], unassigned: [] },
+      k ? flowAssets({ task: t.id, concept: k.concept }) : []]);
+    enc.encounters.forEach((e, i) => { e.n = i + 1; });
+    Object.assign(fr, { t, k, enc, sp, ids: k ? enc.encounters.flatMap(e => e.asset_ids).concat(enc.unassigned || []) : [] });
+    Object.assign(fl, { task: t.id, concept: k && k.concept });
+    const un = sp.unresolved.genus_family + sp.unresolved.unconfirmed;
+    const first = enc.encounters[0];
+    return `<div class="page fl fr">${flowHead(t, 'review', 'Review', `${taskDate(t)} · ${esc(t.title)} <span class="fl-dot">|</span> ${((t.review || {}).total || 0).toLocaleString()} 张 · ${sp.confirmed_total} 种已确认 · ${un} 张待鉴定`)}
+      <div class="fr-body"><nav class="fr-rail" aria-label="本次拍到"><h2>本次拍到</h2>${railHTML(t, sp, k && k.concept)}</nav>
+        <div class="fr-center" id="fr-center">${frCenterHTML()}</div>
+        <aside class="fl-panel fr-rules" id="fr-rules">${frRulesHTML()}</aside></div>
+      <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>点击一张照片，进入细节比较。</p></div>
+        <a class="btn ghost lg" href="#/import/${esc(t.id)}">完成与导入${ic('right')}</a>
+        ${first && k ? `<a class="btn primary lg" href="#/task/${esc(t.id)}/compare/${esc(encodeURIComponent(k.concept))}/${esc(first.id)}">比较当前拍摄段${ic('right')}</a>` : ''}</footer>
+    </div>`;
+  }
+  function frRefresh() { const c = $('#fr-center'), r = $('#fr-rules'); if (c) swap(c, frCenterHTML()); if (r && safeForStructure()) swap(r, frRulesHTML()); }
+
+  // 原像素比较（PRD §08、图 3）：两张同尺度，大图保留全图上下文，左下角是眼部（找不到则头部、动物）原像素细节；
+  // 胶片条是本拍摄段的全部帧；四种用途作用于“当前选择”这一格。
+  const cp = { panes: [], loupes: [] };
+  function cpPaneHTML(i) {
+    const id = cp.shown[i], a = A(id);
+    return `<figure class="cp-pane${i === cp.active ? ' is-active' : ''}" data-cp="${i}"><header class="cp-ph"><b>${esc(a.name)}</b>${humanBadge(a)}${i === cp.active ? '<span class="tag ok">当前选择</span>' : ''}</header>
+      <div class="cp-view"></div><div class="cp-loupe" aria-label="细节：眼部或头部"><div class="cp-lv"></div></div></figure>`;
+  }
+  function cpStripHTML() {
+    const ids = cp.enc.asset_ids, cand = new Set(cp.enc.candidates);
+    return `<p class="cp-pos">${ids.indexOf(cp.shown[cp.active]) + 1} / ${ids.length}</p><div class="cp-strip" role="group" aria-label="本拍摄段全部帧：点一张替换当前选择">${ids.map(id => { const a = A(id); return a ? `<button type="button" class="cp-th${id === cp.shown[cp.active] ? ' is-active' : cp.shown.includes(id) ? ' is-shown' : ''}" data-cp-frame="${esc(id)}" aria-pressed="${cp.shown.includes(id)}" aria-label="${esc(tileLabel(a))}">${photo(a, 'thumb')}${cand.has(id) ? '<span class="et-cand">候选</span>' : ''}<small>${esc(a.name)}</small></button>` : ''; }).join('')}</div>`;
+  }
+  function cpBarHTML() {
+    const a = A(cp.shown[cp.active]);
+    const b = v => { const [label, key, tone, icon] = USE[v]; return `<button type="button" class="cp-use u-${v}" data-action="cp-use" data-v="${v}" aria-pressed="${a.use === v}">${icon ? ic(icon) : '<span class="q">?</span>'}<span>${label}</span><kbd>${key}</kbd></button>`; };
+    return `<div class="cp-uses" role="group" aria-label="选片用途（作用于当前选择）">${['record', 'edit', 'pending', 'reject'].map(b).join('')}</div>
+      <button type="button" class="btn ghost" data-action="cp-keep">保留这张，淘汰相似帧…</button>
+      <button type="button" class="btn lg" data-action="cp-next">下一组${ic('right')}</button>`;
+  }
+  function cpBadge() { const a = A(cp.shown[cp.active]); return a.judged ? `<span class="tag ok">已决定 · ${esc(useZh(a.use))}</span>` : cp.enc.candidates.includes(a.id) ? '<span class="tag warn">AI 建议，等待确认</span>' : '<span class="tag soft">未判断</span>'; }
+  function cpMark(v) {
+    const lv = cp.loupes[v.pane];
+    if (!lv || !dvLive.has(lv)) return;
+    const g = dvGeom(lv);
+    if (!g.fw) return;
+    const hx = Math.min(0.5, g.cw / (2 * g.fw * lv.z)), hy = Math.min(0.5, g.ch / (2 * g.fh * lv.z));
+    let m = $('.cp-mark', v.frame);
+    if (!m) { m = document.createElement('div'); m.className = 'cp-mark'; v.frame.appendChild(m); }
+    Object.assign(m.style, { left: `${(lv.cx - hx) * 100}%`, top: `${(lv.cy - hy) * 100}%`, width: `${hx * 200}%`, height: `${hy * 200}%` });
+    m.hidden = lv.z < 1.5;
+  }
+  async function cpLoupeFocus(lv, main) {           // 先对准动物框；部位建议（眼部 → 头部）到了再换过去
+    if (lv.subjects[0] && dvLive.has(lv)) { dvFocus(lv, lv.subjects[0].xyxy); cpMark(main); }
+    for (const part of ['eye', 'head']) {
+      try { const got = await dvPartOf(lv, part); if (got && got.part && dvLive.has(lv)) { dvFocus(lv, got.part.xyxy, part); cpMark(main); return; } } catch (e) { return; }
+    }
+  }
+  function cpMount(i) {
+    dvDrop(cp.panes[i]); dvDrop(cp.loupes[i]);
+    const host = $(`[data-cp="${i}"]`);
+    if (!host) return;
+    const a = A(cp.shown[i]);
+    const sync = prefs.get('cmpsync', '1') === '1', o = sync && cp.panes.find((p, j) => p && j !== i && dvLive.has(p));
+    const v = cp.panes[i] = dvMount($('.cp-view', host), a, o ? { z: o.z, cx: o.cx, cy: o.cy } : null, cpOnView);
+    v.pane = i;
+    if (a.media !== 'photo' || a.preview !== 'ready') return;
+    const lv = cp.loupes[i] = dvMount($('.cp-lv', host), a, null, () => cpMark(v));
+    lv.pane = i;
+    ensureDetail(a.id).then(() => setTimeout(() => cpLoupeFocus(lv, v), 0));
+  }
+  function cpOnView(v, kind, extra) {
+    if (prefs.get('cmpsync', '1') !== '1' || cp.shown.length < 2) return;
+    const g = dvGeom(v);
+    cp.panes.filter(o => o && o !== v && dvLive.has(o)).forEach(o => {
+      const go = dvGeom(o);
+      o.z = v.W && o.W ? (g.fw * v.z / v.W) * o.W / go.fw : v.z;
+      if (kind === 'pan') { o.cx += extra[0]; o.cy += extra[1]; } else if (kind === 'subject' || kind === 'part') { o.cx = v.cx; o.cy = v.cy; }
+      dvLayout(o); dvWant(o); o.pc = [o.cx, o.cy];
+    });
+  }
+  function cpRender() {
+    const box = $('#cp-panes');
+    if (!box) return;
+    cp.panes.forEach(dvDrop); cp.loupes.forEach(dvDrop); cp.panes = []; cp.loupes = [];
+    box.className = `cp-panes n${cp.shown.length}`;
+    box.innerHTML = cp.shown.map((_, i) => cpPaneHTML(i)).join('');
+    cp.shown.forEach((_, i) => cpMount(i));
+    cpChrome();
+  }
+  function cpChrome() {             // 只刷新标签、胶片条与按钮，不重建查看器
+    $$('.cp-pane').forEach(f => { const i = Number(f.dataset.cp), a = A(cp.shown[i]); f.classList.toggle('is-active', i === cp.active); swap($('.cp-ph', f), `<b>${esc(a.name)}</b>${humanBadge(a)}${i === cp.active ? '<span class="tag ok">当前选择</span>' : ''}`); });
+    const s = $('#cp-strip'), b = $('#cp-bar'), g = $('#cp-badge');
+    if (s) swap(s, cpStripHTML());
+    if (b) swap(b, cpBarHTML());
+    if (g) g.innerHTML = cpBadge();
+    const th = $('.cp-th.is-active'); if (th) th.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  async function vCompare(p) {
+    const t = await api('GET', `/tasks/${encodeURIComponent(p.id)}`);
+    S.tasks = S.tasks.filter(x => x.id !== t.id).concat([t]);
+    const [enc, sp] = await Promise.all([api('GET', '/encounters', null, { task: t.id, concept: p.concept, candidates: candN() }), api('GET', '/species', null, { task: t.id }),
+      flowAssets({ task: t.id, concept: p.concept })]);
+    const list = enc.encounters;
+    list.forEach((e, i) => { e.n = i + 1; });
+    const e = list.find(x => x.id === p.enc);
+    if (!e) throw Object.assign(new Error('没有这个拍摄段'), { status: 404 });
+    const k = sp.species.concat(sp.to_confirm).find(x => x.concept === p.concept) || { taxon: p.concept, common: '' };
+    const want = p.frame && e.asset_ids.includes(p.frame) ? p.frame : null;
+    const pool = e.candidates.concat(e.asset_ids.filter(id => !e.candidates.includes(id)));
+    const other = pool.find(id => id !== (want || pool[0]));
+    const mode = prefs.get('cpmode', '2') === '1' || !other ? 1 : 2;
+    cp.shown = (want ? (mode === 2 ? [other, want] : [want]) : (mode === 2 ? [pool[0], other] : [pool[0]])).filter(Boolean);
+    Object.assign(cp, { t, k, enc: e, list, active: cp.shown.length - 1, panes: [], loupes: [] });
+    Object.assign(fl, { task: t.id, concept: p.concept });
+    const runs = e.bursts.filter(b => b.size > 1).length;
+    const sync = prefs.get('cmpsync', '1') === '1';
+    return `<div class="page fl cp">
+      <header class="cp-head"><div><nav class="cp-crumbs" aria-label="位置"><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">Review</a><span>/</span><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">${esc(spName(k))}</a><span>/</span><h1 tabindex="-1">拍摄段 ${String(e.n).padStart(2, '0')}</h1><span id="cp-badge">${cpBadge()}</span></nav>
+        <p class="hint">${esc(fmtTime(e.start).slice(11))} · ${e.photos} 张${runs ? ` · ${runs} 组连拍` : ''} · ${PREVIEW_NOTE}</p></div>
+        <div class="cp-ctl"><div class="seg" role="group" aria-label="比较方式"><button type="button" class="seg-btn" data-action="cp-mode" data-v="2" aria-pressed="${cp.shown.length === 2}" ${other ? '' : 'disabled'}>${ic('compare')}双图比较</button><button type="button" class="seg-btn" data-action="cp-mode" data-v="1" aria-pressed="${cp.shown.length === 1}">${ic('lib')}单图</button></div>
+          <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-sync ${sync ? 'checked' : ''}><span>同步缩放</span></label>
+          <button type="button" class="icon-btn" data-action="cp-full" aria-label="全屏" title="全屏">${ic('expand')}</button></div></header>
+      <div class="cp-panes n${cp.shown.length}" id="cp-panes"></div>
+      <div class="cp-film" id="cp-strip">${cpStripHTML()}</div>
+      <footer class="cp-bar" id="cp-bar">${cpBarHTML()}</footer>
+    </div>`;
+  }
+  function cpKey(e) {
+    if (isField(e.target) || $('dialog[open]') || e.metaKey || e.ctrlKey || e.altKey) return false;
+    const k = e.key.toLowerCase(), ids = cp.enc.asset_ids;
+    if (KEY_USE[k]) { e.preventDefault(); cpUse(KEY_USE[k]); return true; }
+    if (/^[0-5]$/.test(k)) { e.preventDefault(); doMark([cp.shown[cp.active]], { stars: Number(k) }, k === '0' ? '清除星级' : `${k} 星`); return true; }
+    if (k === 'arrowright' || k === 'arrowleft') {
+      e.preventDefault();
+      const d = k === 'arrowright' ? 1 : -1;            // 跳过另一格正在显示的那张
+      let i = ids.indexOf(cp.shown[cp.active]) + d;
+      while (i >= 0 && i < ids.length && cp.shown.includes(ids[i])) i += d;
+      if (i >= 0 && i < ids.length) cpReplace(ids[i]);
+      return true;
+    }
+    if (k === 'tab' && cp.shown.length === 2 && e.target === document.body) { e.preventDefault(); cp.active = 1 - cp.active; cpChrome(); return true; }
+    return false;
+  }
+  function cpReplace(id) {
+    cp.shown[cp.active] = id;
+    const f = $(`[data-cp="${cp.active}"]`);
+    if (f) { f.outerHTML = cpPaneHTML(cp.active); cpMount(cp.active); }
+    cpChrome();
+  }
+  function cpUse(v) { doMark([cp.shown[cp.active]], { use: v }, useZh(v)); }
+  function cpNext() {
+    const i = cp.list.indexOf(cp.enc), nx = cp.list[i + 1];
+    if (nx) location.hash = `#/task/${encodeURIComponent(cp.t.id)}/compare/${encodeURIComponent(fl.concept)}/${encodeURIComponent(nx.id)}`;
+    else { toast('这是本物种的最后一个拍摄段'); location.hash = `#/task/${encodeURIComponent(cp.t.id)}/review/${encodeURIComponent(fl.concept)}`; }
+  }
+  async function pollFlow() {                // Review 总览与比较：只取变化过的素材
+    if (!fl.task || !fl.concept) return;
+    const items = await apiAll({ task: fl.task, concept: fl.concept, changed_after: fl.cursor });
+    if (!items.length) return;
+    store(items);
+    items.forEach(a => { if (a.updated_at > fl.cursor) fl.cursor = a.updated_at; S.details.delete(a.id); });
+    if (ui.view === 'flow-review') frRefresh();
+    if (ui.view === 'compare') cpChrome();
+  }
+
   // ---------- 新建任务 ----------
   const ABS = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
   function expandCaps(on) {
@@ -421,7 +716,7 @@
   async function vTask(p) {
     const t = await api('GET', `/tasks/${encodeURIComponent(p.id)}`);
     S.tasks = S.tasks.filter(x => x.id !== t.id).concat([t]);
-    const tab = p.tab === 'review' ? 'collections' : ['collections', 'runs'].includes(p.tab) ? p.tab : 'preview';
+    const tab = ['collections', 'runs'].includes(p.tab) ? p.tab : 'preview';
     const head = `<header class="task-head">
         <nav class="crumbs" aria-label="位置"><a href="#/tasks">任务</a><span aria-hidden="true">/</span><span>${esc(t.title)}</span></nav>
         <div class="th-row">
@@ -943,6 +1238,8 @@
     assets.forEach(x => { const a = A(x.id); if (a) Object.assign(a, { use: x.use, flag: x.flag, stars: x.stars, mark_version: x.version, judged: x.use !== 'pending' || !!x.stars }); S.details.delete(x.id); });
     patchTiles(assets.map(x => x.id)); renderInspector(); renderLightbox(); patchBinds();
     $$('dialog.compare[open] [data-cmp]').forEach(el => swap(el, cmpCapHTML(el.dataset.cmp)));
+    if (ui.view === 'flow-review') frRefresh();
+    if (ui.view === 'compare') cpChrome();
   }
   async function doMark(ids, patch, label, advance) {
     ids = ids.filter(id => A(id));
@@ -1207,6 +1504,7 @@
     const c = await api('GET', `/collections/${encodeURIComponent(p.id)}`);
     ui.col = c;
     if (!S.cols.length) await refreshCols();
+    if (!p.grid && !(c.origin === 'auto' && c.group_kind !== 'all')) return vColDetail(c);
     const t = c.task_id && taskById(c.task_id);
     makeWs('review', { collection: c.id }, 'discovered', { colId: c.id, taskId: null, start: prefs.get('last.' + c.id, null) });
     return `<div class="wpage">
@@ -1222,6 +1520,61 @@
       </header>
       ${wsHTML()}
     </div>`;
+  }
+  // ---------- Collection 详情（图 6）：规则、人工例外与最终成员都可解释；按拍摄任务分段 ----------
+  const cd = { tab: 'all' };
+  const RULE_IC = { species: 'star', concept: 'star', use: 'lib', stars_min: 'star', date_from: 'tasks', date_to: 'tasks', task: 'folder', id_state: 'check' };
+  async function vColDetail(c) {
+    const [items, out] = await Promise.all([apiAll({ collection: c.id, order: 'time' }),
+      Promise.all(((c.exceptions || {}).excluded || []).slice(0, 60).map(ensureDetail))]);
+    store(items);
+    Object.assign(cd, { c, ids: items.map(a => a.id), out: out.filter(Boolean).map(a => a.id), tab: cd.c && cd.c.id === c.id ? cd.tab : 'all' });
+    const smart = c.kind === 'smart', ex = c.exceptions || { added: [], excluded: [] };
+    const tasks = new Set(items.flatMap(a => (a.task_ids || []).slice(0, 1)));
+    const tab = (k, l, n) => `<button type="button" class="seg-btn" data-action="cd-tab" data-v="${k}" aria-pressed="${cd.tab === k}">${l}（${n}）</button>`;
+    return `<div class="page cdp">
+      <header class="cd-head"><div><div class="cd-title"><h1 tabindex="-1">${esc(colTitle(c))}</h1><span class="cd-kind">${smart ? 'Smart Collection' : c.batch ? '导入批次' : '手动 Collection'}</span></div>
+          <p class="fl-sub">${c.size.toLocaleString()} 张 · ${tasks.size} 次拍摄</p></div>
+        <div class="cd-acts"><button type="button" class="btn lg" data-action="edit-col" data-id="${esc(c.id)}">${smart ? '编辑规则' : '编辑'}</button><a class="btn lg" href="#/review/${esc(c.id)}/grid">选择照片</a><button type="button" class="btn primary lg" data-action="lr-handoff">送到 Lightroom${ic('expand')}</button></div></header>
+      <div class="cd-sub">${smart ? `<div class="cd-chips">${ruleParts(c.rule).map(([k, v]) => `<span class="cd-chip">${esc(k)}：${esc(v)}</span>`).join('') || '<span class="cd-chip">全部照片</span>'}</div><span class="hint">新增照片符合条件时，自动加入</span>` : `<span class="hint">${esc(colLine(c))}</span>`}
+        ${smart ? `<button type="button" class="btn ghost sm cd-save" data-action="save-manual">${ic('folder')}保存为固定集合</button>` : `<button type="button" class="btn ghost sm cd-save" data-action="delete-col">${ic('trash')}删除集合</button>`}</div>
+      <div class="cd-body"><div class="cd-main">
+        ${smart ? `<div class="seg cd-tabs" role="group" aria-label="成员来源">${tab('all', '全部', c.size)}${tab('rule', '自动匹配', c.size - ex.added.length)}${tab('pin', '手动固定', ex.added.length)}${ex.excluded.length ? tab('out', '已排除', ex.excluded.length) : ''}</div>` : ''}
+        <div id="cd-grid">${cdGridHTML()}</div></div>
+        <aside class="cd-side">${smart ? `<section class="fl-panel"><div class="cd-ph"><h2>集合规则</h2><button type="button" class="btn sm" data-action="edit-col" data-id="${esc(c.id)}">编辑规则</button></div>
+            ${ruleParts(c.rule).map(([k, v], i) => `<div class="cd-rule">${ic(RULE_IC[Object.keys(c.rule)[i]] || 'check')}<span>${esc(k)}：${esc(v)}</span></div>`).join('') || '<p class="hint">没有条件：全部照片。</p>'}
+            <p class="hint">新增照片符合条件时，自动加入。</p></section>
+          <section class="fl-panel"><h2>成员统计</h2><dl class="cd-stats"><dt>${ic('retry')}规则命中</dt><dd>${(c.rule_hits || 0).toLocaleString()}</dd><dt>${ic('plus')}手动加入</dt><dd>${ex.added.length}</dd><dt>${ic('x')}手动排除</dt><dd>${ex.excluded.length}</dd><dt class="cd-final">最终成员</dt><dd class="cd-final">${c.size.toLocaleString()}</dd></dl></section>` : ''}
+          ${cdRecentHTML(items)}
+          <p class="hint cd-note">${ic('warn')}调整集合不会移动原片；同一张照片可以在多个集合里。</p></aside></div>
+    </div>`;
+  }
+  function cdRecentHTML(items) {
+    const by = new Map();
+    items.forEach(a => { const t = (a.task_ids || [])[0]; if (t) { if (!by.has(t)) by.set(t, []); by.get(t).push(a.id); } });
+    const last = Array.from(by.keys()).map(taskById).filter(Boolean).sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0];
+    if (!last) return '';
+    const ids = by.get(last.id);
+    return `<section class="fl-panel"><h2>最近变化</h2><div class="cd-recent"><span class="cd-plus">${ic('plus')}</span><div><b>最近一次拍摄 ${ids.length} 张</b><p class="hint">${esc(fmtTime(last.created_at).slice(0, 10))} · ${esc(last.title)}</p></div></div>
+      <div class="cd-thumbs">${ids.slice(0, 4).map(id => photo(A(id), 'thumb')).join('')}</div></section>`;
+  }
+  function cdGridHTML() {
+    const { c } = cd, ex = c.exceptions || { added: [], excluded: [] }, pins = new Set(ex.added);
+    const ids = cd.tab === 'out' ? cd.out : cd.ids.filter(id => (cd.tab === 'pin' ? pins.has(id) : cd.tab === 'rule' ? !pins.has(id) : true));
+    if (!ids.length) return `<div class="empty">${cd.tab === 'pin' ? '没有手动固定的照片。在「选择照片」里选中照片后可加入。' : cd.tab === 'out' ? '没有排除的照片。' : '还没有成员。'}</div>`;
+    const groups = new Map();
+    ids.forEach(id => { const t = (A(id).task_ids || [])[0] || ''; if (!groups.has(t)) groups.set(t, []); groups.get(t).push(id); });
+    const order = Array.from(groups.keys()).sort((x, y) => ((taskById(y) || {}).created_at || '').localeCompare((taskById(x) || {}).created_at || ''));
+    const act = id => (c.kind !== 'smart' ? ['cd-x', '移出集合'] : cd.tab === 'out' ? ['cd-reset', '恢复'] : pins.has(id) ? ['cd-reset', '取消固定'] : ['cd-x', '排除']);
+    return order.map(tid => {
+      const t = taskById(tid), list = groups.get(tid);
+      return `<details class="cd-sec" open><summary><b>${t ? `${esc(fmtTime(t.created_at).slice(0, 10))} · ${esc(t.title)}` : '其他'}</b><span class="hint">（${list.length} 张）</span></summary>
+        <div class="cd-grid">${list.map(id => { const a = A(id), [k, l] = act(id); return `<figure class="cd-card">${photo(a, 'large')}${pins.has(id) ? `<span class="cd-pin">${ic('flag')}手动固定</span>` : ''}${humanBadge(a) ? `<span class="cd-use">${humanBadge(a)}</span>` : ''}
+          <figcaption><span>${esc([a.taken_at && fmtTime(a.taken_at).slice(0, 10), t && t.title].filter(Boolean).join(' · ') || a.name)}</span><button type="button" class="btn sm ghost" data-action="${k}" data-id="${esc(id)}">${l}</button></figcaption></figure>`; }).join('')}</div></details>`;
+    }).join('');
+  }
+  async function cdMembers(body, msg) {
+    try { await api('POST', `/collections/${encodeURIComponent(cd.c.id)}/members`, body); toast(msg); await rerender(); } catch (e) { toast(errMsg(e)); }
   }
   async function refreshCol() {
     if (!ui.col) return;
@@ -1771,7 +2124,7 @@
       title: person ? '给人物命名' : '编辑集合', focus: '#ec-name',
       body: `${nameField}
         <div class="field"><label for="ec-desc">描述</label><textarea id="ec-desc" class="input" rows="3" maxlength="1000">${esc(c.description)}</textarea></div>
-        ${c.kind === 'smart' ? `<div class="field"><label for="ec-rule">规则（JSON，键同全部素材筛选）</label><textarea id="ec-rule" class="input mono" rows="3">${esc(JSON.stringify(c.rule || {}))}</textarea></div><p id="ec-preview" class="note info block" aria-live="polite" hidden></p>` : ''}
+        ${c.kind === 'smart' ? `${ruleFormHTML(c.rule || {})}<details class="ec-adv"><summary>高级：规则 JSON（键同所有照片的筛选）</summary><textarea id="ec-rule" class="input mono" rows="3" aria-label="规则 JSON">${esc(JSON.stringify(c.rule || {}))}</textarea></details><p id="ec-preview" class="note info block" aria-live="polite" hidden></p>` : ''}
         <p class="hint">${person ? '命名后，这一组的脸成为此人的参考：所有任务里认出是此人的照片都归入这个名字的分组，以后的扫描也会直接加进来。名字与已有的人相同，就合并为同一个人。' : '改名不影响成员和人工标记；之后重新分组也不会覆盖人工命名。'}</p>`,
       actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, dd) => {
@@ -1797,6 +2150,24 @@
       },
     });
     if (person) peopleOptions($('#ec-people', d));
+    if (c.kind === 'smart') d.addEventListener('input', e => {        // 表单改动写回 JSON，表单没有的键原样保留
+      const f = e.target.closest('[data-rule]');
+      if (!f) return;
+      let r;
+      try { r = JSON.parse(val(d, '#ec-rule') || '{}'); } catch (err) { r = {}; }
+      $$('[data-rule]', d).forEach(x => { const k = x.dataset.rule; if (x.value === '') delete r[k]; else r[k] = k === 'stars_min' ? Number(x.value) : x.value; });
+      $('#ec-rule', d).value = JSON.stringify(r);
+    });
+  }
+  // Smart 规则的常用条件（PRD §04 第一版：物种、日期、评分、用途、识别状态、批次；全部满足）
+  function ruleFormHTML(r) {
+    const one = v => (Array.isArray(v) ? v[0] : v) || '';
+    const sel = (k, label, opts) => `<label class="fsel"><span>${label}</span><select class="input sm" data-rule="${k}">${[['', '不限']].concat(opts).map(([v, l]) => `<option value="${esc(v)}" ${String(one(r[k])) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+    const txt = (k, label, type, ph) => `<label class="fsel"><span>${label}</span><input class="input sm" type="${type}" data-rule="${k}" value="${esc(one(r[k]))}" placeholder="${esc(ph || '')}"></label>`;
+    return `<fieldset class="fs rule-form"><legend>条件（全部满足）</legend>
+      ${txt('species', '物种', 'search', '学名、英文名或中文名')}${sel('use', '用途', Object.keys(USE).map(k => [k, USE[k][0]]))}
+      ${sel('stars_min', '星级', [['1', '≥ 1 星'], ['3', '≥ 3 星'], ['5', '5 星']])}${sel('id_state', '物种结论', Object.entries(ID_STATE_ZH))}
+      ${txt('date_from', '起始日期', 'date')}${txt('date_to', '结束日期', 'date')}${sel('task', '拍摄任务', S.tasks.map(t => [t.id, t.title]))}</fieldset>`;
   }
   async function peopleOptions(list) {
     try { list.innerHTML = (await api('GET', '/people')).map(p => `<option value="${esc(p.name)}"></option>`).join(''); } catch (e) { /* 只影响输入提示 */ }
@@ -1896,10 +2267,10 @@
   }
   function openAddToCol() {
     const ids = selTargets();
-    const manual = S.cols.filter(c => c.kind === 'manual' && (!ui.col || c.id !== ui.col.id));
+    const manual = S.cols.filter(c => (c.kind === 'manual' || c.origin === 'user') && (!ui.col || c.id !== ui.col.id));   // Smart：加入即手动固定（PRD §04）
     dialog({
       title: `把 ${ids.length} 张加入集合`,
-      body: `<div class="field"><label for="ac-col">已有集合</label><select id="ac-col" class="input"><option value="">新建 Manual 集合…</option>${manual.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></div>
+      body: `<div class="field"><label for="ac-col">已有集合</label><select id="ac-col" class="input"><option value="">新建 Manual 集合…</option>${manual.map(c => `<option value="${esc(c.id)}">${esc(c.name)}${c.kind === 'smart' ? '（Smart · 手动固定）' : ''}</option>`).join('')}</select></div>
         <div class="field"><label for="ac-name">新集合名称</label><input id="ac-name" class="input" maxlength="80"></div><p class="hint">加入集合不改变 Flag/Star，不移动原片。</p>`,
       actions: [{ label: '加入', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => {
@@ -1949,16 +2320,20 @@
   }
 
   // ---------- 路由 ----------
-  const VIEWS = { inbox: vInbox, tasks: vTasks, create: vCreate, task: vTask, review: vReview, collections: vCollections, deleted: vDeleted, library: vLibrary, settings: vSettings, species: vSpecies, 'species-one': vSpeciesOne };
-  const NAV_OF = { inbox: 'inbox', tasks: 'tasks', create: 'tasks', task: 'tasks', review: 'collections', collections: 'collections', deleted: 'collections', library: 'library', settings: 'settings', species: 'species', 'species-one': 'species' };
-  const TITLES = { inbox: '待整理', tasks: '任务与导入', create: '新建扫描任务', task: '任务', review: 'Review', collections: 'Collections', deleted: '已删除的集合', library: '全部素材', settings: '管理', species: '物种', 'species-one': '物种' };
+  const VIEWS = { inbox: vInbox, scan: vScan, 'flow-review': vFlowReview, compare: vCompare, tasks: vTasks, create: vCreate, task: vTask, review: vReview, collections: vCollections, deleted: vDeleted, library: vLibrary, settings: vSettings, species: vSpecies, 'species-one': vSpeciesOne };
+  const NAV_OF = { inbox: 'inbox', scan: 'inbox', 'flow-review': 'inbox', compare: 'inbox', tasks: 'tasks', create: 'tasks', task: 'tasks', review: 'collections', collections: 'collections', deleted: 'collections', library: 'library', settings: 'settings', species: 'species', 'species-one': 'species' };
+  const TITLES = { inbox: '待整理', scan: '扫描与归类', 'flow-review': 'Review', compare: '比较', tasks: '任务与导入', create: '新建扫描任务', task: '任务', review: 'Review', collections: 'Collections', deleted: '已删除的集合', library: '全部素材', settings: '管理', species: '物种', 'species-one': '物种' };
   function parse() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
     switch (parts[0]) {
       case 'new': return ['create', {}];
       case 'inbox': return ['inbox', {}];
-      case 'task': return ['task', { id: parts[1], tab: parts[2] || 'preview' }];
-      case 'review': return ['review', { id: parts[1] }];
+      case 'task':
+        if (parts[2] === 'scan') return ['scan', { id: parts[1] }];
+        if (parts[2] === 'review') return ['flow-review', { id: parts[1], concept: parts[3] }];
+        if (parts[2] === 'compare') return ['compare', { id: parts[1], concept: parts[3], enc: parts[4], frame: parts[5] }];
+        return ['task', { id: parts[1], tab: parts[2] || 'preview' }];
+      case 'review': return ['review', { id: parts[1], grid: parts[2] === 'grid' }];
       case 'collections': return parts[1] === 'deleted' ? ['deleted', {}] : ['collections', { cat: CAT[parts[1]] ? parts[1] : '' }];
       case 'library': return ['library', {}];
       case 'species': return parts[1] === 'task' ? (parts[3] ? ['species-one', { concept: parts[3], task: parts[2] }] : ['species', { task: parts[2] }]) : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
@@ -1984,6 +2359,7 @@
     }
     if (token !== ui.token) return;
     setHTML(main, html);
+    if (view === 'compare' && ui.view === 'compare') cpRender();
     main.scrollTop = 0;
     prefs.set('route', location.hash);
     const navKey = view === 'collections' && params.cat ? 'col-' + params.cat : NAV_OF[view];
@@ -2024,6 +2400,8 @@
         if (JSON.stringify(scopeCols()) !== ui.colKey && safeForStructure()) { const area = $('#col-area'); if (area) setHTML(area, colAreaHTML()); }
       }
       if (ui.view === 'review') await refreshCol();
+      if (ui.view === 'scan') await pollScan();
+      if (ui.view === 'flow-review' || ui.view === 'compare') await pollFlow();
     } catch (e) {
       if (e.status === 0) { S.down = true; patchBinds('svc'); }
     } finally { polling = false; }
@@ -2082,7 +2460,22 @@
     'sp-kind': el => { ui.spf.kind = el.dataset.kind; spRefresh(); },
     'sp-select': el => { ui.spf.sel = el.dataset.id; spRefresh(); const b = $(`.wl-card[data-concept="${CSS.escape(el.dataset.id)}"] .wl-pick`); if (b) b.focus({ preventScroll: true }); },
     'sp-view': el => { ui.spf.view = el.dataset.v; prefs.set('spview', el.dataset.v); spRefresh(); },
-    'lib-preset': el => { ui.lib = { [el.dataset.filter]: el.dataset.value }; location.hash = '#/library'; },
+    'lib-preset': el => { ui.lib = Object.assign({ [el.dataset.filter]: el.dataset.value }, el.dataset.task ? { task: el.dataset.task } : {}); location.hash = '#/library'; },
+    'fr-toggle': el => { const id = el.dataset.id; if (fr.open.has(id)) fr.open.delete(id); else fr.open.add(id); frRefresh(); const b = $(`[data-action="fr-toggle"][data-id="${CSS.escape(id)}"]`); if (b) b.focus({ preventScroll: true }); },
+    'cp-use': el => cpUse(el.dataset.v),
+    'cp-next': () => cpNext(),
+    'cp-keep': () => keepBest(cp.shown[cp.active]),
+    'cp-full': () => { const el = $('.cp'); if (document.fullscreenElement) document.exitFullscreen(); else if (el && el.requestFullscreen) el.requestFullscreen(); },
+    'cp-mode': el => {
+      const n = Number(el.dataset.v);
+      prefs.set('cpmode', String(n));
+      const cur = cp.shown[cp.active];
+      if (n === 1) cp.shown = [cur];
+      else if (cp.shown.length === 1) { const other = cp.enc.candidates.concat(cp.enc.asset_ids).find(id => id !== cur); if (other) cp.shown = [other, cur]; }
+      cp.active = cp.shown.length - 1;
+      $$('[data-action="cp-mode"]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === cp.shown.length)));
+      cpRender();
+    },
     'sp-cover': async () => {
       const ws = ui.ws, k = ui.sp;
       if (!ws || !ws.current || !k) { toast('先在网格里选一张照片'); return; }
@@ -2185,6 +2578,9 @@
     undo: () => doUndo(),
     shortcuts: () => showShortcuts(),
     'edit-col': el => openEditCol(el.dataset.id),
+    'cd-tab': el => { cd.tab = el.dataset.v; $$('[data-action="cd-tab"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cd.tab))); setHTML($('#cd-grid'), cdGridHTML()); },
+    'cd-x': el => cdMembers({ remove: [el.dataset.id] }, cd.c.kind === 'smart' ? '已排除；规则以后也不会再把它加回来' : '已移出集合；照片和用途不变'),
+    'cd-reset': el => cdMembers({ reset: [el.dataset.id] }, '已交回规则决定'),
     'complete-col': () => openComplete(),
     'zero-col': () => openZero(),
     'reopen-col': async () => { try { await api('POST', `/collections/${encodeURIComponent(ui.col.id)}/reopen`); toast(`已重新打开「${ui.col.name}」，人工标记不变`); await refreshCol(); await refreshCols(); } catch (e) { toast(errMsg(e)); } },
@@ -2266,58 +2662,95 @@
   ];
   const IMPORT_ST = { planned: '待确认', queued: '排队中', running: '导入中', completed: '导入完成', partial: '部分完成 · 有失败项', failed: '导入失败' };
   const imp = { task: null, plan: null };
+  // 导入确认（图 4）：四种用途分页核对照片，右侧是目标、数量与执行；文件、重复与物种统计在下方“核对”里。
+  const IMP_TABS = [['edit', '修图候选', 'lib', '准备修图', '选入修图：复制入库；可交接 Lightroom'], ['record', '保留记录', 'tasks', '留下拍到的内容', '记录片：可以保留，暂不修图'],
+    ['pending', '待定', 'warn', '还没决定', '默认一并复制；之后继续判断'], ['reject', '待清理', 'trash', '淘汰的照片', '不从新批次复制；来源卡上的文件不在这一步删除']];
+  const IMP_N = 60;
   async function vImport(p) {
     const t = await api('GET', `/tasks/${encodeURIComponent(p.task)}`);
+    S.tasks = S.tasks.filter(x => x.id !== t.id).concat([t]);
     imp.task = t;
-    imp.plan = p.plan ? await api('GET', `/imports/${encodeURIComponent(p.plan)}`) : null;
-    const last = imp.plan || (await api('GET', '/imports', null, { task: t.id }))[0] || null;
-    return `<div class="page"><div class="narrow">
-      <nav class="crumbs" aria-label="位置"><a href="#/tasks">任务</a><span aria-hidden="true">/</span><a href="#/task/${esc(t.id)}/collections">${esc(t.title)}</a><span aria-hidden="true">/</span><span>完成与导入</span></nav>
-      <header class="page-head"><div><h1 tabindex="-1">完成与导入</h1><p class="lede">这次保留多少、准备修多少、还有多少待定、将复制哪些文件。导入只读取来源，复制后逐个校验字节与 sha256 再入库；成功导入后仍可继续 Review。</p></div></header>
-      <div id="imp-body">${imp.plan ? importPlanHTML(imp.plan) : importFormHTML(last)}</div></div></div>`;
+    const plans = await api('GET', '/imports', null, { task: t.id });
+    imp.plan = p.plan ? await api('GET', `/imports/${encodeURIComponent(p.plan)}`) : plans[0] ? await api('GET', `/imports/${encodeURIComponent(plans[0].id)}`) : null;
+    if (!imp.plan) {                      // 用上次（任意任务）的目标根目录生成一份计划；没有就请人填写
+      const any = (await api('GET', '/imports'))[0];
+      if (any) { try { imp.plan = await api('POST', `/tasks/${encodeURIComponent(t.id)}/import-plan`, { dest_root: any.dest_root, place: '', include_pending: true }); } catch (e) { imp.plan = null; } }
+    }
+    imp.tab = IMP_TABS.some(x => x[0] === imp.tab) ? imp.tab : 'record';
+    const [sp, ...pages] = await Promise.all([api('GET', '/species', null, { task: t.id })].concat(IMP_TABS.map(([u]) => api('GET', '/assets', null, { task: t.id, use: u, limit: u === imp.tab ? IMP_N : 1, order: 'time' }))));
+    imp.sp = sp; imp.n = {}; IMP_TABS.forEach(([u], i) => { imp.n[u] = pages[i].total; if (u === imp.tab) { store(pages[i].items); imp.items = pages[i].items; } });
+    return `<div class="page fl im">${flowHead(t, 'import', '本次选片结果', `${taskDate(t)} · ${esc(t.title)} <span class="fl-dot">|</span> ${((t.review || {}).total || 0).toLocaleString()} 张照片`)}
+      <div class="fl-body"><div class="fl-main">
+        <div class="im-tabs" role="tablist" aria-label="按用途核对">${IMP_TABS.map(([u, l, i]) => `<button type="button" role="tab" class="im-tab" data-action="imp-tab" data-v="${u}" aria-selected="${imp.tab === u}">${ic(i)}<span>${l}</span><b>${(imp.n[u] || 0).toLocaleString()}</b></button>`).join('')}</div>
+        <section class="im-sec" id="imp-grid">${impGridHTML()}</section>
+        <section class="im-checks" id="imp-checks">${imp.plan ? importChecksHTML(imp.plan) : ''}</section>
+      </div>
+      <aside class="fl-panel im-panel" id="imp-body">${imp.plan ? importPlanHTML(imp.plan) : importFormHTML(plans[0] || null)}</aside></div></div>`;
+  }
+  function impGridHTML() {
+    const tab = IMP_TABS.find(x => x[0] === imp.tab), n = imp.n[imp.tab] || 0;
+    const few = {};
+    imp.sp.species.concat(imp.sp.to_confirm).forEach(k => { if (k.photos <= 2) few[k.taxon] = k.photos; });
+    const card = a => { const sole = a.species && few[a.species.taxon]; return `<figure class="im-card">${sole ? `<span class="im-prot">${ic('check')}本次仅 ${sole} 张 · 保护记录</span>` : ''}<a href="${a.species ? '' : ''}#/task/${esc(imp.task.id)}/preview" tabindex="-1" aria-hidden="true">${photo(a, 'large')}</a>
+      <figcaption><span class="im-ck u-${esc(a.use)}">${ic(a.use === 'reject' ? 'x' : a.use === 'pending' ? 'warn' : 'check')}</span><span><small>${esc(useZh(a.use))}</small><b>${esc(a.species ? a.species.zh || a.species.common || a.species.taxon : a.name)}</b></span><span class="sc-fmt">${esc(fmtOf(a))}</span></figcaption></figure>`; };
+    return `<header class="im-head"><div><h2>${tab[3]}</h2><p class="hint">${tab[4]}</p></div><span class="hint">共 ${n.toLocaleString()} 张</span></header>
+      <div class="im-grid">${imp.items.map(card).join('') || `<div class="empty">没有${esc(tab[1])}的照片。</div>`}</div>
+      ${n > imp.items.length ? `<p class="hint sc-more">显示前 ${imp.items.length} 张 · <a href="#/library" data-action="lib-preset" data-filter="use" data-value="${esc(imp.tab)}" data-task="${esc(imp.task.id)}">在所有照片中查看全部 ${n.toLocaleString()} 张</a></p>` : ''}`;
   }
   function importFormHTML(last) {
-    return `<section class="form-sec">
+    return `<h2>确认导入</h2><div class="im-form">
       <div class="field"><label for="imp-dest">目标根目录</label><input id="imp-dest" class="input mono" autocomplete="off" placeholder="/Volumes/Photos/Wildlife" value="${esc(last ? last.dest_root : '')}"><p class="hint">其下新建 YYYY-MM-DD_地点 目录；跨日拍摄用日期范围。</p></div>
       <div class="field"><label for="imp-place">地点</label><input id="imp-place" class="input" autocomplete="off" placeholder="未填写则为“未标注地点”" value="${esc(last && last.place ? last.place : '')}"></div>
-      <label class="switch-row boxed"><span class="sw-text"><b>待定照片一起导入</b><small>默认开启，避免尚未决定就失去卡上的素材</small></span><input type="checkbox" role="switch" class="switch" id="imp-pending-new" ${last && !last.include_pending ? '' : 'checked'}></label>
+      <label class="check-row"><input type="checkbox" id="imp-pending-new" ${last && !last.include_pending ? '' : 'checked'}> 待定照片一起导入</label>
       <p class="field-err" id="imp-err" aria-live="polite"></p>
-      <button type="button" class="btn primary" data-action="import-plan">${ic('check')}生成导入计划</button></section>`;
+      <button type="button" class="btn primary wide" data-action="import-plan">${ic('check')}生成导入计划</button></div>
+      <p class="hint">${(imp.n.edit || 0) + (imp.n.record || 0) + (imp.n.pending || 0)} 张保留或待定 · ${imp.n.reject || 0} 张淘汰不复制。</p>`;
   }
   function importPlanHTML(p) {
-    const u = p.uses || {}, nc = p.not_copied || {}, d = p.duplicates || {}, un = p.unfinished || {};
-    const take = id => id === 'reject' ? false : id === 'pending' ? p.include_pending : true;
-    const rows = IMPORT_USES.map(([id, label, how]) => `<tr><th scope="row">${label}</th><td>${u[id] || 0}</td><td>${id === 'pending' && !p.include_pending ? '本次不复制；仍仅在来源中' : how}</td><td>${take(id) ? '复制' : '—'}</td></tr>`).join('');
-    const warn = s => `<p class="note warn block">${ic('warn')}${s}</p>`;
-    const notes = [
-      p.stale ? warn('生成计划后又有决定变化；请重新生成计划，再导入。') : '',
-      !p.include_pending && nc.pending ? warn(`${nc.pending} 张待定照片不导入，它们仍仅在来源中。`) : '',
-      un.offline ? warn(`${un.offline} 张有文件离线或缺失：导入时会列为失败，来源恢复后可重试。`) : '',
-      un.scan_active ? warn('扫描仍在进行；新发现的素材不在本计划中，扫描结束后可再生成一次。') : '',
-      un.analysis_pending ? `<p class="note block">${un.analysis_pending} 张分析尚未完成；不影响导入，物种可在入库后继续确认。</p>` : '',
-      p.enough_space ? '' : warn(`目标磁盘空间不足：需要 ${fmtBytes(p.needed_bytes)}，可用 ${fmtBytes(p.free_bytes)}。`),
-    ].join('');
-    const busy = ['queued', 'running'].includes(p.status);
-    const runnable = ['planned', 'partial', 'failed'].includes(p.status);
-    const label = p.status === 'planned' ? `导入 ${p.assets} 张` : '继续导入未完成项';
+    const u = p.uses || {}, nc = p.not_copied || {};
+    const busy = ['queued', 'running'].includes(p.status), runnable = ['planned', 'partial', 'failed'].includes(p.status);
+    const row = (icon, label, n, cls) => `<div class="im-row ${cls || ''}">${icon}<span>${label}</span><b>${(n || 0).toLocaleString()} 张</b></div>`;
+    return `<h2>确认导入</h2>
+      <div class="im-blk"><p class="im-lbl">目标文件夹</p><div class="im-dest" title="${esc(p.dest_dir)}">${ic('folder')}<span class="mono">${esc(p.folder)}</span><button type="button" class="icon-btn" data-action="imp-dest" aria-label="更改目标根目录" title="${esc(p.dest_root)}">${ic('edit')}</button></div></div>
+      <div class="im-blk"><p class="im-lbl">导入内容</p>
+        ${row(ic('lib'), '修图候选', u.edit)}${row(`<span class="im-ok">${ic('check')}</span>`, '保留记录', u.record)}
+        ${p.status === 'planned' ? `<label class="im-row"><input type="checkbox" id="imp-pending" ${p.include_pending ? 'checked' : ''}><span>待定一并保留</span><b>${(u.pending || 0).toLocaleString()} 张</b></label>` : row('<span class="im-q">?</span>', p.include_pending ? '待定一并保留' : '待定（不导入）', u.pending)}</div>
+      <div class="im-total"><span>将导入</span><b>${(p.assets || 0).toLocaleString()} 张</b></div>
+      <label class="im-row im-lr"><input type="checkbox" id="imp-lr" ${imp.lr ? 'checked' : ''} ${u.edit ? '' : 'disabled'}><span>导入后在 Lightroom 打开 ${(u.edit || 0).toLocaleString()} 张</span></label>
+      <a class="im-row im-clean" href="#/cleanup">${ic('trash')}<span>待清理</span><b>${(nc.reject || u.reject || 0).toLocaleString()} 张 · 稍后处理</b></a>
+      ${p.stale ? `<p class="note warn block">${ic('warn')}生成计划后又有决定变化，请先更新计划。</p><button type="button" class="btn wide" data-action="imp-replan">${ic('retry')}更新导入计划</button>` : ''}
+      ${p.enough_space ? '' : `<p class="note warn block">${ic('warn')}空间不足：需要 ${fmtBytes(p.needed_bytes)}，可用 ${fmtBytes(p.free_bytes)}。</p>`}
+      <p class="im-verify">${ic('check')}复制并逐个校验字节与 sha256 后入库 · ${p.files} 个文件 · ${fmtBytes(p.bytes)}</p>
+      ${p.status === 'planned' || !runnable ? '' : ''}
+      ${busy || p.status !== 'planned' ? importProgressHTML(p) : ''}
+      ${runnable && !p.stale ? `<button type="button" class="btn primary wide" data-action="import-run" data-id="${esc(p.id)}" ${p.enough_space ? '' : 'disabled'}>${p.status === 'planned' ? `确认导入 ${(p.assets || 0).toLocaleString()} 张` : '继续导入未完成项'}</button>` : ''}
+      <a class="btn wide" href="#/task/${esc(p.task_id)}/review">继续 Review</a>`;
+  }
+  function importProgressHTML(p) {
+    const g = p.progress || {};
+    return `<div class="im-prog"><p><b>${esc(IMPORT_ST[p.status] || p.status)}</b> · ${g.assets_done || 0}/${g.assets_total || 0} 张 · ${g.files_done || 0}/${g.files_total || 0} 个文件已校验</p>${bar(pct(g.bytes_done, g.bytes_total))}</div>`;
+  }
+  function importChecksHTML(p) {
+    const d = p.duplicates || {}, un = p.unfinished || {}, nc = p.not_copied || {};
+    const warn = x => `<p class="note warn block">${ic('warn')}${x}</p>`;
     const dupList = (d.items || []).length ? `<details><summary>精确重复与已有副本（${d.items.length}）</summary><ul class="hist">${d.items.map(x => `<li class="mono">${esc(x.path)} → ${esc(x.existing)}</li>`).join('')}</ul></details>` : '';
     const renList = (p.renamed.items || []).length ? `<details><summary>同名改为批次后缀（${p.renamed.files} 个文件）</summary><ul class="hist">${p.renamed.items.map(x => `<li class="mono">${esc(x.path)} → ${esc(x.to)}</li>`).join('')}</ul></details>` : '';
-    return `${notes}
-      <section class="card"><h3>本次决定<span class="sub">照片数，不等于文件数</span></h3>
-        <table class="imp-uses"><thead><tr><th>用途</th><th>照片</th><th>默认处理</th><th>本次</th></tr></thead><tbody>${rows}</tbody>
-        <tfoot><tr><th scope="row">总计</th><td>${u.total || 0}</td><td colspan="2">导入 ${p.assets} 张${nc.versions ? ` · 同一拍摄的其他版本 ${nc.versions} 张不另复制` : ''}</td></tr></tfoot></table></section>
-      <section class="card"><h3>文件与目标</h3><dl class="meta imp-meta">
+    return `<h2 class="im-ch">导入前核对</h2>
+      ${!p.include_pending && nc.pending ? warn(`${nc.pending} 张待定照片不导入，它们仍仅在来源中。`) : ''}${un.offline ? warn(`${un.offline} 张有文件离线或缺失：导入时会列为失败，来源恢复后可重试。`) : ''}${un.scan_active ? warn('扫描仍在进行；新发现的素材不在本计划中，扫描结束后可再生成一次。') : ''}
+      ${un.analysis_pending ? `<p class="note block">${un.analysis_pending} 张分析尚未完成；不影响导入，物种可在入库后继续确认。</p>` : ''}
+      <section class="card"><h3>文件与目标<span class="sub">照片数不等于文件数</span></h3><dl class="meta imp-meta">
         <dt>文件</dt><dd>${p.files} 个（RAW、同拍 JPEG 与 sidecar ${p.sidecars} 个一起复制）· ${fmtBytes(p.bytes)}</dd>
         <dt>目标</dt><dd class="mono">${esc(p.dest_dir)}</dd>
         <dt>容量</dt><dd>需复制 ${fmtBytes(p.needed_bytes)} · 可用 ${fmtBytes(p.free_bytes)}</dd>
         <dt>重复</dt><dd>目标已有相同文件 ${d.identical || 0} · 之前已导入 ${d.reuse || 0} · 同内容已在库中 ${d.duplicate || 0}（不再复制；连拍相似不算重复）</dd>
-        <dt>同名</dt><dd>${p.renamed.files ? `${p.renamed.files} 个文件加批次后缀 _B${esc(p.seq)}，整组同名，不覆盖已有文件` : '无冲突'}</dd></dl>${dupList}${renList}</section>
-      ${importSpeciesHTML(p)}
-      ${p.status === 'planned' ? `<label class="switch-row boxed"><span class="sw-text"><b>待定照片一起导入</b><small>关闭后待定照片仍仅在来源中</small></span><input type="checkbox" role="switch" class="switch" id="imp-pending" ${p.include_pending ? 'checked' : ''}></label>` : ''}
-      ${p.status === 'planned' ? '' : importResultHTML(p)}
-      <footer class="form-foot"><a class="btn ghost" href="#/task/${esc(p.task_id)}/collections">继续 Review</a>
-        ${runnable ? `<button type="button" class="btn primary" data-action="import-run" data-id="${esc(p.id)}" ${p.enough_space ? '' : 'disabled'}>${ic('download')}${label}</button>` : ''}
-        ${busy ? `<span class="note">${IMPORT_ST[p.status]}…</span>` : ''}</footer>`;
+        <dt>同名</dt><dd>${p.renamed.files ? `${p.renamed.files} 个文件加批次后缀 _B${esc(p.seq)}，整组同名，不覆盖已有文件` : '无冲突'}</dd>
+        ${nc.versions ? `<dt>其他版本</dt><dd>同一拍摄的其他版本 ${nc.versions} 张不另复制</dd>` : ''}</dl>${dupList}${renList}</section>
+      ${importSpeciesHTML(p)}${p.status === 'planned' ? '' : importResultHTML(p)}`;
+  }
+  function impPaint() {
+    const b = $('#imp-body'), c = $('#imp-checks');
+    if (b) setHTML(b, imp.plan ? importPlanHTML(imp.plan) : importFormHTML(null));
+    if (c && imp.plan) setHTML(c, importChecksHTML(imp.plan));
   }
   function importResultHTML(p) {
     const g = p.progress || {}, nc = p.not_copied || {};
@@ -2353,7 +2786,7 @@
     location.hash = `#/import/${encodeURIComponent(task)}/${encodeURIComponent(p.id)}`;
   }
   Object.assign(VIEWS, { import: vImport });
-  Object.assign(NAV_OF, { import: 'tasks' });
+  Object.assign(NAV_OF, { import: 'inbox' });
   Object.assign(TITLES, { import: '完成与导入' });
   Object.assign(ACTIONS, {
     'import-plan': async () => {
@@ -2363,21 +2796,36 @@
     },
     'import-collection': async el => {
       el.disabled = true;
-      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/collection`); setHTML($('#imp-body'), importPlanHTML(imp.plan)); toast('已存为 Collection'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
+      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/collection`); impPaint(); toast('已存为 Collection'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
     },
+    'imp-tab': async el => {
+      imp.tab = el.dataset.v;
+      $$('.im-tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.v === imp.tab)));
+      try { const pg = await api('GET', '/assets', null, { task: imp.task.id, use: imp.tab, limit: IMP_N, order: 'time' }); store(pg.items); imp.items = pg.items; imp.n[imp.tab] = pg.total; setHTML($('#imp-grid'), impGridHTML()); } catch (e) { toast(errMsg(e)); }
+    },
+    'imp-replan': async () => { const p = imp.plan; try { await importReplan(p.task_id, { dest_root: p.dest_root, place: p.place || '', include_pending: p.include_pending }); } catch (e) { toast(errMsg(e)); } },
+    'imp-dest': () => { imp.plan = null; impPaint(); const p = $('#imp-dest'); if (p) p.focus(); },
     'import-run': async el => {
       el.disabled = true;
-      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/run`); setHTML($('#imp-body'), importPlanHTML(imp.plan)); toast('已开始导入；可以继续 Review'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
+      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/run`); impPaint(); toast('已开始导入；可以继续 Review'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
     },
   });
   document.addEventListener('change', async e => {
+    if (e.target.id === 'imp-lr') { imp.lr = e.target.checked; imp.lrSent = false; return; }
     if (e.target.id !== 'imp-pending' || !imp.plan) return;
     const p = imp.plan;
     try { await importReplan(p.task_id, { dest_root: p.dest_root, place: p.place || '', include_pending: e.target.checked }); } catch (err) { toast(errMsg(err)); }
   });
   setInterval(async () => {
     if (ui.view !== 'import' || !imp.plan || !['queued', 'running'].includes(imp.plan.status)) return;
-    try { imp.plan = await api('GET', `/imports/${encodeURIComponent(imp.plan.id)}`); const box = $('#imp-body'); if (box) setHTML(box, importPlanHTML(imp.plan)); } catch (e) { /* 下次轮询再试 */ }
+    try {
+      imp.plan = await api('GET', `/imports/${encodeURIComponent(imp.plan.id)}`);
+      if (imp.plan.status === 'completed' && imp.lr && !imp.lrSent) {        // 「导入后在 Lightroom 打开」：交接本任务选入修图的照片（优先导入后的副本）
+        imp.lrSent = true;
+        try { const h = await api('POST', '/handoffs', { rule: { task: imp.plan.task_id, use: 'edit' }, name: imp.plan.folder }); toast(`已交给 Lightroom：${(h.counts || {}).total != null ? h.counts.total + ' 张' : imp.plan.folder}`); } catch (e) { toast(`Lightroom 交接失败：${errMsg(e)}`); }
+      }
+      if (safeForStructure()) impPaint();
+    } catch (e) { /* 下次轮询再试 */ }
   }, 2000);
   // ---------- 完成与导入 · 结束 ----------
   function presetDialog(p, title, saveAs) {
@@ -2419,6 +2867,8 @@
   }
 
   document.addEventListener('click', e => {
+    const pick = ui.view === 'compare' && e.target.closest('[data-cp-frame]');
+    if (pick) { if (!cp.shown.includes(pick.dataset.cpFrame)) cpReplace(pick.dataset.cpFrame); else { cp.active = cp.shown.indexOf(pick.dataset.cpFrame); cpChrome(); } return; }
     const act = e.target.closest('[data-action]');
     if (act) {
       if (act.disabled) return;
@@ -2439,6 +2889,10 @@
       setCurrent(id, { keepSel: true });
     } else setCurrent(id);
   });
+  document.addEventListener('pointerdown', e => {
+    const f = ui.view === 'compare' && e.target.closest('.cp-pane');
+    if (f && Number(f.dataset.cp) !== cp.active) { cp.active = Number(f.dataset.cp); cpChrome(); }
+  });
   document.addEventListener('dblclick', e => {
     const tl = e.target.closest('.tile[data-asset]');
     if (tl && ui.ws) { setCurrent(tl.dataset.asset); openLightbox(); }
@@ -2455,6 +2909,7 @@
     const mod = e.metaKey || e.ctrlKey;
     const k = e.key;
     if (mod && k.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
+    if (ui.view === 'compare' && cp.enc && !open && cpKey(e)) return;
     const ws = ui.ws;
     if (!ws) return;
     if (mod && k.toLowerCase() === 'a' && !lb) { e.preventDefault(); ws.sel = new Set(ws.ids); applySel(); return; }
@@ -2488,6 +2943,11 @@
     } else if (t.form && t.form.id === 'lib-filters') {
       ui.lib[t.name] = t.value;
       route(true);
+    } else if (t.dataset.actionChange === 'fr-cands') {
+      prefs.set('cands', t.value);
+      route(true);
+    } else if (t.matches('[data-cp-sync]')) {
+      prefs.set('cmpsync', t.checked ? '1' : '0');
     } else if (t.dataset.actionChange === 'batch-stars' && t.value !== '') {
       const n = Number(t.value);
       doMark(Array.from(ui.ws.sel), { stars: n }, n ? `批量 ${n} 星` : '批量清除星级');

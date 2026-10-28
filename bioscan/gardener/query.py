@@ -86,12 +86,15 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
         col = store.one("SELECT kind, rule FROM collections WHERE id = ?", (f["collection"],))
         if col is None or f["collection"] in seen or depth >= MAX_DEPTH:
             add("0")
-        elif col["kind"] == "smart":
+        elif col["kind"] == "smart":       # PRD §04: (rule hits ∪ a person's pins) − a person's exclusions
             try:
                 sub, ps = where(store, json.loads(col["rule"] or "{}"), depth + 1, seen | {f["collection"]})
             except ValueError:
                 sub, ps = "0", []
-            add(f"({sub})", *ps)
+            add(f"((({sub}) OR EXISTS (SELECT 1 FROM collection_members cm WHERE cm.asset_id = a.id AND "
+                "cm.collection_id = ? AND cm.removed_at IS NULL)) AND NOT EXISTS (SELECT 1 FROM collection_members cx "
+                "WHERE cx.asset_id = a.id AND cx.collection_id = ? AND cx.removed_at IS NOT NULL))",
+                *ps, f["collection"], f["collection"])
         else:
             add("EXISTS (SELECT 1 FROM collection_members cm WHERE cm.asset_id = a.id AND cm.collection_id = ? "
                 "AND cm.removed_at IS NULL)", f["collection"])

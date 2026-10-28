@@ -893,12 +893,14 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         return out | {"collections": list(cols.values())}
 
     @r.get("/encounters")
-    def get_encounters(task: str | None = None, concept: str | None = None) -> dict[str, Any]:
+    def get_encounters(task: str | None = None, concept: str | None = None, candidates: int = rv.CANDIDATES) -> dict[str, Any]:
         if not task and not concept:
             raise Error("task or concept is required")
+        if not 1 <= candidates <= 8:
+            raise Error("candidates must be 1..8")
         if task:
             task_or_404(task)
-        return rv.encounters(store.conn(), task_id=task, concept=concept)
+        return rv.encounters(store.conn(), task_id=task, concept=concept, candidates=candidates)
 
     @r.post("/encounters/{eid}/split", status_code=201)
     def split_encounter(eid: str, body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
@@ -1110,14 +1112,29 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     @r.post("/collections/{cid}/members")
     def members(cid: str, body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
-        manual(cid, "直接调整成员")
+        """Manual: add / remove members. Smart (契约修订 8, PRD §04): `add` pins a photo the rule misses,
+        `remove` excludes one, `reset` drops a pin or exclusion so the rule decides again."""
+        col = col_or_404(cid)
+        if col["deleted_at"]:
+            raise Error("collection is deleted")
         add, rem = strs(body.get("add") or [], "add"), strs(body.get("remove") or [], "remove")
-        check_assets(add)
+        reset = strs(body.get("reset") or [], "reset")
+        if reset and col["kind"] != "smart":
+            raise Error("reset is for a Smart Collection's pins and exclusions")
+        check_assets(add + rem)
         with store.tx() as c:
             n_add = st.add_members(c, cid, add, "user")
             n_rem = st.remove_members(c, cid, rem, "user")
-            st.collection_history(c, cid, "members", {"add": add, "remove": rem}, actor)
-            touch(c, add + rem)
+            if col["kind"] == "smart":            # a rule hit with no member row is excluded by a tombstone
+                t = now()
+                n_rem += sum(c.execute("INSERT OR IGNORE INTO collection_members (collection_id, asset_id, added_by, "
+                                       "added_at, removed_at, removed_by) VALUES (?, ?, 'user', ?, ?, 'user')",
+                                       (cid, i, t, t)).rowcount for i in rem)
+                for i in reset:
+                    c.execute("DELETE FROM collection_members WHERE collection_id = ? AND asset_id = ?", (cid, i))
+            st.collection_history(c, cid, "members", {"add": add, "remove": rem} | ({"reset": reset} if reset else {}),
+                                  actor)
+            touch(c, add + rem + reset)
         return store.collection(cid) | {"added": n_add, "removed": n_rem}
 
     def common_task(cols: list[dict[str, Any]]) -> str | None:

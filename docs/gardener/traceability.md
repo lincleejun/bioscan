@@ -39,7 +39,7 @@
 | R32 | 导出“复制内容”默认关，只生成一个 XML；开启复制所选（视频整段）（D23，§13 场景 6） | `export.export`；`POST /export` | `test_media_export*`、`test_core_*` | 见 PR 证据 |
 | R33 | XML 不冒称 Lightroom 可读；显式兼容边界（§10） | `compatibility="gardener-only"` + 注释；UI 文案 | `test_media_export*` | 见 PR 证据 |
 | R34 | 复制校验与同名冲突（§10） | sha256 校验；rename/skip/fail | `test_media_export*` | 见 PR 证据 |
-| R35 | 页面：全部素材 / Collections / 任务 / 管理；任务内 Preview 与 Collections 两视图（D36，§11） | `web/` | `test_ui_*`（导航顺序） | 见 PR 证据 |
+| R35 | 页面（契约修订 8，取代 D36）：待整理 / 所有照片 / Collections（Wildlife · 旅行 · 精选 · 待修图）/ 任务与导入 / 管理；每个批次 扫描 → Review → 导入（AfterShooting PRD §05、§23–§28） | `web/` | `test_ui_*`（导航顺序） | #120 |
 | R36 | 归档任务；删除 Collection 可恢复；清理缓存不丢记录；Reject 不触发文件操作；无永久删除原片（D34，§12，§13 场景 9/10） | `/archive`、软删除 `/restore`、`/storage/clear-cache` | `test_core_*` | 见 PR 证据 |
 | R37 | 原片只读，不自动移动、改名、删除（D09，§12） | 无任何写来源路径的代码；导出拒绝来源内目的地 | `test_core_*`；真实数据前后 sha256 比对 | 见 PR 证据 |
 | R38 | 多客户端修改用版本检测冲突，不静默覆盖人工判断（§12） | `marks.version`、`collections.version`、409 | `test_core_*` | 见 PR 证据 |

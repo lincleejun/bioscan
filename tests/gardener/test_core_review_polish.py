@@ -57,6 +57,9 @@ def test_a_split_burst_stays_split_across_rescans_and_species_identity_is_unaffe
             assert kb["burst_id"] == new and kb["reject"] == [p4]               # keep-best stays in its half
             enc = c.get(f"{API}/encounters", params={"task": t["id"]}).json()["encounters"]
             assert sorted(b["size"] for e in enc for b in e["bursts"]) == [2, 3]
+            one = c.get(f"{API}/encounters", params={"task": t["id"], "candidates": 1}).json()["encounters"]
+            assert [len(e["candidates"]) for e in one] == [1] * len(enc)         # 契约修订 8: 每组推荐 N 张
+            assert c.get(f"{API}/encounters", params={"task": t["id"], "candidates": 9}).status_code == 400
 
         check()
         runs = len(c.get(f"{API}/assets/{p3}").json()["ai_history"])

@@ -92,9 +92,10 @@ def _rank(m: dict[str, Any]) -> tuple:
     return (m["use"] == "edit", m["use"] == "record", m["stars"], -(m["burst_rank"] or 10 ** 6), m["score"] or 0.0)
 
 
-def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None) -> dict[str, Any]:
+def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None,
+               candidates: int = CANDIDATES) -> dict[str, Any]:
     """The encounters of a task and/or of one species (only that species' photos), each with its bursts
-    (a burst's representative is its best frame), up to CANDIDATES representative candidates and the
+    (a burst's representative is its best frame), up to `candidates` representative candidates and the
     species it shows; `unassigned` = photos in scope without one (no capture time, or not grouped yet)."""
     conds, ps = ([IN_TASK_REP, "em.task_id = ?"], [task_id, task_id]) if task_id else (["a.version_of IS NULL"], [])
     if concept:
@@ -137,7 +138,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
             rep = max(g, key=_rank)
             bursts.append({"id": None if isinstance(k, tuple) else k, "size": len(g), "rep": rep["id"],
                            "asset_ids": [m["id"] for m in g], "_rank": _rank(rep)})
-        cands = [b["rep"] for b in sorted(bursts, key=lambda b: b["_rank"], reverse=True)[:CANDIDATES]]
+        cands = [b["rep"] for b in sorted(bursts, key=lambda b: b["_rank"], reverse=True)[:candidates]]
         for b in bursts:
             b.pop("_rank")
         sp = []

@@ -487,7 +487,21 @@ class Store:
                 "user_edited": bool(row["user_edited"]),
                 "time_basis": summ.get("time_basis"), "uncertain": len(summ.get("uncertain_ids") or []),
                 "label": summ.get("label"), "created_at": row["created_at"], "updated_at": row["updated_at"],
-                "batch": bool(self.one("SELECT 1 FROM import_plans WHERE collection_id = ?", (row["id"],)))}
+                "batch": bool(self.one("SELECT 1 FROM import_plans WHERE collection_id = ?", (row["id"],)))} \
+            | (self.smart_exceptions(row) if row["kind"] == "smart" else {})
+
+    def smart_exceptions(self, row: dict[str, Any]) -> dict[str, Any]:
+        """契约修订 8 (PRD §04): how a Smart Collection's members come about. `rule_hits` = the rule alone;
+        `exceptions.added` = pins the rule misses, `exceptions.excluded` = exclusions of photos it would hold."""
+        try:
+            sql, ps = query.where(self, loads(row["rule"], {}) or {})
+        except ValueError:
+            sql, ps = "0", []
+        hits = {r["id"] for r in self.all(f"SELECT a.id FROM assets a WHERE {sql}", ps)}
+        rows = self.all("SELECT asset_id, removed_at FROM collection_members WHERE collection_id = ?", (row["id"],))
+        pins = [r["asset_id"] for r in rows if r["removed_at"] is None and r["asset_id"] not in hits]
+        out = [r["asset_id"] for r in rows if r["removed_at"] is not None]
+        return {"rule_hits": len(hits), "exceptions": {"added": pins, "excluded": out}}
 
     def collections(self, *, task: str | None = None, kind: str | None = None, deleted: bool = False) -> list[dict]:
         conds, ps = ["deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"], []
