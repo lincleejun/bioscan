@@ -46,13 +46,15 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode"}, keys
 
 
 def test_nav_order():
-    assert re.findall(r'data-nav="(\w+)"', text("index.html")) == ["library", "species", "collections", "tasks", "settings"]
-    labels = re.findall(r'data-nav="\w+">.*?</svg>([^<]+)<', text("index.html"))
-    assert labels == ["全部素材", "物种", "Collections", "任务", "管理"]
+    # PRD §05: 待整理 · 所有照片 · Collections (Wildlife · 旅行 · 精选 · 待修图) · 任务与导入
+    assert re.findall(r'data-nav="([\w-]+)"', text("index.html")) == [
+        "inbox", "library", "collections", "species", "col-trip", "col-featured", "col-edit", "tasks", "settings"]
+    labels = re.findall(r'data-nav="[\w-]+"[^>]*>.*?</svg>([^<]+)<', text("index.html"))
+    assert labels == ["待整理", "所有照片", "Collections", "Wildlife", "旅行", "精选", "待修图", "任务与导入", "管理"]
 
 
 @pytest.mark.parametrize("phrase", [
@@ -122,7 +124,7 @@ def test_server_text_is_escaped():
 def test_served_by_the_app():
     from fastapi.testclient import TestClient
     c = TestClient(create_app())
-    assert "Gardener" in c.get("/").text and c.get("/app.js").status_code == 200
+    assert "AfterShooting" in c.get("/").text and c.get("/app.js").status_code == 200
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node not installed")

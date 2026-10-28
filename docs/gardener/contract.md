@@ -636,3 +636,15 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **物种卡片**：`Card` 增加 `encounters`：含该物种照片的拍摄段数，与卡片同一口径（只计代表版本，不计已移到废纸篓的）；`task=` 时只数该任务的拍摄段。全库视图里同一照片在两个任务中时，每个任务的拍摄段各算一次。界面在日期后显示“N 个拍摄段”。
 - **用词**：界面不再出现 Pick / Reject，按四种用途说（保留记录、选入修图、待定、淘汰）；接口字段 `picks`、`flag` 不变。
 - **CLI 与 MCP**：CLI `burst split --at ID | --assets IDS`、`encounter undo BATCH`；MCP 新工具 `split_burst`，`edit_encounters` 的 `action` 增加 `undo`（`batch_id`）。
+
+## 契约修订 8：界面按 AfterShooting PRD 设计稿重做（2026-10-27，#120；PRD §05、§23–§28）
+
+界面产品名为 **AfterShooting**（服务、模块与 CLI 仍叫 Gardener）。主导航按 §05：待整理 · 所有照片 · Collections（Wildlife · 旅行 · 精选 · 待修图）· 任务与导入；设计稿里较早的 Landscape / People / Cities 不采用（§23）。为此 API 增加以下只读字段，旧字段不变：
+
+- `GET /storage` 增加 `disk_total`、`disk_free`：数据目录所在磁盘的容量与可用空间（字节），侧栏“本地存储”用。
+- `Task` 增加 `import`：最近一次导入计划 `{plan_id, status}`，没有计划为 `null`；待整理据此显示 扫描 → Review → 导入 三步。
+- 物种 `Card` 增加 `years`（有照片的年份，升序）与 `task_ids`（含该物种照片的任务）；Wildlife 的年份与拍摄任务筛选用。
+- `Collection` 增加 `created_at`、`updated_at`、`batch`（是否某次导入的批次集合）。全局 Collections 总览只列：旅行 = 导入批次与各任务的“全部素材”；待修图 = 规则含 `use: edit` 的 Smart Collection；精选 = 其余自建集合。任务里按主体自动建议的分组属于该批次的 Review，留在任务里。
+- `GET /encounters` 增加 `candidates`（1–8，默认 3）：每个拍摄段给几张代表候选；Review 总览的“每组推荐 N 张”用它。
+- **Smart Collection 的人工例外（PRD §04）**：成员 = (规则命中 ∪ 人工固定) − 人工排除，按 Asset 去重。`POST /collections/{id}/members` 对 Smart 也可用：`add` 固定规则没命中的照片，`remove` 排除一张（规则以后也不会把它加回来），`reset` 去掉固定或排除、交回规则决定（`reset` 只用于 Smart）。Smart 的 `Collection` 增加 `rule_hits`（只按规则命中的张数）与 `exceptions: {added, excluded}`（固定与排除的 Asset ID）。Lightroom 交接仍用当次成员快照。
+- 规则编辑提供常用条件的表单（物种、用途、星级、物种结论、日期、拍摄任务，全部满足），JSON 只作为“高级”选项；改规则仍先显示增减再保存。

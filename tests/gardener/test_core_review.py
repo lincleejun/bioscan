@@ -215,13 +215,21 @@ def test_smart_collections_merge_save_as_manual_and_members(env, tmp_path):
         smart = c.post(f"{API}/collections", json={"name": "已选", "kind": "smart",
                                                    "rule": {"task": t["id"], "flag": "pick"}}).json()
         assert smart["size"] == 2
-        assert c.post(f"{API}/collections/{smart['id']}/members", json={"add": [x]}).status_code == 400
+        # 契约修订 8 (PRD §04): members = (rule hits ∪ pins) − exclusions; reset hands a photo back to the rule
+        r = c.post(f"{API}/collections/{smart['id']}/members", json={"add": [x]}).json()
+        assert (r["size"], r["rule_hits"], r["exceptions"]) == (3, 2, {"added": [x], "excluded": []})
+        r = c.post(f"{API}/collections/{smart['id']}/members", json={"remove": [a]}).json()
+        assert (r["size"], r["exceptions"]["excluded"]) == (2, [a]) and a not in ids(c, collection=smart["id"])
+        r = c.post(f"{API}/collections/{smart['id']}/members", json={"reset": [x, a]}).json()
+        assert (r["size"], r["exceptions"]) == (2, {"added": [], "excluded": []})
+        assert c.post(f"{API}/collections/{smart['id']}/members", json={"reset": [a], "add": ["nope"]}).status_code == 404
         assert c.post(f"{API}/collections", json={"name": "y", "kind": "smart", "rule": {"bogus": 1}}).status_code == 400
         c.post(f"{API}/marks", json={"asset_ids": [x], "flag": "pick"})
         assert c.get(f"{API}/collections/{smart['id']}").json()["size"] == 3         # rules are live
         saved = c.post(f"{API}/collections/{smart['id']}/save-as-manual", json={"name": "快照"}).json()
         assert saved["kind"] == "manual" and saved["size"] == 3
         m1, m2 = manual(c, "m1", [a]), manual(c, "m2", [b])
+        assert c.post(f"{API}/collections/{m1['id']}/members", json={"reset": [a]}).status_code == 400
         r = c.post(f"{API}/collections/{m1['id']}/members", json={"add": [x], "remove": [a]}).json()
         assert (r["added"], r["removed"], r["size"]) == (1, 1, 1)
         merged = c.post(f"{API}/collections/{m1['id']}/merge", json={"ids": [m2["id"]], "name": "合并"}).json()
