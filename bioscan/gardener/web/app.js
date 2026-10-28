@@ -600,6 +600,7 @@
     store(items);
     items.forEach(a => { if (a.updated_at > fl.cursor) fl.cursor = a.updated_at; S.details.delete(a.id); });
     if (ui.view === 'flow-review') frRefresh();
+    if (cd.view) { cd.view.foot(); const g = $('#cd-grid'); if (g) setHTML(g, cdGridHTML()); }
     if (ui.view === 'compare') cpChrome();
   }
 
@@ -1533,11 +1534,11 @@
     const tasks = new Set(items.flatMap(a => (a.task_ids || []).slice(0, 1)));
     const tab = (k, l, n) => `<button type="button" class="seg-btn" data-action="cd-tab" data-v="${k}" aria-pressed="${cd.tab === k}">${l}（${n}）</button>`;
     return `<div class="page cdp">
-      <header class="cd-head"><div><div class="cd-title"><h1 tabindex="-1">${esc(colTitle(c))}</h1><span class="cd-kind">${smart ? 'Smart Collection' : c.batch ? '导入批次' : '手动 Collection'}</span></div>
+      <header class="cd-head"><div><div class="cd-title"><h1 tabindex="-1">${esc(colTitle(c))}</h1><span class="cd-kind">${smart ? 'Smart Collection' : c.batch ? '导入批次' : c.origin === 'auto' ? '拍摄批次' : '手动 Collection'}</span></div>
           <p class="fl-sub">${c.size.toLocaleString()} 张 · ${tasks.size} 次拍摄</p></div>
         <div class="cd-acts"><button type="button" class="btn lg" data-action="edit-col" data-id="${esc(c.id)}">${smart ? '编辑规则' : '编辑'}</button><a class="btn lg" href="#/review/${esc(c.id)}/grid">选择照片</a><button type="button" class="btn primary lg" data-action="lr-handoff">送到 Lightroom${ic('expand')}</button></div></header>
       <div class="cd-sub">${smart ? `<div class="cd-chips">${ruleParts(c.rule).map(([k, v]) => `<span class="cd-chip">${esc(k)}：${esc(v)}</span>`).join('') || '<span class="cd-chip">全部照片</span>'}</div><span class="hint">新增照片符合条件时，自动加入</span>` : `<span class="hint">${esc(colLine(c))}</span>`}
-        ${smart ? `<button type="button" class="btn ghost sm cd-save" data-action="save-manual">${ic('folder')}保存为固定集合</button>` : `<button type="button" class="btn ghost sm cd-save" data-action="delete-col">${ic('trash')}删除集合</button>`}</div>
+        ${smart ? `<button type="button" class="btn ghost sm cd-save" data-action="save-manual">${ic('folder')}保存为固定集合</button>` : c.origin === 'auto' ? '' : `<button type="button" class="btn ghost sm cd-save" data-action="delete-col">${ic('trash')}删除集合</button>`}</div>
       <div class="cd-body"><div class="cd-main">
         ${smart ? `<div class="seg cd-tabs" role="group" aria-label="成员来源">${tab('all', '全部', c.size)}${tab('rule', '自动匹配', c.size - ex.added.length)}${tab('pin', '手动固定', ex.added.length)}${ex.excluded.length ? tab('out', '已排除', ex.excluded.length) : ''}</div>` : ''}
         <div id="cd-grid">${cdGridHTML()}</div></div>
@@ -1558,20 +1559,55 @@
     return `<section class="fl-panel"><h2>最近变化</h2><div class="cd-recent"><span class="cd-plus">${ic('plus')}</span><div><b>最近一次拍摄 ${ids.length} 张</b><p class="hint">${esc(fmtTime(last.created_at).slice(0, 10))} · ${esc(last.title)}</p></div></div>
       <div class="cd-thumbs">${ids.slice(0, 4).map(id => photo(A(id), 'thumb')).join('')}</div></section>`;
   }
+  function cdShown() {
+    const { c } = cd, pins = new Set((c.exceptions || { added: [] }).added);
+    return cd.tab === 'out' ? cd.out : cd.ids.filter(id => (cd.tab === 'pin' ? pins.has(id) : cd.tab === 'rule' ? !pins.has(id) : true));
+  }
+  const spLine = a => (a.species ? `${a.species.zh || a.species.common || a.species.taxon}${a.species.confirmed ? '' : ' · 待确认'}` : a.content_label_zh || '未识别');
+  const dayRange = ids => { const ds = ids.map(id => A(id).taken_at).filter(Boolean).map(x => fmtTime(x).slice(0, 10)).sort(); return !ds.length ? '' : ds[0] === ds[ds.length - 1] ? ds[0] : `${ds[0]} – ${ds[ds.length - 1]}`; };
   function cdGridHTML() {
-    const { c } = cd, ex = c.exceptions || { added: [], excluded: [] }, pins = new Set(ex.added);
-    const ids = cd.tab === 'out' ? cd.out : cd.ids.filter(id => (cd.tab === 'pin' ? pins.has(id) : cd.tab === 'rule' ? !pins.has(id) : true));
+    const { c } = cd, pins = new Set((c.exceptions || { added: [] }).added), ids = cdShown();
     if (!ids.length) return `<div class="empty">${cd.tab === 'pin' ? '没有手动固定的照片。在「选择照片」里选中照片后可加入。' : cd.tab === 'out' ? '没有排除的照片。' : '还没有成员。'}</div>`;
     const groups = new Map();
     ids.forEach(id => { const t = (A(id).task_ids || [])[0] || ''; if (!groups.has(t)) groups.set(t, []); groups.get(t).push(id); });
     const order = Array.from(groups.keys()).sort((x, y) => ((taskById(y) || {}).created_at || '').localeCompare((taskById(x) || {}).created_at || ''));
-    const act = id => (c.kind !== 'smart' ? ['cd-x', '移出集合'] : cd.tab === 'out' ? ['cd-reset', '恢复'] : pins.has(id) ? ['cd-reset', '取消固定'] : ['cd-x', '排除']);
+    const act = id => (c.origin === 'auto' ? null : c.kind !== 'smart' ? ['cd-x', '移出集合'] : cd.tab === 'out' ? ['cd-reset', '恢复'] : pins.has(id) ? ['cd-reset', '取消固定'] : ['cd-x', '排除']);
     return order.map(tid => {
       const t = taskById(tid), list = groups.get(tid);
-      return `<details class="cd-sec" open><summary><b>${t ? `${esc(fmtTime(t.created_at).slice(0, 10))} · ${esc(t.title)}` : '其他'}</b><span class="hint">（${list.length} 张）</span></summary>
-        <div class="cd-grid">${list.map(id => { const a = A(id), [k, l] = act(id); return `<figure class="cd-card">${photo(a, 'large')}${pins.has(id) ? `<span class="cd-pin">${ic('flag')}手动固定</span>` : ''}${humanBadge(a) ? `<span class="cd-use">${humanBadge(a)}</span>` : ''}
-          <figcaption><span>${esc([a.taken_at && fmtTime(a.taken_at).slice(0, 10), t && t.title].filter(Boolean).join(' · ') || a.name)}</span><button type="button" class="btn sm ghost" data-action="${k}" data-id="${esc(id)}">${l}</button></figcaption></figure>`; }).join('')}</div></details>`;
+      return `<details class="cd-sec" open><summary><b>${esc([dayRange(list), t && t.title].filter(Boolean).join(' · ') || '其他')}</b><span class="hint">（${list.length} 张）</span></summary>
+        <div class="cd-grid">${list.map(id => { const a = A(id), x = act(id); return `<figure class="cd-card"><button type="button" class="cd-open" data-action="cd-open" data-id="${esc(id)}" aria-label="查看大图：${esc(a.name)}，${esc(spLine(a))}">${photo(a, 'large')}</button>${pins.has(id) ? `<span class="cd-pin">${ic('flag')}手动固定</span>` : ''}${humanBadge(a) ? `<span class="cd-use">${humanBadge(a)}</span>` : ''}
+          <figcaption><span class="cd-cap"><b class="${a.species && !a.species.confirmed ? 'is-cand' : ''}">${esc(spLine(a))}</b><small>${esc(a.taken_at ? fmtTime(a.taken_at) : a.name)}</small></span>${x ? `<button type="button" class="btn sm ghost" data-action="${x[0]}" data-id="${esc(id)}">${x[1]}</button>` : ''}</figcaption></figure>`; }).join('')}</div></details>`;
     }).join('');
+  }
+  // 集合里点一张：原像素查看器，←/→ 换张，R/E/U/X 标用途；纠正物种去 Review（检视器里逐只动物改）
+  function cdFootHTML(a) {
+    const sp = a.species;
+    return `<div class="cdv-info"><b>${esc(spLine(a))}</b>${sp ? `<i>${esc(sp.taxon)}</i>` : ''}<span class="hint">${esc([a.name, a.content_label_zh, a.taken_at && fmtTime(a.taken_at)].filter(Boolean).join(' · '))}</span></div>
+      <div class="cp-uses cdv-uses">${['record', 'edit', 'pending', 'reject'].map(v => `<button type="button" class="cp-use u-${v}" data-cdv-use="${v}" aria-pressed="${a.use === v}">${USE[v][3] ? ic(USE[v][3]) : '<span class="q">?</span>'}<span>${USE[v][0]}</span><kbd>${USE[v][1]}</kbd></button>`).join('')}</div>
+      <button type="button" class="btn" data-cdv-fix>${ic('edit')}纠正物种…</button>`;
+  }
+  function cdOpen(id) {
+    const list = cdShown();
+    let i = Math.max(0, list.indexOf(id)), v = null;
+    const d = dialog({ title: '', cls: 'lightbox cdv-dlg', onClose: () => { dvDrop(v); cd.view = null; },
+      body: `<div class="cdv"><button type="button" class="lb-nav prev" data-cdv="-1" aria-label="上一张">${ic('left')}</button><div class="cdv-stage"></div><button type="button" class="lb-nav next" data-cdv="1" aria-label="下一张">${ic('right')}</button></div><footer class="cdv-foot"></footer>` });
+    const foot = () => { const f = $('.cdv-foot', d); if (f) swap(f, cdFootHTML(A(list[i]))); };
+    const show = () => { const a = A(list[i]); dvDrop(v); v = dvMount($('.cdv-stage', d), a, null, null); $('#dlg-title', d).textContent = `${a.name} · ${i + 1} / ${list.length}`; foot(); };
+    const step = n => { i = (i + n + list.length) % list.length; show(); };
+    cd.view = { foot };
+    d.addEventListener('click', e => {
+      const n = e.target.closest('[data-cdv]'), u = e.target.closest('[data-cdv-use]');
+      if (n) step(Number(n.dataset.cdv));
+      else if (u) doMark([list[i]], { use: u.dataset.cdvUse }, useZh(u.dataset.cdvUse));
+      else if (e.target.closest('[data-cdv-fix]')) { prefs.set('last.' + cd.c.id, list[i]); d.close(); location.hash = `#/review/${encodeURIComponent(cd.c.id)}/grid`; }
+    });
+    d.addEventListener('keydown', e => {
+      if (isField(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'arrowright' || k === 'arrowleft') { e.preventDefault(); step(k === 'arrowright' ? 1 : -1); }
+      else if (KEY_USE[k]) { e.preventDefault(); doMark([list[i]], { use: KEY_USE[k] }, useZh(KEY_USE[k])); }
+    });
+    show();
   }
   async function cdMembers(body, msg) {
     try { await api('POST', `/collections/${encodeURIComponent(cd.c.id)}/members`, body); toast(msg); await rerender(); } catch (e) { toast(errMsg(e)); }
@@ -2579,6 +2615,7 @@
     shortcuts: () => showShortcuts(),
     'edit-col': el => openEditCol(el.dataset.id),
     'cd-tab': el => { cd.tab = el.dataset.v; $$('[data-action="cd-tab"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cd.tab))); setHTML($('#cd-grid'), cdGridHTML()); },
+    'cd-open': el => cdOpen(el.dataset.id),
     'cd-x': el => cdMembers({ remove: [el.dataset.id] }, cd.c.kind === 'smart' ? '已排除；规则以后也不会再把它加回来' : '已移出集合；照片和用途不变'),
     'cd-reset': el => cdMembers({ reset: [el.dataset.id] }, '已交回规则决定'),
     'complete-col': () => openComplete(),
