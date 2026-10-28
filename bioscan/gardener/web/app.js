@@ -1592,7 +1592,7 @@
     const d = dialog({ title: '', cls: 'lightbox cdv-dlg', onClose: () => { dvDrop(v); cd.view = null; },
       body: `<div class="cdv"><button type="button" class="lb-nav prev" data-cdv="-1" aria-label="上一张">${ic('left')}</button><div class="cdv-stage"></div><button type="button" class="lb-nav next" data-cdv="1" aria-label="下一张">${ic('right')}</button></div><footer class="cdv-foot"></footer>` });
     const foot = () => { const f = $('.cdv-foot', d); if (f) swap(f, cdFootHTML(A(list[i]))); };
-    const show = () => { const a = A(list[i]); dvDrop(v); v = dvMount($('.cdv-stage', d), a, null, null); $('#dlg-title', d).textContent = `${a.name} · ${i + 1} / ${list.length}`; foot(); };
+    const show = () => { const a = A(list[i]); dvDrop(v); v = dvMount($('.cdv-stage', d), a, null, null); $('#dlg-title', d).textContent = [a.name, `${i + 1} / ${list.length}`].join(' · '); foot(); };
     const step = n => { i = (i + n + list.length) % list.length; show(); };
     cd.view = { foot };
     d.addEventListener('click', e => {
