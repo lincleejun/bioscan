@@ -1191,3 +1191,24 @@ select.input { padding-right: 28px; }
 .rule-form legend { grid-column: 1 / -1; }
 @media (max-width: 1200px) { .cd-body { grid-template-columns: 1fr; } .cd-side { position: static; } }
 [hidden] { display: none !important; }
+
+/* 集合里的大图 */
+.cd-open { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.cd-open .ph { aspect-ratio: 4 / 3; }
+.cd-cap { display: flex; flex-direction: column; min-width: 0; }
+.cd-cap b { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cd-cap b.is-cand { color: var(--warn); }
+.cd-cap small { color: var(--muted); font-size: 12px; }
+.cdv-dlg .dlg-body { display: flex; flex-direction: column; gap: 10px; }
+.cdv { position: relative; flex: 1; min-height: 0; display: flex; }
+.cdv-stage { flex: 1; min-height: 0; display: flex; }
+.cdv-stage .dv { flex: 1; }
+.cdv .lb-nav { z-index: 4; }
+.cdv .lb-nav.prev { left: 8px; }
+.cdv .lb-nav.next { right: 8px; }
+.cdv-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 6px 4px 18px; }
+.cdv-info { display: flex; flex-direction: column; min-width: 180px; }
+.cdv-info b { font-size: 17px; color: #fff; }
+.cdv-info i { color: var(--muted); font-size: 13px; }
+.cdv-uses { margin: 0 auto; }
+.cdv-uses .cp-use { min-width: 120px; height: 44px; font-size: 14px; }
