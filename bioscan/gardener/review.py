@@ -97,7 +97,10 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     """The encounters of a task and/or of one species (only that species' photos), each with its bursts
     (a burst's representative is its best frame), up to `candidates` representative candidates and the
     species it shows; `unassigned` = photos in scope without one (no capture time, or not grouped yet)."""
+    from bioscan.gardener.identities import GONE  # photos a cleanup moved to the Trash left the library (same as cards)
+
     conds, ps = ([IN_TASK_REP, "em.task_id = ?"], [task_id, task_id]) if task_id else (["a.version_of IS NULL"], [])
+    conds.append(GONE.removeprefix("AND "))
     if concept:
         conds.append("EXISTS (SELECT 1 FROM current_ids ci WHERE ci.asset_id = a.id AND ci.concept = ?)")
         ps.append(concept)
@@ -151,6 +154,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     result.sort(key=lambda e: (e["start"] or "", e["id"]))
     un_conds, un_ps = (([IN_TASK_REP, "a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)"], [task_id, task_id])
                        if task_id else (["a.version_of IS NULL"], []))
+    un_conds.append(GONE.removeprefix("AND "))
     if concept:
         un_conds.append("EXISTS (SELECT 1 FROM current_ids ci WHERE ci.asset_id = a.id AND ci.concept = ?)")
         un_ps.append(concept)

@@ -359,7 +359,8 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
             n = names.get(x["concept"]) or {}
             x["taxon"], x["common"], x["zh"] = n.get("scientific") or x["taxon"], n.get("common") or x["common"], n.get("zh")
         v.sort(key=lambda x: (x["last_taken_at"] or "", x["concept"]), reverse=True)
-    return out | {"confirmed_total": len(out["species"]), "to_reconfirm": len(reconfirm),
+    # 隐藏卡片只影响显示：已拍到 N 种照样计入隐藏的确认物种
+    return out | {"confirmed_total": sum(bool(k["confirmed"]) for k in cards.values()), "to_reconfirm": len(reconfirm),
                   "unresolved": {k: len(v) for k, v in unresolved.items()}}
 
 

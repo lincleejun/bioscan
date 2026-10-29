@@ -134,7 +134,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - `POST /tasks/{id}/sources {paths}` → `Run`(append)；`POST /tasks/{id}/pause|resume|stop|archive|unarchive|verify-sources`；`POST /tasks/{id}/rescan {capabilities?, asset_ids?}` → `Run`；`POST /tasks/{id}/retry {asset_ids?}` → `Run`
 - `GET /runs/{id}` → `Run`（含 `summary`）
 
-`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。
+`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, taken: {from, to}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。`taken` = 本任务素材拍摄时间（EXIF）的最早与最晚，没有素材时为 null。
 
 `Run = {id, task_id, seq, kind, status, phase, config, scope, counts, summary, error, queued_at, started_at, finished_at}`
 
@@ -273,7 +273,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - 只看代表版本，同一拍摄的其他版本不计。
     - 一个概念一张卡，没有最小张数。
     - 一张照片无论有几个主体是同一概念，都只算一张（AC03）。
-    - `species` 是至少有一张人工确认的卡，张数即“已拍到 N 种”（PRD §03）；`to_confirm` 是只有 AI 结论的卡，不计入 N。
+    - `species` 是至少有一张人工确认的卡，张数即“已拍到 N 种”（PRD §03）；`to_confirm` 是只有 AI 结论的卡，不计入 N。`confirmed_total` 即 N，隐藏的卡（`hidden`）也计入：隐藏只影响显示。
     - `unresolved` 是主体只到属/科或未确认的照片数。
     - Flag、星级、在线状态都不影响计数。
   - **`Card`** = `{concept, taxon, common, kind, confirmed, candidates, photos, only_one, first_taken_at, last_taken_at, cover_id, cover_pinned, hidden}`：
@@ -368,7 +368,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 任务内一次连续观察；同一照片在每个任务里属于一个拍摄段；只收有拍摄时间的代表版本。
   - 建议规则（`review.assign_encounters`）：按拍摄时间（相机本地，不换算）排序。停顿超过 600 s 断开；停顿超过 120 s 且前后照片的物种（当前种级结论）没有交集也断开；同一连拍内永不断开。
   - 持久化：只有还没有拍摄段的照片会被机器放置（`group` 阶段与迁移时）。一段内已有放置的照片时，新照片并入时间上最近的那张的拍摄段；否则新建一段。已放置的照片机器永不移动，所以人的拆合在重扫、追加后保持，重扫不会静默恢复旧分组。
-  - `GET /encounters?task=&concept=`（至少一个）→ `{encounters: [Encounter], unassigned: [asset_id]}`。
+  - `GET /encounters?task=&concept=`（至少一个）→ `{encounters: [Encounter], unassigned: [asset_id]}`。已被清理计划移到废纸篓（全部文件不在线）的照片不计入，与物种卡片一致。
     - `Encounter = {id, task_id, origin: auto|user, start, end, photos, asset_ids, bursts: [{id|null, size, rep, asset_ids}], candidates: [≤3 asset_id], species: [{concept, taxon, common, zh}]}`。
     - 给 `concept` 时只列该物种的照片。
     - 连拍代表 `rep`：人工选入修图 > 保留记录 > 星级 > 连拍名次 > 美学分；`candidates` 是各连拍（与单张）代表中排名前三的。
@@ -383,7 +383,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - 每段有标题行：时间、张数、连拍数、物种。收起时只显示代表候选，可“展开全部”，也可“与上一段合并”。当前照片可“从这张起拆为新拍摄段”。
     - 段内仍按连拍折叠；在连拍中的照片可用“保留此张并淘汰相似帧…”，先看影响范围再确认。
     - 任务内“按物种看本次拍摄” → 物种卡片 → `#/species/task/<task>/<concept>`：本任务内的物种详情，即物种 → 拍摄段 → 连拍。
-- **Smart 规则预览**（PRD §04，AC13）：`POST /collections/{id}/preview-rule {rule}` → `{total, current, added_count, removed_count, added: [≤200 id], removed: [≤200 id]}`，不保存；非 Smart 集合 400；规则校验与保存时相同。Smart 集合目前没有人工加入或排除，所以成员 = 规则命中。界面编辑 Smart 集合时，规则改动先显示命中数与增减，再点一次“保存”才写入。
+- **Smart 规则预览**（PRD §04，AC13）：`POST /collections/{id}/preview-rule {rule}` → `{total, current, added_count, removed_count, added: [≤200 id], removed: [≤200 id]}`，不保存；非 Smart 集合 400；规则校验与保存时相同。`total` 与增减按新规则下的最终成员算：（规则命中 ∪ 手动固定）− 已排除（契约修订 8），手动固定的照片不算移出。界面编辑 Smart 集合时，规则改动先显示命中数与增减，再点一次“保存”才写入。
 - **CLI 与 MCP**：
   - CLI：`mark --use`、`assets --use`、`keep-best ID [--edit] [--dry-run]`、`encounters --task|--concept`、`encounter split ID --at|--assets`、`encounter merge IDS`、`collection preview-rule ID --rule JSON`、`identify --encounter`。
   - MCP：`set_marks` 增加 `use`；新工具 `keep_best`、`undo_marks`、`list_encounters`、`edit_encounters`、`preview_rule`；`identify_species` 的 `scope` 可为 `encounter`。
