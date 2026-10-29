@@ -423,20 +423,10 @@
     const rows = enc.encounters.map(e => encRowHTML(t, k.concept, e)).join('');
     const un = enc.unassigned || [];
     return `<div class="fr-top"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i>${k.confirmed ? '' : ' · <span class="txt-warn">只有模型候选，进入后可确认或纠正</span>'}</p></div>
-      <div class="seg pillseg" role="group" aria-label="浏览方式"><span class="seg-btn" aria-pressed="true">按拍摄段</span><a class="seg-btn" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div>
+      <div class="fr-tools"><label class="fr-cands">每组推荐<select class="input sm" data-action-change="fr-cands" aria-label="每个拍摄段推荐几张">${[1, 2, 3, 4].map(i => `<option value="${i}" ${candN() === i ? 'selected' : ''}>${i} 张</option>`).join('')}</select></label>
+        <div class="seg pillseg" role="group" aria-label="浏览方式"><span class="seg-btn" aria-pressed="true">按拍摄段</span><a class="seg-btn" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div></div>
       ${rows}${un.length ? `<section class="er"><header class="er-head"><h3>未分段</h3><span class="er-meta">${un.length} 张没有拍摄时间，或扫描结束后才分段</span></header><div class="er-strip">${un.slice(0, 8).map(id => thumbHTML(t, k.concept, { id: '-' }, id, false)).join('')}</div></section>` : ''}
       ${!rows && !un.length ? '<div class="empty">这个物种在本次拍摄中还没有分段。</div>' : ''}`;
-  }
-  function frRulesHTML() {
-    const { k } = fr;
-    const ids = fr.ids || [], as = ids.map(A).filter(Boolean);
-    const n = u => as.filter(a => a.use === u).length;
-    return `<h2>本组规则</h2>
-      <label class="rule"><span class="rule-ic">${ic('grid')}</span><span>每组推荐</span><select class="input sm" data-action-change="fr-cands" aria-label="每个拍摄段推荐几张">${[1, 2, 3, 4].map(i => `<option value="${i}" ${candN() === i ? 'selected' : ''}>${i} 张</option>`).join('')}</select></label>
-      <div class="rule"><span class="rule-ic ok">${ic('check')}</span><span>保护唯一记录<small>某物种只有一张时不会被自动淘汰</small></span><span class="rule-on">始终</span></div>
-      <div class="rule"><span class="rule-ic warn">${ic('warn')}</span><span>未知物种进入待鉴定<small>只识别到属、科或不确定的照片不会消失</small></span><span class="rule-on">始终</span></div>
-      ${k ? `<h2 class="rule-h">这个物种</h2><dl class="rule-n"><dt>已判断</dt><dd>${as.filter(a => a.judged).length} / ${as.length}</dd><dt>选入修图</dt><dd>${n('edit')}</dd><dt>保留记录</dt><dd>${n('record')}</dd><dt>待定</dt><dd>${n('pending')}</dd><dt>淘汰</dt><dd>${n('reject')}</dd></dl>` : ''}
-      <p class="hint">候选只是建议：拍摄段内按清晰度、主体完整度排序，各连拍取最好的一张。决定由你在比较里做。</p>`;
   }
   async function vFlowReview(p) {
     const t = await api('GET', `/tasks/${encodeURIComponent(p.id)}`);
@@ -453,14 +443,13 @@
     const first = enc.encounters[0];
     return `<div class="page fl fr">${flowHead(t, 'review', 'Review', `${taskDate(t)} · ${esc(t.title)} <span class="fl-dot">|</span> ${((t.review || {}).total || 0).toLocaleString()} 张 · ${sp.confirmed_total} 种已确认 · ${un} 张待鉴定`)}
       <div class="fr-body"><nav class="fr-rail" aria-label="本次拍到"><h2>本次拍到</h2>${railHTML(t, sp, k && k.concept)}</nav>
-        <div class="fr-center" id="fr-center">${frCenterHTML()}</div>
-        <aside class="fl-panel fr-rules" id="fr-rules">${frRulesHTML()}</aside></div>
+        <div class="fr-center" id="fr-center">${frCenterHTML()}</div></div>
       <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>点击一张照片，进入细节比较。</p></div>
         <a class="btn ghost lg" href="#/import/${esc(t.id)}">完成与导入${ic('right')}</a>
         ${first && k ? `<a class="btn primary lg" href="#/task/${esc(t.id)}/compare/${esc(encodeURIComponent(k.concept))}/${esc(first.id)}">比较当前拍摄段${ic('right')}</a>` : ''}</footer>
     </div>`;
   }
-  function frRefresh() { const c = $('#fr-center'), r = $('#fr-rules'); if (c) swap(c, frCenterHTML()); if (r && safeForStructure()) swap(r, frRulesHTML()); }
+  function frRefresh() { const c = $('#fr-center'); if (c) swap(c, frCenterHTML()); }
 
   // 原像素比较（PRD §08、图 3）：两张同尺度，大图保留全图上下文，左下角是眼部（找不到则头部、动物）原像素细节；
   // 胶片条是本拍摄段的全部帧；四种用途作用于“当前选择”这一格。
@@ -1859,6 +1848,7 @@
       btns.forEach(b => { b.disabled = false; });
     });
     d.addEventListener('close', () => {
+      const tb = $('#toasts', d); if (tb) document.body.append(tb);   // 提示容器可能被放进了这个弹窗：先搬回去
       d.remove();
       if (o.onClose) o.onClose();
       const back = opener && document.contains(opener) ? opener : openerKey && $(`[data-key="${CSS.escape(openerKey)}"]`);
@@ -2799,13 +2789,15 @@
     const u = p.uses || {}, nc = p.not_copied || {};
     const busy = ['queued', 'running'].includes(p.status), runnable = ['planned', 'partial', 'failed'].includes(p.status);
     const row = (icon, label, n, cls) => `<div class="im-row ${cls || ''}">${icon}<span>${label}</span><b>${(n || 0).toLocaleString()} 张</b></div>`;
-    return `<h2>确认导入</h2>
+    const done = p.status !== 'planned';      // 已执行的计划是当时的快照；顶部标签是现在的用途
+    return `<h2>${done ? `批次 ${esc(p.seq)} · ${esc(IMPORT_ST[p.status] || p.status)}` : '确认导入'}</h2>
+      ${done ? `<p class="hint">下面是这一批导入时的数量；上方标签是现在的用途。之后改过的照片要入库，生成新的导入计划。</p><button type="button" class="btn wide" data-action="imp-replan">${ic('retry')}生成新的导入计划</button>` : ''}
       <div class="im-blk"><p class="im-lbl">目标文件夹</p><div class="im-dest" title="${esc(p.dest_dir)}">${ic('folder')}<span class="mono">${esc(p.folder)}</span><button type="button" class="icon-btn" data-action="imp-dest" aria-label="更改目标根目录" title="${esc(p.dest_root)}">${ic('edit')}</button></div></div>
-      <div class="im-blk"><p class="im-lbl">导入内容</p>
+      <div class="im-blk"><p class="im-lbl">${done ? '导入时的内容' : '导入内容'}</p>
         ${row(ic('lib'), '修图候选', u.edit)}${row(`<span class="im-ok">${ic('check')}</span>`, '保留记录', u.record)}
         ${p.status === 'planned' ? `<label class="im-row"><input type="checkbox" id="imp-pending" ${p.include_pending ? 'checked' : ''}><span>待定一并保留</span><b>${(u.pending || 0).toLocaleString()} 张</b></label>` : row('<span class="im-q">?</span>', p.include_pending ? '待定一并保留' : '待定（不导入）', u.pending)}</div>
       <div class="im-total"><span>${p.copy_files ? '将导入' : '将入库（不复制）'}</span><b>${(p.assets || 0).toLocaleString()} 张</b></div>
-      <label class="im-row im-lr"><input type="checkbox" id="imp-lr" ${imp.lr ? 'checked' : ''} ${u.edit ? '' : 'disabled'}><span>导入后在 Lightroom 打开 ${(u.edit || 0).toLocaleString()} 张</span></label>
+      ${done ? '' : `<label class="im-row im-lr"><input type="checkbox" id="imp-lr" ${imp.lr ? 'checked' : ''} ${u.edit ? '' : 'disabled'}><span>导入后在 Lightroom 打开 ${(u.edit || 0).toLocaleString()} 张</span></label>`}
       <a class="im-row im-clean" href="#/cleanup">${ic('trash')}<span>待清理</span><b>${(nc.reject || u.reject || 0).toLocaleString()} 张 · 稍后处理</b></a>
       ${p.stale ? `<p class="note warn block">${ic('warn')}生成计划后又有决定变化，请先更新计划。</p><button type="button" class="btn wide" data-action="imp-replan">${ic('retry')}更新导入计划</button>` : ''}
       ${p.enough_space ? '' : `<p class="note warn block">${ic('warn')}空间不足：需要 ${fmtBytes(p.needed_bytes)}，可用 ${fmtBytes(p.free_bytes)}。</p>`}
