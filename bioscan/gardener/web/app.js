@@ -1247,6 +1247,7 @@
     $$('dialog.compare[open] [data-cmp]').forEach(el => swap(el, cmpCapHTML(el.dataset.cmp)));
     if (ui.view === 'flow-review') frRefresh();
     if (ui.view === 'compare') cpChrome();
+    if (cd.view) { cd.view.foot(); const g = $('#cd-grid'); if (g) setHTML(g, cdGridHTML()); }   // 集合详情的大图查看器
   }
   async function doMark(ids, patch, label, advance) {
     ids = ids.filter(id => A(id));
@@ -1258,7 +1259,7 @@
     try {
       const r = await api('POST', '/marks', body);
       if (reason) reason.value = '';
-      ui.undo.push({ batch: r.batch_id, label });
+      ui.undo.push({ batch: r.batch_id, label, ids });
       afterMarks(r.assets);
       toast(`${label} · ${ids.length} 张`, { action: { label: '撤销', run: doUndo } });
       if (advance && prefs.get('advance', '0') === '1') move(1);
@@ -1326,19 +1327,23 @@
   }
   // 物种详情的成员与计数都来自物种结论：改了结论就整页重载（移走的照片不会出现在 changed_after 轮询里）
   async function afterIdentify() { if (ui.view === 'species-one') await rerender(); else renderInspector(); }
-  async function undoBatch(batch, label) {
+  async function undoBatch(batch, label, ids) {
     try {
       const r = await api('POST', '/marks/undo', { batch_id: batch });
       toast(`已撤销：${label}（${r.undone} 张）`);
       ui.undo = ui.undo.filter(u => u.batch !== batch);
       patchBinds('undo');
+      if (!ui.ws && ids && ids.length) {           // 没有工作区轮询的页面（集合详情、比较）：取回这几张的标记
+        const got = await Promise.all(ids.map(id => api('GET', `/assets/${encodeURIComponent(id)}`)));
+        afterMarks(got.map(a => ({ id: a.id, use: a.use, flag: a.flag, stars: a.stars, version: a.mark_version })));
+      }
       await pollNow();
     } catch (e) { toast(e.status === 409 ? '这批素材之后又被修改过，无法撤销' : errMsg(e)); }
   }
   function doUndo() {
     const e = ui.undo[ui.undo.length - 1];
     if (!e) { toast('没有可撤销的操作'); return; }
-    undoBatch(e.batch, e.label);
+    undoBatch(e.batch, e.label, e.ids);
   }
 
   // ---------- Collections ----------
@@ -2385,6 +2390,8 @@
       b.addEventListener('click', () => { el.remove(); opt.action.run(); });
       el.append(b);
     }
+    const top = $$('dialog[open]').pop();      // 模态窗在顶层：提示放进去，撤销按钮才点得到
+    if (box.parentElement !== (top || document.body)) (top || document.body).append(box);
     box.append(el);
     while (box.children.length > 3) box.firstChild.remove();
     setTimeout(() => el.classList.add('out'), 5200);
@@ -2818,7 +2825,7 @@
       ${!p.include_pending && nc.pending ? warn(`${nc.pending} 张待定照片不导入，它们仍仅在来源中。`) : ''}${un.offline ? warn(`${un.offline} 张有文件离线或缺失：导入时会列为失败，来源恢复后可重试。`) : ''}${un.scan_active ? warn('扫描仍在进行；新发现的素材不在本计划中，扫描结束后可再生成一次。') : ''}
       ${un.analysis_pending ? `<p class="note block">${un.analysis_pending} 张分析尚未完成；不影响导入，物种可在入库后继续确认。</p>` : ''}
       <section class="card"><h3>文件与目标<span class="sub">照片数不等于文件数</span></h3><dl class="meta imp-meta">
-        <dt>文件</dt><dd>${p.files} 个（RAW、同拍 JPEG 与 sidecar ${p.sidecars} 个一起复制）· ${fmtBytes(p.bytes)}</dd>
+        <dt>文件</dt><dd>${p.files} 个（含 RAW、同拍 JPEG 与 sidecar ${p.sidecars} 个）· ${fmtBytes(p.bytes)}；${p.copy_files === p.files ? '一起复制' : `复制 ${p.copy_files || 0} 个，${p.files - (p.copy_files || 0)} 个已有副本，沿用原路径`}</dd>
         <dt>目标</dt><dd class="mono">${esc(p.dest_dir)}</dd>
         <dt>容量</dt><dd>需复制 ${fmtBytes(p.needed_bytes)} · 可用 ${fmtBytes(p.free_bytes)}</dd>
         <dt>重复</dt><dd>目标已有相同文件 ${d.identical || 0} · 之前已导入 ${d.reuse || 0} · 同内容已在库中 ${d.duplicate || 0}（不再复制；连拍相似不算重复）</dd>
