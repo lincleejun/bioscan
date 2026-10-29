@@ -1248,8 +1248,9 @@
     try {
       const r = await api('POST', '/marks', body);
       if (reason) reason.value = '';
-      ui.undo.push({ batch: r.batch_id, label, ids });
       afterMarks(r.assets);
+      if (!r.assets.some(x => x.version !== body.expect[x.id])) { toast(`已经是「${label}」，没有变化`); return; }   // 没改东西：没有可撤销的批次
+      ui.undo.push({ batch: r.batch_id, label, ids });
       toast(`${label} · ${ids.length} 张`, { action: { label: '撤销', run: doUndo } });
       if (advance && prefs.get('advance', '0') === '1') move(1);
     } catch (e) {
