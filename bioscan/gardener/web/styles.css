@@ -428,6 +428,9 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .seg { display: flex; padding: 3px; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
 .seg-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 32px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font-size: 13px; font-weight: 550; }
 .seg-btn kbd { margin-left: 2px; }
+.card-human .seg { display: grid; grid-template-columns: 1fr 1fr; }   /* 窄的检视器：四种用途排成 2×2，不把字竖排 */
+.card .seg-btn { white-space: nowrap; padding: 0 8px; }
+.card h3 { flex-wrap: wrap; }
 .seg-btn:hover { background: var(--hover); }
 .seg-btn .ic { width: 14px; height: 14px; }
 .seg-btn.f-pick[aria-pressed="true"] { background: var(--pick); color: var(--on-accent); }
@@ -1212,3 +1215,48 @@ select.input { padding-right: 28px; }
 .cdv-info i { color: var(--muted); font-size: 13px; }
 .cdv-uses { margin: 0 auto; }
 .cdv-uses .cp-use { min-width: 120px; height: 44px; font-size: 14px; }
+
+/* ---------- 手机（≤ 720px）：侧栏变成可横滑的顶栏，所有页面单列；主区整体上下滚动 ---------- */
+@media (max-width: 720px) {
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .side { flex-direction: row; align-items: center; gap: 4px; padding: 6px 8px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .brand { padding: 0 4px; }
+  .brand-name, .nav-sep, .side-foot { display: none; }
+  .nav { flex-direction: row; gap: 2px; }
+  .nav a, .nav .nav-sub { flex: none; height: 36px; padding: 0 10px; gap: 6px; font-size: 14px; white-space: nowrap; }
+  .nav a .ic { width: 16px; height: 16px; }
+  .nav a > span { margin-left: 2px; }
+  .nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent); }
+  #main { height: 100%; overflow: auto; }
+  .page { height: auto; min-height: 100%; padding: 16px 16px 40px; }
+  .fl-head { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .wl-body, .fl-body, .fr-body, .cd-body, .th-row { grid-template-columns: minmax(0, 1fr); }
+  .fr-rules { display: block; }
+  .im-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .im-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cd-tabs { max-width: 100%; overflow-x: auto; }
+  .cd-tabs .seg-btn { padding: 0 14px; }
+  .cd-save { margin-left: 0; }
+  /* 工作区：网格在上，检视器接在下面，整页滚动 */
+  .ws { display: flex; flex-direction: column; height: auto; }
+  .ws-pane { min-height: 60vh; }
+  .ws-toolbar, .ws-tools { flex-wrap: wrap; }
+  .ws-tools { margin-left: 0; }
+  .inspector { border-left: 0; border-top: 1px solid var(--line); }
+  .insp-scroll { overflow: visible; }
+  /* 双图比较：上下排，操作条两列 */
+  .cp { height: auto; min-height: 100%; overflow: visible; grid-template-rows: auto auto auto auto; padding: 12px 16px 0; }
+  .cp-head, .cp-ctl { flex-wrap: wrap; }
+  .cp-crumbs { flex-wrap: wrap; font-size: 17px; }
+  .cp-crumbs h1 { font-size: 17px; }
+  .cp-panes.n2 { grid-template-columns: minmax(0, 1fr); }
+  .cp-pane { height: 46vh; }
+  .cp-bar { flex-wrap: wrap; margin: 0 -16px; padding: 12px 16px 28px; }
+  .cp-uses { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 10px 8px; }
+  .cp-use { min-width: 0; height: 46px; padding: 0 10px; font-size: 15px; }
+  .cp-bar .btn.lg { width: 100%; }
+  .cd-head, .cd-title, .cd-acts, .cp-head, .page-head, .head-actions, .wl-title, .dv-tools, .fl-foot { flex-wrap: wrap; }
+  .cd-title h1 { font-size: 24px; }
+  .fl-foot { margin: 0 -16px; padding: 12px 16px; }
+  .dv-tools { margin-left: 0; }
+}

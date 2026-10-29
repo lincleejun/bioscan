@@ -207,8 +207,8 @@ class Store:
                    self.all("SELECT id, path, online FROM sources WHERE task_id = ? ORDER BY added_at, path", (task_id,))]
         last = self.one("SELECT * FROM runs WHERE task_id = ? ORDER BY seq DESC LIMIT 1", (task_id,))
         n = self.one("SELECT count(*) assets, coalesce(sum(a.media = 'photo'), 0) photos, "
-                     f"coalesce(sum(a.media = 'video'), 0) videos, coalesce(sum(NOT {query.IN_TASK_REP}), 0) versions "
-                     "FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?", (task_id, task_id))
+                     f"coalesce(sum(a.media = 'video'), 0) videos, coalesce(sum(NOT {query.IN_TASK_REP}), 0) versions, "
+                     "min(a.taken_at) taken_from, max(a.taken_at) taken_to FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?", (task_id, task_id))
         f = self.one("SELECT count(*) files, coalesce(sum(f.size), 0) bytes FROM task_assets ta "
                      "JOIN asset_files f ON f.asset_id = ta.asset_id WHERE ta.task_id = ?", (task_id,))
         judged = self.one("SELECT count(*) n FROM task_assets ta JOIN marks m ON m.asset_id = ta.asset_id "
@@ -229,7 +229,7 @@ class Store:
                "preset": t["preset"], "capabilities": loads(t["capabilities"]), "run_mode": t["run_mode"],
                "timezone": t["timezone"],
                "archived": t["archived_at"] is not None, "created_at": t["created_at"], "sources": sources,
-               "scan": scan,
+               "scan": scan, "taken": {"from": n["taken_from"], "to": n["taken_to"]},   # 拍摄日期范围（页头用）
                "review": {"judged": judged, "total": n["assets"] - n["versions"],
                           "collections_done": sum(a in ("complete", "zero") for a in acts),
                           "collections_total": len(acts)},

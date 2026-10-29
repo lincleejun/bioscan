@@ -317,7 +317,11 @@
     return `<header class="fl-head"><div class="fl-title"><h1 tabindex="-1">${esc(title)}</h1><p class="fl-sub">${sub}</p></div>
       <div class="fl-steps" data-bind="task-steps" data-id="${esc(t.id)}">${stepsHTML(t, here)}</div><div class="fl-aside"><a class="btn ghost sm" href="#/task/${esc(t.id)}/preview">任务详情</a></div></header>`;
   }
-  const taskDate = t => { const s = t.scan && t.scan.discovered ? '' : ''; return esc(fmtTime(t.created_at).slice(0, 10)) + s; };
+  const taskDate = t => {                // 拍摄日期（EXIF）范围；还没有素材时用创建日
+    const d = x => fmtTime(x).slice(0, 10), k = t.taken || {};
+    if (!k.from) return esc(d(t.created_at));
+    return esc(d(k.from) === d(k.to) ? d(k.from) : `${d(k.from)} – ${d(k.to)}`);
+  };
   async function flowAssets(query) {
     const items = await apiAll(query);
     store(items);
@@ -830,6 +834,7 @@
       ws.total = page.total;
       ws.loadedAll = ws.offset >= page.total || !page.items.length;
       addLoaded(ws, page.items);
+      if (ui.ws === ws && ws.loadedAll && !ws.ids.length) renderGrid();     // 零结果：换掉“正在载入…”
       if (ui.ws === ws) { patchBinds('ws-filters'); patchBinds('ws-count'); if (ws.start && !ws.allSet.has(ws.start) && !ws.loadedAll && ws.current === ws.ids[0]) { /* 起始项在后面的页里：保持第一项 */ } }
     } catch (e) { toast(errMsg(e)); } finally { ws.loading = false; }
     if (ui.ws === ws && !ws.loadedAll) { const s = $('#grid-sentinel'); if (s && s.getBoundingClientRect().top < window.innerHeight + 400) loadMore(ws); }
@@ -873,6 +878,7 @@
       <label class="batch-stars"><span class="sr-only">批量星级</span><select class="input sm" data-action-change="batch-stars" aria-label="批量星级"><option value="">星级…</option>${[0, 1, 2, 3, 4, 5].map(i => `<option value="${i}">${i ? i + ' 星' : '清除星级'}</option>`).join('')}</select></label>
       <button type="button" class="btn sm ghost" data-action="compare" data-key="b-cmp" ${n <= CMP_MAX ? '' : `disabled title="选择 2–${CMP_MAX} 张时可比较"`}>${ic('compare')}比较</button>
       <button type="button" class="btn sm ghost" data-action="add-to-col" data-key="b-add">加入集合…</button>
+      <button type="button" class="btn sm ghost" data-action="tag-assets" data-key="b-tag">标签…</button>
       ${manual ? '<button type="button" class="btn sm ghost" data-action="split-col" data-key="b-split">拆分为新集合…</button><button type="button" class="btn sm ghost" data-action="remove-from-col" data-key="b-rm">移出本组</button>' : ''}
       <button type="button" class="btn sm ghost" data-action="clear-sel" data-key="b-clear">取消选择</button>`;
   }
@@ -1670,7 +1676,8 @@
       + (cand.length ? `<h2 class="wl-sec">待确认<span class="hint"> · ${lib.to_confirm.length} 种只有模型候选，不计入已拍到的种数</span></h2>${grid(cand)}` : '');
   }
   async function vSpecies(p) {
-    const [lib, conf] = await Promise.all([api('GET', '/species', null, { task: p.task }), api('GET', '/assets', null, { id_state: 'confirmed', task: p.task, limit: 1 })]);
+    const [lib, conf, cand] = await Promise.all([api('GET', '/species', null, { task: p.task }), api('GET', '/assets', null, { id_state: 'confirmed', task: p.task, limit: 1 }),
+      api('GET', '/assets', null, { id_state: 'candidate', task: p.task, limit: 1 })]);
     const t = p.task && (taskById(p.task) || await api('GET', `/tasks/${encodeURIComponent(p.task)}`));
     ui.spf = Object.assign({ kind: '', q: '', year: '', task: '', sort: 'new', view: prefs.get('spview', 'grid'), sel: null }, ui.spf || {});
     ui.spv = { lib, task: p.task };
@@ -1687,7 +1694,8 @@
         <div class="wl-title"><h1 tabindex="-1">${t ? '本次拍到的野生动物' : '我拍到的野生动物'}</h1><span class="wl-rule" aria-hidden="true"></span>
           <p class="wl-total">已拍到 <b>${lib.confirmed_total}</b> 种</p><span class="wl-rule" aria-hidden="true"></span>
           <p class="wl-photos">${conf.total.toLocaleString()} 张已确认照片</p>
-          <a class="btn warn-out" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved">${ic('warn')}待鉴定 ${unN} 张</a>
+          <a class="btn warn-out" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved"${p.task ? ` data-task="${esc(p.task)}"` : ''}>${ic('warn')}待鉴定 ${unN} 张</a>
+          ${cand.total ? `<a class="btn warn-out" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="candidate"${p.task ? ` data-task="${esc(p.task)}"` : ''}>待确认 ${cand.total} 张</a>` : ''}
           ${lib.to_reconfirm ? `<a class="btn warn-out" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="reconfirm">待重新确认 ${lib.to_reconfirm} 张</a>` : ''}</div>
       </header>
       <div class="wl-kinds" role="group" aria-label="类别">${SP_KINDS.map(([v, l]) => `<button type="button" class="kchip" data-action="sp-kind" data-kind="${v}" aria-pressed="${ui.spf.kind === v}">${l}<b>${kindN(v)}</b></button>`).join('')}</div>
@@ -2150,7 +2158,7 @@
   }
   // ---------- 原像素细节查看器 结束 ----------
   function openEditCol(id) {
-    const c = S.cols.find(x => x.id === id) || (ui.col && ui.col.id === id ? ui.col : null);
+    const c = (ui.col && ui.col.id === id ? ui.col : null) || S.cols.find(x => x.id === id);   // 详情页的 ui.col 保存后会重载，列表可能是旧的
     if (!c) return;
     const person = c.group_kind === 'person' && c.origin === 'auto';
     const nameField = person
@@ -2173,13 +2181,14 @@
           const pv = await api('POST', `/collections/${encodeURIComponent(c.id)}/preview-rule`, { rule: body.rule });
           const box = $('#ec-preview', dd);
           box.hidden = false;
-          box.textContent = `新规则命中 ${pv.total} 张（当前 ${pv.current} 张）：新增 ${pv.added_count} 张，移出 ${pv.removed_count} 张。核对无误后再次点击「保存」。`;
+          box.textContent = `按新规则共 ${pv.total} 张（含手动固定，不含已排除；当前 ${pv.current} 张）：新增 ${pv.added_count} 张，移出 ${pv.removed_count} 张。核对无误后再次点击「保存」。`;
           dd.dataset.previewed = ruleKey;
           return false;
         }
         let got;
         try { got = await api('PATCH', `/collections/${encodeURIComponent(c.id)}`, body); } catch (e) { if (e.status === 409) { await rerender(); throw new Error('集合已被其他客户端修改，已载入最新版本，请重新编辑'); } throw e; }
         S.details.clear();
+        S.cols = S.cols.map(x => (x.id === got.id ? Object.assign({}, x, got) : x));
         toast(got.id !== c.id ? `已并入「${got.name}」` : `已保存「${name}」`);
         if (got.id !== c.id && ui.col && ui.col.id === c.id) { location.hash = `#/review/${got.id}`; return; }
         await rerender();
@@ -2319,6 +2328,31 @@
         }
         await refreshCols();
         toast(`已加入 ${ids.length} 张`);
+        pollNow();
+      },
+    });
+  }
+  async function openTagAssets() {        // 人工标签：给已选照片加上或去掉（POST /assets/tags）
+    const ids = selTargets();
+    const tags = (await api('GET', '/tags')).filter(t => t.active);
+    dialog({
+      title: `给 ${ids.length} 张加标签`, focus: '#ta-tag',
+      body: `<div class="field"><label for="ta-tag">标签</label><select id="ta-tag" class="input"><option value="">新建标签…</option>${tags.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></div>
+        <div class="field"><label for="ta-name">新标签名称</label><input id="ta-name" class="input" maxlength="60" autocomplete="off"></div>
+        <label class="check-row"><input type="checkbox" id="ta-remove"> 改为去掉这个标签（只去掉人工标签）</label>`,
+      actions: [{ label: '确定', value: 'ok', kind: 'primary' }],
+      onSubmit: async (v, d) => {
+        const remove = $('#ta-remove', d).checked;
+        let tid = val(d, '#ta-tag');
+        if (!tid) {
+          const name = val(d, '#ta-name');
+          if (!name) throw new Error('请选择标签或填写新标签名称');
+          if (remove) throw new Error('去掉标签需要选择已有标签');
+          tid = (await api('POST', '/tags', { name })).id;
+        }
+        const r = await api('POST', '/assets/tags', { asset_ids: ids, tag_id: tid, remove });
+        ids.forEach(id => S.details.delete(id));
+        toast(`${remove ? '已去掉' : '已加上'}标签：${r.changed} 张有变化`);
         pollNow();
       },
     });
@@ -2616,6 +2650,7 @@
     'edit-col': el => openEditCol(el.dataset.id),
     'cd-tab': el => { cd.tab = el.dataset.v; $$('[data-action="cd-tab"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cd.tab))); setHTML($('#cd-grid'), cdGridHTML()); },
     'cd-open': el => cdOpen(el.dataset.id),
+    'imp-open': el => { prefs.set('last.' + imp.task.id, el.dataset.id); location.hash = `#/task/${encodeURIComponent(imp.task.id)}/preview`; },   // 在任务总览里选中这张
     'cd-x': el => cdMembers({ remove: [el.dataset.id] }, cd.c.kind === 'smart' ? '已排除；规则以后也不会再把它加回来' : '已移出集合；照片和用途不变'),
     'cd-reset': el => cdMembers({ reset: [el.dataset.id] }, '已交回规则决定'),
     'complete-col': () => openComplete(),
@@ -2638,6 +2673,7 @@
     }); },
     'remove-from-col': () => { const ids = Array.from(ui.ws.sel); confirmDialog('移出本组？', `<p>把 ${ids.length} 张移出「${esc(ui.col.name)}」。</p><p class="hint">不改变 Flag/Star，不移动原片；之后自动重组也不会把它们加回。</p>`, '移出', 'primary', async () => { await api('POST', `/collections/${encodeURIComponent(ui.col.id)}/members`, { remove: ids }); toast(`已移出 ${ids.length} 张`); await rerender(); }); },
     'add-to-col': () => openAddToCol(),
+    'tag-assets': () => openTagAssets(),
     export: () => openExport(),
     'col-filter': el => { ui.colFilter = el.dataset.f; route(true); },
     'col-kind': el => { ui.colKind = el.dataset.f; route(true); },
@@ -2725,9 +2761,9 @@
     const tab = IMP_TABS.find(x => x[0] === imp.tab), n = imp.n[imp.tab] || 0;
     const few = {};
     imp.sp.species.concat(imp.sp.to_confirm).forEach(k => { if (k.photos <= 2) few[k.taxon] = k.photos; });
-    const card = a => { const sole = a.species && few[a.species.taxon]; return `<figure class="im-card">${sole ? `<span class="im-prot">${ic('check')}本次仅 ${sole} 张 · 保护记录</span>` : ''}<a href="${a.species ? '' : ''}#/task/${esc(imp.task.id)}/preview" tabindex="-1" aria-hidden="true">${photo(a, 'large')}</a>
+    const card = a => { const sole = a.species && few[a.species.taxon]; return `<figure class="im-card">${sole ? `<span class="im-prot">${ic('check')}本次仅 ${sole} 张 · 保护记录</span>` : ''}<a href="#/task/${esc(imp.task.id)}/preview" data-action="imp-open" data-id="${esc(a.id)}" aria-label="查看并修改：${esc(a.name)}">${photo(a, 'large')}</a>
       <figcaption><span class="im-ck u-${esc(a.use)}">${ic(a.use === 'reject' ? 'x' : a.use === 'pending' ? 'warn' : 'check')}</span><span><small>${esc(useZh(a.use))}</small><b>${esc(a.species ? a.species.zh || a.species.common || a.species.taxon : a.name)}</b></span><span class="sc-fmt">${esc(fmtOf(a))}</span></figcaption></figure>`; };
-    return `<header class="im-head"><div><h2>${tab[3]}</h2><p class="hint">${tab[4]}</p></div><span class="hint">共 ${n.toLocaleString()} 张</span></header>
+    return `<header class="im-head"><div><h2>${tab[3]}</h2><p class="hint">${imp.tab === 'pending' && imp.plan && !imp.plan.include_pending ? '本次计划不复制待定照片；之后继续判断' : tab[4]}</p></div><span class="hint">共 ${n.toLocaleString()} 张</span></header>
       <div class="im-grid">${imp.items.map(card).join('') || `<div class="empty">没有${esc(tab[1])}的照片。</div>`}</div>
       ${n > imp.items.length ? `<p class="hint sc-more">显示前 ${imp.items.length} 张 · <a href="#/library" data-action="lib-preset" data-filter="use" data-value="${esc(imp.tab)}" data-task="${esc(imp.task.id)}">在所有照片中查看全部 ${n.toLocaleString()} 张</a></p>` : ''}`;
   }

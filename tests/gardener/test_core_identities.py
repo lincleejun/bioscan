@@ -200,6 +200,9 @@ def test_species_cards_one_per_concept_across_tasks_single_photo_species_and_two
         assert names(concept=WREN["concept"], id_state="confirmed") == ["A2.jpg"]
         assert names(concept="avibase:test-asio", id_state="confirmed") == []
         assert names(id_state="unresolved") == ["B2.jpg"]
+        c.patch(f"{API}/species/{WREN['concept']}", json={"hidden": True})       # hiding only changes the display
+        lib = c.get(f"{API}/species").json()
+        assert lib["confirmed_total"] == 1 and lib["species"] == []
 
 
 def test_hiding_a_card_and_pinning_its_cover_touch_nothing_else(env, fakes, tmp_path):

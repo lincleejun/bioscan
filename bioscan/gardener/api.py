@@ -968,9 +968,14 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             raise Error("only a smart collection has a rule")
         rule = check_rule(body.get("rule"), cid)
         current, hits = store.ids_where({"collection": cid}), store.ids_where(rule)
+        ex = store.all("SELECT asset_id, removed_at FROM collection_members WHERE collection_id = ?", (cid,))
+        pins, out = {r["asset_id"] for r in ex if r["removed_at"] is None}, {r["asset_id"] for r in ex if r["removed_at"]}
         now_set, hit_set = set(current), set(hits)
-        added, removed = [i for i in hits if i not in now_set], [i for i in current if i not in hit_set]
-        return {"total": len(hits), "current": len(current), "added_count": len(added), "removed_count": len(removed),
+        # 契约修订 8: members = (rule hits ∪ pins) − exclusions, so a pin stays and an exclusion stays out
+        after = [i for i in hits if i not in out] + [i for i in current if i in pins and i not in hit_set]
+        after_set = set(after)
+        added, removed = [i for i in after if i not in now_set], [i for i in current if i not in after_set]
+        return {"total": len(after), "current": len(current), "added_count": len(added), "removed_count": len(removed),
                 "added": added[:PREVIEW_IDS], "removed": removed[:PREVIEW_IDS]}
 
     @r.get("/collections")
