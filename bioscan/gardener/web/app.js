@@ -1542,7 +1542,7 @@
     const [items, out] = await Promise.all([apiAll({ collection: c.id, order: 'time' }),
       Promise.all(((c.exceptions || {}).excluded || []).slice(0, 60).map(ensureDetail))]);
     store(items);
-    Object.assign(cd, { c, ids: items.map(a => a.id), out: out.filter(Boolean).map(a => a.id), tab: cd.c && cd.c.id === c.id ? cd.tab : 'all' });
+    Object.assign(cd, { c, cursor: items.reduce((m, a) => (a.updated_at > m ? a.updated_at : m), '0'), ids: items.map(a => a.id), out: out.filter(Boolean).map(a => a.id), tab: cd.c && cd.c.id === c.id ? cd.tab : 'all' });
     const smart = c.kind === 'smart', ex = c.exceptions || { added: [], excluded: [] };
     const tasks = new Set(items.flatMap(a => (a.task_ids || []).slice(0, 1)));
     const tab = (k, l, n) => `<button type="button" class="seg-btn" data-action="cd-tab" data-v="${k}" aria-pressed="${cd.tab === k}">${l}（${n}）</button>`;
@@ -1571,6 +1571,15 @@
     const ids = by.get(last.id);
     return `<section class="fl-panel"><h2>最近变化</h2><div class="cd-recent"><span class="cd-plus">${ic('plus')}</span><div><b>最近一次拍摄 ${ids.length} 张</b><p class="hint">${esc(fmtTime(last.created_at).slice(0, 10))} · ${esc(last.title)}</p></div></div>
       <div class="cd-thumbs">${ids.slice(0, 4).map(id => photo(A(id), 'thumb')).join('')}</div></section>`;
+  }
+  async function pollColDetail() {         // 扫描或识别还在进行时：物种、用途和新成员陆续到达
+    const c = cd.c, items = await apiAll({ collection: c.id, order: 'time', changed_after: cd.cursor });
+    if (!items.length || cd.c !== c || !$('#cd-grid')) return;
+    store(items);
+    items.forEach(a => { if (a.updated_at > cd.cursor) cd.cursor = a.updated_at; S.details.delete(a.id); });
+    if (items.some(a => !cd.ids.includes(a.id)) && !$('dialog[open]')) { await rerender(); return; }   // 有新成员：整页（张数、分组）重画
+    setHTML($('#cd-grid'), cdGridHTML());
+    if (cd.view) cd.view.foot();
   }
   function cdShown() {
     const { c } = cd, pins = new Set((c.exceptions || { added: [] }).added);
@@ -2479,6 +2488,7 @@
         if (JSON.stringify(scopeCols()) !== ui.colKey && safeForStructure()) { const area = $('#col-area'); if (area) setHTML(area, colAreaHTML()); }
       }
       if (ui.view === 'review') await refreshCol();
+      if (ui.view === 'review' && !ui.ws && cd.c && ui.col && cd.c.id === ui.col.id) await pollColDetail();
       if (ui.view === 'scan') await pollScan();
       if (ui.view === 'flow-review' || ui.view === 'compare') await pollFlow();
     } catch (e) {
