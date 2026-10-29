@@ -1319,11 +1319,13 @@
       const n = r.changed.length, skip = r.skipped.filter(x => x.reason === 'human').length;
       S.details.clear();
       toast(`${label}${n > 1 ? `（${n} 只，含${scope === 'encounter' ? '同一拍摄段' : '同一连拍'}）` : ''}${skip ? `；${skip} 张已有人工结论，未改` : ''}`, r.batch_id ? { action: { label: '撤销', run: async () => {
-        try { await api('POST', '/identifications/undo', { batch_id: r.batch_id }); S.details.clear(); toast('已撤销'); renderInspector(); } catch (e) { toast(e.status === 409 ? '之后又被人工修改过，无法撤销' : errMsg(e)); }
+        try { await api('POST', '/identifications/undo', { batch_id: r.batch_id }); S.details.clear(); toast('已撤销'); await afterIdentify(); } catch (e) { toast(e.status === 409 ? '之后又被人工修改过，无法撤销' : errMsg(e)); }
       } } } : undefined);
-      renderInspector();
+      await afterIdentify();
     } catch (e) { toast(errMsg(e)); }
   }
+  // 物种详情的成员与计数都来自物种结论：改了结论就整页重载（移走的照片不会出现在 changed_after 轮询里）
+  async function afterIdentify() { if (ui.view === 'species-one') await rerender(); else renderInspector(); }
   async function undoBatch(batch, label) {
     try {
       const r = await api('POST', '/marks/undo', { batch_id: batch });
@@ -2785,16 +2787,23 @@
       <div class="im-blk"><p class="im-lbl">导入内容</p>
         ${row(ic('lib'), '修图候选', u.edit)}${row(`<span class="im-ok">${ic('check')}</span>`, '保留记录', u.record)}
         ${p.status === 'planned' ? `<label class="im-row"><input type="checkbox" id="imp-pending" ${p.include_pending ? 'checked' : ''}><span>待定一并保留</span><b>${(u.pending || 0).toLocaleString()} 张</b></label>` : row('<span class="im-q">?</span>', p.include_pending ? '待定一并保留' : '待定（不导入）', u.pending)}</div>
-      <div class="im-total"><span>将导入</span><b>${(p.assets || 0).toLocaleString()} 张</b></div>
+      <div class="im-total"><span>${p.copy_files ? '将导入' : '将入库（不复制）'}</span><b>${(p.assets || 0).toLocaleString()} 张</b></div>
       <label class="im-row im-lr"><input type="checkbox" id="imp-lr" ${imp.lr ? 'checked' : ''} ${u.edit ? '' : 'disabled'}><span>导入后在 Lightroom 打开 ${(u.edit || 0).toLocaleString()} 张</span></label>
       <a class="im-row im-clean" href="#/cleanup">${ic('trash')}<span>待清理</span><b>${(nc.reject || u.reject || 0).toLocaleString()} 张 · 稍后处理</b></a>
       ${p.stale ? `<p class="note warn block">${ic('warn')}生成计划后又有决定变化，请先更新计划。</p><button type="button" class="btn wide" data-action="imp-replan">${ic('retry')}更新导入计划</button>` : ''}
       ${p.enough_space ? '' : `<p class="note warn block">${ic('warn')}空间不足：需要 ${fmtBytes(p.needed_bytes)}，可用 ${fmtBytes(p.free_bytes)}。</p>`}
-      <p class="im-verify">${ic('check')}复制并逐个校验字节与 sha256 后入库 · ${p.files} 个文件 · ${fmtBytes(p.bytes)}</p>
+      <p class="im-verify">${ic('check')}${impCopyLine(p)}</p>
       ${p.status === 'planned' || !runnable ? '' : ''}
       ${busy || p.status !== 'planned' ? importProgressHTML(p) : ''}
       ${runnable && !p.stale ? `<button type="button" class="btn primary wide" data-action="import-run" data-id="${esc(p.id)}" ${p.enough_space ? '' : 'disabled'}>${p.status === 'planned' ? `确认导入 ${(p.assets || 0).toLocaleString()} 张` : '继续导入未完成项'}</button>` : ''}
       <a class="btn wide" href="#/task/${esc(p.task_id)}/review">继续 Review</a>`;
+  }
+  // 已在库中或之前导入过的文件沿用原路径：说清这次实际复制多少，不让新目标看起来会收到全部副本
+  function impCopyLine(p) {
+    const kept = Math.max(0, (p.files || 0) - (p.copy_files || 0));
+    if (!kept) return `复制并逐个校验字节与 sha256 后入库 · ${p.files} 个文件 · ${fmtBytes(p.bytes)}`;
+    if (!p.copy_files) return `这些文件都已有副本：不复制到新目标，沿用原路径入库 · ${kept} 个文件`;
+    return `复制 ${p.copy_files} 个新文件（${fmtBytes(p.copy_bytes)}）并校验 sha256；另 ${kept} 个已有副本，沿用原路径`;
   }
   function importProgressHTML(p) {
     const g = p.progress || {};
@@ -2828,6 +2837,7 @@
     return `<section class="card report"><h3>${esc(IMPORT_ST[p.status] || p.status)}<span class="sub">批次 ${esc(p.seq)}</span></h3>
       ${bar(pct(g.bytes_done, g.bytes_total), p.status === 'running' ? 'st-running' : '')}
       <dl class="meta imp-meta"><dt>入库</dt><dd>${g.assets_done}/${g.assets_total} 张 · ${g.files_done}/${g.files_total} 个文件已校验 · ${fmtBytes(g.bytes_done)}</dd>
+        ${(p.files || 0) > (p.copy_files || 0) ? `<dt>复制</dt><dd>新复制 ${p.copy_files || 0} 个文件；${p.files - (p.copy_files || 0)} 个已有副本，沿用原路径，没有复制到 ${esc(p.folder)}</dd>` : ''}
         <dt>未复制</dt><dd>淘汰 ${nc.reject || 0} 张${nc.pending ? ` · 待定 ${nc.pending} 张` : ''}；来源未做任何改动</dd>
         ${p.interruptions ? `<dt>中断</dt><dd>${p.interruptions} 次，已从未完成项继续</dd>` : ''}</dl>
       ${fails.length ? `<p class="ai-fail">${ic('warn')}${g.files_failed} 个文件失败（部分完成，不是成功）：</p><ul class="hist">${fails.map(f => `<li class="mono">${esc(f.path)} · ${esc(f.error)}</li>`).join('')}</ul>` : ''}
