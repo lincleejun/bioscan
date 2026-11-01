@@ -134,7 +134,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - `POST /tasks/{id}/sources {paths}` → `Run`(append)；`POST /tasks/{id}/pause|resume|stop|archive|unarchive|verify-sources`；`POST /tasks/{id}/rescan {capabilities?, asset_ids?}` → `Run`；`POST /tasks/{id}/retry {asset_ids?}` → `Run`
 - `GET /runs/{id}` → `Run`（含 `summary`）
 
-`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, taken: {from, to}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。`taken` = 本任务素材拍摄时间（EXIF）的最早与最晚，没有素材时为 null。
+`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, location: {lat, lon}|null, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, taken: {from, to}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。`taken` = 本任务素材拍摄时间（EXIF）的最早与最晚，没有素材时为 null。`location` = 拍摄地点：`POST /tasks` 与 `PATCH /tasks/{id}` 接受 `{lat, lon}`（两个都给，或都为 null 清除）；识别时只给没有 GPS 的照片用，照片自带 GPS 优先（同 `bioscan --lat/--lon`）；运行排队时冻结在 `config.location`，改了之后 `rescan` 物种才生效。
 
 `Run = {id, task_id, seq, kind, status, phase, config, scope, counts, summary, error, queued_at, started_at, finished_at}`
 
@@ -177,7 +177,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - 主导航顺序：**全部素材 / Collections / 任务 / 管理**；中文界面；沿用已认可原型（仓库外 gardener-prototype/，仅作视觉参考）的视觉方向，**删除全部示例数据、模拟扫描和业务 localStorage**（仅可存 UI 偏好，如上次页面）。
 - 任务内两个视图：Preview 与 Collections，共享素材与标记，进度条持续可见；Review 页：网格 + 大图 + 主体放大（species/subject 框放大）+ 并排比较 + 连拍折叠 + 批量 Flag/Star + 撤销 + 键盘（P/X/U、0–5、←→、空格、C、⌘Z）；AI 信息与人工判断分区显示；能力状态逐项显示 未启用/待运行/运行中/完成/失败/未识别/不可用（含原因）。新结果追加到末尾，不改变当前选中项。
 - 视频：`<video src=/original>` 可播放则播放/拖动，`onerror` 显示“无法在浏览器播放”并提供“在 Finder 中显示”。
-- CLI `gardener`（`bioscan/gardener/cli.py:main`）：`serve`（转调 server）、`health`、`task create|list|show|pause|resume|stop|append|rescan|retry|archive`、`assets`（筛选参数）、`mark`、`undo`、`collections`、`collection complete|zero|reopen|delete|restore`、`export`、`caps`、`storage`、`mcp`。默认 `--url http://127.0.0.1:8770`；只用 `urllib`。
+- CLI `gardener`（`bioscan/gardener/cli.py:main`）：`serve`（转调 server）、`health`、`task create [--lat --lon]|list|show|pause|resume|stop|append|rescan|retry|archive|locate ID --lat --lon|--clear`、`assets`（筛选参数）、`mark`、`undo`、`collections`、`collection complete|zero|reopen|delete|restore`、`export`、`caps`、`storage`、`mcp`。默认 `--url http://127.0.0.1:8770`；只用 `urllib`。
 - MCP（`gardener mcp`）：stdio JSON-RPC 2.0（`initialize`、`tools/list`、`tools/call`），工具与 CLI 同名能力，全部转调 HTTP。
 
 ## 9 v0.1 对 PRD 未决项的默认决定（记录于 ADR 0001，可改）

@@ -25,7 +25,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_pr
                                     "capability_versions": {}, "cap_status": {}}
 TERMINAL = ("completed", "partial", "failed", "stopped", "cancelled")
 ADDED_COLUMNS = (("ai_suggestions", "burst_rank", "INTEGER"), ("ai_suggestions", "burst_size", "INTEGER"),
-                 ("tasks", "timezone", "TEXT"), ("collections", "summary", "TEXT"), ("collections", "parent_id", "TEXT"),
+                 ("tasks", "timezone", "TEXT"), ("tasks", "lat", "REAL"), ("tasks", "lon", "REAL"), ("collections", "summary", "TEXT"), ("collections", "parent_id", "TEXT"),
                  ("assets", "version_of", "TEXT"), ("assets", "version_reason", "TEXT"),
                  ("assets", "version_lock", "INTEGER NOT NULL DEFAULT 0"), ("marks", "use", "TEXT"),
                  ("import_plans", "collection_id", "TEXT"),                     # 契约修订 7B: the batch collection
@@ -230,7 +230,7 @@ class Store:
                     "total_analysis": k.get("total_analysis", 0), "progress": progress(last["status"], k)}
         out = {"id": t["id"], "title": t["title"], "subtitle": t["subtitle"], "description": t["description"],
                "preset": t["preset"], "capabilities": loads(t["capabilities"]), "run_mode": t["run_mode"],
-               "timezone": t["timezone"],
+               "timezone": t["timezone"], "location": None if t["lat"] is None else {"lat": t["lat"], "lon": t["lon"]},
                "archived": t["archived_at"] is not None, "created_at": t["created_at"], "sources": sources,
                "scan": scan, "taken": {"from": n["taken_from"], "to": n["taken_to"]},   # 拍摄日期范围（页头用）
                "review": {"judged": judged, "total": n["assets"] - n["versions"],

@@ -37,6 +37,7 @@
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     warn: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17h.01"/>',
     download: '<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/>',
+    map: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
     folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
     retry: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.5H15"/>',
     keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
@@ -640,6 +641,7 @@
           ${field('title', '任务标题', true, `<input id="f-title" name="title" class="input" maxlength="80" value="${esc(d.title)}" aria-describedby="err-title">`)}
           ${field('subtitle', '副标题', false, `<input id="f-subtitle" name="subtitle" class="input" maxlength="120" value="${esc(d.subtitle)}" placeholder="地点 · 时间">`)}
           ${field('description', '描述', false, `<textarea id="f-description" name="description" class="input" rows="3" maxlength="2000">${esc(d.description)}</textarea>`, '描述只作为背景，不会被当作每张照片的精确地点或已确认物种。')}
+          ${field('loc', '拍摄地点（经纬度）', false, `<input id="f-loc" name="loc" class="input mono" inputmode="decimal" autocomplete="off" value="${esc(d.loc || '')}" placeholder="37.457, -122.104" aria-describedby="err-loc">`, '照片没有 GPS 时，物种识别用这个位置排除不在当地分布的物种；照片自带 GPS 优先。')}
         </section>
         <section class="form-sec">
           <h2>扫描预设与能力</h2>
@@ -656,6 +658,15 @@
         <footer class="form-foot"><a class="btn ghost" href="#/tasks">取消</a><button type="submit" class="btn primary">${ic('check')}创建并加入扫描队列</button></footer>
       </form>
     </div></div>`;
+  }
+  // 「纬度, 经度」→ {lat, lon}；空 → {}（不设）；格式不对 → null
+  function parseLoc(v) {
+    const s = (v || '').trim();
+    if (!s) return {};
+    const m = s.match(/^(-?\d+(?:\.\d+)?)\s*[,，\s]\s*(-?\d+(?:\.\d+)?)$/);
+    if (!m) return null;
+    const lat = Number(m[1]), lon = Number(m[2]);
+    return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
   }
   function showErr(field, msg) { const el = $('#err-' + field); if (el) el.textContent = msg || ''; }
   function addPath() {
@@ -681,8 +692,11 @@
     showErr('title', d.title.trim() ? '' : '请填写任务标题');
     if (!d.sources.length) { inp.focus(); return; }
     if (!d.title.trim()) { $('#f-title').focus(); return; }
+    const loc = parseLoc(d.loc);
+    showErr('loc', loc ? '' : '格式：纬度, 经度，例如 37.457, -122.104');
+    if (!loc) { $('#f-loc').focus(); return; }
     try {
-      const t = await api('POST', '/tasks', { title: d.title.trim(), subtitle: d.subtitle.trim(), description: d.description.trim(), sources: d.sources, preset: d.preset, capabilities: d.caps, run_mode: d.run_mode });
+      const t = await api('POST', '/tasks', Object.assign({ title: d.title.trim(), subtitle: d.subtitle.trim(), description: d.description.trim(), sources: d.sources, preset: d.preset, capabilities: d.caps, run_mode: d.run_mode }, loc));
       ui.draft = null;
       toast(`已创建「${t.title}」并加入扫描队列`);
       await refreshTasks();
@@ -705,7 +719,7 @@
   }
   function taskMoreHTML(t) {
     const b = (act, label, icon) => `<button type="button" class="btn sm ghost" data-action="${act}" data-id="${esc(t.id)}">${icon ? ic(icon) : ''}${label}</button>`;
-    return b('task-append', '追加来源', 'plus') + b('task-rescan', '重新分析…', 'retry') + b('task-retry', '重试失败项') + b('task-verify', '核对来源') + b(t.archived ? 'task-unarchive' : 'task-archive', t.archived ? '取消归档' : '归档');
+    return b('task-append', '追加来源', 'plus') + b('task-locate', t.location ? `拍摄地点 ${t.location.lat.toFixed(3)}, ${t.location.lon.toFixed(3)}` : '拍摄地点…', 'map') + b('task-rescan', '重新分析…', 'retry') + b('task-retry', '重试失败项') + b('task-verify', '核对来源') + b(t.archived ? 'task-unarchive' : 'task-archive', t.archived ? '取消归档' : '归档');
   }
   async function vTask(p) {
     const t = await api('GET', `/tasks/${encodeURIComponent(p.id)}`);
@@ -2606,6 +2620,24 @@
         await rerender();
       },
     }),
+    'task-locate': el => {
+      const t = taskById(el.dataset.id), l = (t && t.location) || null;
+      dialog({
+        title: '拍摄地点', focus: '#tl-loc',
+        body: `<div class="field"><label for="tl-loc">纬度, 经度</label><input id="tl-loc" class="input mono" inputmode="decimal" autocomplete="off" value="${l ? `${l.lat}, ${l.lon}` : ''}" placeholder="37.457, -122.104"></div>
+          <p class="hint">照片没有 GPS 时，物种识别用这个位置排除不在当地分布的物种；照片自带 GPS 优先。留空则清除。</p>
+          <label class="check-row"><input type="checkbox" id="tl-rescan" checked> 保存后重新识别本任务的物种（人工确认过的结论不受影响）</label>`,
+        actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
+        onSubmit: async (v, d) => {
+          const loc = parseLoc(val(d, '#tl-loc'));
+          if (!loc) throw new Error('格式：纬度, 经度，例如 37.457, -122.104');
+          await api('PATCH', `/tasks/${encodeURIComponent(el.dataset.id)}`, loc.lat === undefined ? { lat: null, lon: null } : loc);
+          if ($('#tl-rescan', d).checked && loc.lat !== undefined) await api('POST', `/tasks/${encodeURIComponent(el.dataset.id)}/rescan`, { capabilities: ['species'] });
+          toast(loc.lat === undefined ? '已清除拍摄地点' : $('#tl-rescan', d).checked ? '已保存；物种重新识别已排队' : '已保存拍摄地点');
+          await pollNow(); route(true);
+        },
+      });
+    },
     'task-rescan': el => {
       const t = taskById(el.dataset.id);
       const sel = ui.ws && ui.ws.taskId === el.dataset.id ? Array.from(ui.ws.sel) : [];
@@ -3018,7 +3050,7 @@
 
   document.addEventListener('input', e => {
     const f = e.target.form;
-    if (f && f.id === 'create-form' && ui.draft && ['title', 'subtitle', 'description'].includes(e.target.name)) { ui.draft[e.target.name] = e.target.value; showErr(e.target.name, ''); }
+    if (f && f.id === 'create-form' && ui.draft && ['title', 'subtitle', 'description', 'loc'].includes(e.target.name)) { ui.draft[e.target.name] = e.target.value; showErr(e.target.name, ''); }
     if (e.target.id === 'path-input') showErr('sources', '');
     if (f && f.id === 'sp-tools' && ui.spf) { ui.spf[e.target.name] = e.target.value; spRefresh(); }
     if (f && f.id === 'gc-tools' && ui.gcol) { ui.gcol[e.target.name] = e.target.value; setHTML($('#col-area'), colAreaHTML()); }
