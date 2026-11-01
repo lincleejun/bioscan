@@ -28,6 +28,7 @@ from bioscan.gardener import identities, query, review
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
+from bioscan.serve_config import DETAIL_EDGE
 
 log = logging.getLogger("bioscan.gardener")
 
@@ -66,7 +67,7 @@ class Toolkit:
     is_online: Callable[[str], bool]
     read_meta: Callable[[list[str]], dict[str, dict[str, Any]]]
     make_preview: Callable[[str, str, Path, Path], Any]
-    analyzer: Callable[..., Any]                 # Analyzer(engine, *, decode_workers, chunk)
+    analyzer: Callable[..., Any]                 # Analyzer(engine, *, decode_workers, chunk, detail_edge)
     suggest: Callable[[list[dict[str, Any]]], list[Any]]
     export: Callable[..., dict[str, Any]]
     reveal: Callable[[str], None] = reveal
@@ -505,8 +506,9 @@ class RunExec:
     def ensure_analyzer(self) -> Any:
         if self.analyzer is None and self.analyzer_error is None:
             try:
+                # species crops from the 3072 px detail copy, as `bioscan serve` and the own-RAW baseline do
                 self.analyzer = self.tk.analyzer(self.w.get_engine(), decode_workers=int(self.mode["decode_workers"]),
-                                                 chunk=int(self.mode["chunk"]))
+                                                 chunk=int(self.mode["chunk"]), detail_edge=DETAIL_EDGE)
                 self.save_versions(self.analyzer.versions([c for c in self.caps if c in BIOSCAN_CAPS]))
             except Exception as exc:  # noqa: BLE001 - no engine/analyzer = every model capability unavailable
                 log.exception("analyzer unavailable")
