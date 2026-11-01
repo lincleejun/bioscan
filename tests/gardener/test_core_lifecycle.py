@@ -55,6 +55,9 @@ def test_a_shoot_from_identification_to_import_handoff_and_cleanup(env, fakes, t
         ran = c.post(f"{API}/cleanup-plans/{plan['id']}/run", json={"confirm": True}).json()
         assert ran["report"]["freed_bytes"] == 0 and ran["report"]["trashed_files"] >= 3
         assert species() == {"Eastern Screech-Owl": 1}                       # the trashed wren and owl left the counts
+        owl = c.get(f"{API}/species").json()["species"][0]["concept"]
+        enc = c.get(f"{API}/encounters", params={"task": t["id"], "concept": owl}).json()
+        assert [a for e in enc["encounters"] for a in e["asset_ids"]] + enc["unassigned"] == [ids["IMG_0.jpg"]]  # and encounters
 
 
 def test_an_offline_disk_never_changes_species_counts(env, fakes, tmp_path):

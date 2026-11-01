@@ -220,6 +220,10 @@ def test_smart_collections_merge_save_as_manual_and_members(env, tmp_path):
         assert (r["size"], r["rule_hits"], r["exceptions"]) == (3, 2, {"added": [x], "excluded": []})
         r = c.post(f"{API}/collections/{smart['id']}/members", json={"remove": [a]}).json()
         assert (r["size"], r["exceptions"]["excluded"]) == (2, [a]) and a not in ids(c, collection=smart["id"])
+        pv = c.post(f"{API}/collections/{smart['id']}/preview-rule", json={"rule": {"task": t["id"]}}).json()
+        assert (pv["total"], pv["added_count"], pv["removed_count"]) == (2, 0, 0)  # x pinned stays, a excluded stays out
+        pv = c.post(f"{API}/collections/{smart['id']}/preview-rule", json={"rule": {"task": "t_none"}}).json()
+        assert (pv["total"], pv["removed"]) == (1, [b])                             # only the rule's own hit leaves
         r = c.post(f"{API}/collections/{smart['id']}/members", json={"reset": [x, a]}).json()
         assert (r["size"], r["exceptions"]) == (2, {"added": [], "excluded": []})
         assert c.post(f"{API}/collections/{smart['id']}/members", json={"reset": [a], "add": ["nope"]}).status_code == 404

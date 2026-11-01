@@ -28,6 +28,7 @@ from bioscan.gardener import identities, query, review
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
 from bioscan.gardener.store import dumps, loads, now
+from bioscan.serve_config import DETAIL_EDGE
 
 log = logging.getLogger("bioscan.gardener")
 
@@ -66,7 +67,7 @@ class Toolkit:
     is_online: Callable[[str], bool]
     read_meta: Callable[[list[str]], dict[str, dict[str, Any]]]
     make_preview: Callable[[str, str, Path, Path], Any]
-    analyzer: Callable[..., Any]                 # Analyzer(engine, *, decode_workers, chunk)
+    analyzer: Callable[..., Any]                 # Analyzer(engine, *, decode_workers, chunk, detail_edge)
     suggest: Callable[[list[dict[str, Any]]], list[Any]]
     export: Callable[..., dict[str, Any]]
     reveal: Callable[[str], None] = reveal
@@ -104,8 +105,9 @@ def queue_run(c: Any, task_id: str, kind: str, *, capabilities: list[str], run_m
               sources: list[str] | None = None, asset_ids: list[str] | None = None) -> str:
     rid, t = st.new_id("r"), now()
     seq = c.execute("SELECT coalesce(max(seq), 0) + 1 FROM runs WHERE task_id = ?", (task_id,)).fetchone()[0]
-    tz = c.execute("SELECT timezone FROM tasks WHERE id = ?", (task_id,)).fetchone()[0]
+    tz, lat, lon = c.execute("SELECT timezone, lat, lon FROM tasks WHERE id = ?", (task_id,)).fetchone()
     config = {"capabilities": capabilities, "run_mode": run_mode, "preset": preset, "timezone": tz, "versions": {},
+              "location": None if lat is None else {"lat": lat, "lon": lon},
               "options": {}}
     c.execute("INSERT INTO runs (id, task_id, seq, kind, status, config, scope, queued_at) VALUES (?, ?, ?, ?, 'queued', "
               "?, ?, ?)", (rid, task_id, seq, kind, dumps(config),
@@ -504,8 +506,9 @@ class RunExec:
     def ensure_analyzer(self) -> Any:
         if self.analyzer is None and self.analyzer_error is None:
             try:
+                # species crops from the 3072 px detail copy, as `bioscan serve` and the own-RAW baseline do
                 self.analyzer = self.tk.analyzer(self.w.get_engine(), decode_workers=int(self.mode["decode_workers"]),
-                                                 chunk=int(self.mode["chunk"]))
+                                                 chunk=int(self.mode["chunk"]), detail_edge=DETAIL_EDGE)
                 self.save_versions(self.analyzer.versions([c for c in self.caps if c in BIOSCAN_CAPS]))
             except Exception as exc:  # noqa: BLE001 - no engine/analyzer = every model capability unavailable
                 log.exception("analyzer unavailable")
@@ -560,10 +563,13 @@ class RunExec:
         for aid, caps in units.items():
             by_caps.setdefault(tuple(caps), []).append(aid)
         chunk = int(self.mode["chunk"])
+        here = self.run["config"].get("location") or {}     # the task's place: only for photos without their own GPS
         for caps, ids in by_caps.items():
             items = []
             for part in st.chunks(ids):
-                items += [{"asset_id": r["id"], "path": r["primary_path"], "lat": r["lat"], "lon": r["lon"],
+                items += [{"asset_id": r["id"], "path": r["primary_path"],
+                           "lat": r["lat"] if r["lat"] is not None else here.get("lat"),
+                           "lon": r["lon"] if r["lat"] is not None else here.get("lon"),
                            "taken_at": r["taken_at"]} for r in self.store.all(
                     f"SELECT id, primary_path, lat, lon, taken_at FROM assets WHERE id IN ({st.marks_in(part)}) "
                     "ORDER BY taken_at, primary_path", part)]

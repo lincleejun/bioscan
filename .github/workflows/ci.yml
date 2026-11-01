@@ -21,6 +21,8 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked
+      - name: lua (the Lightroom plugin tests run its Lua code)
+        run: sudo apt-get install -y --no-install-recommends lua5.4
       - name: ruff
         run: uv run ruff check .
       - name: pytest (fake models; real-model tests skip here, see models.yml)

@@ -165,6 +165,7 @@ class Fakes:
         self.gate = threading.Event()
         self.gate.set()
         self.analyzed: list[tuple[str, tuple[str, ...]]] = []
+        self.where: dict[str, tuple] = {}            # file name -> (lat, lon) the analyzer was given
         self.exports: list[dict[str, Any]] = []
         self.revealed: list[str] = []
         self.version = "fake1"
@@ -174,6 +175,7 @@ class Fakes:
         self.boxes: dict[str, list[dict[str, Any]]] = {}
 
     def analyzer(self, engine, *, decode_workers=2, chunk=16, detail_edge=None):
+        self.detail_edge = detail_edge
         return FakeAnalyzer(self, engine)
 
     def faces(self):
@@ -271,6 +273,7 @@ class FakeAnalyzer:
             if should_stop():
                 return
             self.fakes.analyzed.append((it["path"], tuple(caps)))
+            self.fakes.where[Path(it["path"]).name] = (it.get("lat"), it.get("lon"))
             for c in caps:
                 if "fail" in Path(it["path"]).name:
                     yield ItemResult(it["asset_id"], c, "failed", None, "decode failed", f"{c}@{self.fakes.version}")
