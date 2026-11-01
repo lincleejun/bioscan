@@ -273,8 +273,12 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         if sub == "create":
             body = {"title": a.title, "subtitle": a.subtitle, "description": a.description,
                     "sources": _abs(a.source), "preset": a.preset, "capabilities": a.cap or None,
-                    "run_mode": a.run_mode}
+                    "run_mode": a.run_mode, "lat": a.lat, "lon": a.lon}
             return "POST", "/tasks", {k: v for k, v in body.items() if v not in (None, "")}, None
+        if sub == "locate":                    # where the shoot was, for photos without GPS
+            if not a.clear and (a.lat is None or a.lon is None):
+                raise SystemExit("task locate: 需要 --lat 和 --lon，或 --clear")
+            return "PATCH", f"/tasks/{a.id}", {"lat": None, "lon": None} if a.clear else {"lat": a.lat, "lon": a.lon}, None
         if sub == "list":
             return "GET", "/tasks", None, {"archived": a.archived}
         if sub == "show":
@@ -439,6 +443,13 @@ def parser() -> argparse.ArgumentParser:
     tc.add_argument("--preset", help="预设 id（quick / photo / wildlife / 自定义）")
     tc.add_argument("--cap", action="append", help="能力 id（可重复，覆盖预设）")
     tc.add_argument("--run-mode", choices=("quiet", "balanced", "full"))
+    tc.add_argument("--lat", type=float, help="拍摄地纬度：照片没有 GPS 时用于物种识别（照片自带 GPS 优先）")
+    tc.add_argument("--lon", type=float, help="拍摄地经度（与 --lat 一起）")
+    tlo = t.add_parser("locate", help="设置拍摄地点（没有 GPS 的照片用它识别物种；之后 rescan --cap species 重识别）")
+    tlo.add_argument("id")
+    tlo.add_argument("--lat", type=float)
+    tlo.add_argument("--lon", type=float)
+    tlo.add_argument("--clear", action="store_true", help="清除拍摄地点")
     tl = t.add_parser("list", help="任务列表")
     tl.add_argument("--archived", default="0", choices=("0", "1", "all"))
     for name, hlp in (("show", "任务详情与运行历史"), ("pause", "暂停"), ("resume", "继续"), ("stop", "停止并保留结果"),

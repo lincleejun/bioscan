@@ -104,8 +104,9 @@ def queue_run(c: Any, task_id: str, kind: str, *, capabilities: list[str], run_m
               sources: list[str] | None = None, asset_ids: list[str] | None = None) -> str:
     rid, t = st.new_id("r"), now()
     seq = c.execute("SELECT coalesce(max(seq), 0) + 1 FROM runs WHERE task_id = ?", (task_id,)).fetchone()[0]
-    tz = c.execute("SELECT timezone FROM tasks WHERE id = ?", (task_id,)).fetchone()[0]
+    tz, lat, lon = c.execute("SELECT timezone, lat, lon FROM tasks WHERE id = ?", (task_id,)).fetchone()
     config = {"capabilities": capabilities, "run_mode": run_mode, "preset": preset, "timezone": tz, "versions": {},
+              "location": None if lat is None else {"lat": lat, "lon": lon},
               "options": {}}
     c.execute("INSERT INTO runs (id, task_id, seq, kind, status, config, scope, queued_at) VALUES (?, ?, ?, ?, 'queued', "
               "?, ?, ?)", (rid, task_id, seq, kind, dumps(config),
@@ -560,11 +561,14 @@ class RunExec:
         for aid, caps in units.items():
             by_caps.setdefault(tuple(caps), []).append(aid)
         chunk = int(self.mode["chunk"])
+        here = self.run["config"].get("location") or {}     # the task's place: only for photos without their own GPS
         for caps, ids in by_caps.items():
             items = []
             for part in st.chunks(ids):
                 items += [{"asset_id": r["id"], "path": loads(r["meta"], {}).get("preview_source") or r["primary_path"],
-                           "lat": r["lat"], "lon": r["lon"], "taken_at": r["taken_at"]} for r in self.store.all(
+                           "lat": r["lat"] if r["lat"] is not None else here.get("lat"),
+                           "lon": r["lon"] if r["lat"] is not None else here.get("lon"),
+                           "taken_at": r["taken_at"]} for r in self.store.all(
                     f"SELECT id, primary_path, meta, lat, lon, taken_at FROM assets WHERE id IN ({st.marks_in(part)}) "
                     "ORDER BY taken_at, primary_path", part)]
             n = 0
