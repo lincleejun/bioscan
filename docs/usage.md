@@ -220,8 +220,10 @@ uv run python scripts/sort_birds.py run   --places places.csv --out OUT --url UR
 uv run python scripts/sort_birds.py plan  --out OUT --dest DEST                     # OUT/plan.csv + counts; moves nothing
 uv run python scripts/sort_birds.py apply --out OUT --dest DEST                     # moves; OUT/moves.tsv undoes it
 ```
+A folder may appear on several rows (a trip at several places): a photo moves when it passes at any of them.
 Same-stem files (RAW, JPEG, HIF, XMP) move together, the RAW's verdict decides, a same-named file at the target is
-never overwritten, and an existing folder with the same letters (`Red-Tailed-Hawk`) is reused.
+never overwritten (the photo goes to `<species>/<source folder>/` instead), and an existing folder with the same
+letters (`Red-Tailed-Hawk`) is reused.
 
 ### Lightroom Classic (experimental)
 

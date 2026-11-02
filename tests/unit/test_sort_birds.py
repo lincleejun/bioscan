@@ -39,3 +39,28 @@ def test_decide():
 def test_folder_name_reuses_existing():
     assert sb.folder_name("Red-tailed Hawk", ["Red-Tailed-Hawk", "x"]) == "Red-Tailed-Hawk"
     assert sb.folder_name("Steller's Jay", []) == "Steller's Jay"
+
+
+def test_plan_any_place_and_name_taken(tmp_path):
+    import argparse
+    import csv
+    import json
+    src = tmp_path / "trip"
+    src.mkdir()
+    (src / "A.ARW").write_bytes(b"x")
+    (src / "A.xmp").write_text("x")
+    dest = tmp_path / "bird"
+    (dest / "Red-tailed Hawk").mkdir(parents=True)
+    (dest / "Red-tailed Hawk" / "A.ARW").write_bytes(b"other trip")
+    out = tmp_path / "out"
+    (out / "preds").mkdir(parents=True)
+    far, near = ev([box(geo=0.0)]), ev([box()])
+    for name, e in (("1.ndjson", far), ("2.ndjson", near)):
+        (out / "preds" / name).write_text(json.dumps({**e, "path": str(src / "A.ARW")}) + "\n")
+    sb.cmd_plan(argparse.Namespace(out=str(out), dest=str(dest)))
+    row = next(csv.DictReader(open(out / "plan.csv")))
+    assert (row["decision"], row["folder"], row["files"]) == ("move", "Red-tailed Hawk/trip", "A.ARW|A.xmp")
+    sb.cmd_apply(argparse.Namespace(out=str(out), dest=str(dest)))
+    assert (dest / "Red-tailed Hawk" / "trip" / "A.xmp").exists() and not (src / "A.ARW").exists()
+    sb.cmd_plan(argparse.Namespace(out=str(out), dest=str(dest)))
+    assert next(csv.DictReader(open(out / "plan.csv")))["reason"] == "moved_already"

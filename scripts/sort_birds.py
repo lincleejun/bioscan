@@ -10,6 +10,8 @@ folder (identify + quality), resumable. `plan` writes OUT/plan.csv: one row per 
 same stem: RAW, JPEG, HIF, XMP move together) with the decision and the reason. `apply` moves the groups
 marked `move`, never overwrites, and appends every move to OUT/moves.tsv (src, dst) so it can be undone.
 
+A folder may be listed more than once (a trip at several places): a photo moves when it passes at any.
+A name already in the species folder goes to <species>/<source folder>/; nothing is overwritten.
 A group moves only when every rule below holds; any doubt is a skip with its reason:
 person (gate person or P(person) >= PERSON_MAX), not_bird (gate not bird), no_box, other_kind (a non-bird
 box), not_species (a bird box below species level: genus, family, unconfirmed), mixed_species, low_posterior
@@ -90,7 +92,7 @@ def cmd_run(a: argparse.Namespace) -> None:
     with open(a.places, newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     for r in rows:
-        name = hashlib.sha1(r["folder"].encode()).hexdigest()[:10] + ".ndjson"
+        name = hashlib.sha1(f"{r['folder']}|{r['lat']},{r['lon']}".encode()).hexdigest()[:10] + ".ndjson"
         out = preds / name
         if out.exists():
             print(f"done already: {r['folder']}", flush=True)
@@ -118,18 +120,23 @@ def cmd_plan(a: argparse.Namespace) -> None:
     rows, targets = [], {}
     for members in groups.values():
         raws = [m for m in members if m[0].suffix.lower() in RAW]
-        path, ev = (raws or members)[0]          # the RAW's verdict decides for its JPEG partner
-        reason, sci, common = decide(ev)
+        # the RAW's verdict decides for its JPEG partner; a folder listed at several places (a trip) moves
+        # when the photo passes at any of them
+        verdicts = [(p, decide(e)) for p, e in (raws or members)]
+        path, (reason, sci, common) = next((v for v in verdicts if v[1][0] == "ok"), verdicts[0])
+        if not path.exists():
+            reason = "moved_already"
         folder = folder_name(common, existing) if reason == "ok" else ""
         files = group_files(path) if path.exists() else [path]
         if reason == "ok":
-            for fp in files:
-                t = dest / folder / fp.name
-                if t.exists() or t in targets:
-                    reason = "name_taken"            # never overwrite; a same-named photo is already there
+            # never overwrite: a name already in the species folder goes under <species>/<source folder>/
+            for sub in (folder, f"{folder}/{path.parent.name}"):
+                if not any((dest / sub / fp.name).exists() or dest / sub / fp.name in targets for fp in files):
+                    folder = sub
+                    targets.update({dest / sub / fp.name: fp for fp in files})
                     break
             else:
-                targets.update({dest / folder / fp.name: fp for fp in files})
+                reason, folder = "name_taken", ""
         rows.append({"path": str(path), "decision": "move" if reason == "ok" else "skip", "reason": reason,
                      "scientific": sci, "common": common, "folder": folder,
                      "files": "|".join(fp.name for fp in files)})
