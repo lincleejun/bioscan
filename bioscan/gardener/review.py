@@ -17,9 +17,6 @@ from bioscan.gardener.store import now
 GAP_S = 600            # a pause this long ends an observation
 SPECIES_GAP_S = 120    # a shorter one ends it when the species seen before and after share none
 CANDIDATES = 3         # representative candidates shown for a collapsed encounter
-# An asset's latest suggestion, correlated on `s.asset_id` (index ai_asset). Never `id IN (SELECT max(id) ... GROUP BY
-# asset_id)`: that builds a library-wide list while the caller may hold the write lock (#131).
-LATEST = "s.id = (SELECT max(x.id) FROM ai_suggestions x WHERE x.asset_id = s.asset_id)"
 SHORTLIST_SHARE, SHORTLIST_MIN = 0.10, 20     # AI 初选: the top 10% of a shoot, at least 20 photos (revision 9)
 
 
@@ -28,8 +25,8 @@ def shortlist(c: Any, task_id: str) -> dict[str, Any]:
     overall still gets a shortlist. Order: not rejected, then a burst's best frame, then aesthetic score; the top
     max(10%, 20) are kept (all of them when there are fewer). Photos without a score are left out, not guessed."""
     rows = c.execute(
-        f"SELECT s.asset_id, s.verdict, s.score, s.burst_rank FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id "
-        f"WHERE {LATEST} AND a.media = 'photo' AND s.score IS NOT NULL AND {IN_TASK_REP} "
+        "SELECT s.asset_id, s.verdict, s.score, s.burst_rank FROM current_suggestions s JOIN assets a ON a.id = s.asset_id "
+        f"WHERE a.media = 'photo' AND s.score IS NOT NULL AND {IN_TASK_REP} "
         "AND EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.task_id = ?)",
         (task_id, task_id)).fetchall()
     rows = sorted(rows, key=lambda r: (r["verdict"] == "reject", (r["burst_rank"] or 1) > 1, -r["score"], r["asset_id"]))
@@ -48,8 +45,8 @@ def seconds(taken_at: str) -> float:
 
 def _task_bursts(c: Any, task_id: str) -> dict[str, str]:
     return {r[0]: r[1] for r in c.execute(
-        "SELECT s.asset_id, s.burst_id FROM task_assets ta JOIN ai_suggestions s ON s.id = (SELECT max(x.id) FROM "
-        "ai_suggestions x WHERE x.asset_id = ta.asset_id) WHERE ta.task_id = ? AND s.burst_id IS NOT NULL", (task_id,))}
+        "SELECT s.asset_id, s.burst_id FROM task_assets ta JOIN current_suggestions s ON s.asset_id = ta.asset_id "
+        "WHERE ta.task_id = ? AND s.burst_id IS NOT NULL", (task_id,))}
 
 
 def _task_species(c: Any, task_id: str) -> dict[str, set[str]]:
@@ -118,7 +115,7 @@ def subject_runs(c: Any, task_id: str) -> dict[str, str]:
     stored: a run is a hint that groups belong together, the group stays the unit a person decides on."""
     rows = [dict(r) for r in c.execute(
         "SELECT a.id, a.taken_at, s.burst_id FROM task_assets ta JOIN assets a ON a.id = ta.asset_id LEFT JOIN "
-        "ai_suggestions s ON s.id = (SELECT max(x.id) FROM ai_suggestions x WHERE x.asset_id = a.id) WHERE ta.task_id = ? "
+        "current_suggestions s ON s.asset_id = a.id WHERE ta.task_id = ? "
         f"AND {IN_TASK_REP} AND a.taken_at IS NOT NULL ORDER BY a.taken_at, a.id", (task_id, task_id))]
     main: dict[str, tuple[float, str | None]] = {}          # asset -> (area, species concept) of its largest subject
     for r in c.execute("SELECT ci.asset_id, s.xyxy, ci.level, ci.concept FROM current_ids ci JOIN subjects s ON s.id = "
@@ -166,6 +163,13 @@ def _rank(m: dict[str, Any]) -> tuple:
     return (m["use"] == "edit", m["use"] == "record", m["stars"], -(m["burst_rank"] or 10 ** 6), m["score"] or 0.0)
 
 
+def representative(frames: list[dict[str, Any]]) -> dict[str, Any]:
+    """A group's representative, its best frame (修订 15: the one rule; GET /encounters, GET /assets and a merge
+    all answer with it): by _rank, the first of equals in the order given (callers pass capture order: taken_at, id).
+    Each frame needs use, stars, burst_rank and score."""
+    return max(frames, key=_rank)
+
+
 def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None,
                candidates: int = CANDIDATES) -> dict[str, Any]:
     """The encounters of a task and/or of one species (only that species' photos), each with its bursts
@@ -185,8 +189,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     for part in st.chunks(ids):
         q = st.marks_in(part)
         ai |= {r[0]: r for r in c.execute(
-            f"SELECT asset_id, burst_id, burst_rank, score FROM ai_suggestions WHERE id IN (SELECT max(id) FROM "
-            f"ai_suggestions WHERE asset_id IN ({q}) GROUP BY asset_id)", part)}
+            f"SELECT asset_id, burst_id, burst_rank, score FROM current_suggestions WHERE asset_id IN ({q})", part)}
         for r in c.execute(f"SELECT asset_id, concept, taxon, common FROM current_ids WHERE asset_id IN ({q}) "
                            "AND level = 'species' AND concept IS NOT NULL", part):
             named.setdefault(r[0], {})[r[1]] = {"concept": r[1], "taxon": r[2], "common": r[3]}
@@ -210,7 +213,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
             groups.setdefault(m["burst_id"] or ("single", m["id"]), []).append(m)
         bursts = []
         for k, g in groups.items():
-            rep = max(g, key=_rank)
+            rep = representative(g)
             bursts.append({"id": None if isinstance(k, tuple) else k, "size": len(g), "rep": rep["id"],
                            "asset_ids": [m["id"] for m in g], "_rank": _rank(rep),
                            "run": runs.get(e["task_id"], {}).get(g[0]["id"])})
@@ -303,12 +306,12 @@ def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool
     frames of the burst, and a key press must not reject a frame the person is not looking at)."""
     if not c.execute("SELECT 1 FROM assets WHERE id = ?", (asset_id,)).fetchone():
         raise st.NotFound(f"no asset {asset_id}")
-    row = c.execute("SELECT burst_id FROM ai_suggestions WHERE asset_id = ? ORDER BY id DESC LIMIT 1", (asset_id,)).fetchone()
+    row = c.execute("SELECT burst_id FROM current_suggestions WHERE asset_id = ?", (asset_id,)).fetchone()
     if row is None or row[0] is None:
         raise st.Error("这张照片不在连拍中")
     sibs = [r[0] for r in c.execute(
-        f"SELECT a.id FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE {LATEST} "
-        f"AND s.burst_id = ? AND a.id != ? AND {IN_TASK_REP} ORDER BY a.taken_at, a.id",   # bursts are per task
+        "SELECT a.id FROM current_suggestions s JOIN assets a ON a.id = s.asset_id "
+        f"WHERE s.burst_id = ? AND a.id != ? AND {IN_TASK_REP} ORDER BY a.taken_at, a.id",   # bursts are per task
         (row[0], asset_id, row[0].split(":", 1)[0]))]
     if within is not None:
         sibs = [i for i in sibs if i in set(within)]
@@ -454,15 +457,14 @@ def split_burst(c: Any, *, at: str | None = None, asset_ids: list[str] | None = 
     per subject and untouched."""
     ids = [at] if at is not None else list(dict.fromkeys(asset_ids or []))
     latest = {r["asset_id"]: dict(r) for part in st.chunks(ids) for r in c.execute(
-        f"SELECT * FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions WHERE asset_id IN "
-        f"({st.marks_in(part)}) GROUP BY asset_id)", part)}
+        f"SELECT * FROM current_suggestions WHERE asset_id IN ({st.marks_in(part)})", part)}
     bursts = {(latest.get(i) or {}).get("burst_id") for i in ids}
     if not ids or len(bursts) != 1 or None in bursts:
         raise st.Error("要拆的照片须在同一个连拍里")
     b = bursts.pop()
     members = [dict(r) for r in c.execute(
-        f"SELECT s.*, a.taken_at FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE {LATEST} "
-        "AND s.burst_id = ? ORDER BY a.taken_at, a.id", (b,))]
+        "SELECT s.*, a.taken_at FROM current_suggestions s JOIN assets a ON a.id = s.asset_id "
+        "WHERE s.burst_id = ? ORDER BY a.taken_at, a.id", (b,))]
     order = [m["asset_id"] for m in members]
     moving = order[order.index(at):] if at is not None else [a for a in order if a in set(ids)]
     if not moving or len(moving) == len(order):
@@ -503,15 +505,14 @@ def merge_bursts(c: Any, task_id: str, asset_ids: list[str], *, actor: str) -> d
     if len(ids) < 2 or set(ids) - inside:
         raise st.Error("合并需要同一任务里的两张以上照片")
     latest = {r["asset_id"]: dict(r) for part in st.chunks(ids) for r in c.execute(
-        f"SELECT * FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions WHERE asset_id IN "
-        f"({st.marks_in(part)}) GROUP BY asset_id)", part)}
+        f"SELECT * FROM current_suggestions WHERE asset_id IN ({st.marks_in(part)})", part)}
     if set(ids) - set(latest):
         raise st.Error("这些照片还没有分组结果，分析完成后再合并")
     old = sorted({m["burst_id"] for m in latest.values() if m["burst_id"]})
     members = dict(latest)
     for b in old:
         members |= {r["asset_id"]: dict(r) for r in c.execute(
-            f"SELECT s.* FROM ai_suggestions s WHERE {LATEST} AND s.burst_id = ?", (b,))}
+            "SELECT * FROM current_suggestions WHERE burst_id = ?", (b,))}
     if len(old) == 1 and len(members) == len([m for m in members.values() if m["burst_id"] == old[0]]):
         raise st.Error("这些照片已经在同一组里")
     new, t = f"{task_id}:{MERGED}~{st.new_id('p')}", now()
@@ -523,7 +524,10 @@ def merge_bursts(c: Any, task_id: str, asset_ids: list[str], *, actor: str) -> d
     rows = list(members.values())
     _renumber(rows, c, {new})
     _restamp(c, rows, t)
-    return {"burst_id": new, "from": old, "size": len(rows), "rep": min(rows, key=lambda m: m["burst_rank"])["asset_id"]}
+    mine = {r[0]: (r[1], r[2]) for part in st.chunks(list(members)) for r in c.execute(
+        f"SELECT asset_id, use, coalesce(stars, 0) FROM marks WHERE asset_id IN ({st.marks_in(part)})", part)}
+    rep = representative([m | dict(zip(("use", "stars"), mine.get(m["asset_id"], (None, 0)))) for m in rows])
+    return {"burst_id": new, "from": old, "size": len(rows), "rep": rep["asset_id"]}   # ranks are unique: no tie
 
 
 def apply_burst_overrides(c: Any, task_id: str, run_id: str) -> int:

@@ -763,3 +763,14 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **同一对象的名字**：`review.subject_runs` 以这一串第一张照片的 id 命名（原来是任务内的序号 `runN`），所以跨任务不会重名；`GET /encounters` 不给 `task` 时也按每个任务算出 `run`（物种页跨任务列出一个物种）。
 - 在 owner 这张卡的副本上（1,361 张，194 组）：所有照片框出 29 串（91 组、866 张），与 Review 逐物种框出的不同串数相同（29；Review 里一共 35 个框，多出的 6 个是同一串在另一个物种的 Review 里又出现一次：组里有两个物种）；Northern Harrier 物种页 65 格、16 串，与它的 Review 相同。改前两页都是 0 串，物种页是 2 个拍摄段、只露 6 张代表候选。没有同一对象的标注集：**unverified**。
 - CLI / MCP 本版不加命令。
+
+## 契约修订 15：当前 AI 建议一个视图、组的代表帧一条规则（2026-11-12，#144 F2；只是整理，行为不变；优先于修订 14 的“`GET /assets` 不加字段”）
+
+依据：`ai_suggestions` 只追加，每张照片 id 最大的一行是当前的；这条“最新一行”的子查询在 `bioscan/gardener/*.py` 里手写了 18 处。组的代表帧（最好的一帧）在 `review.encounters`、`review.merge_bursts` 与网页（`ws.burstRep`）各算一次，规则不同，会显示不同的帧。
+
+- **`current_suggestions` 视图**（`schema.sql`）：每张照片当前的一行，按 `asset_id` 相关取最大 id（走索引 `ai_asset`），不用 `GROUP BY` 的全库列表（#131）。和 `current_ids` 一样每次启动先删后建，旧库打开即有。读“当前建议”的地方都改读它；要历史（`ai_history`）、某次运行的行（`apply_burst_overrides`）和写入的地方仍读表。
+- **代表帧一条规则** `review.representative(frames)`：人的决定在先（选入修图、保留记录、星级），再按连拍名次、美学分；相同时取拍摄顺序在前的一张。就是 Review 一直用的规则（原来 `max(g, key=_rank)`）。`GET /encounters` 每组的 `rep`、`POST /bursts/merge` 返回的 `rep`、`GET /assets` 每张的 `burst.rep` 都由它算出。
+- **`GET /assets`**：连拍照片的 `burst` 加 `rep`：这一连拍在本次查询条件（不含 `changed_after`）匹配的全部帧里的代表帧，与分页无关；与同一范围的 `GET /encounters` 的 `rep` 相同。`GET /assets/{id}` 不加。
+- **网页**：折叠连拍时显示服务端的 `burst.rep`，不再自己挑名次最小的已载入帧；增量轮询返回的帧带来新的 `rep` 时（人的决定换了代表帧）以它为准，重排网格。
+- 在 owner 这张卡的副本上（1,361 张，171 个连拍）：改前改后 `GET /tasks/{id}`、`/encounters`（任务、每个物种、物种跨任务）、`/assets`（四种排序与 AI 筛选、每个物种，全部分页）、`/species`、`/collections`、`/coverage`、`/tasks/{id}/shortlist` 与 55 张照片的详情逐值比较，0 处不同（新加的 `burst.rep` 除外，它与 `/encounters` 的 `rep` 逐组相同）；重新分组后每张照片的组与代表帧不变。原网页规则在两个连拍上与 Review 不同：最好的一帧落在下一页（第 201 张），已显示的第 2 名留着不换（所有照片 b0035，物种页 b0072）；现在与 Review 相同。这张卡没有人的标记，人的决定在先这一项由测试证实。
+- 耗时（同一副本，改前 / 改后交替，5 次中位）：`GET /encounters` 39 → 42 ms，任务全部照片分页 103 → 117 ms。视图对一张照片的每一行都比一次最大 id（这张卡每张 3 行），`GET /assets` 另多一次按连拍取帧的查询。

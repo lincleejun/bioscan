@@ -102,7 +102,8 @@ class Fake:
             a["ai"] = {"verdict": ai[0], "score": ai[1], "reasons": ai[2]} if ai else None
             a["content_label_zh"] = content
             a["species"] = {"taxon": sp[0], "common": sp[1], "p": 0.71} if sp else None
-            a["burst"] = {"id": f"{t['id']}:{burst[0]}", "rank": burst[1], "size": burst[2]} if burst else None
+            a["burst"] = {"id": f"{t['id']}:{burst[0]}", "rank": burst[1], "size": burst[2],
+                          "rep": (ids or [a["id"]])[0]} if burst else None   # 修订 15: b1's best frame is its first
             a["analysis"] = "done" if ai else ("failed" if media == "photo" else "partial")
             a["lat"], a["lon"] = (25.3, 98.8) if i < 3 else (None, None)
             a["caps"] = {c.id: {"state": "not_enabled", "version": None, "error": None, "data": None}
