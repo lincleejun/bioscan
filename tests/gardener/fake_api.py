@@ -754,8 +754,8 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         bursts: dict = {}
         for a in ms:
             bursts.setdefault((a["burst"] or {}).get("id") or a["id"], []).append(a["id"])
-        bs = [{"id": k if k not in bursts[k] else None, "size": len(v), "rep": v[0], "asset_ids": v}
-              for k, v in bursts.items()]
+        bs = [{"id": k if k not in bursts[k] else None, "size": len(v), "rep": v[0], "asset_ids": v,
+               "run": ms[0]["id"]} for k, v in bursts.items()]     # 修订 14: one subject run, named by its first photo
         enc = {"id": "e_fake1", "task_id": task or ms[0]["task_ids"][0], "origin": "auto", "start": ms[0]["taken_at"],
                "end": ms[-1]["taken_at"], "photos": len(ms), "asset_ids": [a["id"] for a in ms], "bursts": bs,
                "candidates": [b["rep"] for b in bs][:3], "species": []} if ms else None

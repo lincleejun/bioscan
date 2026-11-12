@@ -760,9 +760,6 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .ph.is-drawing img { pointer-events: none; }
 .draw-box { position: absolute; border: 2px solid var(--accent, #3a7); background: rgba(255, 255, 255, .12); pointer-events: none; }
 /* 拍摄段（契约修订 5B）：占满网格一行的段标题 */
-.enc-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 2px 2px; border-top: 1px solid var(--line); }
-.enc-head:first-child { border-top: 0; padding-top: 0; }
-.enc-head .hint { flex: 1 1 auto; min-width: 0; }
 /* ---- 原像素细节查看器（契约修订 5C）：放大查看与并排比较 ---- */
 .dv { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--canvas); touch-action: none; cursor: grab; user-select: none; }
 .dv.is-drag { cursor: grabbing; }
@@ -1238,7 +1235,6 @@ select.input { padding-right: 28px; }
 .ws.mode-loupe .tile-cap, .ws.mode-loupe .tile-tags, .ws.mode-loupe .tile-check, .ws.mode-loupe .burst-btn { display: none; }
 .ws.mode-loupe .grid-empty { padding: 12px; }
 .ws.mode-loupe #grid-sentinel { flex: none; width: 1px; }
-.ws.mode-loupe .enc-head { display: none; }
 .lib-foot [data-bind="lib-views"] { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .inspector .flagseg { flex-wrap: wrap; }
 .inspector .flagseg .seg-btn { flex: 1 0 auto; white-space: nowrap; }
@@ -1310,3 +1306,10 @@ select.input { padding-right: 28px; }
 .gr-run-h { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); }
 .gr-run-h b { color: var(--ink); font-size: 14px; } .gr-run-h .btn { margin-left: auto; }
 .gr-run + .gr-grid, .gr-grid + .gr-grid { margin-top: 12px; }
+/* 契约修订 14：照片网格（所有照片按任务看、物种页）也框出同一对象。框横跨整行，格子仍排在网格的列上（subgrid）；
+   框外的格子直接是网格的格子。单张视图的胶片带里框与标题都不占位，格子照常排成一行。 */
+.grid > .gr-grid, .grid > .gr-run > .gr-grid { display: contents; }
+.grid > .gr-run { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; row-gap: 12px; margin: 0; }
+.grid > .gr-run > .gr-run-h { grid-column: 1 / -1; }
+.ws.mode-loupe .grid > .gr-run { display: contents; }
+.ws.mode-loupe .gr-run-h { display: none; }
