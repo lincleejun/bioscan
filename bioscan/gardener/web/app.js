@@ -15,7 +15,7 @@
   const main = $('#main');
 
   const S = { tasks: [], caps: [], presets: [], settings: {}, health: null, cols: [], assets: new Map(), details: new Map(), down: false };
-  const ui = { view: null, params: {}, ws: null, colFilter: 'all', colKind: '', lib: {}, undo: [], draft: null, zoom: false, token: 0, colKey: '' };
+  const ui = { view: null, params: {}, ws: null, colFilter: 'all', colKind: '', lib: {}, undo: [], draft: null, open: null, token: 0, colKey: '' };
 
   const IC = {
     tasks: '<path d="M4 6h16M4 12h16M4 18h10"/>',
@@ -408,7 +408,7 @@
     const a = A(id);
     if (!a) return '';
     const u = USE[a.use];
-    return `<a class="et${cand ? ' is-cand' : ''}" href="#/task/${esc(t.id)}/compare/${esc(encodeURIComponent(k))}/${esc(e.id)}/${esc(id)}" aria-label="${esc(tileLabel(a))}${cand ? '，候选' : ''}">${photo(a, 'large')}${cand ? '<span class="et-cand">候选</span>' : ''}${u && a.use !== 'pending' ? `<span class="et-use u-${a.use}">${ic(u[3] || 'check')}${u[0]}</span>` : ''}${a.stars ? `<span class="et-star">${'★'.repeat(a.stars)}</span>` : ''}</a>`;
+    return `<a class="et${cand ? ' is-cand' : ''}" href="${esc(speciesHref(k, t.id))}" data-action="open-photo" data-id="${esc(id)}" aria-label="${esc(tileLabel(a))}${cand ? '，候选' : ''}">${photo(a, 'large')}${cand ? '<span class="et-cand">候选</span>' : ''}${u && a.use !== 'pending' ? `<span class="et-use u-${a.use}">${ic(u[3] || 'check')}${u[0]}</span>` : ''}${a.stars ? `<span class="et-star">${'★'.repeat(a.stars)}</span>` : ''}</a>`;
   }
   function encRowHTML(t, k, e) {
     const open = fr.open.has(e.id), cands = new Set(e.candidates);
@@ -457,7 +457,7 @@
       <div class="fr-body"><nav class="fr-rail" aria-label="本次拍到"><h2>本次拍到</h2>${railHTML(t, sp, k && k.concept)}</nav>
         <div class="fr-center" id="fr-center">${frCenterHTML()}</div>
         <aside class="fl-panel fr-rules" id="fr-rules">${frRulesHTML()}</aside></div>
-      <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>点击一张照片，进入细节比较。</p></div>
+      <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>点一张照片，在单张视图里逐张看与标记；比较一个拍摄段用右边的按钮。</p></div>
         <a class="btn ghost lg" href="#/import/${esc(t.id)}">完成与导入${ic('right')}</a>
         ${first && k ? `<a class="btn primary lg" href="#/task/${esc(t.id)}/compare/${esc(encodeURIComponent(k.concept))}/${esc(first.id)}">比较当前拍摄段${ic('right')}</a>` : ''}</footer>
     </div>`;
@@ -606,7 +606,6 @@
     store(items);
     items.forEach(a => { if (a.updated_at > fl.cursor) fl.cursor = a.updated_at; S.details.delete(a.id); });
     if (ui.view === 'flow-review') frRefresh();
-    if (cd.view) { cd.view.foot(); const g = $('#cd-grid'); if (g) setHTML(g, cdGridHTML()); }
     if (ui.view === 'compare') cpChrome();
   }
 
@@ -748,9 +747,9 @@
     }
     if (tab === 'runs') return `<div class="wpage">${head}<div class="page-scroll"><div class="runs">${(t.runs || []).slice().reverse().map(runHTML).join('') || '<div class="empty">还没有运行。</div>'}</div></div></div>`;
     // 契约修订 9：任务 Preview 是 Lightroom 式图库——按拍摄时间平铺，不按拍摄段或连拍强行分组
-    makeWs('preview', { task: t.id }, 'discovered', { taskId: t.id, start: prefs.get('last.' + t.id, null), lib: true, mode: 'grid', collapse: false,
+    makeWs('preview', { task: t.id }, 'discovered', { taskId: t.id, start: prefs.get('last.' + t.id, null), lib: true, collapse: false,
       lf: { flag: 'all', stars: 0, ai: false }, short: null, shortInfo: null, loupe: null });
-    return `<div class="wpage">${head}${libHTML()}</div>`;
+    return `<div class="wpage">${head}${wsHTML()}</div>`;
   }
   const KIND = { scan: '首次扫描', append: '追加来源', rescan: '重新分析', retry: '重试失败项' };
   const RUNST = { queued: '排队中', running: '运行中', paused: '已暂停', stopped: '已停止', completed: '完成', partial: '部分完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' };
@@ -796,12 +795,17 @@
       default: return true;
     }
   }
+  // 照片视图只有两种布局（网格 / 单张），所有 ws 视图共用；各类视图分别记住上次用的布局（契约修订 11）。
+  // ui.open：从别的页面点一张照片进来，直接在单张视图里看这张。
   function makeWs(kind, query, order, extra) {
-    const ws = Object.assign({ kind, query, order, filter: 'all', all: [], allSet: new Set(), ids: [], sel: new Set(), current: null, anchor: null, offset: 0, total: 0, loadedAll: false, cursor: '0', collapse: prefs.get('burst', '1') === '1', expanded: new Set(), burstRep: new Map(), loading: false, enc: null, encMode: prefs.get('enc', '1') === '1' }, extra);
+    const view = (extra && extra.view) || kind, open = ui.open;
+    ui.open = null;
+    const ws = Object.assign({ kind, view, mode: prefs.get('mode.' + view, 'grid') === 'loupe' ? 'loupe' : 'grid', query, order, filter: 'all', all: [], allSet: new Set(), ids: [], sel: new Set(), current: null, anchor: null, offset: 0, total: 0, loadedAll: false, cursor: '0', collapse: prefs.get('burst', '1') === '1', expanded: new Set(), burstRep: new Map(), loading: false, enc: null, encMode: prefs.get('enc', '1') === '1' }, extra, open ? { start: open, open, mode: 'loupe' } : {});
     ui.ws = ws;
     return ws;
   }
   function visible(ws, a) {
+    if (a.id === ws.open) return true;          // 点进来的那张即使在收起的拍摄段或连拍里也显示，直到人换张
     if (!passF(a, ws.filter)) return false;
     if (ws.lib && !libPass(ws, a)) return false;
     const e = encOn(ws) && ws.enc.by.get(a.id);
@@ -878,8 +882,8 @@
     if (!ws) return '';
     const n = ws.sel.size;
     const manual = ws.kind === 'review' && ui.col && ui.col.kind === 'manual';
-    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格放大 · P 选入修图 / X 淘汰 / U 待定 / R 保留记录，1–5 星级${ws.lib ? ' · G 网格 / E 单张 / C 比较 / F 全屏' : ''}</span>${singleToolsHTML(ws)}`;
-    return `<span class="batch-n">已选 <b>${n}</b> 张 · ${ws.lib && ws.mode === 'loupe' ? '单张视图里快捷键只作用于当前这张' : '快捷键作用于全部已选'}</span>
+    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格看单张 · P 选入修图 / X 淘汰 / U 待定 / R 保留记录，1–5 星级 · G 网格 / E 单张 / C 比较 / F 全屏 · Tab 或 I 信息面板</span>${singleToolsHTML(ws)}`;
+    return `<span class="batch-n">已选 <b>${n}</b> 张 · ${ws.mode === 'loupe' ? '单张视图里快捷键只作用于当前这张' : '快捷键作用于全部已选'}</span>
       <button type="button" class="btn sm pick" data-action="batch" data-v="record" data-key="b-record">${ic('check')}保留记录</button>
       <button type="button" class="btn sm pick" data-action="batch" data-v="edit" data-key="b-edit">${ic('edit')}选入修图</button>
       <button type="button" class="btn sm ghost" data-action="batch" data-v="pending" data-key="b-pending">待定</button>
@@ -889,17 +893,6 @@
       <button type="button" class="btn sm ghost" data-action="add-to-col" data-key="b-add">加入集合…</button>
       ${manual ? '<button type="button" class="btn sm ghost" data-action="split-col" data-key="b-split">拆分为新集合…</button><button type="button" class="btn sm ghost" data-action="remove-from-col" data-key="b-rm">移出本组</button>' : ''}
       <button type="button" class="btn sm ghost" data-action="clear-sel" data-key="b-clear">取消选择</button>`;
-  }
-  function wsHTML() {
-    const ws = ui.ws;
-    return `<div class="ws grid-${esc(prefs.get('grid', 'm'))}">
-      <section class="ws-pane" aria-label="素材网格">
-        <div class="ws-toolbar">${bindEl('ws-filters')}<div class="ws-tools">${bindEl('ws-count', '', 'span')}${ws.encQuery ? `<button type="button" class="btn sm ghost" data-action="enc-mode" aria-pressed="${ws.encMode}">${ws.encMode ? '按拍摄段' : '不分段'}</button>` : ''}<button type="button" class="btn sm ghost" data-action="burst-collapse" aria-pressed="${ws.collapse}">连拍${ws.collapse ? '已折叠' : '已展开'}</button><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button>${bindEl('undo', '', 'span')}<button type="button" class="btn sm ghost" data-action="shortcuts">${ic('keyboard')}快捷键</button></div></div>
-        <div class="grid-scroll" id="grid-scroll"><div class="grid" id="grid" role="list"><div class="grid-empty">${ws.kind === 'preview' ? '扫描开始后，素材会在这里逐步出现。' : '正在载入…'}</div></div><div id="grid-sentinel" aria-hidden="true"></div></div>
-        <div class="batch-bar" data-bind="ws-batch">${batchHTML()}</div>
-      </section>
-      <aside class="inspector" id="inspector" aria-label="素材详情"></aside>
-    </div>`;
   }
   function renderGrid() {
     const ws = ui.ws, grid = $('#grid');
@@ -954,19 +947,22 @@
     if ((a.stars || 0) < f.stars) return false;
     return !f.ai || !!(ws.short && ws.short.has(a.id));
   }
-  function libHTML() {
+  // 所有照片视图共用的布局：网格只有缩略图、占满宽度；单张是大图 + 底部胶片带，信息与标记面板在旁边，Tab / I 收起。
+  // 各视图只换顶部筛选：任务 Preview 是图库筛选与快捷视图（修订 9），其他视图是自己的筛选条。
+  function wsHTML() {
     const ws = ui.ws;
-    return `<div class="ws lib mode-${esc(ws.mode)} grid-${esc(prefs.get('grid', 'm'))}">
-      <div class="lib-bar">${bindEl('lib-filters')}<div class="ws-tools">${bindEl('ws-count', '', 'span')}<button type="button" class="btn sm ghost" data-action="burst-collapse" aria-pressed="${ws.collapse}">连拍${ws.collapse ? '已折叠' : '已展开'}</button><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button>${bindEl('undo', '', 'span')}<button type="button" class="btn sm ghost" data-action="shortcuts">${ic('keyboard')}快捷键</button></div></div>
+    const enc = ws.encQuery ? `<button type="button" class="btn sm ghost" data-action="enc-mode" aria-pressed="${ws.encMode}">${ws.encMode ? '按拍摄段' : '不分段'}</button>` : '';
+    return `<div class="ws${ws.lib ? ' lib' : ''} mode-${esc(ws.mode)}${prefs.get('panel', '1') === '1' ? '' : ' panel-off'} grid-${esc(prefs.get('grid', 'm'))}">
+      <div class="lib-bar">${bindEl(ws.lib ? 'lib-filters' : 'ws-filters')}<div class="ws-tools">${bindEl('ws-count', '', 'span')}${enc}<button type="button" class="btn sm ghost" data-action="burst-collapse" aria-pressed="${ws.collapse}">连拍${ws.collapse ? '已折叠' : '已展开'}</button><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button>${bindEl('undo', '', 'span')}<button type="button" class="btn sm ghost" data-action="shortcuts">${ic('keyboard')}快捷键</button></div></div>
       <div class="lib-body">
-        <nav class="lib-side" aria-label="快捷视图">${bindEl('lib-side')}</nav>
+        ${ws.lib ? `<nav class="lib-side" aria-label="快捷视图">${bindEl('lib-side')}</nav>` : ''}
         <section class="ws-pane" aria-label="照片">
           <div class="lib-loupe" id="lib-loupe"></div>
-          <div class="grid-scroll" id="grid-scroll"><div class="grid" id="grid" role="list"><div class="grid-empty">扫描开始后，照片会在这里逐步出现。</div></div><div id="grid-sentinel" aria-hidden="true"></div></div>
+          <div class="grid-scroll" id="grid-scroll"><div class="grid" id="grid" role="list"><div class="grid-empty">${ws.kind === 'preview' ? '扫描开始后，照片会在这里逐步出现。' : '正在载入…'}</div></div><div id="grid-sentinel" aria-hidden="true"></div></div>
           <div class="lib-foot">${bindEl('lib-views')}<label class="check-row"><input type="checkbox" data-pref="advance" ${prefs.get('advance', '1') === '1' ? 'checked' : ''}> 标记后自动下一张</label></div>
           <div class="batch-bar" data-bind="ws-batch">${batchHTML()}</div>
         </section>
-        <aside class="inspector" id="inspector" aria-label="照片信息"></aside>
+        <aside class="inspector" id="inspector" aria-label="照片信息与标记"></aside>
       </div></div>`;
   }
   function libFiltersHTML() {
@@ -993,8 +989,10 @@
   }
   function libViewsHTML() {
     const ws = ui.ws;
-    if (!ws || !ws.lib) return '';
-    return `<div class="seg" role="group" aria-label="视图">${LIB_MODES.map(([v, l, k]) => `<button type="button" class="seg-btn" data-action="lib-mode" data-v="${v}" data-key="lm-${v}" aria-pressed="${ws.mode === v}">${l}<kbd>${k}</kbd></button>`).join('')}</div>`;
+    if (!ws) return '';
+    const i = ws.ids.indexOf(ws.current);
+    return `<div class="seg" role="group" aria-label="视图">${LIB_MODES.map(([v, l, k]) => `<button type="button" class="seg-btn" data-action="lib-mode" data-v="${v}" data-key="lm-${v}" aria-pressed="${ws.mode === v}">${l}<kbd>${k}</kbd></button>`).join('')}</div>
+      ${ws.mode === 'loupe' ? `<button type="button" class="btn sm ghost" data-action="panel" data-key="lm-panel" aria-pressed="${prefs.get('panel', '1') === '1'}">信息<kbd>I</kbd></button>${i >= 0 ? `<span class="hint">${i + 1} / ${ws.ids.length}</span>` : ''}` : ''}`;
   }
   async function loadShortlist(ws) {
     try {
@@ -1011,16 +1009,24 @@
   }
   function libMode(v) {
     const ws = ui.ws;
-    if (!ws || !ws.lib) return;
+    if (!ws) return;
     if (v === 'compare') { libCompare(); return; }
     if (v === 'full') { libFull(); return; }
     ws.mode = v;
-    const w = $('.ws.lib');
+    prefs.set('mode.' + ws.view, v);
+    const w = $('.ws');
     if (w) { w.classList.remove('mode-grid', 'mode-loupe'); w.classList.add('mode-' + v); }
-    patchBinds('lib-views'); patchBinds('ws-batch');
-    renderLoupe();
+    patchBinds('ws-batch');
+    renderInspector();
     const t = ws.current && $(`.tile[data-asset="${CSS.escape(ws.current)}"]`);
     if (t) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  function togglePanel() {                 // Lightroom 的 Tab：收起 / 展开单张视图旁的信息与标记面板
+    const on = prefs.get('panel', '1') !== '1';
+    prefs.set('panel', on ? '1' : '0');
+    const w = $('.ws');
+    if (w) w.classList.toggle('panel-off', !on);
+    renderInspector();
   }
   function libCompare() {                 // 和 Lightroom 一样：只选一张时与下一张比较
     const ws = ui.ws;
@@ -1036,7 +1042,7 @@
   }
   function renderLoupe() {               // 单张：原像素查看器（Z 级放大），并预取前后两张的大图
     const ws = ui.ws, el = $('#lib-loupe');
-    if (!el || !ws || !ws.lib) return;
+    if (!el || !ws) return;
     const a = ws.mode === 'loupe' && ws.current && A(ws.current);
     const pk = a ? `${a.id}|${sigMedia(a)}` : '';
     if (el.dataset.pk === pk) return;
@@ -1046,7 +1052,7 @@
     el.innerHTML = '<div class="lib-stage"></div>';
     const st = $('.lib-stage', el);
     if (a.media === 'photo' && a.preview === 'ready') ws.loupe = dvMount(st, a, null, null);
-    else st.innerHTML = stageEl(a, S.details.get(a.id));
+    else st.innerHTML = stageEl(a);
     const i = ws.ids.indexOf(a.id);
     [ws.ids[i + 1], ws.ids[i - 1]].forEach(id => { const n = id && A(id); if (n && n.media === 'photo' && n.preview === 'ready') new Image().src = mediaUrl(n.id, 'large'); });
   }
@@ -1061,7 +1067,7 @@
       const by = new Map();
       r.encounters.forEach((e, i) => { e.n = i + 1; e.asset_ids.forEach(id => by.set(id, e)); });
       ws.enc = { list: r.encounters, by, sig, open: ws.enc ? ws.enc.open : new Set() };
-      if (ui.ws === ws) recompute();
+      if (ui.ws === ws) recompute(true);
     } catch (e) { if (ui.ws === ws) toast(errMsg(e)); }
   }
   function encOrder(ws) {
@@ -1112,37 +1118,11 @@
     });
   }
 
-  // 检视器：大图层只在换图、预览状态、放大模式变化时重建
-  function subjectBox(d) {
-    const s = d && d.caps && d.caps.subject && d.caps.subject.data;
-    const boxes = (s && s.boxes) || [];
-    return boxes.slice().sort((x, y) => (y.score || 0) - (x.score || 0))[0] || null;
-  }
-  function stageEl(a, d) {
+  function stageEl(a) {
     if (a.media === 'video' && a.online) {
       return `<div class="ph ph-contain vid"><video controls preload="metadata" src="${esc(mediaUrl(a.id, 'original'))}"${a.preview === 'ready' ? ` poster="${esc(mediaUrl(a.id, 'large'))}"` : ''}></video><div class="vid-fail" hidden><p>${ic('warn')}无法在浏览器播放</p><button type="button" class="btn sm dark" data-action="reveal" data-id="${esc(a.id)}">在 Finder 中显示</button></div></div>`;
     }
-    const box = ui.zoom && subjectBox(d);
-    if (box && a.preview === 'ready') return `<div class="ph ph-contain zoom-wrap"><div class="zoom" data-zoom="${esc(a.id)}" role="img" aria-label="主体放大：${esc(a.name)}"></div></div>`;
     return photo(a, 'large', 'ph-contain');
-  }
-  function applyZoom(el, a, d) {
-    const z = el && $('.zoom', el);
-    if (!z) return;
-    const [x0, y0, x1, y1] = subjectBox(d).xyxy;
-    const m = 0.08, bx0 = Math.max(0, x0 - m), by0 = Math.max(0, y0 - m), bx1 = Math.min(1, x1 + m), by1 = Math.min(1, y1 + m);
-    const bw = bx1 - bx0, bh = by1 - by0;
-    z.style.backgroundImage = `url("${mediaUrl(a.id, 'large')}")`;
-    z.style.aspectRatio = String(((a.width || 3) * bw) / ((a.height || 2) * bh));
-    z.style.backgroundSize = `${100 / bw}% ${100 / bh}%`;
-    z.style.backgroundPosition = `${bw < 1 ? (bx0 / (1 - bw)) * 100 : 0}% ${bh < 1 ? (by0 / (1 - bh)) * 100 : 0}%`;
-  }
-  function canvasBarHTML(a, d) {
-    const ws = ui.ws, i = ws.ids.indexOf(ws.current);
-    const box = subjectBox(d);
-    return `<button type="button" class="icon-btn dark" data-action="prev" data-key="prev" aria-label="上一张" ${i <= 0 ? 'disabled' : ''}>${ic('left')}</button><span class="canvas-idx">${i + 1} / ${ws.ids.length}</span><button type="button" class="icon-btn dark" data-action="next" data-key="next" aria-label="下一张" ${i >= ws.ids.length - 1 ? 'disabled' : ''}>${ic('right')}</button>
-      ${a.media === 'photo' ? `<button type="button" class="btn sm dark" data-action="zoom" data-key="zoom" aria-pressed="${ui.zoom}" ${box ? '' : 'disabled title="没有主体框（未启用主体检测、待运行或未识别）"'}>${ic('zoom')}主体放大</button>` : ''}
-      <button type="button" class="btn sm dark" data-action="lightbox" data-key="lb">${ic('expand')}放大</button>`;
   }
   function capDataText(id, c) {
     const d = c.data;
@@ -1203,7 +1183,6 @@
         ${flagSeg(a)}
         <div class="star-row">${starsHTML(a)}<span class="hint">1–5 星，0 清除</span></div>
         <label class="field-inline"><span class="hint">理由（可选，随下一次标记保存）</span><input id="mark-reason" class="input sm" maxlength="200" autocomplete="off"></label>
-        <label class="check-row"><input type="checkbox" data-pref="advance" ${prefs.get('advance', '1') === '1' ? 'checked' : ''}> 键盘标记后自动前进到下一张</label>
         ${hist.length ? `<details><summary class="hint">标记历史 ${hist.length} 条</summary><ul class="hist">${hist.slice().reverse().map(h => `<li>${esc(fmtTime(h.at))} · ${esc(FIELD[h.field] || h.field)} ${esc(h.old == null ? (h.field === 'use' ? '待定' : '无') : h.field === 'use' ? useZh(h.old) : h.old)} → ${esc(h.new == null ? (h.field === 'use' ? '待定' : '无') : h.field === 'use' ? useZh(h.new) : h.new)} · ${esc(h.actor)}${h.reason ? ' · ' + esc(h.reason === 'content_changed' ? '内容变化，系统清空' : h.reason) : ''}</li>`).join('')}</ul></details>` : '<p class="hint">尚无人工判断。浏览经过不计为已审。</p>'}
         ${cols.length ? `<div class="in-cols"><span class="hint">出现在 ${cols.length} 个集合，标记一致：</span>${cols.map(c => `<a class="col-ref" href="#/review/${esc(c.id)}">${esc(c.name)}</a>`).join('')}</div>` : ''}
       </section>
@@ -1294,24 +1273,24 @@
       return d;
     } catch (e) { return null; }
   }
+  // 信息与标记面板只在单张视图里显示（网格没有右侧面板）；网格或收起时不渲染，也就不为每张取详情
   function renderInspector() {
     const el = $('#inspector'), ws = ui.ws;
     if (!el || !ws) return;
     renderLoupe();
+    patchBinds('lib-views');
+    if (ws.mode !== 'loupe' || prefs.get('panel', '1') !== '1') return;
     const a = ws.current && A(ws.current);
     if (!a) {
-      if (el.dataset.mode !== 'empty') { el.dataset.mode = 'empty'; el.innerHTML = `<div class="insp-empty">${ic('lib')}<p>选择一张素材，查看大图、AI 建议与人工判断。</p></div>`; }
+      if (el.dataset.mode !== 'empty') { el.dataset.mode = 'empty'; el.innerHTML = `<div class="insp-empty">${ic('lib')}<p>选择一张照片，查看 AI 建议与人工判断。</p></div>`; }
       return;
     }
     if (el.dataset.mode !== 'full') {
       el.dataset.mode = 'full';
-      el.innerHTML = '<div class="insp-canvas"><div class="insp-photo"></div><div class="canvas-bar"></div></div><div class="insp-scroll" id="insp-scroll"></div>';
+      el.innerHTML = '<div class="insp-scroll" id="insp-scroll"></div>';
     }
     const d = S.details.get(a.id);
     if (!d) ensureDetail(a.id).then(x => { if (x && ui.ws === ws && ws.current === a.id) renderInspector(); });
-    const ph = $('.insp-photo', el), pk = `${a.id}|${sigMedia(a)}|${a.media}|${ui.zoom && !!subjectBox(d)}`;
-    if (ph.dataset.pk !== pk) { ph.dataset.pk = pk; ph.innerHTML = stageEl(a, d); applyZoom(ph, a, d); }
-    swap($('.canvas-bar', el), canvasBarHTML(a, d));
     const sc = $('#insp-scroll', el);
     const reason = $('#mark-reason', sc);
     const keepReason = reason && sc.dataset.cur === a.id ? reason.value : '';
@@ -1328,9 +1307,8 @@
     if (!body || !a) return;
     if (!body.firstElementChild) body.innerHTML = '<div class="lb-stage"><div class="lb-photo"></div><div class="lb-navs"></div></div><div class="lb-bar"></div>';
     const i = ws.ids.indexOf(a.id);
-    const d = S.details.get(a.id);
-    const ph = $('.lb-photo', body), pk = `${a.id}|${sigMedia(a)}|${ui.zoom && !!subjectBox(d)}`;
-    if (ph.dataset.pk !== pk) { ph.dataset.pk = pk; if (!dvLightbox(ph, a)) { ph.innerHTML = stageEl(a, d); applyZoom(ph, a, d); } }
+    const ph = $('.lb-photo', body), pk = `${a.id}|${sigMedia(a)}`;
+    if (ph.dataset.pk !== pk) { ph.dataset.pk = pk; if (!dvLightbox(ph, a)) ph.innerHTML = stageEl(a); }
     swap($('.lb-navs', body), `<button type="button" class="lb-nav prev" data-action="prev" data-key="lb-prev" aria-label="上一张" ${i <= 0 ? 'disabled' : ''}>${ic('left')}</button><button type="button" class="lb-nav next" data-action="next" data-key="lb-next" aria-label="下一张" ${i >= ws.ids.length - 1 ? 'disabled' : ''}>${ic('right')}</button>`);
     swap($('.lb-bar', body), `<div class="lb-info"><b>${esc(a.name)}</b><span>${i + 1} / ${ws.ids.length}</span><span class="hint">${PREVIEW_NOTE}</span></div><div class="lb-ai">${aiPill(a)}</div><div class="lb-human">${flagSeg(a)}${starsHTML(a)}</div>`);
   }
@@ -1339,6 +1317,7 @@
     if (!ws || !id) return;
     const hadTileFocus = document.activeElement && document.activeElement.classList.contains('tile');
     ws.current = id;
+    if (ws.open !== id) ws.open = null;
     if (!(opts && opts.keepSel)) { ws.sel = new Set([id]); ws.anchor = id; }
     if (ws.kept && ws.kept !== id) recompute();       // 人换了张：刚才留着的那张不再符合筛选，现在移走
     applySel();
@@ -1398,10 +1377,18 @@
     const k = Math.min(r.width / nw, r.height / nh), w = nw * k, h = nh * k;
     return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
   }
+  // 画框时单张视图的原像素查看器先换成整张预览图（不缩放、不平移），画完或 Esc 后换回
   function startDraw(id) {
-    if (ui.zoom) { ui.zoom = false; renderInspector(); }
-    const ph = $('#inspector .insp-photo .ph'), img = ph && $('img', ph);
-    if (!img || !img.naturalWidth || !ui.ws || ui.ws.current !== id) { toast('大图还没载入，稍后再试'); return; }
+    const ws = ui.ws, a = A(id), lp = $('#lib-loupe'), st = lp && $('.lib-stage', lp);
+    if (!st || !a || !ws || ws.current !== id || ws.mode !== 'loupe') { toast('大图还没载入，稍后再试'); return; }
+    dvDrop(ws.loupe); ws.loupe = null;
+    st.innerHTML = photo(a, 'large', 'ph-contain');
+    const ph = $('.ph', st), img = $('img', ph);
+    if (!img) { toast('大图还没载入，稍后再试'); lp.dataset.pk = ''; renderLoupe(); return; }
+    if (img.complete && img.naturalWidth) drawOn(id, ph, img, lp);
+    else img.addEventListener('load', () => drawOn(id, ph, img, lp), { once: true });
+  }
+  function drawOn(id, ph, img, lp) {
     const clamp = v => Math.min(1, Math.max(0, v));
     const at = e => { const r = shownRect(img); return [clamp((e.clientX - r.x) / r.w), clamp((e.clientY - r.y) / r.h)]; };
     const box = ph.appendChild(Object.assign(document.createElement('div'), { className: 'draw-box', hidden: true }));
@@ -1416,6 +1403,7 @@
       ph.classList.remove('is-drawing'); box.remove();
       ph.removeEventListener('pointerdown', down); ph.removeEventListener('pointermove', move); ph.removeEventListener('pointerup', up);
       document.removeEventListener('keydown', esc, true);
+      if (document.contains(ph)) { lp.dataset.pk = ''; renderLoupe(); }
     };
     const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); stop(); toast('已取消标框'); } };
     const down = e => { if (e.button !== 0) return; e.preventDefault(); p0 = at(e); show(p0, p0); ph.setPointerCapture(e.pointerId); };
@@ -1705,39 +1693,9 @@
     return order.map(tid => {
       const t = taskById(tid), list = groups.get(tid);
       return `<details class="cd-sec" open><summary><b>${esc([dayRange(list), t && t.title].filter(Boolean).join(' · ') || '其他')}</b><span class="hint">（${list.length} 张）</span></summary>
-        <div class="cd-grid">${list.map(id => { const a = A(id), x = act(id); return `<figure class="cd-card"><button type="button" class="cd-open" data-action="cd-open" data-id="${esc(id)}" aria-label="查看大图：${esc(a.name)}，${esc(spLine(a))}">${photo(a, 'large')}</button>${pins.has(id) ? `<span class="cd-pin">${ic('flag')}手动固定</span>` : ''}${humanBadge(a) ? `<span class="cd-use">${humanBadge(a)}</span>` : ''}
+        <div class="cd-grid">${list.map(id => { const a = A(id), x = act(id); return `<figure class="cd-card">${cd.tab === 'out' ? photo(a, 'large') : `<button type="button" class="cd-open" data-action="cd-open" data-id="${esc(id)}" aria-label="在单张视图里看：${esc(a.name)}，${esc(spLine(a))}">${photo(a, 'large')}</button>`}${pins.has(id) ? `<span class="cd-pin">${ic('flag')}手动固定</span>` : ''}${humanBadge(a) ? `<span class="cd-use">${humanBadge(a)}</span>` : ''}
           <figcaption><span class="cd-cap"><b class="${a.species && !a.species.confirmed ? 'is-cand' : ''}">${esc(spLine(a))}</b><small>${esc(a.taken_at ? fmtTime(a.taken_at) : a.name)}</small></span>${x ? `<button type="button" class="btn sm ghost" data-action="${x[0]}" data-id="${esc(id)}">${x[1]}</button>` : ''}</figcaption></figure>`; }).join('')}</div></details>`;
     }).join('');
-  }
-  // 集合里点一张：原像素查看器，←/→ 换张，P/R/U/X 标用途；纠正物种去 Review（检视器里逐只动物改）
-  function cdFootHTML(a) {
-    const sp = a.species;
-    return `<div class="cdv-info"><b>${esc(spLine(a))}</b>${sp ? `<i>${esc(sp.taxon)}</i>` : ''}<span class="hint">${esc([a.name, a.content_label_zh, a.taken_at && fmtTime(a.taken_at)].filter(Boolean).join(' · '))}</span></div>
-      <div class="cp-uses cdv-uses">${['record', 'edit', 'pending', 'reject'].map(v => `<button type="button" class="cp-use u-${v}" data-cdv-use="${v}" aria-pressed="${a.use === v}">${USE[v][3] ? ic(USE[v][3]) : '<span class="q">?</span>'}<span>${USE[v][0]}</span><kbd>${USE[v][1]}</kbd></button>`).join('')}</div>
-      <button type="button" class="btn" data-cdv-fix>${ic('edit')}纠正物种…</button>`;
-  }
-  function cdOpen(id) {
-    const list = cdShown();
-    let i = Math.max(0, list.indexOf(id)), v = null;
-    const d = dialog({ title: '', cls: 'lightbox cdv-dlg', onClose: () => { dvDrop(v); cd.view = null; },
-      body: `<div class="cdv"><button type="button" class="lb-nav prev" data-cdv="-1" aria-label="上一张">${ic('left')}</button><div class="cdv-stage"></div><button type="button" class="lb-nav next" data-cdv="1" aria-label="下一张">${ic('right')}</button></div><footer class="cdv-foot"></footer>` });
-    const foot = () => { const f = $('.cdv-foot', d); if (f) swap(f, cdFootHTML(A(list[i]))); };
-    const show = () => { const a = A(list[i]); dvDrop(v); v = dvMount($('.cdv-stage', d), a, null, null); $('#dlg-title', d).textContent = [a.name, `${i + 1} / ${list.length}`].join(' · '); foot(); };
-    const step = n => { i = (i + n + list.length) % list.length; show(); };
-    cd.view = { foot };
-    d.addEventListener('click', e => {
-      const n = e.target.closest('[data-cdv]'), u = e.target.closest('[data-cdv-use]');
-      if (n) step(Number(n.dataset.cdv));
-      else if (u) doMark([list[i]], { use: u.dataset.cdvUse }, useZh(u.dataset.cdvUse));
-      else if (e.target.closest('[data-cdv-fix]')) { prefs.set('last.' + cd.c.id, list[i]); d.close(); location.hash = `#/review/${encodeURIComponent(cd.c.id)}/grid`; }
-    });
-    d.addEventListener('keydown', e => {
-      if (isField(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === 'arrowright' || k === 'arrowleft') { e.preventDefault(); step(k === 'arrowright' ? 1 : -1); }
-      else if (KEY_USE[k]) { e.preventDefault(); doMark([list[i]], { use: KEY_USE[k] }, useZh(KEY_USE[k])); }
-    });
-    show();
   }
   async function cdMembers(body, msg) {
     try { await api('POST', `/collections/${encodeURIComponent(cd.c.id)}/members`, body); toast(msg); await rerender(); } catch (e) { toast(errMsg(e)); }
@@ -1848,7 +1806,7 @@
     if (!k) throw Object.assign(new Error('没有这个物种的照片'), { status: 404 });
     ui.sp = k;
     const scope = p.task ? { concept: k.concept, task: p.task } : { concept: k.concept };
-    makeWs('query', scope, 'time', { encQuery: scope });
+    makeWs('query', scope, 'time', { encQuery: scope, view: 'species' });
     const t = p.task && (taskById(p.task) || await api('GET', `/tasks/${encodeURIComponent(p.task)}`));
     return `<div class="wpage">
       <header class="rv-head">
@@ -1857,7 +1815,7 @@
           <div class="rh-title"><h1 tabindex="-1">${esc(k.zh || k.common || k.taxon)}</h1>${k.zh && k.common ? `<span class="hint">${esc(k.common)}</span>` : ''}<i class="hint">${esc(k.taxon)}</i>${k.kind ? `<span class="hint">${esc(KIND_ZH[k.kind] || k.kind)}</span>` : ''}</div>
           <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="sp-cover">设当前照片为封面</button><button type="button" class="btn sm ghost" data-action="sp-hide">${k.hidden ? '在物种页显示' : '在物种页隐藏'}</button><button type="button" class="btn sm ghost" data-action="lr-handoff">在 Lightroom 打开…</button></div>
         </div>
-        <p class="hint">已确认 ${k.confirmed} 张 · 待确认 ${k.candidates} 张 · 首次 ${esc(fmtTime(k.first_taken_at))} · 最近 ${esc(fmtTime(k.last_taken_at))}。成员来自每张照片的物种结论：在右侧「物种」卡片确认或纠正。按拍摄段与连拍折叠：收起的拍摄段只显示代表候选。</p>
+        <p class="hint">已确认 ${k.confirmed} 张 · 待确认 ${k.candidates} 张 · 首次 ${esc(fmtTime(k.first_taken_at))} · 最近 ${esc(fmtTime(k.last_taken_at))}。成员来自每张照片的物种结论：在单张视图（E）的信息面板「物种」卡片里确认或纠正。按拍摄段与连拍折叠：收起的拍摄段只显示代表候选。</p>
       </header>
       ${wsHTML()}
     </div>`;
@@ -1886,7 +1844,7 @@
     const opts = k => (k === 'task' ? [['', '全部任务']].concat(S.tasks.map(t => [t.id, t.title])) : k === 'collection' ? [['', '全部集合']].concat(S.cols.map(c => [c.id, c.name])) : [['', '全部标签']].concat(tags.filter(t => t.active).map(t => [t.id, t.name])));
     const sel = ([name, label, o]) => `<label class="fsel"><span>${label}</span><select class="input sm" name="${name}">${(o === 'sel' ? opts(name) : o).map(([v, l]) => `<option value="${esc(v)}" ${String(f[name] || (name === 'order' ? 'time' : '')) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
     const txt = (name, label, type, ph) => `<label class="fsel"><span>${label}</span><input class="input sm" type="${type}" name="${name}" value="${esc(f[name] || '')}" placeholder="${esc(ph || '')}"></label>`;
-    makeWs('query', libRule(), f.order || 'time', {});
+    makeWs('query', libRule(), f.order || 'time', { view: 'library' });
     return `<div class="wpage">
       <header class="rv-head">
         <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">全部素材</h1><span class="hint">跨任务组合筛选；结果可直接 Review、保存为 Smart Collection 或导出。</span></div>
@@ -2459,7 +2417,7 @@
     const row = (k, t) => `<tr><td>${k.split(' ').map(x => `<kbd>${x}</kbd>`).join(' ')}</td><td>${t}</td></tr>`;
     dialog({
       title: '键盘快捷键', cls: 'small',
-      body: `<table class="kbd-table">${row('P', '选入修图')}${row('X', '淘汰（不删除文件）')}${row('U', '待定')}${row('R', '保留记录')}${row('G / E', '图库：网格 / 单张')}${row('F', '图库：全屏')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('空格', '放大查看')}${row('C', '比较已选 2 张')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
+      body: `<table class="kbd-table">${row('P', '选入修图')}${row('X', '淘汰（不删除文件）')}${row('U', '待定')}${row('R', '保留记录')}${row('G / E', '网格 / 单张（大图 + 胶片带）')}${row('空格 / 回车', '网格与单张之间切换')}${row('Tab / I', '单张视图：收起或展开信息面板')}${row('F', '全屏')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('C', '比较已选 2–4 张；只选一张时与下一张比较')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
         <p class="hint">在输入框中打字时快捷键不会触发。多选时标记作用于全部已选素材；单张视图、全屏与比较里只作用于眼前这张（比较里是高亮的一格）。</p>`,
     });
   }
@@ -2525,6 +2483,7 @@
     }
     if (token !== ui.token) return;
     setHTML(main, html);
+    ui.open = null;
     if (view === 'compare' && ui.view === 'compare') cpRender();
     main.scrollTop = 0;
     prefs.set('route', location.hash);
@@ -2742,8 +2701,8 @@
     'grid-size': () => { const n = prefs.get('grid', 'm') === 'm' ? 'l' : 'm'; prefs.set('grid', n); const w = $('.ws'); w.classList.remove('grid-m', 'grid-l'); w.classList.add('grid-' + n); },
     prev: () => move(-1),
     next: () => move(1),
-    lightbox: () => openLightbox(),
-    zoom: () => { ui.zoom = !ui.zoom; renderInspector(); renderLightbox(); },
+    panel: () => togglePanel(),
+    'open-photo': el => { ui.open = el.dataset.id; location.hash = el.getAttribute('href'); },
     compare: () => openCompare(),
     reveal: async el => { try { await api('POST', `/assets/${encodeURIComponent(el.dataset.id)}/reveal`); toast('已在 Finder 中显示'); } catch (e) { toast(errMsg(e)); } },
     use: el => { const v = el.dataset.v; doMark([el.dataset.id], { use: v }, useZh(v)); },
@@ -2753,7 +2712,7 @@
     shortcuts: () => showShortcuts(),
     'edit-col': el => openEditCol(el.dataset.id),
     'cd-tab': el => { cd.tab = el.dataset.v; $$('[data-action="cd-tab"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cd.tab))); setHTML($('#cd-grid'), cdGridHTML()); },
-    'cd-open': el => cdOpen(el.dataset.id),
+    'cd-open': el => { ui.open = el.dataset.id; location.hash = `#/review/${encodeURIComponent(cd.c.id)}/grid`; },
     'cd-x': el => cdMembers({ remove: [el.dataset.id] }, cd.c.kind === 'smart' ? '已排除；规则以后也不会再把它加回来' : '已移出集合；照片和用途不变'),
     'cd-reset': el => cdMembers({ reset: [el.dataset.id] }, '已交回规则决定'),
     'complete-col': () => openComplete(),
@@ -2863,7 +2822,7 @@
     const tab = IMP_TABS.find(x => x[0] === imp.tab), n = imp.n[imp.tab] || 0;
     const few = {};
     imp.sp.species.concat(imp.sp.to_confirm).forEach(k => { if (k.photos <= 2) few[k.taxon] = k.photos; });
-    const card = a => { const sole = a.species && few[a.species.taxon]; return `<figure class="im-card">${sole ? `<span class="im-prot">${ic('check')}本次仅 ${sole} 张 · 保护记录</span>` : ''}<a href="${a.species ? '' : ''}#/task/${esc(imp.task.id)}/preview" tabindex="-1" aria-hidden="true">${photo(a, 'large')}</a>
+    const card = a => { const sole = a.species && few[a.species.taxon]; return `<figure class="im-card">${sole ? `<span class="im-prot">${ic('check')}本次仅 ${sole} 张 · 保护记录</span>` : ''}<a href="#/task/${esc(imp.task.id)}/preview" data-action="open-photo" data-id="${esc(a.id)}" tabindex="-1" aria-hidden="true">${photo(a, 'large')}</a>
       <figcaption><span class="im-ck u-${esc(a.use)}">${ic(a.use === 'reject' ? 'x' : a.use === 'pending' ? 'warn' : 'check')}</span><span><small>${esc(useZh(a.use))}</small><b>${esc(a.species ? a.species.zh || a.species.common || a.species.taxon : a.name)}</b></span><span class="sc-fmt">${esc(fmtOf(a))}</span></figcaption></figure>`; };
     return `<header class="im-head"><div><h2>${tab[3]}</h2><p class="hint">${tab[4]}</p></div><span class="hint">共 ${n.toLocaleString()} 张</span></header>
       <div class="im-grid">${imp.items.map(card).join('') || `<div class="empty">没有${esc(tab[1])}的照片。</div>`}</div>
@@ -3067,7 +3026,7 @@
   });
   document.addEventListener('dblclick', e => {
     const tl = e.target.closest('.tile[data-asset]');
-    if (tl && ui.ws) { setCurrent(tl.dataset.asset); if (ui.ws.lib) libMode('loupe'); else openLightbox(); }
+    if (tl && ui.ws) { setCurrent(tl.dataset.asset); libMode('loupe'); }
   });
 
   const KEY_USE = { p: 'edit', r: 'record', u: 'pending', x: 'reject' };
@@ -3087,11 +3046,14 @@
     if (!ws) return;
     if (mod && k.toLowerCase() === 'a' && !lb) { e.preventDefault(); ws.sel = new Set(ws.ids); applySel(); return; }
     if (mod || e.altKey) return;
-    const lk = ws.lib && !lb && LIB_KEY[k.toLowerCase()];
+    const lk = !lb && LIB_KEY[k.toLowerCase()];
     if (lk) { e.preventDefault(); libMode(lk); return; }
-    if (ws.lib && !lb && (k === ' ' || k === 'Enter') && (tg === document.body || tg.classList.contains('tile') || tg === main)) { e.preventDefault(); libMode(ws.mode === 'grid' ? 'loupe' : 'grid'); return; }
-    if (ws.lib && ws.mode === 'loupe' && (k === 'ArrowDown' || k === 'ArrowUp')) return;
-    const one = lb || (ws.lib && ws.mode === 'loupe');            // 全屏与单张视图：键位只作用于当前这张（照 Lightroom）
+    const onPhotos = tg === document.body || tg === main || tg.tagName === 'H1' || tg.classList.contains('tile');
+    if (!lb && (k === ' ' || k === 'Enter') && onPhotos) { e.preventDefault(); libMode(ws.mode === 'grid' ? 'loupe' : 'grid'); return; }
+    // 照 Lightroom 的 Tab 收起面板：只在单张视图、焦点不在按钮或输入框时接管 Tab（Shift+Tab 照常移焦点）；I 任何时候都行
+    if (!lb && (k === 'i' || k === 'I' || (k === 'Tab' && !e.shiftKey && ws.mode === 'loupe' && onPhotos))) { e.preventDefault(); togglePanel(); return; }
+    if (ws.mode === 'loupe' && (k === 'ArrowDown' || k === 'ArrowUp')) return;
+    const one = lb || ws.mode === 'loupe';            // 全屏与单张视图：键位只作用于当前这张（照 Lightroom）
     const targets = one ? (ws.current ? [ws.current] : []) : selTargets();
     const markKey = (patch, label) => { if (targets.length) { e.preventDefault(); doMark(targets, patch, label, targets.length === 1); } };
     if (k === 'ArrowRight') { e.preventDefault(); move(1); }
@@ -3099,8 +3061,6 @@
     else if ((k === 'ArrowDown' || k === 'ArrowUp') && !lb) { e.preventDefault(); move(k === 'ArrowDown' ? gridCols() : -gridCols()); }
     else if (KEY_USE[k.toLowerCase()]) markKey({ use: KEY_USE[k.toLowerCase()] }, useZh(KEY_USE[k.toLowerCase()]));
     else if (/^[0-5]$/.test(k)) markKey({ stars: Number(k) }, k === '0' ? '清除星级' : `${k} 星`);
-    else if (k === ' ' && !lb && (tg === document.body || tg.classList.contains('tile') || tg.tagName === 'H1' || tg === main)) { e.preventDefault(); openLightbox(); }
-    else if ((k === 'c' || k === 'C') && !lb) openCompare();
     else if (k === 'Escape' && !lb && ws.sel.size > 1) { ws.sel = new Set(ws.current ? [ws.current] : []); applySel(); }
   });
 
