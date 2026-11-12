@@ -99,7 +99,9 @@ def cmd_run(a: argparse.Namespace) -> None:
             continue
         part = out.with_suffix(".part")
         print(f"run: {r['folder']}", flush=True)
-        cmd = [sys.executable, "-c", "from bioscan.cli.main import main; main()", "--url", a.url, "run", r["folder"], "-r",
+        # main() returns its exit code; SystemExit passes it on (2 service down, 3 stream cut short)
+        cmd = [sys.executable, "-c", "from bioscan.cli.main import main; raise SystemExit(main())", "--url", a.url,
+               "run", r["folder"], "-r",
                "--want", "identify,quality", "--lat", r["lat"], "--lon", r["lon"], "--json", "--out", str(part)]
         code = subprocess.run(cmd).returncode
         if code not in (0, 1):   # 1 = some images failed (e.g. a broken file): their error events are kept

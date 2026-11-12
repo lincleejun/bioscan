@@ -64,3 +64,18 @@ def test_plan_any_place_and_name_taken(tmp_path):
     assert (dest / "Red-tailed Hawk" / "trip" / "A.xmp").exists() and not (src / "A.ARW").exists()
     sb.cmd_plan(argparse.Namespace(out=str(out), dest=str(dest)))
     assert next(csv.DictReader(open(out / "plan.csv")))["reason"] == "moved_already"
+
+
+def test_run_keeps_no_preds_when_the_service_is_down(tmp_path):
+    """bioscan's exit code must reach cmd_run: a dead service is not a finished folder."""
+    import argparse
+
+    import pytest
+    from PIL import Image
+    (tmp_path / "photos").mkdir()
+    Image.new("RGB", (8, 8)).save(tmp_path / "photos" / "a.jpg")
+    (tmp_path / "places.csv").write_text(f"folder,lat,lon\n{tmp_path / 'photos'},1,2\n")
+    with pytest.raises(SystemExit, match="bioscan run failed"):
+        sb.cmd_run(argparse.Namespace(places=str(tmp_path / "places.csv"), out=str(tmp_path / "out"),
+                                      url="http://127.0.0.1:9"))
+    assert not list((tmp_path / "out" / "preds").glob("*.ndjson"))
