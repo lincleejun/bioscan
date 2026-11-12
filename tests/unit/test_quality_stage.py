@@ -110,7 +110,8 @@ def test_cut_small_and_no_subject():
     out = q.assess(im, [box((0.0, 0.3, 0.3, 0.8))], BIRD)["subject"]
     assert out["edges"] == ["left"] and out["cut"]
     assert reasons(im, [box((0.0, 0.0, 0.9, 1.0))]) == []                   # frame-filling: a tight crop
-    assert reasons(im, [box((0.5, 0.5, 0.55, 0.55))]) == ["subject_too_small"]
+    assert reasons(im, [box((0.5, 0.5, 0.55, 0.55))]) == []                  # small: select's flag, never a reject
+    assert q.assess(im, [box((0.5, 0.5, 0.55, 0.55))], BIRD)["subject"]["area"] == 0.0025
     assert reasons(im, [], BIRD) == ["no_subject"]
     assert reasons(im, [], SCENERY) == [] and q.assess(im, [], SCENERY)["subject"] is None
 
@@ -129,7 +130,7 @@ def test_reasons_come_in_the_declared_order():
 
 def test_settings_are_the_thresholds_and_feed_the_fingerprint(monkeypatch):
     s = q.STAGE.settings()
-    assert s["SOFT_BLUR"] == q.SOFT_BLUR and s["TOO_SMALL"] == q.TOO_SMALL and "THIRDS" in s
+    assert s["SOFT_BLUR"] == q.SOFT_BLUR and s["CUT_MAX_AREA"] == q.CUT_MAX_AREA and "THIRDS" in s
     assert s["MOTION_RATIO"] == q.MOTION_RATIO
     assert all(k.isupper() for k in s)
     fp = plugin.fingerprint(MANIFEST.version, s)

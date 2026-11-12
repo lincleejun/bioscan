@@ -329,7 +329,8 @@ they were fitted on (50, 100, 200, 500, 1,000), next to the general head and the
 
 **Reject reason**:
 Why a rule rejects a photo, one of `soft_subject`, `motion`, `defocus`, `overexposed`, `underexposed`,
-`subject_cut`, `subject_too_small`, `no_subject` (the `quality` stage; `select` may waive one per scene category).
+`subject_cut`, `no_subject` (the `quality` stage; `select` may waive one per scene category). A small subject is
+not one: `subject_too_small` is a **flag** (#131), and an older quality product that still lists it is not rejected.
 `motion_or_defocus`, the name before `motion` and `defocus` were split, is still accepted in waivers and ground
 truth, where it means either.
 Rules only: a photo is never rejected for taste.
@@ -340,7 +341,9 @@ A note `select` puts on a photo that never changes its status, rank, keep or sta
 `horizon_tilt` when the scene stage's horizon (landscapes only) tilts more than `horizon_flag_deg`, default 3°;
 `tight_headroom` when the subject's box starts less than `headroom_min` (default 0.02) of the frame height below the
 frame top and fills under half the frame; `no_lead_room` when the subject faces the nearer side edge (its **facing**)
-with less than `lead_room_min` (default 0.1) of the frame width in front of its box and fills under half the frame.
+with less than `lead_room_min` (default 0.1) of the frame width in front of its box and fills under half the frame;
+`subject_too_small` when the subject's box covers under 0.5% of the frame (a distant animal on a long lens: a sharp
+burst of it still gets its best frame picked).
 It shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
 _Avoid_: warning, soft reject
 
