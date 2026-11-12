@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import shutil
+import struct
 import subprocess
 import sys
 import types
@@ -15,6 +16,7 @@ from PIL import Image
 
 from bioscan.gardener import preview
 from bioscan.gardener.preview import make_preview, read_meta
+from bioscan.service import decode
 
 needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
                                   reason="ffmpeg / ffprobe not installed")
@@ -92,12 +94,19 @@ def jpeg_bytes(size):
     return buf.getvalue()
 
 
+def raw_file(tmp_path, name="x.ARW"):
+    """A RAW-named file the fake rawpy 'reads' (not a TIFF: the truncation check has no verdict)."""
+    path = tmp_path / name
+    path.write_bytes(b"fake raw")
+    return str(path)
+
+
 def test_raw_embedded_preview_turned_by_the_raw_flip(tmp_path, monkeypatch):
     raw = FakeRaw(None, flip=6)
     mod = fake_rawpy(monkeypatch, raw)
     raw.thumb = types.SimpleNamespace(format=mod.ThumbFormat.JPEG, data=jpeg_bytes((2000, 1500)))
     thumb, large = out_paths(tmp_path)
-    p = make_preview(str(tmp_path / "x.ARW"), "photo", thumb, large)
+    p = make_preview(raw_file(tmp_path), "photo", thumb, large)
     assert p.ok and p.method == "raw-embedded", p.error
     assert sizes(thumb, large) == [(270, 360), (1200, 1600)]
 
@@ -106,12 +115,12 @@ def test_raw_without_usable_thumb_is_decoded(tmp_path, monkeypatch):
     raw = FakeRaw(RuntimeError("no thumbnail"))
     fake_rawpy(monkeypatch, raw)
     thumb, large = out_paths(tmp_path)
-    p = make_preview(str(tmp_path / "x.DNG"), "photo", thumb, large)
+    p = make_preview(raw_file(tmp_path, "x.DNG"), "photo", thumb, large)
     assert p.ok and p.method == "raw-decoded" and "no thumbnail" in p.meta["embedded_error"]
     assert sizes(large) == [(400, 300)]
     mod = fake_rawpy(monkeypatch, raw)
     raw.thumb = types.SimpleNamespace(format=mod.ThumbFormat.JPEG, data=jpeg_bytes((160, 120)))   # too small
-    assert make_preview(str(tmp_path / "x.DNG"), "photo", thumb, large).method == "raw-decoded"
+    assert make_preview(raw_file(tmp_path, "x.DNG"), "photo", thumb, large).method == "raw-decoded"
 
 
 def test_meta_without_exiftool(tmp_path, monkeypatch):
@@ -169,13 +178,106 @@ def test_source_size_is_the_full_size_not_the_draft(tmp_path):
     assert sizes(large) == [(1200, 1600)]
 
 
-def test_raw_embedded_source_size_before_draft(tmp_path, monkeypatch):
-    raw = FakeRaw(None, flip=6)
+def test_raw_source_size_is_libraws_not_the_preview(tmp_path, monkeypatch):
+    raw = FakeRaw(None, flip=6)                                   # LibRaw: 4000 x 3000, turned a quarter
     mod = fake_rawpy(monkeypatch, raw)
     raw.thumb = types.SimpleNamespace(format=mod.ThumbFormat.JPEG, data=jpeg_bytes((6000, 4000)))
     thumb, large = out_paths(tmp_path)
-    p = make_preview(str(tmp_path / "x.ARW"), "photo", thumb, large)
-    assert p.method == "raw-embedded" and (p.meta["source_width"], p.meta["source_height"]) == (4000, 6000)
+    p = make_preview(raw_file(tmp_path), "photo", thumb, large)
+    assert p.method == "raw-embedded" and (p.meta["source_width"], p.meta["source_height"]) == (3000, 4000)
+    raw.sizes.crop_width, raw.sizes.crop_height = 3990, 2990     # the default crop wins when LibRaw has one
+    raw.thumb = RuntimeError("no thumbnail")
+    p = make_preview(raw_file(tmp_path), "photo", thumb, large)
+    assert p.method == "raw-decoded" and (p.meta["source_width"], p.meta["source_height"]) == (2990, 3990)
+
+
+def test_small_embedded_preview_is_decoded_instead(tmp_path, monkeypatch):
+    """Lightroom's Enhanced-NR DNG embeds a 1024 px preview: the large preview needs 1600, so decode."""
+    raw = FakeRaw(None)
+    mod = fake_rawpy(monkeypatch, raw)
+    raw.thumb = types.SimpleNamespace(format=mod.ThumbFormat.JPEG, data=jpeg_bytes((1024, 683)))
+    thumb, large = out_paths(tmp_path)
+    p = make_preview(raw_file(tmp_path, "x-Enhanced-NR.dng"), "photo", thumb, large)
+    assert p.ok and p.method == "raw-decoded" and (p.meta["source_width"], p.meta["source_height"]) == (4000, 3000)
+    raw.postprocess = lambda **kw: (_ for _ in ()).throw(RuntimeError("unsupported"))   # LibRaw cannot demosaic
+    p = make_preview(raw_file(tmp_path, "x-Enhanced-NR.dng"), "photo", thumb, large)
+    assert p.ok and p.method == "raw-embedded" and sizes(large) == [(1024, 683)]   # the small one beats none
+
+
+def tiff_raw(strips=None, tiles=None, sub=False, endian="<") -> bytes:
+    """A minimal TIFF RAW: IFD0 (optionally pointing to one SubIFD that holds the data tags) and
+    strip / tile data of the given (offset, length) layout, padded to the declared end."""
+    def ifd(at, entries, nxt=0):
+        out = struct.pack(endian + "H", len(entries))
+        for tag, values in entries:
+            n = len(values)
+            out += struct.pack(endian + "HHL", tag, 4, n)
+            out += struct.pack(endian + "L", values[0] if n == 1 else at + 2 + 12 * len(entries) + 4)
+        out += struct.pack(endian + "L", nxt)
+        for _, values in entries:
+            if len(values) > 1:
+                out += struct.pack(endian + "L" * len(values), *values)
+        return out
+
+    data = []
+    for kind in ((0x0111, 0x0117), (0x0144, 0x0145)):
+        layout = strips if kind[0] == 0x0111 else tiles
+        if layout:
+            data += [(kind[0], [o for o, _ in layout]), (kind[1], [n for _, n in layout])]
+    head = (b"II*\x00" if endian == "<" else b"MM\x00*") + struct.pack(endian + "L", 8)
+    if sub:
+        sub_at = 8 + len(ifd(8, [(0x014A, [0])]))
+        body = ifd(8, [(0x014A, [sub_at])]) + ifd(sub_at, data)
+    else:
+        body = ifd(8, data)
+    end = max(o + n for o, n in (strips or []) + (tiles or []))
+    out = head + body
+    return out + b"\x01" * (end - len(out))
+
+
+def test_raw_truncated_reads_the_ifds_against_the_file_size():
+    for kw in ({"strips": [(512, 4000)]}, {"tiles": [(512, 1000), (1512, 3000)], "sub": True},
+               {"strips": [(600, 100), (700, 3000)], "endian": ">"}):
+        data = tiff_raw(**kw)
+        assert decode.raw_truncated(io.BytesIO(data), len(data)) is None, kw             # intact
+        assert decode.raw_truncated(io.BytesIO(data + b"\0" * 99), len(data) + 99) is None   # padded
+        cut = data[:len(data) // 3]
+        assert "截断" in decode.raw_truncated(io.BytesIO(cut), len(cut)), kw
+        head = data[:200]
+        assert "截断" in decode.raw_truncated(io.BytesIO(head), len(head)), kw
+    for junk in (b"", b"\xff\xd8 a jpeg", b"MM\x00*\x00\x00\x00\x08\xff\xff"):
+        assert decode.raw_truncated(io.BytesIO(junk), len(junk)) is None           # no verdict, never raises
+    junk = b"II*\x00" + b"\xff" * 50                                                 # IFD0 past the end
+    assert "截断" in decode.raw_truncated(io.BytesIO(junk), len(junk))
+
+
+def test_truncated_raw_fails_preview_and_decode(tmp_path, monkeypatch):
+    """LibRaw decodes a cut RAW 'fine' (black rows, or another photo's pixels from a reused buffer):
+    neither the preview nor BioScan's decode may report it as a good image."""
+    raw = FakeRaw(None)
+    mod = fake_rawpy(monkeypatch, raw)
+    raw.thumb = types.SimpleNamespace(format=mod.ThumbFormat.JPEG, data=jpeg_bytes((2000, 1500)))
+    whole = tiff_raw(strips=[(512, 200_000)])
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "cut.ARW").write_bytes(whole[:len(whole) // 3])
+    (src / "whole.ARW").write_bytes(whole)
+    thumb, large = out_paths(tmp_path)
+    p = make_preview(str(src / "cut.ARW"), "photo", thumb, large)
+    assert not p.ok and "截断" in p.error and not large.exists()
+    assert make_preview(str(src / "whole.ARW"), "photo", thumb, large).ok
+    with pytest.raises(ValueError, match="截断"):
+        decode.decode(str(src / "cut.ARW"))
+
+
+def test_16_bit_tiff_preview_keeps_its_range(tmp_path):
+    tif = tmp_path / "sixteen.tif"
+    Image.fromarray(np.linspace(0, 65535, 600 * 400).reshape(400, 600).astype(np.uint16)).save(tif)
+    thumb, large = out_paths(tmp_path)
+    p = make_preview(str(tif), "photo", thumb, large)
+    assert p.ok and p.method == "image"
+    px = np.asarray(Image.open(large).convert("L"), dtype=np.float32)
+    assert (px > 250).mean() < 0.05 and 100 < px.mean() < 160        # a ramp, not 99.6 % white
 
 
 def test_argfile_never_carries_a_line_break():

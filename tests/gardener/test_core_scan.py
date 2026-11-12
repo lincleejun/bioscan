@@ -310,3 +310,22 @@ def test_task_validation_and_local_only(env, tmp_path):
     with env.client(allow_roots=[str(tmp_path / "elsewhere")]) as c:
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": [str(src)]}).status_code == 400
     assert BASE.startswith("http://127.0.0.1")
+
+
+def test_pair_with_a_corrupt_jpeg_previews_and_analyses_the_raw(env, fakes, tmp_path):
+    """The JPEG is a pair's primary; when it cannot be read, the RAW gives the preview and the analysis."""
+    src = tmp_path / "card"
+    os.rename(make_jpg(src / "raw.jpg", color=(200, 30, 30)), src / "DSC_0002.arw")   # the fake toolkit "reads" it
+    (src / "DSC_0002.jpg").write_bytes(b"not a jpeg" * 10)
+    with env.client() as c:
+        t = wait_task(c, create_task(c, [str(src)], caps=["content"])["id"])
+        assert t["scan"]["status"] == "completed", c.get(f"{API}/runs/{t['scan']['run_id']}").json()
+        (item,) = assets(c, task=t["id"])["items"]
+        d = c.get(f"{API}/assets/{item['id']}").json()
+        assert item["preview"] == "ready" and d["meta"]["preview_source"] == str(src / "DSC_0002.arw")
+        assert "unreadable" in d["meta"]["primary_error"]
+        assert fakes.analyzed == [(str(src / "DSC_0002.arw"), ("content",))]
+        r = c.post(f"{API}/tasks/{t['id']}/rescan", json={}).json()   # read_meta keeps what the preview found
+        wait_until(lambda: c.get(f"{API}/runs/{r['id']}").json()["status"] in ("completed", "partial"), what="rescan")
+        assert c.get(f"{API}/assets/{item['id']}").json()["meta"]["preview_source"] == str(src / "DSC_0002.arw")
+        assert fakes.analyzed[-1][0] == str(src / "DSC_0002.arw")

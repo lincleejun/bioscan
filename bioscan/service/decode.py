@@ -4,6 +4,8 @@ request a larger "detail" copy of the same frame for species crops.
 Runs in a ProcessPoolExecutor worker, so everything here is a plain picklable function.
 RAW decode is rawpy (LibRaw applies the camera's rotation itself); half_size demosaic is
 plenty for a 2048 px long edge and ~3x faster than a full one.
+A TIFF-family RAW whose image data runs past the end of the file is refused (raw_truncated):
+LibRaw would decode it without an error.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 from PIL import Image, ImageOps
 
@@ -228,9 +231,73 @@ def read_exif(data: bytes) -> tuple[float | None, float | None, str | None]:
     return read_meta(data)[:3]
 
 
+_DATA_TAGS = ((0x0111, 0x0117), (0x0144, 0x0145), (0x0201, 0x0202))   # strips, tiles, JPEG: offsets, byte counts
+_TYPE_SIZE = {3: 2, 4: 4, 13: 4}
+_MAX_IFDS, _MAX_ENTRIES, _MAX_COUNT = 64, 1000, 1 << 16
+
+
+def raw_truncated(f: BinaryIO, size: int) -> str | None:
+    """Why a TIFF-family RAW (ARW, NEF, DNG, CR2, PEF, ORF, RW2, ...) is cut short, or None.
+
+    LibRaw decodes a truncated RAW without an error: the missing rows come back black, or, in a
+    process that decoded another photo before, as that photo's pixels (a reused buffer). So this
+    reads the IFDs (IFD0 chain and SubIFDs, a few KB through `f`) and says the file is truncated when
+    an IFD or the end of a strip, tile or embedded JPEG lies past `size`. Anything it cannot parse
+    is not a verdict (None): LibRaw decides. Validated on Sony ARW and Lightroom DNG.
+    ponytail: TIFF family only; CR3 / RAF / others are not checked (add a box walk when one shows up)."""
+    def read(at: int, n: int) -> bytes:
+        f.seek(at)
+        b = f.read(n)
+        if len(b) < n:
+            raise EOFError
+        return b
+
+    try:
+        head = read(0, 8)
+        if head[:4] not in _TIFF and head[:4] not in _TIFF_VARIANT:
+            return None
+        e = "<" if head[:2] == b"II" else ">"
+        todo, seen, end = [struct.unpack(e + "L", head[4:8])[0]], set(), 0
+        while todo and len(seen) < _MAX_IFDS:
+            at = todo.pop()
+            if not at or at in seen:
+                continue
+            seen.add(at)
+            if at + 2 > size:
+                return f"RAW 文件不完整（被截断）：IFD 位于 {at}，文件只有 {size} 字节"
+            (n,) = struct.unpack(e + "H", read(at, 2))
+            if n > _MAX_ENTRIES:
+                return None
+            if at + 6 + 12 * n > size:
+                return f"RAW 文件不完整（被截断）：IFD 位于 {at}，文件只有 {size} 字节"
+            block = read(at + 2, 12 * n + 4)
+            tags: dict[int, tuple[int, ...]] = {}
+            for i in range(n):
+                t, typ, count = struct.unpack(e + "HHL", block[12 * i:12 * i + 8])
+                if typ not in _TYPE_SIZE or not 0 < count <= _MAX_COUNT or \
+                        t not in (0x014A, *(x for pair in _DATA_TAGS for x in pair)):
+                    continue
+                nbytes = _TYPE_SIZE[typ] * count
+                raw = block[12 * i + 8:12 * i + 12] if nbytes <= 4 else \
+                    read(struct.unpack(e + "L", block[12 * i + 8:12 * i + 12])[0], nbytes)
+                tags[t] = struct.unpack(e + ("H" if typ == 3 else "L") * count, raw[:nbytes])
+            for o, c in _DATA_TAGS:
+                if o in tags and c in tags:
+                    end = max(end, *(a + b for a, b in zip(tags[o], tags[c])))
+            todo += [*tags.get(0x014A, ()), struct.unpack(e + "L", block[12 * n:12 * n + 4])[0]]
+    except (EOFError, struct.error, OSError):
+        return None
+    if end > size:
+        return f"RAW 文件不完整（被截断）：图像数据需要 {end} 字节，文件只有 {size} 字节"
+    return None
+
+
 def _raw(data: bytes) -> tuple[Image.Image, int, int, int]:
     import rawpy
 
+    why = raw_truncated(io.BytesIO(data), len(data))
+    if why:
+        raise ValueError(why)
     with rawpy.imread(io.BytesIO(data)) as raw:
         flip = raw.sizes.flip
         w, h = raw.sizes.width, raw.sizes.height
@@ -240,15 +307,18 @@ def _raw(data: bytes) -> tuple[Image.Image, int, int, int]:
     return Image.fromarray(pixels).convert("RGB"), w, h, _FLIP_TO_ORIENTATION.get(flip, 1)
 
 
+def rgb8(image: Image.Image) -> Image.Image:
+    """`image` as 8-bit RGB. 16-bit greyscale is scaled to 8 bits first: convert("RGB") clips it at
+    255 (a near-white frame). An "I" image whose values all fit in 8 bits is already 8-bit data."""
+    if image.mode.startswith("I;16") or (image.mode == "I" and image.getextrema()[1] > 255):
+        image = image.convert("I").point(lambda v: v / 256).convert("L")
+    return image.convert("RGB")
+
+
 def _raster(data: bytes) -> tuple[Image.Image, int, int, int]:
     with Image.open(io.BytesIO(data)) as im:
         orientation = int(im.getexif().get(0x0112, 1) or 1)
-        upright = ImageOps.exif_transpose(im)
-        if upright.mode.startswith("I;16") or (upright.mode == "I" and upright.getextrema()[1] > 255):
-            # 16-bit greyscale: convert("RGB") clips at 255 (a near-white frame); scale to 8 bits first.
-            # An "I" image whose values all fit in 8 bits is already 8-bit data.
-            upright = upright.convert("I").point(lambda v: v / 256).convert("L")
-        upright = upright.convert("RGB")
+        upright = rgb8(ImageOps.exif_transpose(im))
     return upright, upright.width, upright.height, orientation
 
 

@@ -100,6 +100,8 @@ Every format's metadata reader is tested on small synthetic files (`tests/unit/t
 ```sh
 uv run python -m bioscan.service.decode /path/to/card -r    # per file: ext, container, lat, lon, taken_at; then a count per extension
 ```
+A RAW in the TIFF family (ARW, NEF, NRW, CR2, ORF, RW2, PEF, SRW, DNG) whose image data runs past the end of the file, e.g. a copy cut short, gets an `error` event ("RAW 文件不完整（被截断）…") instead of a result: LibRaw decodes such a file without complaint, filling the missing rows with black or with the previous photo's pixels. The check reads only the IFDs. It has been checked on Sony ARW and Lightroom DNG. CR3 and RAF are not checked.
+
 `taken_at` keeps the sub-second part when the camera writes one (`SubSecTimeOriginal`), so burst frames get distinct, ordered times: `2026-05-01T08:00:00.37-07:00`. `bioscan gt folders` reads DateTimeOriginal, SubSecTimeOriginal and OffsetTimeOriginal with `exiftool` (the CLI does not load Pillow) and writes them in the same form.
 
 ### Ports and environment variables
