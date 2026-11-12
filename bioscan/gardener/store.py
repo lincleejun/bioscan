@@ -271,15 +271,12 @@ class Store:
                 tasks.setdefault(r["asset_id"], []).append(r["task_id"])
             versions = {r["version_of"]: r["n"] for r in self.all(
                 f"SELECT version_of, count(*) n FROM assets WHERE version_of IN ({q}) GROUP BY version_of", part)}
-            named: dict[str, dict[str, Any]] = {}            # the photo's species shown on its tile (revision 4)
-            for r in self.all(f"SELECT asset_id, concept, taxon, common, source, p FROM current_ids WHERE asset_id IN "
-                              f"({q}) AND level = 'species' AND concept IS NOT NULL", part):
-                key = (r["source"] == "user", r["p"] or 0.0)
-                if r["asset_id"] not in named or key > named[r["asset_id"]]["_key"]:
-                    named[r["asset_id"]] = {"taxon": r["taxon"], "common": r["common"], "p": r["p"],
-                                            "confirmed": r["source"] == "user", "_key": key, "_concept": r["concept"]}
-            from bioscan.gardener import taxa
+            from bioscan.gardener import identities, taxa
 
+            named = {a: {"taxon": r["taxon"], "common": r["common"], "p": r["p"], "confirmed": r["source"] == "user",
+                         "_concept": r["concept"]}         # the photo's main species, shown on its tile (契约修订 17)
+                     for a, r in identities.main_subjects(self.conn(), part).items()
+                     if r["level"] == "species" and r["concept"]}
             shown = taxa.display(self.conn(), [n["_concept"] for n in named.values()])
             for n in named.values():
                 cur = shown.get(n.pop("_concept")) or {}
@@ -299,7 +296,7 @@ class Store:
                     "ai": None if s is None else {"verdict": s["verdict"], "score": s["score"],
                                                   "reasons": loads(s["reasons"], [])},
                     "content_label_zh": content.get("label_zh"),
-                    "species": ({k: v for k, v in named[a["id"]].items() if k != "_key"} if a["id"] in named else
+                    "species": (named[a["id"]] if a["id"] in named else
                                 None if not sp else {"taxon": sp.get("taxon"), "common": sp.get("common"),
                                                      "p": sp.get("p"), "confirmed": False}),
                     "burst": None if s is None or s["burst_id"] is None else

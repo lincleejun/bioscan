@@ -378,10 +378,19 @@ unconfirmed, and a person's identification is never outvoted. Written as ai iden
 _Avoid_: smoothing, consensus model
 
 **Subject run** (同一对象):
-Adjacent bursts of one task that show the same subject (same species on the main animal, close in time, similar size;
+Adjacent bursts of one task that show the same subject (same **main species**, close in time, similar size;
 `review.subject_runs`), named by the run's first photo. Computed on read, never stored: a hint drawn as a frame
 around those bursts in Review, 所有照片 and the species page, with a one-step merge; the burst stays the unit decided on.
 _Avoid_: sequence, encounter (an encounter is wider and stored)
+
+**Main species** (照片的物种):
+The one name a Gardener photo is known by wherever one name per photo is shown (its tile, 同一对象): the species a
+person confirmed on it (on the largest such box when several), else the species of its main animal, the largest box,
+when that box has a species-level name, else the largest box that has one (`identities.main_subjects`, 契约修订 17).
+Read-side, from the current identifications. Not the BioScan **Subject** (best box by detector score), which the
+cull and `bioscan bench` keep. Pages that count or filter by species (species cards, `species=` filters, encounters,
+progress) use every species on the photo, not this one.
+_Avoid_: top species, best species, photo species (as a vaguer synonym)
 
 **Decided group** (已决定的组):
 A group of a species in a task (that species' frames of one burst within one encounter, or one photo) every one of

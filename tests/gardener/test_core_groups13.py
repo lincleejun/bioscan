@@ -240,3 +240,53 @@ def test_a_species_page_without_a_task_gets_the_same_runs_named_by_their_first_p
             return [b["run"] for e in enc for b in e["bursts"]]
 
         assert runs(task=t["id"]) == runs() == [a[0], a[0]]
+
+
+def test_a_photo_is_known_by_its_main_animal_on_its_tile_and_in_its_run(env, fakes, tmp_path):
+    """Revision 17: one rule for the photo's main species. The largest box's species wins over a small extra box's
+    higher probability; a species a person confirmed wins over the model's; the tile and 同一对象 read the same."""
+    src = tmp_path / "card"
+    photos(src, 2)
+    fakes.boxes["IMG_0000.jpg"] = [owl_box((0.1, 0.1, 0.6, 0.6), p=0.6), owl_box((0.7, 0.7, 0.8, 0.8), p=0.9, **WREN)]
+    fakes.boxes["IMG_0001.jpg"] = [owl_box((0.1, 0.1, 0.6, 0.6))]
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[1]})              # two groups, shot 5 s apart
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+
+        def tile(aid):
+            sp = next(i for i in c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"] if i["id"] == aid)
+            return sp["species"]["common"], sp["species"]["confirmed"]
+
+        def runs():
+            enc = c.get(f"{API}/encounters", params={"task": t["id"]}).json()["encounters"]
+            return {i: b["run"] for e in enc for b in e["bursts"] for i in b["asset_ids"]}
+
+        assert tile(a[0]) == ("Eastern Screech-Owl", False)          # the big owl (p 0.6), not the small wren (p 0.9)
+        assert runs()[a[0]] == runs()[a[1]]                            # owl, then owl: one run
+        small = c.get(f"{API}/assets/{a[0]}").json()["subjects"][1]["id"]
+        c.post(f"{API}/identifications", json={"subject_ids": [small], "claim": {
+            "level": "species", "concept": WREN["concept"], "taxon": WREN["scientific"], "common": WREN["common"]}})
+        assert tile(a[0]) == ("Pacific Wren", True)                    # a person's species wins, on any box
+        assert runs()[a[0]] != runs()[a[1]]                            # ... and 同一对象 follows it: wren, then owl
+
+
+def test_a_largest_box_at_genus_falls_back_to_the_largest_box_with_a_species(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 2)
+    for n in ("IMG_0000.jpg", "IMG_0001.jpg"):                       # the big bird stopped at the genus
+        fakes.boxes[n] = [owl_box((0.1, 0.1, 0.6, 0.6), level="genus"), owl_box((0.7, 0.7, 0.8, 0.8), **WREN)]
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[1]})
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+        items = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
+        assert [i["species"]["common"] for i in items] == ["Pacific Wren"] * 2
+        enc = c.get(f"{API}/encounters", params={"task": t["id"]}).json()["encounters"]
+        assert len({b["run"] for e in enc for b in e["bursts"]}) == 1     # wren, then wren: one run
