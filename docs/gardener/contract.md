@@ -32,7 +32,7 @@
 ## 2 存储
 
 - 数据目录 `--data-dir`（默认 `$GARDENER_HOME`，否则 `~/.gardener`）：`gardener.sqlite`（WAL）、`cache/previews/<id[2:4]>/<id>.thumb.jpg|.large.jpg`、`exports/`（默认导出位置）、`logs/`。
-- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
+- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。分析开始时把能力标为待运行（`mark_pending`）按块提交（每块至多 500 张），人的写入（如 `POST /marks`）最多等一块；每块是幂等写入，崩溃后从剩下的继续。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
 - DDL 见 `schema.sql`；`meta.schema_version` = `1`。数据库只存预览索引（`assets.preview_status/method`），不存图片。
 - 原片只读：Gardener 绝不在来源目录写入、改名、移动、删除；不得调用 BioScan 的 `jpg` stage、`/apply`、XMP 写入。导出目的地若位于任何任务来源目录之内则拒绝（400）。
 - 清理缓存只删 `cache/`，把 `preview_status` 置回 `pending`；原片在线时按需重建（请求预览时同步生成）。
@@ -198,7 +198,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **X4 文件变化与缺失**：**永远不删除** `assets`、`task_assets`、`marks`、`mark_history`、集合成员行。来源在线但文件不见 → `asset_files.online=0` 且 `assets.meta.missing=true`（summary 计 `missing`，与 `offline_sources` 区分）；之后重新出现即恢复。同一路径 size/mtime 变化且 `quick_hash` 不同 = **内容变化**：沿用同一 `asset_id`；在 `mark_history` 写入 `actor=system, reason=content_changed` 的记录并把当前 Flag/Star **清空**（旧判断保留在历史中，可 undo 该 batch 恢复）；`assets.meta.content_changed_at` 记录时间；能力状态回 `pending` 并在本运行重新预览与分析；旧 results/ai_suggestions 保留为历史。已完成集合把这类成员计入 `review.changed_since`。size/mtime 变但 hash 相同 = 未变化，只更新 mtime。
 - **X5 marks 省略与 null**：`POST /marks` 中键**省略 = 不改**，`flag: null` = 清除 Flag，`stars: 0` = 清除星级。CLI/MCP 只发送用户明确给出的键。
 - **X6 本组不留清 Pick**：`resolution=clear_picks` 经同一 marks 写入路径：把这些素材 Flag 设为 `null`（**不是** reject），写 `mark_history`（同一 batch_id、actor、reason=`zero:<collection_id>`），响应带 `batch_id`，`POST /marks/undo` 可恢复。
-- **X7 changed_after**：任何影响 AssetItem 的写入（marks、asset_caps、results、ai_suggestions、预览状态、集合成员、标签、在线状态）都同时更新 `assets.updated_at`。所有记录时间戳统一为 UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`（定长，可字符串比较）；`changed_after` 为严格大于。
+- **X7 changed_after**：任何影响 AssetItem 的写入（marks、asset_caps、results、ai_suggestions、预览状态、集合成员、标签、在线状态）都同时更新 `assets.updated_at`。所有记录时间戳统一为 UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`（定长，可字符串比较）；`changed_after` 为严格大于。`assets(updated_at)` 有索引，轮询按它读变化的素材，不扫全部素材；UI 的 `apiAll` 每页取 1000（服务上限），批量写入后整个任务都变了时少翻页。分块写入的每块各取时间戳，轮询游标不会越过之后的块。
 - **X8 自动集合身份**：重组时先按**成员重叠**把每个建议组匹配到该任务已有的同 `group_kind` 自动集合（重叠成员数最多者；无重叠才新建）；`auto_key` 只在首次创建时确定，以后不变。被软删除或被合并掉的自动集合**不恢复、不再加成员**；其已有成员也不会因此被塞进新建的同 key 集合（建议组与已删集合重叠时跳过这些成员）。scene/species 组的 key 本身稳定（标签 id），仍按同一规则处理已删集合。
 - **X9 导出输入形状**：`export(dest_dir, *, title, scope, collections, assets, copy, conflict, protected)`：`assets` = **AssetDetail 列表**（§6.3，含 files、flag、stars、ai、ai_history[0].version、caps 不需要、collections）；`collections` = `Collection` 列表（§6.5，另含 `member_ids`）；`scope = {kind: collection|asset_ids|rule, value, scope: picked|all|selected}`；复制目录 `dest_dir/files/<安全化 title>/`，`title` 由单元 1 给出（集合名或“筛选结果”），跨任务导出同样只用 title。XML 每个素材含：所有文件原路径（与复制路径、sha256）、flag、stars、AI verdict/score/reasons/version、所属集合及其审阅状态。导出不复制 XMP sidecar，ExportReport 加 `notes: ["未包含来源目录中的 XMP sidecar"]`。
 - **标签拆分（PRD §7 / D25 已确认，首版必须）**：`POST /tags/{id}/split {names: [新名], assign?: {新名: [asset_ids]}}` → 新建子标签（原标签保留或停用由 `deactivate_source` 决定，默认保留），记 `tag_history`，人工与 AI 的 `asset_tags` 来源分开保留。
@@ -425,7 +425,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 目标路径在计划中冻结，执行时不再重新推导。目标位于任何任务来源目录之内 → 400。
 - **`ImportPlan`** = `{id, task_id, seq, status: planned|queued|running|completed|partial|failed, dest_root, folder, dest_dir, place, include_pending, created_at, started_at, finished_at, error, interruptions, stale, uses: {record, edit, pending, reject, total}, not_copied: {reject, pending, versions}, unfinished: {offline, analysis_pending, scan_active}, assets, files, bytes, sidecars, copy_files, copy_bytes, needed_bytes, free_bytes, enough_space, duplicates: {identical, reuse, duplicate, items}, renamed: {files, items}, progress: {files_total, files_done, files_failed, bytes_total, bytes_done, assets_total, assets_done, assets_failed}, failed: [{asset_id, path, error}]}`（列表最多 200 项）。`GET /imports?task=`、`GET /imports/{id}`。
 - **执行** `POST /imports/{id}/run`：
-  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
+  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。计划生成后任务中又有决定变化（`stale: true`，只对 planned 计划计算）→ 409“生成计划后照片的决定又有变化，这个计划已过期；请重新生成导入计划”，不复制任何文件，UI 只给“更新导入计划”。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
   - 每个文件：核对来源大小与计划一致，经 `export._copy` 复制（临时文件 + sha256 回读 + 硬链接或 O_EXCL 发布，从不覆盖），再核对字节数，然后立即提交为 `done` 并登记到 `managed_files`。目标已存在时：内容相同即算完成，否则列为失败，不覆盖。
   - 幂等与恢复：已完成的文件不再复制；重启时 running → queued（`interruptions` + 1）、copying → pending，并清理本目录中崩溃留下的 `.gardener-part` 临时文件。同一来源再生成计划得到 `reuse`，不复制、不新建素材。
   - 结果：有任何失败文件 → `partial`（全部失败为 `failed`），`failed` 逐项列出；不得称为成功。来源只读，不删除、不写入。
