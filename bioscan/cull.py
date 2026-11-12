@@ -8,8 +8,10 @@ them into one cull record per image.
 
 burst: frames of one camera (EXIF Make/Model; frames without one count as one camera) whose capture
 times are at most `max_gap_s` apart and whose SigLIP2 frame vectors (products.embed) have cosine at
-least `min_cosine` are chained into a burst, in time order. Frames at most `shutter_gap_s` apart (0 = off, the
-default) are chained without looking at the vectors.
+least `min_cosine` are chained into a burst, in time order. A caller may also pass `shutter_gap_s`:
+frames at most that far apart are chained without looking at the vectors. It is not a manifest option (absent
+= off), so profiles, `bioscan cull` and the baselines' recorded reducer options are unchanged; Gardener passes it
+(`gardener/analyze.GROUP`).
 
 select: per burst, the best frame by these criteria in order: not rejected, subject sharpness
 (within `sharp_tie` of the burst's sharpest counts as equal), not cut off, exposure within

@@ -365,7 +365,6 @@ _Avoid_: good photo, select (a verb here)
 **Burst**:
 Frames of one camera at most `max_gap_s` apart whose frame vectors are alike (cosine at least `min_cosine`),
 chained in time order by the `burst` reducer; a frame in no burst has id null.
-Frames at most `shutter_gap_s` apart (0 = off, the default) chain whatever the vectors say.
 In Gardener a burst is the unit of review (组: one moment of one subject; a photo in no burst is a group of one):
 it groups wider than the album profile (`analyze.GROUP`), a person may split a wrong burst (`POST /bursts/split`)
 or merge bursts (`POST /bursts/merge`), and both are kept as burst overrides applied over every later run.
