@@ -212,7 +212,8 @@ def _render_5e(cmd: str, out: dict) -> str:
                                                                ("结果", "status"), ("原因/冲突", "why")]))
     sm = out["summary"]
     head = (f"计划 {out['id']}（{out['status']}）：淘汰 {sm['rejected']} 张，可清理 {sm['ready']} 张、{sm['files']} 个文件、"
-            f"{sm['bytes']} 字节；离线跳过 {sm['offline']} 张")
+            f"{sm['bytes']} 字节；离线跳过 {sm['offline']} 张"
+            + (f"；{sm['shared']} 个文件另一张照片也在用，不动（shared）" if sm.get("shared") else ""))
     last = "".join(f"\n  ! {s.get('zh') or s.get('common') or s['taxon']}（{s['taxon']}）：清理后这个物种没有照片了"
                    for s in sm["last_species"])
     rep = out.get("report")
