@@ -1280,3 +1280,33 @@ select.input { padding-right: 28px; }
 .lib-loupe:fullscreen .fs-cap { color: #bbb; padding-bottom: 8px; }
 .ws.lib.fs .tile-media, .ws.lib.fs .tile .ph { display: block; }
 .ws.lib.fs.mode-loupe .tile-wrap { contain-intrinsic-size: auto 112px auto 84px; }   /* off-screen strip tiles: strip height, not grid height */
+
+/* 契约修订 13：Review 以“组”为单位——一组一格，封面是这一组最好的一张 */
+.fr-acts { display: flex; gap: 8px; align-items: center; }
+.gr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.gt { position: relative; }
+.gt .et { border-width: 2px; }
+.gt.is-done .et { opacity: .55; }
+.gt-n { position: absolute; left: 6px; top: 6px; padding: 1px 8px; border-radius: 5px; background: rgba(10, 13, 14, .8); color: var(--ink); font-size: 12px; font-weight: 600; }
+.gt-s { position: absolute; right: 6px; top: 6px; display: inline-flex; gap: 6px; padding: 1px 8px; border-radius: 5px; background: rgba(10, 13, 14, .8); font-size: 12px; }
+.gt-s .k { color: var(--accent); } .gt-s .x { color: var(--reject); }
+.gt-merge { position: absolute; left: 6px; bottom: 6px; display: none; align-items: center; gap: 2px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line-2); background: rgba(10, 13, 14, .9); color: var(--ink); font-size: 12px; cursor: pointer; }
+.gt-merge .ic { width: 12px; height: 12px; }
+.gt:hover .gt-merge, .gt-merge:focus-visible { display: inline-flex; }
+.cp-grp { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.cp-bar kbd { margin-left: 6px; }
+.rl-more > summary { padding: 8px 10px; color: var(--muted); font-size: 13px; cursor: pointer; }
+
+/* #144：单张视图里照片要大。胶片带的格子一共就几十像素高，不需要 content-visibility（它给屏外格子留的
+   200px 占位会把胶片带撑到 230px 高）；快捷键说明在单张视图里收起（? 仍可查看）。 */
+.ws.mode-loupe .tile-wrap { content-visibility: visible; contain-intrinsic-size: none; }
+.ws.mode-loupe .batch-bar > .hint { display: none; }
+/* 单张视图时任务页头只留标题和标签页；来源、进度、操作按钮与快捷视图回到网格再看 */
+.wpage:has(.ws.mode-loupe) .task-head .crumbs, .wpage:has(.ws.mode-loupe) .task-head .th-sub, .wpage:has(.ws.mode-loupe) .task-head .th-sources,
+.wpage:has(.ws.mode-loupe) .task-head .th-more, .wpage:has(.ws.mode-loupe) .task-head .th-progress, .wpage:has(.ws.mode-loupe) .task-head .th-actions { display: none; }
+.ws.mode-loupe .lib-side { display: none; }
+.gr-run { margin-top: 12px; padding: 8px 10px 10px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface-2); }
+.gr-run .gr-grid { padding-top: 8px; border-top: 0; }
+.gr-run-h { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); }
+.gr-run-h b { color: var(--ink); font-size: 14px; } .gr-run-h .btn { margin-left: auto; }
+.gr-run + .gr-grid, .gr-grid + .gr-grid { margin-top: 12px; }

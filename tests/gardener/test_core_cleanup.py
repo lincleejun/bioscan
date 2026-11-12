@@ -35,7 +35,7 @@ def shoot(c, fakes, tmp_path):
     """IMG_0..2: owls; IMG_3: the only wren. IMG_0 has an XMP sidecar."""
     src = tmp_path / "card"
     for i in range(4):
-        make_jpg(src / f"IMG_{i}.jpg", when=1_700_000_000 + 60 * i)
+        make_jpg(src / f"IMG_{i}.jpg", when=1_700_000_000 + 600 * i)   # minutes apart: no burst, so no burst vote on the wren
     (src / "IMG_0.xmp").write_text("<x:xmpmeta/>")
     fakes.boxes["IMG_3.jpg"] = [owl_box(**WREN)]
     t = wait_task(c, create_task(c, [str(src)])["id"])

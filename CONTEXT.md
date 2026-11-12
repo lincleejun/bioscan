@@ -365,9 +365,21 @@ _Avoid_: good photo, select (a verb here)
 **Burst**:
 Frames of one camera at most `max_gap_s` apart whose frame vectors are alike (cosine at least `min_cosine`),
 chained in time order by the `burst` reducer; a frame in no burst has id null.
-In Gardener a person may split a wrong burst (`POST /bursts/split`); the split is kept as a burst override and
-applied over every later run of the reducer.
+Frames at most `shutter_gap_s` apart (0 = off, the default) chain whatever the vectors say.
+In Gardener a burst is the unit of review (组: one moment of one subject; a photo in no burst is a group of one):
+it groups wider than the album profile (`analyze.GROUP`), a person may split a wrong burst (`POST /bursts/split`)
+or merge bursts (`POST /bursts/merge`), and both are kept as burst overrides applied over every later run.
 _Avoid_: sequence, series, stack
+
+**Burst vote** (组内同名):
+Gardener's rule that a burst's frames share one name (`identities.burst_consensus`): the frames showing a single
+animal take the majority species of the model's own claims, a species named on one frame of a larger burst becomes
+unconfirmed, and a person's identification is never outvoted. Written as ai identifications with reason `burst`.
+_Avoid_: smoothing, consensus model
+
+**Regroup run**:
+A task run of kind `regroup` (`POST /tasks/{id}/regroup`): bursts, the burst vote, encounters and auto collections
+again from stored results; no file is read and no model runs.
 
 **Scene category**:
 The bucket `select` ranks within: the photo's scene group (`by = "group"`, the default; the label when the stage

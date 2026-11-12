@@ -8,7 +8,8 @@ them into one cull record per image.
 
 burst: frames of one camera (EXIF Make/Model; frames without one count as one camera) whose capture
 times are at most `max_gap_s` apart and whose SigLIP2 frame vectors (products.embed) have cosine at
-least `min_cosine` are chained into a burst, in time order.
+least `min_cosine` are chained into a burst, in time order. Frames at most `shutter_gap_s` apart (0 = off, the
+default) are chained without looking at the vectors.
 
 select: per burst, the best frame by these criteria in order: not rejected, subject sharpness
 (within `sharp_tie` of the burst's sharpest counts as equal), not cut off, exposure within
@@ -100,8 +101,8 @@ def capture(ev: dict[str, Any]) -> tuple[str | None, str]:
 # ---- burst ------------------------------------------------------------------------------------
 
 def check_burst(o: dict[str, Any]) -> None:
-    for k in ("max_gap_s", "min_cosine"):
-        v = o[k]
+    for k in ("max_gap_s", "min_cosine", "shutter_gap_s"):
+        v = o.get(k, 0)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
             raise ValueError(f"burst.{k} must be a number >= 0")
     if o["min_cosine"] > 1:
@@ -130,7 +131,10 @@ def burst(events: list[dict[str, Any]], o: dict[str, Any]) -> dict[str, dict[str
             gap = None if prev is None else f["t"] - prev["t"]
             cos = None if prev is None else cosine(prev["vec"], f["vec"])
             links[f["path"]] = (None if gap is None else round(gap, 3), None if cos is None else round(cos, 4))
-            if prev is not None and gap <= o["max_gap_s"] and cos is not None and cos >= o["min_cosine"]:
+            # frames one shutter press apart are one burst whatever the frame vector says: panning with a flying
+            # bird changes the background, and the subject is ~1% of the frame (#144)
+            if prev is not None and (gap <= o.get("shutter_gap_s", 0) or (
+                    gap <= o["max_gap_s"] and cos is not None and cos >= o["min_cosine"])):
                 chains[-1].append(f)
             else:
                 chains.append([f])

@@ -640,6 +640,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         caps = capmod.expand(strs(body["capabilities"], "capabilities")) if body.get("capabilities") else None
         return new_run(tid, "rescan", caps=caps, asset_ids=task_asset_ids(tid, body.get("asset_ids")))
 
+    @r.post("/tasks/{tid}/regroup", status_code=201)
+    def regroup_task(tid: str) -> dict[str, Any]:
+        """Group the task again from its stored results (修订 13): bursts, one name per burst, collections. No
+        file is read and no model runs, so it works with the originals offline."""
+        task_or_404(tid)
+        return new_run(tid, "regroup")
+
     @r.post("/tasks/{tid}/retry", status_code=201)
     def retry(tid: str, body: dict[str, Any] = OPT_BODY) -> dict[str, Any]:
         task_or_404(tid)
@@ -848,6 +855,39 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                                        reason=reason if isinstance(reason, str) else None,
                                        dry_run=bool(body.get("dry_run")))
 
+    @r.post("/identifications/move")
+    def move_identifications(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """Move photos from one species to another in one undoable step (修订 13): the subjects currently named
+        `from_concept` (or, without it, the only subject of each photo) on `asset_ids`, or on every photo of
+        `task_id`, take `claim`. Undo with POST /identifications/undo."""
+        claim = body.get("claim")
+        if not isinstance(claim, dict) or claim.get("level") not in identities.LEVELS:
+            raise Error(f"claim.level must be one of {', '.join(identities.LEVELS)}")
+        if claim["level"] == "species" and not (isinstance(claim.get("concept"), str) and isinstance(claim.get("taxon"), str)):
+            raise Error("a species claim needs concept and taxon (the scientific name)")
+        if claim["level"] != "species":
+            claim = {"level": claim["level"], "concept": None, "common": None,
+                     "taxon": claim.get("taxon") if claim["level"] in ("genus", "family") else None}
+        frm, tid = text(body, "from_concept"), text(body, "task_id")
+        ids = strs(body["asset_ids"], "asset_ids") if body.get("asset_ids") is not None else None
+        if ids is None and not (tid and frm):
+            raise Error("asset_ids, or task_id with from_concept, is required")
+        with store.tx() as c:
+            if ids is None:
+                ids = [x[0] for x in c.execute("SELECT asset_id FROM task_assets WHERE task_id = ?", (tid,))]
+            sids: list[str] = []
+            for part in st.chunks(ids):
+                rows = c.execute(f"SELECT asset_id, subject_id, concept FROM current_ids WHERE asset_id IN ({st.marks_in(part)})",
+                                 part).fetchall()
+                per: dict[str, list[Any]] = {}
+                for x in rows:
+                    per.setdefault(x[0], []).append(x)
+                for xs in per.values():
+                    sids += [x[1] for x in xs if x[2] == frm] if frm else ([xs[0][1]] if len(xs) == 1 else [])
+            if not sids:
+                raise Error("没有可以改的主体：这些照片里没有这个物种，或一张照片里有多只动物（请在单张视图里改）")
+            return identities.identify(c, sids, [], claim, scope="subject", actor=actor, reason="move", dry_run=False)
+
     @r.post("/identifications/undo")
     def undo_identifications(body: dict[str, Any] = BODY) -> dict[str, Any]:
         with store.tx() as c:
@@ -898,9 +938,10 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         expect = body.get("expect")
         if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
             raise Error("expect must be {asset_id: version}")
+        within = strs(body["within"], "within") if body.get("within") is not None else None
         with store.tx() as c:
             out = rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
-                               dry_run=bool(body.get("dry_run")), expect=expect)
+                               dry_run=bool(body.get("dry_run")), expect=expect, within=within)
         cols: dict[str, dict[str, Any]] = {}            # 7A: the person's collections the rejects are in (PRD §05)
         auto = {r["id"] for r in store.all("SELECT id FROM collections WHERE origin = 'auto'")} if out["reject"] else set()
         for i in out["reject"]:
@@ -958,7 +999,20 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
             raise Error("one of at (asset id) or asset_ids is required")
         with store.tx() as c:
-            return rv.split_burst(c, at=at, asset_ids=ids, actor=actor)
+            out = rv.split_burst(c, at=at, asset_ids=ids, actor=actor)
+            identities.burst_consensus(c, out["from"].split(":", 1)[0], None)     # each part votes for itself now
+            return out
+
+    @r.post("/bursts/merge", status_code=201)
+    def merge_bursts(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """{task_id, asset_ids}: those photos and every frame of their bursts become one burst that survives
+        rescans (修订 13); its frames then share one name (identities.burst_consensus)."""
+        tid = text(body, "task_id", required=True)
+        task_or_404(tid)
+        with store.tx() as c:
+            out = rv.merge_bursts(c, tid, strs(body.get("asset_ids") or [], "asset_ids"), actor=actor)
+            identities.burst_consensus(c, tid, None)
+            return out
 
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,

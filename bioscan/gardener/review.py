@@ -105,6 +105,62 @@ def assign_encounters(c: Any, task_id: str) -> int:
     return n
 
 
+RUN_GAP_S = 30         # groups this close in time, showing the same subject, are one subject run
+RUN_SIZE = 3.0         # ... when the subject's size in the frame differs by less than this factor
+RUN_SHARE = 0.6        # a group's subject: the species this share of its frames' main animals carry
+
+
+def subject_runs(c: Any, task_id: str) -> dict[str, str]:
+    """asset id -> subject run (修订 13): the task's groups (bursts and single photos) in time order, where
+    adjacent groups join into one run when they show the same subject: the same species on the main animal
+    (the largest box) of RUN_SHARE of each group's frames, at most RUN_GAP_S apart, the subject's size within a
+    factor of RUN_SIZE. Computed from the current identifications (so a person's correction moves it), never
+    stored: a run is a hint that groups belong together, the group stays the unit a person decides on."""
+    rows = [dict(r) for r in c.execute(
+        "SELECT a.id, a.taken_at, s.burst_id FROM task_assets ta JOIN assets a ON a.id = ta.asset_id LEFT JOIN "
+        "ai_suggestions s ON s.id = (SELECT max(x.id) FROM ai_suggestions x WHERE x.asset_id = a.id) WHERE ta.task_id = ? "
+        f"AND {IN_TASK_REP} AND a.taken_at IS NOT NULL ORDER BY a.taken_at, a.id", (task_id, task_id))]
+    main: dict[str, tuple[float, str | None]] = {}          # asset -> (area, species concept) of its largest subject
+    for r in c.execute("SELECT ci.asset_id, s.xyxy, ci.level, ci.concept FROM current_ids ci JOIN subjects s ON s.id = "
+                       "ci.subject_id JOIN task_assets ta ON ta.asset_id = ci.asset_id WHERE ta.task_id = ?", (task_id,)):
+        x0, y0, x1, y1 = st.loads(r[1])
+        area = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+        if area > main.get(r[0], (-1.0, None))[0]:
+            main[r[0]] = (area, r[3] if r[2] == "species" else None)
+    groups: list[list[dict[str, Any]]] = []
+    at: dict[str, int] = {}
+    for r in rows:                                  # a burst's frames are one group even with another photo between
+        k = r["burst_id"] or f"one:{r['id']}"
+        if k not in at:
+            at[k] = len(groups)
+            groups.append([])
+        groups[at[k]].append(r)
+
+    def subject(g: list[dict[str, Any]]) -> tuple[str | None, float]:
+        seen = [main[m["id"]] for m in g if m["id"] in main]
+        names: dict[str, int] = {}
+        for _, concept in seen:
+            if concept:
+                names[concept] = names.get(concept, 0) + 1
+        top = max(names, key=lambda k: (names[k], k), default=None)
+        areas = sorted(a for a, _ in seen)
+        return (top if top and names[top] >= RUN_SHARE * len(seen) else None), (areas[len(areas) // 2] if areas else 0.0)
+
+    out: dict[str, str] = {}
+    run, prev = 0, None
+    for g in groups:
+        name, area = subject(g)
+        start, end = seconds(g[0]["taken_at"]), seconds(g[-1]["taken_at"])
+        same = (prev is not None and name is not None and name == prev[0] and start - prev[2] <= RUN_GAP_S
+                and min(area, prev[1]) > 0 and max(area, prev[1]) <= RUN_SIZE * min(area, prev[1]))
+        if not same:
+            run += 1
+        prev = (name, area, end)
+        for m in g:
+            out[m["id"]] = f"run{run}"
+    return out
+
+
 def _rank(m: dict[str, Any]) -> tuple:
     """Representative order: a person's choice first (edit, record, stars), then the cull's burst rank and score."""
     return (m["use"] == "edit", m["use"] == "record", m["stars"], -(m["burst_rank"] or 10 ** 6), m["score"] or 0.0)
@@ -145,6 +201,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     from bioscan.gardener import taxa
 
     shown = taxa.display(c, sorted({k for e in out.values() for k in e["species"]}))
+    runs = {t: subject_runs(c, t) for t in {e["task_id"] for e in out.values()}} if task_id else {}
     result = []
     for e in out.values():
         ms = e.pop("members")
@@ -155,7 +212,8 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
         for k, g in groups.items():
             rep = max(g, key=_rank)
             bursts.append({"id": None if isinstance(k, tuple) else k, "size": len(g), "rep": rep["id"],
-                           "asset_ids": [m["id"] for m in g], "_rank": _rank(rep)})
+                           "asset_ids": [m["id"] for m in g], "_rank": _rank(rep),
+                           "run": runs.get(e["task_id"], {}).get(g[0]["id"])})
         cands = [b["rep"] for b in sorted(bursts, key=lambda b: b["_rank"], reverse=True)[:candidates]]
         for b in bursts:
             b.pop("_rank")
@@ -236,11 +294,13 @@ def merge_encounters(c: Any, ids: list[str], *, actor: str) -> str:
 
 
 def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool,
-              expect: dict[str, int] | None = None) -> dict[str, Any]:
+              expect: dict[str, int] | None = None, within: list[str] | None = None) -> dict[str, Any]:
     """保留此张并淘汰相似帧 (PRD §08): `asset_id` gets `keep_use`, the other frames of its burst get reject,
     one batch (one undo). Skipped: frames a person already protected (record, edit or stars: reason human)
     and frames that would leave a species with no photo that is not rejected (reason only_record; every
-    frame showing it is kept). dry_run reports the reach, with the versions to send back as `expect`."""
+    frame showing it is kept). dry_run reports the reach, with the versions to send back as `expect`.
+    `within` limits the frames that may be rejected to those ids (修订 13: the group on screen holds one species'
+    frames of the burst, and a key press must not reject a frame the person is not looking at)."""
     if not c.execute("SELECT 1 FROM assets WHERE id = ?", (asset_id,)).fetchone():
         raise st.NotFound(f"no asset {asset_id}")
     row = c.execute("SELECT burst_id FROM ai_suggestions WHERE asset_id = ? ORDER BY id DESC LIMIT 1", (asset_id,)).fetchone()
@@ -250,6 +310,8 @@ def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool
         f"SELECT a.id FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE {LATEST} "
         f"AND s.burst_id = ? AND a.id != ? AND {IN_TASK_REP} ORDER BY a.taken_at, a.id",   # bursts are per task
         (row[0], asset_id, row[0].split(":", 1)[0]))]
+    if within is not None:
+        sibs = [i for i in sibs if i in set(within)]
     marks = {i: st.mark_row(c, i) for i in [asset_id, *sibs]}
     skipped, cand = [], []
     for i in sibs:
@@ -351,14 +413,34 @@ def undo_encounters(c: Any, batch_id: str) -> dict[str, Any]:
 USER_RUN = "user"   # ai_suggestions rows a person's burst split restamped (copies of the latest machine row)
 
 
-def _renumber(rows: list[dict[str, Any]]) -> None:
-    """Rank and size each burst of `rows` (by their burst_id) anew, keeping the earlier rank order; a burst of
-    one is no burst (id null), as the reducer reports it."""
+def _best_first(c: Any, asset_ids: list[str]) -> dict[str, int]:
+    """asset id -> place in one burst's order, best first, by the cull's burst order over the frames' stored
+    quality (analyze.burst_order); {} when that cannot be had, so the caller keeps the earlier order."""
+    from bioscan.gardener import analyze
+
+    rows: dict[str, dict[str, Any]] = {a: {"asset_id": a, "products": {}} for a in asset_ids}
+    for part in st.chunks(asset_ids):
+        for r in c.execute(
+                "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(id) FROM results WHERE asset_id IN "
+                f"({st.marks_in(part)}) AND capability LIKE 'raw:%' AND capability != 'raw:embed' AND status = 'done' "
+                "GROUP BY asset_id, capability)", part):
+            rows[r[0]]["products"][r[1].removeprefix("raw:")] = st.loads(r[2])
+    try:
+        return {a: i for i, a in enumerate(analyze.burst_order(list(rows.values())))}
+    except Exception:  # noqa: BLE001 - an odd stored product must not block a person's merge
+        return {}
+
+
+def _renumber(rows: list[dict[str, Any]], c: Any = None, rerank: set[str] | None = None) -> None:
+    """Rank and size each burst of `rows` (by their burst_id) anew, keeping the earlier rank order; the bursts in
+    `rerank` (merged ones: two rank lists) are ordered by quality instead. A burst of one is no burst (id null),
+    as the reducer reports it."""
     groups: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         groups.setdefault(r["burst_id"], []).append(r)
-    for g in groups.values():
-        g.sort(key=lambda r: (r["burst_rank"] or 10 ** 6, r["asset_id"]))
+    for b, g in groups.items():
+        pos = _best_first(c, [r["asset_id"] for r in g]) if c is not None and b in (rerank or ()) else {}
+        g.sort(key=lambda r: (pos.get(r["asset_id"], 10 ** 6), r["burst_rank"] or 10 ** 6, r["asset_id"]))
         for i, r in enumerate(g):
             r.update(burst_id=r["burst_id"] if len(g) > 1 else None, burst_rank=i + 1 if len(g) > 1 else None,
                      burst_size=len(g) if len(g) > 1 else None)
@@ -394,33 +476,76 @@ def split_burst(c: Any, *, at: str | None = None, asset_ids: list[str] | None = 
         if m["asset_id"] in moving:
             m["burst_id"] = new
     _renumber(members)
+    _restamp(c, members, t)
+    return {"burst_id": new if len(moving) > 1 else None, "from": b, "moved": moving}
+
+
+MERGED = "merged"   # <task>:merged~<part>: a burst a person merged (修订 13)
+
+
+def _restamp(c: Any, members: list[dict[str, Any]], t: str) -> None:
     for m in members:
         c.execute("INSERT INTO ai_suggestions (asset_id, run_id, verdict, score, rank, reasons, burst_id, burst_rank, "
                   "burst_size, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (m["asset_id"], USER_RUN, m["verdict"], m["score"], m["rank"], m["reasons"], m["burst_id"],
                    m["burst_rank"], m["burst_size"], m["version"], t))
         c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, m["asset_id"]))   # pollers see it (§10 X7)
-    return {"burst_id": new if len(moving) > 1 else None, "from": b, "moved": moving}
+
+
+def merge_bursts(c: Any, task_id: str, asset_ids: list[str], *, actor: str) -> dict[str, Any]:
+    """A person merges groups (修订 13): the given photos, and every frame of the bursts they are in, become one
+    burst, best frame by quality. Written to burst_overrides for every member, so later runs keep it; the
+    burst fields shown now are restamped (run_id USER_RUN). A single photo can be merged in. Species identity
+    is per subject and untouched here (the caller runs identities.burst_consensus)."""
+    ids = list(dict.fromkeys(asset_ids))
+    inside = {r[0] for part in st.chunks(ids) for r in c.execute(
+        f"SELECT asset_id FROM task_assets WHERE task_id = ? AND asset_id IN ({st.marks_in(part)})", [task_id, *part])}
+    if len(ids) < 2 or set(ids) - inside:
+        raise st.Error("合并需要同一任务里的两张以上照片")
+    latest = {r["asset_id"]: dict(r) for part in st.chunks(ids) for r in c.execute(
+        f"SELECT * FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions WHERE asset_id IN "
+        f"({st.marks_in(part)}) GROUP BY asset_id)", part)}
+    if set(ids) - set(latest):
+        raise st.Error("这些照片还没有分组结果，分析完成后再合并")
+    old = sorted({m["burst_id"] for m in latest.values() if m["burst_id"]})
+    members = dict(latest)
+    for b in old:
+        members |= {r["asset_id"]: dict(r) for r in c.execute(
+            f"SELECT s.* FROM ai_suggestions s WHERE {LATEST} AND s.burst_id = ?", (b,))}
+    if len(old) == 1 and len(members) == len([m for m in members.values() if m["burst_id"] == old[0]]):
+        raise st.Error("这些照片已经在同一组里")
+    new, t = f"{task_id}:{MERGED}~{st.new_id('p')}", now()
+    for m in members.values():
+        m["burst_id"] = new
+        c.execute("INSERT INTO burst_overrides (task_id, asset_id, burst_id, actor, created_at) VALUES (?, ?, ?, ?, ?) "
+                  "ON CONFLICT(task_id, asset_id) DO UPDATE SET burst_id = excluded.burst_id, actor = excluded.actor, "
+                  "created_at = excluded.created_at", (task_id, m["asset_id"], new, actor, t))
+    rows = list(members.values())
+    _renumber(rows, c, {new})
+    _restamp(c, rows, t)
+    return {"burst_id": new, "from": old, "size": len(rows), "rep": min(rows, key=lambda m: m["burst_rank"])["asset_id"]}
 
 
 def apply_burst_overrides(c: Any, task_id: str, run_id: str) -> int:
-    """After a run saved its suggestions: frames a person split off get their override burst, and the bursts
-    that lost or gained frames are ranked and sized anew. Only a frame the reducer put in some burst is moved,
-    so a run without the burst capability makes none. Returns the frames moved.
+    """After a run saved its suggestions: frames a person split off or merged get their override burst, and the
+    bursts that lost or gained frames are ranked and sized anew (a merged one by quality). A run that made no
+    burst at all (no burst capability) moves none. Returns the frames moved.
     ponytail: a frame added later that the reducer groups with a split burst joins the machine part, never the
     person's; the person splits again (an override per part's members, not per frame, if that comes up)."""
     over = {r[0]: r[1] for r in c.execute("SELECT asset_id, burst_id FROM burst_overrides WHERE task_id = ?", (task_id,))}
     if not over:
         return 0
-    rows = [dict(r) for r in c.execute("SELECT id, asset_id, burst_id, burst_rank FROM ai_suggestions WHERE run_id = ? "
-                                       "AND burst_id IS NOT NULL", (run_id,))]
+    rows = [dict(r) for r in c.execute("SELECT id, asset_id, burst_id, burst_rank FROM ai_suggestions WHERE run_id = ?",
+                                       (run_id,))]
+    if not any(r["burst_id"] for r in rows):
+        return 0
     hit = {r["id"] for r in rows if r["asset_id"] in over}
-    touched = {r["burst_id"] for r in rows if r["id"] in hit}
-    group = [r for r in rows if r["id"] in hit or r["burst_id"] in touched]
+    touched = {r["burst_id"] for r in rows if r["id"] in hit and r["burst_id"]}
+    group = [r for r in rows if r["id"] in hit or (r["burst_id"] and r["burst_id"] in touched)]
     for r in group:
         if r["id"] in hit:
             r["burst_id"] = over[r["asset_id"]]
-    _renumber(group)
+    _renumber(group, c, {b for b in over.values() if f":{MERGED}~" in b})
     for r in group:
         c.execute("UPDATE ai_suggestions SET burst_id = ?, burst_rank = ?, burst_size = ? WHERE id = ?",
                   (r["burst_id"], r["burst_rank"], r["burst_size"], r["id"]))

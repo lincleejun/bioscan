@@ -114,3 +114,10 @@
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。
+
+| G13-1 | 一只鸟一组：连拍放宽（快门间隔不看相似度）、reducer 知道 quality（契约修订 13，#144） | `analyze.GROUP`、`analyze.reduce`、`cull.burst`（`shutter_gap_s`）、`RunExec.group` | `test_cull_reducers.py::test_frames_one_shutter_press_apart_*`、`test_core_groups13.py::test_the_reducer_is_told_about_quality_*` |
+| G13-2 | 组内同名：多数票、一次性名字降为未确认、人工结论不被覆盖（修订 13） | `identities.burst_consensus` | `test_core_groups13.py::test_a_burst_takes_its_majority_name_*`、`test_a_species_named_twice_*` |
+| G13-3 | 合并连拍，重扫后保持，单张可并入（修订 13） | `review.merge_bursts`、`apply_burst_overrides`、`POST /bursts/merge` | `test_core_groups13.py::test_bursts_merge_into_one_*` |
+| G13-4 | 整批改物种，一步撤销（修订 13） | `POST /identifications/move` | `test_core_groups13.py::test_photos_move_to_another_species_*` |
+| G13-5 | 重新分组：只用已存结果，不读原片、不跑模型（修订 13） | `POST /tasks/{id}/regroup`、`RunExec.execute`（`kind: regroup`）、`Toolkit.reduce` | `test_core_groups13.py::test_regroup_reads_stored_results_only` |
+| G13-6 | Review 总览与比较页按组；Enter 留一张淘汰其余；并入前一组、拆开、整组改物种（修订 13） | `web/app.js`：`groupsOf`、`frCenterHTML`、`vCompare`、`cpQuick`、`cpMerge`、`cpSplit`、`chooseSpecies` | `test_ui_web.py::test_review_is_by_group_*`、`test_ui_calls_only_contract_endpoints` |

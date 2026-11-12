@@ -255,7 +255,8 @@ def test_every_photo_view_has_the_same_two_layouts():
         assert gone not in app and gone not in css, gone
     # opening a photo from another screen lands in the shared loupe at that photo, even inside a collapsed group
     assert "open ? { start: open, open, mode: 'loupe' } : {}" in app and "if (a.id === ws.open) return true;" in app
-    assert app.count('data-action="open-photo"') == 2 and "'cd-open': el => { ui.open = el.dataset.id;" in app
+    # one left: the import page's tiles. The Review overview opens a group in the compare page (revision 13)
+    assert app.count('data-action="open-photo"') == 1 and "'cd-open': el => { ui.open = el.dataset.id;" in app
     # a missed animal is drawn on the loupe's big image; an encounter poll keeps the photo being looked at
     assert "$('#lib-loupe')" in app and "if (ui.ws === ws) recompute(had);" in app
 
@@ -288,3 +289,30 @@ def test_local_folder_browser_is_read_only_and_reuses_the_library_layout():
     assert "fs-task" in fs and "#/task/" in fs                                       # a covered folder links to its task
     assert "case 'fs':" in js and "Object.assign(VIEWS, { fs: vFs })" in fs
     assert ".ws.lib.fs .lib-side { width: 280px; }" in css and ".fs-tree" in css
+
+
+def test_review_is_by_group_with_merge_split_move_and_a_one_key_keep():
+    """Contract revision 13: the Review overview and the compare page work on groups (bursts), a group merges into
+    the one before it, a group or a whole species moves to another species, and Enter keeps one frame."""
+    app = text("app.js")
+    assert "function groupsOf(enc)" in app and "'gr-merge'" in app and "'cp-merge'" in app and "'cp-split'" in app
+    assert "api('POST', '/bursts/merge'" in app and "api('POST', '/identifications/move'" in app
+    assert "'cp-quick'" in app and "k === 'enter'" in app and "k === ']'" in app and "k === 'm'" in app
+    assert "'task-regroup'" in app and "零星识别" in app and "比较当前拍摄段" not in app
+    assert ".gr-grid" in text("styles.css")
+
+
+def test_z_toggles_one_to_one_the_loupe_keeps_its_zoom_and_browsing_does_not_ask_for_original_pixels():
+    """Contract revision 13 (viewer): Z is fit <-> 1:1 in the single view and full screen; a zoomed loupe stays
+    zoomed on the next photo; at fit-to-window, or with the original offline, no /detail request is made and the
+    label is neutral, not the red failure."""
+    app = text("app.js")
+    assert "dvDo(zv, zv.z > 1.02 ? 'fit' : 'one')" in app and "ws.loupe = dvMount(st, a, keep, null)" in app
+    assert "v.z <= 1.02 || shown <= v.pw * 1.05 || off" in app and "offline: '原片离线 · 仅预览'" in app
+
+
+def test_same_subject_runs_are_framed_together_and_a_tile_shows_no_pill_without_a_suggestion():
+    app = text("app.js")
+    assert "function groupBlocksHTML" in app and "'run-merge'" in app and "同一对象" in app
+    assert "pill('无 AI 建议'" not in app and "if (!a.ai || (a.ai.verdict === 'none' && a.ai.score == null)) return '';" in app
+    assert "原片离线 · 分析未完成" in app and ".gr-run" in text("styles.css")
