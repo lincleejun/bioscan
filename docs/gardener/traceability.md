@@ -102,7 +102,7 @@
 | U1-R6 | 物种卡片显示拍摄段数（全库与按任务）（PRD §07） | `identities._species_encounters`、`Card.encounters`；`speciesCardHTML` | `test_core_review_polish.py::test_species_cards_count_the_encounters_that_show_them` | 已由测试证实 |
 | L1 | 任务 Preview 是 Lightroom 式图库：网格 / 单张（胶片带、预取前后两张大图、原像素查看）/ 比较 / 全屏，旗标与最低星级筛选、快捷视图，按拍摄时间平铺不强行分组；键位 G/E/C/F、P/X/U、0–5，标记后自动下一张（修订 9） | `web/app.js`（libHTML、libPass、libMode、renderLoupe）、`styles.css` 中性灰 | `test_ui_web.py::test_task_preview_is_a_lightroom_style_library`；Chrome 对 §6 fake 走查一次（G/E/C/F、P、3、AI 筛选，无控制台错误） | 部分验证：无自动化浏览器测试，未对真实服务和大批照片走查 |
 | L2 | AI 初选按本次拍摄内部排名：前 10%、至少 20 张，整体质量差也不为空；只是视图，不写标记（修订 9） | `review.shortlist`、`GET /tasks/{id}/shortlist` | `test_core_shortlist.py` | 已由测试证实（排序规则）；是否符合你的选片口味未用真实照片评估 |
-| P1-131 | 扫描不长时间占写锁、轮询不扫全库（#131）：分析开始的 `mark_pending` 每 500 张一个事务；`changed_after` 走 `assets_updated` 索引；`apiAll` 每页 1000 | `tasks.RunExec.mark_pending`、`schema.sql`（`assets_updated`）、`web/api.js`（`apiAll`） | `test_core_write_lock_p1.py`；2 万张合成库：`mark_pending` 期间 `POST /marks` 中位/p90/最大 92/104/216 → 12/20/61 ms；空轮询 7.9 → 1.9 ms；一个任务 5000 张整体变化后的轮询 965 ms / 25 次请求 → 499 ms / 5 次 | 已由测试与合成库测量证实；真实库未测 |
+| P1-131 | 分析开始的标记不长时间占写锁、轮询不扫全库（#131；`save_suggestions`、`assign_encounters` 仍是整任务一个事务）：分析开始的 `mark_pending` 每 500 张一个事务；`changed_after` 走 `assets_updated` 索引；`apiAll` 每页 1000 | `tasks.RunExec.mark_pending`、`schema.sql`（`assets_updated`）、`web/api.js`（`apiAll`） | `test_core_write_lock_p1.py`；2 万张合成库：`mark_pending` 期间 `POST /marks` 中位/p90/最大 92/104/216 → 12/20/61 ms；空轮询 7.9 → 1.9 ms；一个任务 5000 张整体变化后的轮询 965 ms / 25 次请求 → 499 ms / 5 次 | 已由测试与合成库测量证实；真实库未测 |
 
 ## 明确后置（不在 v0.1，未实现）
 自然语言/Embedding 检索、相似图搜索、跨年高级检索（D11，§3）；自动精彩片段、视频裁切拼接、声音识别；主题作品集；插件市场、复杂流程编排；永久删除原片；局域网认证；逐照片 XMP / Lightroom 兼容出口（需另定并按版本往返验证）；多任务并发重型推理；来源重定位、完整备份恢复。
