@@ -354,3 +354,14 @@ def test_select_checks_lead_room_min(bad):
 def test_select_checks_horizon_flag_deg(bad):
     with pytest.raises(ValueError, match="select.horizon_flag_deg"):
         cull.check_select(SELECT | {"horizon_flag_deg": bad})
+
+
+def test_frames_one_shutter_press_apart_chain_whatever_the_vectors_say():
+    """#144: panning with a flying bird changes the frame vector between frames 0.15 s apart."""
+    pan = [ev("a", 0.0), ev("b", 0.15, v=[0.0, 1.0]), ev("c", 0.3), ev("d", 0.9, v=[0.0, 1.0])]
+    off = cull.burst(pan, BURST)
+    assert [off[p]["id"] for p in "abcd"] == [None] * 4                       # shutter_gap_s defaults to 0: unchanged
+    on = cull.burst(pan, BURST | {"shutter_gap_s": 0.35})
+    assert [on[p]["id"] for p in "abcd"] == ["b0001"] * 3 + [None]            # d: past the shutter gap and unlike
+    with pytest.raises(ValueError, match="shutter_gap_s must be a number >= 0"):
+        cull.check_burst(BURST | {"shutter_gap_s": -1})

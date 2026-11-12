@@ -351,14 +351,34 @@ def undo_encounters(c: Any, batch_id: str) -> dict[str, Any]:
 USER_RUN = "user"   # ai_suggestions rows a person's burst split restamped (copies of the latest machine row)
 
 
-def _renumber(rows: list[dict[str, Any]]) -> None:
-    """Rank and size each burst of `rows` (by their burst_id) anew, keeping the earlier rank order; a burst of
-    one is no burst (id null), as the reducer reports it."""
+def _best_first(c: Any, asset_ids: list[str]) -> dict[str, int]:
+    """asset id -> place in one burst's order, best first, by the cull's burst order over the frames' stored
+    quality (analyze.burst_order); {} when that cannot be had, so the caller keeps the earlier order."""
+    from bioscan.gardener import analyze
+
+    rows: dict[str, dict[str, Any]] = {a: {"asset_id": a, "products": {}} for a in asset_ids}
+    for part in st.chunks(asset_ids):
+        for r in c.execute(
+                "SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(id) FROM results WHERE asset_id IN "
+                f"({st.marks_in(part)}) AND capability LIKE 'raw:%' AND capability != 'raw:embed' AND status = 'done' "
+                "GROUP BY asset_id, capability)", part):
+            rows[r[0]]["products"][r[1].removeprefix("raw:")] = st.loads(r[2])
+    try:
+        return {a: i for i, a in enumerate(analyze.burst_order(list(rows.values())))}
+    except Exception:  # noqa: BLE001 - an odd stored product must not block a person's merge
+        return {}
+
+
+def _renumber(rows: list[dict[str, Any]], c: Any = None, rerank: set[str] | None = None) -> None:
+    """Rank and size each burst of `rows` (by their burst_id) anew, keeping the earlier rank order; the bursts in
+    `rerank` (merged ones: two rank lists) are ordered by quality instead. A burst of one is no burst (id null),
+    as the reducer reports it."""
     groups: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         groups.setdefault(r["burst_id"], []).append(r)
-    for g in groups.values():
-        g.sort(key=lambda r: (r["burst_rank"] or 10 ** 6, r["asset_id"]))
+    for b, g in groups.items():
+        pos = _best_first(c, [r["asset_id"] for r in g]) if c is not None and b in (rerank or ()) else {}
+        g.sort(key=lambda r: (pos.get(r["asset_id"], 10 ** 6), r["burst_rank"] or 10 ** 6, r["asset_id"]))
         for i, r in enumerate(g):
             r.update(burst_id=r["burst_id"] if len(g) > 1 else None, burst_rank=i + 1 if len(g) > 1 else None,
                      burst_size=len(g) if len(g) > 1 else None)
@@ -394,33 +414,76 @@ def split_burst(c: Any, *, at: str | None = None, asset_ids: list[str] | None = 
         if m["asset_id"] in moving:
             m["burst_id"] = new
     _renumber(members)
+    _restamp(c, members, t)
+    return {"burst_id": new if len(moving) > 1 else None, "from": b, "moved": moving}
+
+
+MERGED = "merged"   # <task>:merged~<part>: a burst a person merged (修订 13)
+
+
+def _restamp(c: Any, members: list[dict[str, Any]], t: str) -> None:
     for m in members:
         c.execute("INSERT INTO ai_suggestions (asset_id, run_id, verdict, score, rank, reasons, burst_id, burst_rank, "
                   "burst_size, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (m["asset_id"], USER_RUN, m["verdict"], m["score"], m["rank"], m["reasons"], m["burst_id"],
                    m["burst_rank"], m["burst_size"], m["version"], t))
         c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, m["asset_id"]))   # pollers see it (§10 X7)
-    return {"burst_id": new if len(moving) > 1 else None, "from": b, "moved": moving}
+
+
+def merge_bursts(c: Any, task_id: str, asset_ids: list[str], *, actor: str) -> dict[str, Any]:
+    """A person merges groups (修订 13): the given photos, and every frame of the bursts they are in, become one
+    burst, best frame by quality. Written to burst_overrides for every member, so later runs keep it; the
+    burst fields shown now are restamped (run_id USER_RUN). A single photo can be merged in. Species identity
+    is per subject and untouched here (the caller runs identities.burst_consensus)."""
+    ids = list(dict.fromkeys(asset_ids))
+    inside = {r[0] for part in st.chunks(ids) for r in c.execute(
+        f"SELECT asset_id FROM task_assets WHERE task_id = ? AND asset_id IN ({st.marks_in(part)})", [task_id, *part])}
+    if len(ids) < 2 or set(ids) - inside:
+        raise st.Error("合并需要同一任务里的两张以上照片")
+    latest = {r["asset_id"]: dict(r) for part in st.chunks(ids) for r in c.execute(
+        f"SELECT * FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions WHERE asset_id IN "
+        f"({st.marks_in(part)}) GROUP BY asset_id)", part)}
+    if set(ids) - set(latest):
+        raise st.Error("这些照片还没有分组结果，分析完成后再合并")
+    old = sorted({m["burst_id"] for m in latest.values() if m["burst_id"]})
+    members = dict(latest)
+    for b in old:
+        members |= {r["asset_id"]: dict(r) for r in c.execute(
+            f"SELECT s.* FROM ai_suggestions s WHERE {LATEST} AND s.burst_id = ?", (b,))}
+    if len(old) == 1 and len(members) == len([m for m in members.values() if m["burst_id"] == old[0]]):
+        raise st.Error("这些照片已经在同一组里")
+    new, t = f"{task_id}:{MERGED}~{st.new_id('p')}", now()
+    for m in members.values():
+        m["burst_id"] = new
+        c.execute("INSERT INTO burst_overrides (task_id, asset_id, burst_id, actor, created_at) VALUES (?, ?, ?, ?, ?) "
+                  "ON CONFLICT(task_id, asset_id) DO UPDATE SET burst_id = excluded.burst_id, actor = excluded.actor, "
+                  "created_at = excluded.created_at", (task_id, m["asset_id"], new, actor, t))
+    rows = list(members.values())
+    _renumber(rows, c, {new})
+    _restamp(c, rows, t)
+    return {"burst_id": new, "from": old, "size": len(rows), "rep": min(rows, key=lambda m: m["burst_rank"])["asset_id"]}
 
 
 def apply_burst_overrides(c: Any, task_id: str, run_id: str) -> int:
-    """After a run saved its suggestions: frames a person split off get their override burst, and the bursts
-    that lost or gained frames are ranked and sized anew. Only a frame the reducer put in some burst is moved,
-    so a run without the burst capability makes none. Returns the frames moved.
+    """After a run saved its suggestions: frames a person split off or merged get their override burst, and the
+    bursts that lost or gained frames are ranked and sized anew (a merged one by quality). A run that made no
+    burst at all (no burst capability) moves none. Returns the frames moved.
     ponytail: a frame added later that the reducer groups with a split burst joins the machine part, never the
     person's; the person splits again (an override per part's members, not per frame, if that comes up)."""
     over = {r[0]: r[1] for r in c.execute("SELECT asset_id, burst_id FROM burst_overrides WHERE task_id = ?", (task_id,))}
     if not over:
         return 0
-    rows = [dict(r) for r in c.execute("SELECT id, asset_id, burst_id, burst_rank FROM ai_suggestions WHERE run_id = ? "
-                                       "AND burst_id IS NOT NULL", (run_id,))]
+    rows = [dict(r) for r in c.execute("SELECT id, asset_id, burst_id, burst_rank FROM ai_suggestions WHERE run_id = ?",
+                                       (run_id,))]
+    if not any(r["burst_id"] for r in rows):
+        return 0
     hit = {r["id"] for r in rows if r["asset_id"] in over}
-    touched = {r["burst_id"] for r in rows if r["id"] in hit}
-    group = [r for r in rows if r["id"] in hit or r["burst_id"] in touched]
+    touched = {r["burst_id"] for r in rows if r["id"] in hit and r["burst_id"]}
+    group = [r for r in rows if r["id"] in hit or (r["burst_id"] and r["burst_id"] in touched)]
     for r in group:
         if r["id"] in hit:
             r["burst_id"] = over[r["asset_id"]]
-    _renumber(group)
+    _renumber(group, c, {b for b in over.values() if f":{MERGED}~" in b})
     for r in group:
         c.execute("UPDATE ai_suggestions SET burst_id = ?, burst_rank = ?, burst_size = ? WHERE id = ?",
                   (r["burst_id"], r["burst_rank"], r["burst_size"], r["id"]))

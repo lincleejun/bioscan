@@ -623,6 +623,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         caps = capmod.expand(strs(body["capabilities"], "capabilities")) if body.get("capabilities") else None
         return new_run(tid, "rescan", caps=caps, asset_ids=task_asset_ids(tid, body.get("asset_ids")))
 
+    @r.post("/tasks/{tid}/regroup", status_code=201)
+    def regroup_task(tid: str) -> dict[str, Any]:
+        """Group the task again from its stored results (修订 13): bursts, one name per burst, collections. No
+        file is read and no model runs, so it works with the originals offline."""
+        task_or_404(tid)
+        return new_run(tid, "regroup")
+
     @r.post("/tasks/{tid}/retry", status_code=201)
     def retry(tid: str, body: dict[str, Any] = OPT_BODY) -> dict[str, Any]:
         task_or_404(tid)
@@ -941,7 +948,20 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         if (at is None) == (ids is None) or (at is not None and not isinstance(at, str)):
             raise Error("one of at (asset id) or asset_ids is required")
         with store.tx() as c:
-            return rv.split_burst(c, at=at, asset_ids=ids, actor=actor)
+            out = rv.split_burst(c, at=at, asset_ids=ids, actor=actor)
+            identities.burst_consensus(c, out["from"].split(":", 1)[0], None)     # each part votes for itself now
+            return out
+
+    @r.post("/bursts/merge", status_code=201)
+    def merge_bursts(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """{task_id, asset_ids}: those photos and every frame of their bursts become one burst that survives
+        rescans (修订 13); its frames then share one name (identities.burst_consensus)."""
+        tid = text(body, "task_id", required=True)
+        task_or_404(tid)
+        with store.tx() as c:
+            out = rv.merge_bursts(c, tid, strs(body.get("asset_ids") or [], "asset_ids"), actor=actor)
+            identities.burst_consensus(c, tid, None)
+            return out
 
     @r.get("/marks/history")
     def mark_history(asset_id: str | None = None, batch_id: str | None = None, actor: str | None = None,

@@ -71,6 +71,8 @@ class Toolkit:
     export: Callable[..., dict[str, Any]]
     reveal: Callable[[str], None] = reveal
     faces: Callable[[], Any] | None = None       # FaceModel(): .version, .ensure(), .faces(image_path)
+    reduce: Callable[[list[dict[str, Any]], list[str]], dict[str, dict[str, Any]]] | None = None   # analyze.reduce:
+    # model-free, so a regroup run needs no engine and no originals
 
     @classmethod
     def default(cls) -> Toolkit:
@@ -79,7 +81,7 @@ class Toolkit:
 
         return cls(discover=scan.discover, quick_hash=scan.quick_hash, is_online=scan.is_online,
                    read_meta=preview.read_meta, make_preview=preview.make_preview, analyzer=analyze.Analyzer,
-                   suggest=grouping.suggest, export=exporting.export, faces=faces.FaceModel)
+                   suggest=grouping.suggest, export=exporting.export, faces=faces.FaceModel, reduce=analyze.reduce)
 
 
 def preview_paths(store: st.Store, asset_id: str) -> tuple[Path, Path]:
@@ -227,13 +229,14 @@ class RunExec:
         self.store.active.update(run_id=self.id, task_id=self.task_id, phase=None)
         error = None
         try:
+            regroup_only = self.run["kind"] == "regroup"     # stored results only: no files, no models
             if self.run["kind"] in ("scan", "append"):
                 await self.phase("discover", self.discover)
             else:
                 await asyncio.to_thread(self.seed_scope)
-            if not self.stopping():
+            if not self.stopping() and not regroup_only:
                 await self.phase("preview", self.preview)
-            if not self.stopping():
+            if not self.stopping() and not regroup_only:
                 self.set_phase("analyze")
                 await self.analyze()
             if not self.stopping():
@@ -668,15 +671,22 @@ class RunExec:
     # ---- group ----
     def group(self) -> None:
         caps = [c for c in ("burst", "aesthetic") if c in self.caps]
-        if caps and self.ensure_analyzer() is not None:
+        reducer = None
+        if caps and self.run["kind"] == "regroup":
+            reducer = self.tk.reduce
+        elif caps and self.ensure_analyzer() is not None:
+            reducer = self.analyzer.reduce
+        if reducer is not None:
             unavailable = {r["capability"] for r in self.store.all(
                 "SELECT DISTINCT capability FROM results WHERE run_id = ? AND status = 'unavailable'", (self.id,))}
             caps = [c for c in caps if c not in unavailable]
             rows = self.raw_rows()
             if caps and rows:
-                self.save_suggestions(self.analyzer.reduce(rows, caps))
-        with self.store.tx() as c:          # encounters (contract revision 5B): only unplaced photos join
-            review.assign_encounters(c, self.task_id)
+                # quality is what ranks a burst without aesthetic (#131); the reducer only sees it when told
+                self.save_suggestions(reducer(rows, caps + [c for c in ("quality",) if c in self.enabled]))
+        with self.store.tx() as c:
+            identities.burst_consensus(c, self.task_id, self.id)       # one name per burst (修订 13)
+            review.assign_encounters(c, self.task_id)   # encounters (contract revision 5B): only unplaced photos join
         self.regroup(final=True)
 
     def raw_rows(self) -> list[dict[str, Any]]:
