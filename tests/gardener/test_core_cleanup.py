@@ -246,6 +246,36 @@ def test_a_duplicate_kept_after_planning_keeps_the_shared_copy(env, tmp_path):
     assert done["status"] == "partial"
 
 
+def test_a_library_scanned_as_a_task_shares_its_files_with_the_imported_asset(env, tmp_path):
+    """The source-file half of 10A: lib/B.JPG is a managed copy of the card's B and a source file of the lib scan's B."""
+    from test_core_imports import by_name, card, plan, run
+
+    trash = Bin(tmp_path / "bin")
+    with env.client(trash=trash) as c:
+        src = card(tmp_path / "card")
+        t = wait_task(c, create_task(c, [str(src)], caps=[])["id"])
+        cb = by_name(c, t["id"])["B.JPG"]
+        c.post(f"{API}/marks", json={"asset_ids": [cb], "use": "record"})
+        assert run(c, plan(c, t["id"], tmp_path / "lib")["id"])["status"] == "completed"
+        lib = next((tmp_path / "lib").iterdir())
+        lb = by_name(c, wait_task(c, create_task(c, [str(lib)], caps=[])["id"])["id"])["B.JPG"]
+        moved = []
+        for reject, keep in ((cb, lb), (lb, cb), (None, None)):
+            both = [cb, lb]              # last round: both rejected; the card's asset claims every file of lib's
+            c.post(f"{API}/marks", json={"asset_ids": [reject] if reject else both, "use": "reject"})
+            if keep:
+                c.post(f"{API}/marks", json={"asset_ids": [keep], "use": "record"})
+            p = c.post(f"{API}/cleanup-plans", json={"asset_ids": [reject] if reject else both}).json()
+            files = {f["path"]: f["reason"] for i in p["items"] for f in i["files"]}
+            if reject:
+                assert files[str(lib / "B.JPG")] == "shared"
+                c.post(f"{API}/marks", json={"asset_ids": [reject], "use": "record"})
+            else:
+                done = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()
+                moved = trash.moved
+    assert sorted(moved) == sorted([str(src / "B.JPG"), str(lib / "B.JPG")]) and done["status"] == "ran"
+
+
 def test_a_planned_file_that_is_no_longer_a_plain_file_is_reported_as_changed(env, fakes, tmp_path):
     """#131: a planned path still on disk but no longer one of the asset's files (here a dangling link) used to
     raise KeyError in the re-check."""

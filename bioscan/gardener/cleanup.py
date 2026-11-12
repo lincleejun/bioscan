@@ -83,9 +83,11 @@ def _users(c: Any, path: str, asset_id: str) -> set[str]:
 
 
 def _cleaning(c: Any, pid: str) -> set[str]:
-    """The assets of the plan that are still rejected now: the only other users a file may have and still move."""
-    return {r[0] for r in c.execute("SELECT DISTINCT f.asset_id FROM cleanup_files f JOIN marks m ON m.asset_id = "
-                                    "f.asset_id WHERE f.plan_id = ? AND m.use = 'reject'", (pid,))}
+    """The plan's ready assets that are still rejected now: the only other users a file may have and still move
+    (an asset whose files were all listed under another one has no cleanup_files rows, so read the plan)."""
+    plan = loads(c.execute("SELECT plan FROM cleanup_plans WHERE id = ?", (pid,)).fetchone()[0])
+    ready = [i["asset_id"] for i in plan["items"] if i["state"] == "ready"]
+    return {a for a, u in uses_of(c, ready).items() if u == "reject"}
 
 
 def _like(s: str) -> str:
