@@ -83,6 +83,8 @@ When the owner gives a folder of photos and says nothing else, this is the job, 
 - Contract tests run the real Engine and identify pipeline on fake model adapters injected through
   `engine.Loaders` (`tests/contract/conftest.py`); the service (app.py, run.py) uses `frame`, `ensure`, `loaded`, `info`.
 - Domain terms live in `CONTEXT.md`; use them in code, tests and docs.
+- The Gardener web UI's pure view functions (`app.js`) run under `node --test 'tests/gardener/web/*.test.js'` (Node 22+, no npm);
+  `uv run pytest` runs them too and skips them when `node` is missing.
 - Real-model checks live in `tests/models/` and only run with `BIOSCAN_MODEL_TESTS=1` (CI `models.yml`).
 - The container used for agent development has no Hugging Face / BirdNET network; real-model numbers come
   from CI (`models.yml`) or the owner's Mac.

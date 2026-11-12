@@ -12,7 +12,7 @@
   const fmtBytes = n => { if (n == null) return '—'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return `${n.toFixed(i ? 1 : 0)} ${u[i]}`; };
   const fmtScore = s => (s == null ? '—' : s <= 1 ? s.toFixed(2) : s.toFixed(1));
   const errMsg = e => (e && e.message) || '操作失败';
-  const main = $('#main');
+  const main = typeof document === 'undefined' ? null : $('#main');   // node --test 载入时没有 DOM
 
   const S = { tasks: [], caps: [], presets: [], settings: {}, health: null, cols: [], assets: new Map(), details: new Map(), down: false };
   const ui = { view: null, params: {}, ws: null, colFilter: 'all', colKind: '', lib: {}, undo: [], draft: null, open: null, token: 0, colKey: '' };
@@ -2638,6 +2638,9 @@
     if (!s || !('IntersectionObserver' in window)) return;
     new IntersectionObserver(es => { if (es.some(e => e.isIntersecting) && ui.ws === ws) loadMore(ws); }, { root, rootMargin: '400px' }).observe(s);
   }
+
+  // node --test（tests/gardener/web/）：只在 node 里交出纯视图函数并就此返回，下面挂 DOM 事件与轮询的代码不在 node 里跑；浏览器里没有 module，照常往下。
+  if (typeof module !== 'undefined' && module.exports) { module.exports = { store, aiPill, groupsOf, groupState, groupBlocksHTML, encOn, encOrder }; return; }
 
   // ---------- 轮询 ----------
   async function refreshTasks() { S.tasks = await api('GET', '/tasks', null, { archived: 'all' }); }
