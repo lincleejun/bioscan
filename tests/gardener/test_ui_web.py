@@ -219,3 +219,20 @@ def test_task_preview_is_a_lightroom_style_library():
     t = c.get("/api/v1/tasks").json()[0]
     s = c.get(f"/api/v1/tasks/{t['id']}/shortlist").json()
     assert s["size"] == min(s["scored"], max(-(-s["scored"] // 10), 20)) and len(s["asset_ids"]) == s["size"]
+
+
+def test_library_scales_to_thousands_of_photos():
+    """#131 P1: the saved position survives past the first page, the grid only renders visible tiles,
+    and timed polls pause while the tab is hidden and run once when it comes back."""
+    app, css = text("app.js"), text("styles.css")
+    # keep paging until the saved photo is loaded; select nothing (so nothing overwrites it) meanwhile
+    assert "const waitStart = ws => !ws.current && !!ws.start && !ws.allSet.has(ws.start) && !ws.loadedAll;" in app
+    assert "else if (!waitStart(ws)) setCurrent(" in app and "if (waitStart(ws) || (s && " in app
+    # cheapest virtualization: the browser skips layout and paint of off-screen tiles
+    tile_wrap = re.search(r"^\.tile-wrap \{[^}]*\}", css, re.M).group(0)
+    assert "content-visibility: auto" in tile_wrap and "contain-intrinsic-size: auto" in tile_wrap
+    # every timer goes through `every`, which skips hidden tabs; visibilitychange polls at once
+    assert "setInterval(() => { if (!document.hidden) fn(); }, ms)" in app
+    assert app.count("setInterval(") == 1
+    assert "every(2000, pollNow);" in app and "every(30000, disk);" in app and "every(2000, async () => {" in app
+    assert "addEventListener('visibilitychange', () => { if (!document.hidden) pollers.forEach(fn => fn()); })" in app
