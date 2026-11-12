@@ -202,6 +202,15 @@ def test_task_preview_is_a_lightroom_style_library():
     app = text("app.js")
     assert "lib: true, mode: 'grid', collapse: false" in app
     assert "const LIB_KEY = { g: 'grid', e: 'loupe', c: 'compare', f: 'full' };" in app
+    # loupe marks only the photo on screen, as in Lightroom (#131); a poll keeps the photo being looked at;
+    # auto-advance only from the photo the key was pressed on; P/R/U/X in compare mark the highlighted pane
+    assert "const one = lb || (ws.lib && ws.mode === 'loupe');" in app
+    assert "const targets = one ? (ws.current ? [ws.current] : []) : selTargets();" in app
+    assert "(keep && id === ws.current) || visible(ws, A(id))" in app and "if (ws.lf.ai) recompute(true);" in app
+    assert "ui.ws === ws && ws.current === from) move(1);" in app
+    assert "doMark([panes[active].id], { use: u }, useZh(u));" in app
+    assert "doMark([panes[active].id], { stars: Number(k) }" in app       # 0-5 in compare rate the clicked pane
+    assert "let active = Math.max(0, ids.indexOf(ws && ws.current));" in app
     assert "api('GET', `/tasks/${encodeURIComponent(ws.taskId)}/shortlist`)" in app
     vtask = app[app.index("async function vTask"):app.index("const KIND = {")]
     assert "encQuery" not in vtask                              # no forced grouping on the task preview
