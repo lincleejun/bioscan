@@ -169,7 +169,8 @@ def test_review_flow_ui_contract_5b():
     assert "const KEY_USE = { p: 'edit', r: 'record', u: 'pending', x: 'reject' };" in app
     assert "markKey({ flag" not in app and "{ use: v }" in app   # the UI writes uses only
     assert "api('POST', '/marks/keep-best', { asset_id: id, dry_run: true })" in app
-    assert "api('GET', '/encounters', null, ws.encQuery)" in app and "e.candidates.includes(a.id)" in app
+    # revision 14: the grid still reads /encounters, but as groups; a folded encounter no longer hides photos
+    assert "api('GET', '/encounters', null, ws.encQuery)" in app and "e.candidates.includes(a.id)" not in app
     assert "dd.dataset.previewed !== ruleKey" in app and "/preview-rule`" in app
     from fastapi.testclient import TestClient
     c = TestClient(create_app(static=False))
@@ -184,8 +185,10 @@ def test_review_polish_ui_contract_7a():
     app = text("app.js")
     assert "data-pref=\"idscope\"" in app and "['encounter', `同一拍摄段" in app and "idburst" not in app
     assert "api('POST', '/bursts/split', { at: el.dataset.id })" in app and "从这张起拆为新连拍" in app
-    assert "api('POST', '/encounters/undo', { batch_id: batch })" in app and "encUndo(ws, r.batch_id)" in app
-    assert "要淘汰的帧也在其他集合" in app and "个拍摄段" in app
+    # revision 14: 拍摄段 is no review unit in any page, so the grid has no encounter split / merge / undo and
+    # species cards count photos only (the API routes stay; the identify scope 同一拍摄段 above stays)
+    assert "/encounters/undo" not in app and "encUndo" not in app and "'enc-split'" not in app
+    assert "要淘汰的帧也在其他集合" in app and "个拍摄段" not in app
     assert "Pick" not in app.replace("cmpPick", "").replace("cmp-pick", "")
     from fastapi.testclient import TestClient
     c = TestClient(create_app(static=False))
@@ -316,3 +319,21 @@ def test_same_subject_runs_are_framed_together_and_a_tile_shows_no_pill_without_
     assert "function groupBlocksHTML" in app and "'run-merge'" in app and "同一对象" in app
     assert "pill('无 AI 建议'" not in app and "if (!a.ai || (a.ai.verdict === 'none' && a.ai.score == null)) return '';" in app
     assert "原片离线 · 分析未完成" in app and ".gr-run" in text("styles.css")
+
+
+def test_the_photo_grid_shows_groups_and_frames_one_subject_like_review():
+    """Revision 14: 所有照片 (one task, capture order) and the species page show groups and frame consecutive groups of
+    one subject with Review's own groupsOf / groupBlocksHTML; another order or any filter shows no frame."""
+    app, css = text("app.js"), text("styles.css")
+    assert app.count("function groupsOf(") == 1 and app.count("function groupBlocksHTML(") == 1
+    assert "const groups = groupsOf(r), sig = JSON.stringify(groups.map(g => [g.id, g.asset_ids, g.run]));" in app
+    assert "return groupBlocksHTML(gs, g => g.asset_ids.filter(id => shown.has(id)).map(id => tile(A(id), ws)).join(''));" in app
+    assert "ws.order === 'time' && ws.filter === 'all' && (!ws.lf || (ws.lf.flag === 'all' && !ws.lf.stars && !ws.lf.ai))" in app
+    assert "Object.keys(rule).join() === 'task' ? { view: 'library', encQuery: { task: rule.task } }" in app
+    assert "groupMerge(el.dataset.task, ids[0], ids[1], ids)" in app and "groupMerge(fr.t.id, ids[0]" not in app
+    for gone in ("不分段", "encHeadHTML", "'enc-mode'", "'enc-toggle'", "从这张起拆为新拍摄段", "收起的拍摄段"):
+        assert gone not in app, gone
+    assert "enc-head" not in css
+    # the frame spans the grid's row and keeps its columns; in the loupe's filmstrip it takes no space
+    assert ".grid > .gr-run { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid;" in css
+    assert ".ws.mode-loupe .grid > .gr-run { display: contents; }" in css and ".ws.mode-loupe .gr-run-h { display: none; }" in css

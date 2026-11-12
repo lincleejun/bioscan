@@ -220,3 +220,23 @@ def test_adjacent_groups_of_the_same_subject_are_one_run_until_the_subject_or_th
         owl, wren = runs(OWL), runs(WREN["concept"])
         assert len(set(owl.values())) == 1                            # two owl groups 5 s apart: one run
         assert set(wren.values()).isdisjoint(owl.values())            # the wren group right after is another subject
+
+
+def test_a_species_page_without_a_task_gets_the_same_runs_named_by_their_first_photo(env, fakes, tmp_path):
+    """Revision 14: the species page lists a species over every task, so /encounters without `task` carries runs
+    too; a run is named by its first photo, so two tasks' runs never share a name."""
+    src = tmp_path / "card"
+    photos(src, 4)
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[2]})              # [owl x2] [owl x2]
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:     # shot within seconds: one run
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+
+        def runs(**q):
+            enc = c.get(f"{API}/encounters", params={"concept": OWL, **q}).json()["encounters"]
+            return [b["run"] for e in enc for b in e["bursts"]]
+
+        assert runs(task=t["id"]) == runs() == [a[0], a[0]]

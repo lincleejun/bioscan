@@ -147,17 +147,17 @@ def subject_runs(c: Any, task_id: str) -> dict[str, str]:
         return (top if top and names[top] >= RUN_SHARE * len(seen) else None), (areas[len(areas) // 2] if areas else 0.0)
 
     out: dict[str, str] = {}
-    run, prev = 0, None
+    run, prev = "", None
     for g in groups:
         name, area = subject(g)
         start, end = seconds(g[0]["taken_at"]), seconds(g[-1]["taken_at"])
         same = (prev is not None and name is not None and name == prev[0] and start - prev[2] <= RUN_GAP_S
                 and min(area, prev[1]) > 0 and max(area, prev[1]) <= RUN_SIZE * min(area, prev[1]))
         if not same:
-            run += 1
+            run = g[0]["id"]            # a run is named by its first photo: unique across tasks (修订 14)
         prev = (name, area, end)
         for m in g:
-            out[m["id"]] = f"run{run}"
+            out[m["id"]] = run
     return out
 
 
@@ -201,7 +201,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     from bioscan.gardener import taxa
 
     shown = taxa.display(c, sorted({k for e in out.values() for k in e["species"]}))
-    runs = {t: subject_runs(c, t) for t in {e["task_id"] for e in out.values()}} if task_id else {}
+    runs = {t: subject_runs(c, t) for t in {e["task_id"] for e in out.values()}}     # also a species' every task (修订 14)
     result = []
     for e in out.values():
         ms = e.pop("members")

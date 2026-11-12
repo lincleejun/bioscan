@@ -377,6 +377,12 @@ animal take the majority species of the model's own claims, a species named on o
 unconfirmed, and a person's identification is never outvoted. Written as ai identifications with reason `burst`.
 _Avoid_: smoothing, consensus model
 
+**Subject run** (同一对象):
+Adjacent bursts of one task that show the same subject (same species on the main animal, close in time, similar size;
+`review.subject_runs`), named by the run's first photo. Computed on read, never stored: a hint drawn as a frame
+around those bursts in Review, 所有照片 and the species page, with a one-step merge; the burst stays the unit decided on.
+_Avoid_: sequence, encounter (an encounter is wider and stored)
+
 **Regroup run**:
 A task run of kind `regroup` (`POST /tasks/{id}/regroup`): bursts, the burst vote, encounters and auto collections
 again from stored results; no file is read and no model runs.
@@ -538,6 +544,7 @@ _Avoid_: Flag, Pick (the older two-state form; `flag` survives only as a derived
 **Encounter** (拍摄段):
 One continuous observation within a task: photos close in time (and showing the same species, when known); bursts
 nest inside. Suggested by the service, then a person may split or merge; a rescan only places photos not yet placed.
+No page shows it as a unit of review any more (revision 14: the burst is); it stays in the API and as an identify scope.
 _Avoid_: Event (an older time grouping), burst (a burst is a few near-identical frames inside one encounter)
 
 **AI suggestion**:
