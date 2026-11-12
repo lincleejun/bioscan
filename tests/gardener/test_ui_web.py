@@ -46,7 +46,7 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode", "libmore"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode", "mode", "panel", "libmore"}, keys
 
 
 def test_nav_order():
@@ -200,11 +200,11 @@ def test_task_preview_is_a_lightroom_style_library():
     """Revision 9: the task Preview is a Library (grid / loupe / compare / full screen on G E C F, P X U and 0-5 on
     the photo), laid out flat by capture time with no encounter grouping, and AI 初选 comes from the shortlist route."""
     app = text("app.js")
-    assert "lib: true, mode: 'grid', collapse: false" in app
+    assert "lib: true, collapse: false" in app
     assert "const LIB_KEY = { g: 'grid', e: 'loupe', c: 'compare', f: 'full' };" in app
     # loupe marks only the photo on screen, as in Lightroom (#131); a poll keeps the photo being looked at;
     # auto-advance only from the photo the key was pressed on; P/R/U/X in compare mark the highlighted pane
-    assert "const one = lb || (ws.lib && ws.mode === 'loupe');" in app
+    assert "const one = lb || ws.mode === 'loupe';" in app
     assert "const targets = one ? (ws.current ? [ws.current] : []) : selTargets();" in app
     assert "(keep && id === ws.current) || visible(ws, A(id))" in app and "if (ws.lf.ai) recompute(true);" in app
     assert "ui.ws === ws && ws.current === from) move(1);" in app
@@ -236,6 +236,28 @@ def test_library_scales_to_thousands_of_photos():
     assert app.count("setInterval(") == 1
     assert "every(2000, pollNow);" in app and "every(30000, disk);" in app and "every(2000, async () => {" in app
     assert "addEventListener('visibilitychange', () => { if (!document.hidden) pollers.forEach(fn => fn()); })" in app
+
+
+def test_every_photo_view_has_the_same_two_layouts():
+    """Revision 11: every ws view (task Preview, collection Review, species, All photos) is built by one wsHTML with
+    grid (thumbnails only, no side panel) and loupe (big image + filmstrip, info panel beside it that Tab / I hide);
+    the mode is remembered per view; other screens open their photos in that loupe instead of their own viewers."""
+    app, css = text("app.js"), text("styles.css")
+    assert app.count("function wsHTML()") == 1 and "libHTML" not in app
+    assert app.count("${wsHTML()}") == 4                                          # preview, review, species, library
+    assert "{ encQuery: scope, view: 'species' }" in app and "{ view: 'library' }" in app
+    assert "mode: prefs.get('mode.' + view, 'grid')" in app and "prefs.set('mode.' + ws.view, v);" in app
+    assert ".ws.mode-grid .inspector, .ws.panel-off .inspector { display: none; }" in css
+    assert "if (ws.mode !== 'loupe' || prefs.get('panel', '1') !== '1') { el.innerHTML = '';" in app   # no detail fetch, no hidden reason
+    assert "togglePanel();" in app and "k === 'Tab' && !e.shiftKey && ws.mode === 'loupe'" in app
+    # the old inspector photo, subject zoom and the collection's own lightbox are gone
+    for gone in ("insp-canvas", "canvasBarHTML", "ui.zoom", "applyZoom", "cdOpen", "cdv"):
+        assert gone not in app and gone not in css, gone
+    # opening a photo from another screen lands in the shared loupe at that photo, even inside a collapsed group
+    assert "open ? { start: open, open, mode: 'loupe' } : {}" in app and "if (a.id === ws.open) return true;" in app
+    assert app.count('data-action="open-photo"') == 2 and "'cd-open': el => { ui.open = el.dataset.id;" in app
+    # a missed animal is drawn on the loupe's big image; an encounter poll keeps the photo being looked at
+    assert "$('#lib-loupe')" in app and "if (ui.ws === ws) recompute(had);" in app
 
 
 def test_all_photos_filters_are_compact_and_side_lists_scroll_on_their_own():
