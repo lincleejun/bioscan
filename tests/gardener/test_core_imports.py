@@ -94,6 +94,21 @@ def test_plan_by_use_with_sidecars_folder_and_pending_switch(env, tmp_path):
         assert c.post(f"{API}/tasks/{tid}/import-plan", json={"dest_root": "rel"}).status_code == 400
 
 
+def test_stale_plan_is_refused_and_copies_nothing(env, tmp_path, copies):
+    """A plan made before a decision changed would copy the old choice: running it is a 409, not a silent import."""
+    src = card(tmp_path / "card")
+    with env.client() as c:
+        tid, ids = scanned(c, src)
+        old = plan(c, tid, tmp_path / "lib")
+        c.post(f"{API}/marks", json={"asset_ids": [ids["B.JPG"]], "use": "reject"})
+        assert c.get(f"{API}/imports/{old['id']}").json()["stale"]
+        r = c.post(f"{API}/imports/{old['id']}/run")
+        assert r.status_code == 409 and r.json()["code"] == "conflict" and "重新生成" in r.json()["error"]
+        assert c.get(f"{API}/imports/{old['id']}").json()["status"] == "planned" and copies == []
+        p = run(c, plan(c, tid, tmp_path / "lib")["id"])                 # a fresh plan imports the new choice
+        assert p["status"] == "completed" and "B.JPG" not in copies
+
+
 def test_run_verifies_registers_and_rerun_never_copies_again(env, tmp_path, copies):
     src = card(tmp_path / "card")
     before = snapshot(src)

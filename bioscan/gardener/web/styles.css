@@ -380,7 +380,7 @@ textarea.input { height: auto; padding: 8px 12px; resize: vertical; min-height: 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; align-content: start; }
 .grid-lib { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .grid-empty { grid-column: 1 / -1; padding: 48px 16px; text-align: center; color: var(--muted); }
-.tile-wrap { position: relative; border-radius: var(--r); }
+.tile-wrap { position: relative; border-radius: var(--r); content-visibility: auto; contain-intrinsic-size: auto 180px auto 200px; }   /* 几千张时只渲染可见的格子 */
 .tile {
   display: block; width: 100%; padding: 0; text-align: left; overflow: hidden;
   border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);

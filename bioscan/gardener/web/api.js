@@ -28,11 +28,11 @@ async function api(method, path, body, query) {
   return data;
 }
 
-/* 分页取完一个筛选的全部结果（轮询 changed_after 时用；量小）。 */
+/* 分页取完一个筛选的全部结果（轮询 changed_after 时用）。每页 1000（服务上限）：批量写入后整个任务都变了，页少则每页重复的计数与排序少。 */
 async function apiAll(query) {
   let offset = 0, items = [], total = 0;
   do {
-    const page = await api('GET', '/assets', null, Object.assign({}, query, { limit: 200, offset }));
+    const page = await api('GET', '/assets', null, Object.assign({}, query, { limit: 1000, offset }));
     items = items.concat(page.items);
     total = page.total;
     offset += page.items.length;

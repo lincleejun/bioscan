@@ -621,26 +621,34 @@ class RunExec:
         self.save_counts(force=True)
 
     def mark_pending(self, units: dict[str, list[str]]) -> None:
-        t = now()
-        with self.store.tx() as c:
-            # v0.1 manages a video as a whole clip (metadata, cover, playback, marks); its image capabilities read 不适用
-            for cap in (x for x in self.caps if x in MODEL_CAPS):
+        """Short transactions (one per statement or per 500 assets), so a person's write waits for one of them, not
+        for the whole run. Each is an idempotent upsert and `units()` re-derives what is left, so a crash between
+        them resumes cleanly. `now()` is taken per transaction: a poll between two of them must not move its
+        `changed_after` cursor past a later one's bump."""
+        # v0.1 manages a video as a whole clip (metadata, cover, playback, marks); its image capabilities read 不适用
+        for cap in (x for x in self.caps if x in MODEL_CAPS):
+            with self.store.tx() as c:
                 c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, error, updated_at) "
                           "SELECT ra.asset_id, ?, 'not_applicable', ?, ?, ? FROM run_assets ra JOIN assets a "
                           "ON a.id = ra.asset_id WHERE ra.run_id = ? AND a.media = 'video' "
                           "ON CONFLICT(asset_id, capability) DO UPDATE SET state = 'not_applicable', "
                           "run_id = excluded.run_id, error = excluded.error, updated_at = excluded.updated_at",
-                          (cap, self.id, VIDEO_NA, t, self.id))
-            for aid, caps in units.items():
-                for cap in caps:
-                    c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, updated_at) "
-                              "VALUES (?, ?, 'pending', ?, ?) ON CONFLICT(asset_id, capability) DO UPDATE SET "
-                              "state = 'pending', updated_at = excluded.updated_at", (aid, cap, self.id, t))
-                c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, aid))
-            for cap in capmod.BY_ID:                 # what this task never switched on reads 未启用
-                if cap not in self.enabled:
+                          (cap, self.id, VIDEO_NA, now(), self.id))
+        for cap in capmod.BY_ID:                     # what this task never switched on reads 未启用
+            if cap not in self.enabled:
+                with self.store.tx() as c:
                     c.execute("INSERT OR IGNORE INTO asset_caps (asset_id, capability, state, updated_at) "
-                              "SELECT asset_id, ?, 'not_enabled', ? FROM run_assets WHERE run_id = ?", (cap, t, self.id))
+                              "SELECT asset_id, ?, 'not_enabled', ? FROM run_assets WHERE run_id = ?",
+                              (cap, now(), self.id))
+        for part in st.chunks(list(units)):
+            with self.store.tx() as c:
+                t = now()
+                for aid in part:
+                    for cap in units[aid]:
+                        c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, updated_at) "
+                                  "VALUES (?, ?, 'pending', ?, ?) ON CONFLICT(asset_id, capability) DO UPDATE SET "
+                                  "state = 'pending', updated_at = excluded.updated_at", (aid, cap, self.id, t))
+                    c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, aid))
 
     def all_unavailable(self, units: dict[str, list[str]], reason: str) -> None:
         with self.store.tx() as c:
