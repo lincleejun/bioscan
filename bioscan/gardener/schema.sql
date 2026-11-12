@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS run_assets (
 );
 
 CREATE INDEX IF NOT EXISTS results_asset ON results (asset_id, capability, id);
+CREATE INDEX IF NOT EXISTS results_run ON results (run_id, capability, status);   -- RunExec.save_counts, polled
 
 -- AI suggestion layer, separate from the human layer (marks). One row per asset per run.
 CREATE TABLE IF NOT EXISTS ai_suggestions (
