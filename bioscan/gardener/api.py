@@ -197,6 +197,19 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             raise Error(f"timezone must be an IANA name or ±HH:MM: {v!r}") from None
         return v
 
+    def location(body: dict[str, Any]) -> tuple[float | None, float | None]:
+        """{lat, lon} where the shoot was (both, or both null to clear); used only for photos without GPS."""
+        lat, lon = body.get("lat"), body.get("lon")
+        if lat is None and lon is None:
+            return None, None
+        try:
+            lat, lon = float(lat), float(lon)
+        except (TypeError, ValueError):
+            raise Error("lat and lon must both be numbers (or both null)") from None
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise Error(f"lat/lon out of range: {lat}, {lon}")
+        return lat, lon
+
     def run_mode(v: Any) -> str:
         if v not in capmod.RUN_MODES:
             raise Error(f"run_mode must be one of {'|'.join(capmod.RUN_MODES)}")
@@ -506,11 +519,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         caps = caps_of(body, preset)
         mode = run_mode(body.get("run_mode") or store.setting("run_mode"))
         tz = timezone(body.get("timezone"))
+        lat, lon = location(body)
         tid, t = st.new_id("t"), now()
         with store.tx() as c:
             c.execute("INSERT INTO tasks (id, title, subtitle, description, preset, capabilities, run_mode, timezone, "
-                      "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                      (tid, title, text(body, "subtitle"), text(body, "description"), preset, dumps(caps), mode, tz, t, t))
+                      "lat, lon, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      (tid, title, text(body, "subtitle"), text(body, "description"), preset, dumps(caps), mode, tz,
+                       lat, lon, t, t))
             rid = tasks.queue_run(c, tid, "scan", capabilities=caps, run_mode=mode, preset=preset, sources=sources)
             for p in sources:
                 c.execute("INSERT INTO sources (id, task_id, path, added_at, added_run_id) VALUES (?, ?, ?, ?, ?)",
@@ -544,6 +559,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             changes["run_mode"] = run_mode(body["run_mode"])
         if "timezone" in body:
             changes["timezone"] = timezone(body["timezone"])
+        if "lat" in body or "lon" in body:
+            changes["lat"], changes["lon"] = location(body)
         if changes:
             with store.tx() as c:
                 c.execute(f"UPDATE tasks SET {', '.join(f'{k} = ?' for k in changes)}, updated_at = ?, "

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   preset TEXT, capabilities TEXT NOT NULL,      -- JSON list: the task's current default config
   run_mode TEXT NOT NULL DEFAULT 'balanced',
   timezone TEXT,                                -- IANA name or ±HH:MM where the shoot was; NULL = unknown
+  lat REAL, lon REAL,                           -- where the shoot was, for photos without GPS; NULL = unknown
   archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1
 );
 

@@ -328,3 +328,23 @@ def test_pair_with_a_corrupt_jpeg_previews_and_analyses_the_raw(env, fakes, tmp_
         wait_task(c, create_task(c, [str(src)], caps=["quality"])["id"])   # a later task analyses the RAW too
         assert c.get(f"{API}/assets/{item['id']}").json()["meta"]["preview_source"] == str(src / "DSC_0002.arw")
         assert fakes.analyzed[-1] == (str(src / "DSC_0002.arw"), ("quality",))
+
+
+def test_the_tasks_place_stands_in_for_missing_gps_and_a_photos_own_gps_wins(env, fakes, tmp_path):
+    """Found on the owner's Byxbee Park card: no photo had GPS, so species came from the whole world
+    (African Fish Eagle in Palo Alto). A task can carry where the shoot was, like `bioscan --lat/--lon`."""
+
+    src = tmp_path / "card"
+    photos(src, 2)
+    with env.client() as c:
+        t = wait_task(c, create_task(c, [str(src)], lat=37.457, lon=-122.104)["id"])
+        assert t["location"] == {"lat": 37.457, "lon": -122.104}
+        assert fakes.where == {"IMG_0000.jpg": (37.457, -122.104), "IMG_0001.jpg": (37.457, -122.104)}
+        with st.Store(env.data).tx() as db:                                  # one photo has its own GPS
+            db.execute("UPDATE assets SET lat = 1.5, lon = 2.5 WHERE primary_path LIKE '%IMG_0001.jpg'")
+        assert c.patch(f"{API}/tasks/{t['id']}", json={"lat": 37.4, "lon": -122.1}).json()["location"]["lat"] == 37.4
+        c.post(f"{API}/tasks/{t['id']}/rescan", json={"capabilities": ["species"]})
+        wait_task(c, t["id"])
+        assert fakes.where == {"IMG_0000.jpg": (37.4, -122.1), "IMG_0001.jpg": (1.5, 2.5)}
+        assert c.patch(f"{API}/tasks/{t['id']}", json={"lat": 37.4}).status_code == 400   # both or neither
+        assert c.patch(f"{API}/tasks/{t['id']}", json={"lat": None, "lon": None}).json()["location"] is None

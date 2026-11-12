@@ -186,6 +186,10 @@ def test_review_flow_commands_build_the_revision_5b_requests():
     assert req("keep-best", "a_1", "--edit", "--dry-run") == \
         ("POST", "/marks/keep-best", {"asset_id": "a_1", "keep_use": "edit", "dry_run": True}, None)
     assert req("encounters", "--task", "t_1") == ("GET", "/encounters", None, {"task": "t_1", "concept": None})
+    assert req("task", "locate", "t_1", "--lat", "37.457", "--lon", "-122.104") == \
+        ("PATCH", "/tasks/t_1", {"lat": 37.457, "lon": -122.104}, None)
+    assert req("task", "locate", "t_1", "--clear")[2] == {"lat": None, "lon": None}
+    assert req("task", "create", "--source", "/x", "--title", "t", "--lat", "1", "--lon", "2")[2]["lat"] == 1.0
     assert req("encounter", "split", "e_1", "--at", "a_2") == ("POST", "/encounters/e_1/split", {"at": "a_2"}, None)
     assert req("encounter", "split", "e_1", "--assets", "a_2", "a_3")[2] == {"asset_ids": ["a_2", "a_3"]}
     assert req("encounter", "merge", "e_1", "e_2") == ("POST", "/encounters/merge", {"ids": ["e_1", "e_2"]}, None)
