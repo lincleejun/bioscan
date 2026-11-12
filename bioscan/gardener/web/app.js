@@ -825,10 +825,12 @@
       const grid = $('#grid');
       if (grid && encOn(ws)) grid.innerHTML = gridHTML(ws);
       else if (grid) { const e = $('.grid-empty', grid); if (e) e.remove(); grid.insertAdjacentHTML('beforeend', vis.map(id => tile(A(id), ws)).join('')); }
-      if (!ws.current) setCurrent(ws.start && ws.allSet.has(ws.start) ? ws.start : ws.ids[0]);
-      else applySel();
+      if (ws.current) applySel();
+      else if (!waitStart(ws)) setCurrent(ws.start && ws.allSet.has(ws.start) ? ws.start : ws.ids[0]);
     }
   }
+  // 上次看到的那张在后面的页里：继续翻页直到载入它，期间不选别的（也就不覆盖保存的位置）
+  const waitStart = ws => !ws.current && !!ws.start && !ws.allSet.has(ws.start) && !ws.loadedAll;
   async function loadMore(ws) {
     if (ws.loading || ws.loadedAll) return;
     ws.loading = true;
@@ -839,9 +841,11 @@
       ws.total = page.total;
       ws.loadedAll = ws.offset >= page.total || !page.items.length;
       addLoaded(ws, page.items);
-      if (ui.ws === ws) { patchBinds('ws-filters'); patchBinds('ws-count'); patchBinds('lib-side'); if (ws.start && !ws.allSet.has(ws.start) && !ws.loadedAll && ws.current === ws.ids[0]) { /* 起始项在后面的页里：保持第一项 */ } }
-    } catch (e) { toast(errMsg(e)); } finally { ws.loading = false; }
-    if (ui.ws === ws && !ws.loadedAll) { const s = $('#grid-sentinel'); if (s && s.getBoundingClientRect().top < window.innerHeight + 400) loadMore(ws); }
+      if (ui.ws === ws) { patchBinds('ws-filters'); patchBinds('ws-count'); patchBinds('lib-side'); }
+    } catch (e) { toast(errMsg(e)); ws.start = null; } finally { ws.loading = false; }   // 出错不再找那张，免得一直翻页
+    if (ui.ws !== ws) return;
+    if (!ws.current && ws.ids.length && !waitStart(ws)) setCurrent(ws.allSet.has(ws.start) ? ws.start : ws.ids[0]);
+    if (!ws.loadedAll) { const s = $('#grid-sentinel'); if (waitStart(ws) || (s && s.getBoundingClientRect().top < window.innerHeight + 400)) return loadMore(ws); }
   }
   async function pollWs(ws) {
     const items = await apiAll(Object.assign({}, ws.query, { order: ws.order, changed_after: ws.cursor }));
@@ -2546,6 +2550,10 @@
 
   // ---------- 轮询 ----------
   async function refreshTasks() { S.tasks = await api('GET', '/tasks', null, { archived: 'all' }); }
+  // 定时轮询：标签页隐藏时暂停，回到前台立刻各跑一次
+  const pollers = [];
+  function every(ms, fn) { pollers.push(fn); setInterval(() => { if (!document.hidden) fn(); }, ms); }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pollers.forEach(fn => fn()); });
   let polling = false;
   async function pollNow() {
     if (polling) return;
@@ -2980,7 +2988,7 @@
     const p = imp.plan;
     try { await importReplan(p.task_id, { dest_root: p.dest_root, place: p.place || '', include_pending: e.target.checked }); } catch (err) { toast(errMsg(err)); }
   });
-  setInterval(async () => {
+  every(2000, async () => {
     if (ui.view !== 'import' || !imp.plan || !['queued', 'running'].includes(imp.plan.status)) return;
     try {
       imp.plan = await api('GET', `/imports/${encodeURIComponent(imp.plan.id)}`);
@@ -2990,7 +2998,7 @@
       }
       if (safeForStructure()) impPaint();
     } catch (e) { /* 下次轮询再试 */ }
-  }, 2000);
+  });
   // ---------- 完成与导入 · 结束 ----------
   function presetDialog(p, title, saveAs) {
     const sel = p ? p.capabilities : ['meta'];
@@ -3279,9 +3287,9 @@
     patchBinds();
     await route();
     pollNow();
-    setInterval(pollNow, 2000);
+    every(2000, pollNow);
     const disk = async () => { try { S.storage = await api('GET', '/storage'); patchBinds('disk'); } catch (e) { /* 下次再试 */ } };
     disk();
-    setInterval(disk, 30000);
+    every(30000, disk);
   })();
 })();
