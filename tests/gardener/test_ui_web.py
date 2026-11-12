@@ -163,11 +163,11 @@ def test_poll_cursor_and_order():
 
 
 def test_review_flow_ui_contract_5b():
-    """R/E/U/X set the four uses (no P any more), keep-best previews before it writes, encounters group the grid,
-    and a changed Smart rule is previewed before it is saved."""
+    """Keys set the four uses (Lightroom keys since revision 9), keep-best previews before it writes, encounters
+    group the review grid, and a changed Smart rule is previewed before it is saved."""
     app = text("app.js")
-    assert "const KEY_USE = { r: 'record', e: 'edit', u: 'pending', x: 'reject' };" in app
-    assert "k === 'p'" not in app and "markKey({ flag" not in app and "{ use: v }" in app   # the UI writes uses only
+    assert "const KEY_USE = { p: 'edit', r: 'record', u: 'pending', x: 'reject' };" in app
+    assert "markKey({ flag" not in app and "{ use: v }" in app   # the UI writes uses only
     assert "api('POST', '/marks/keep-best', { asset_id: id, dry_run: true })" in app
     assert "api('GET', '/encounters', null, ws.encQuery)" in app and "e.candidates.includes(a.id)" in app
     assert "dd.dataset.previewed !== ruleKey" in app and "/preview-rule`" in app
@@ -194,3 +194,19 @@ def test_review_polish_ui_contract_7a():
     kb = c.post("/api/v1/marks/keep-best", json={"asset_id": "a_0006", "dry_run": True}).json()
     assert kb["collections"] == [{"id": mine["id"], "name": "行程精选", "asset_ids": ["a_0007"]}]
     assert c.get("/api/v1/assets/a_0006").json()["encounters"][0]["photos"] > 1
+
+
+def test_task_preview_is_a_lightroom_style_library():
+    """Revision 9: the task Preview is a Library (grid / loupe / compare / full screen on G E C F, P X U and 0-5 on
+    the photo), laid out flat by capture time with no encounter grouping, and AI 初选 comes from the shortlist route."""
+    app = text("app.js")
+    assert "lib: true, mode: 'grid', collapse: false" in app
+    assert "const LIB_KEY = { g: 'grid', e: 'loupe', c: 'compare', f: 'full' };" in app
+    assert "api('GET', `/tasks/${encodeURIComponent(ws.taskId)}/shortlist`)" in app
+    vtask = app[app.index("async function vTask"):app.index("const KIND = {")]
+    assert "encQuery" not in vtask                              # no forced grouping on the task preview
+    from fastapi.testclient import TestClient
+    c = TestClient(create_app(static=False))
+    t = c.get("/api/v1/tasks").json()[0]
+    s = c.get(f"/api/v1/tasks/{t['id']}/shortlist").json()
+    assert s["size"] == min(s["scored"], max(-(-s["scored"] // 10), 20)) and len(s["asset_ids"]) == s["size"]

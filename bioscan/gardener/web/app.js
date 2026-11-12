@@ -58,7 +58,8 @@
   };
   const VERDICT = { pick: '建议保留', reject: '建议舍弃', none: '无明确建议' };
   // 四种用途（契约修订 5B）：全局共享，与星级分开；flag 只是旧客户端的派生字段
-  const USE = { record: ['保留记录', 'R', 'pick', 'check'], edit: ['选入修图', 'E', 'pick', 'edit'], pending: ['待定', 'U', 'none', ''], reject: ['淘汰', 'X', 'reject', 'x'] };
+  // 契约修订 9：键位照 Lightroom——P 选入修图（Lightroom 的“选中”）、X 淘汰、U 待定；R 保留记录照旧
+  const USE = { record: ['保留记录', 'R', 'pick', 'check'], edit: ['选入修图', 'P', 'pick', 'edit'], pending: ['待定', 'U', 'none', ''], reject: ['淘汰', 'X', 'reject', 'x'] };
   const useZh = v => (USE[v] || [v])[0];
   const GROUP = { all: '全部素材', person: '人物', species: '物种', animal: '动物', scene: '场景', other: '其他', place: '地点', day: '日期（旧）', event: '事件（旧）' };
   const GROUP_ORDER = ['all', 'person', 'species', 'animal', 'scene', 'other'];
@@ -125,12 +126,14 @@
     const open = ws.expanded.has(a.burst.id);
     return `<button type="button" class="burst-btn" data-action="burst" data-id="${esc(a.burst.id)}" aria-expanded="${open}">连拍 ${a.burst.size}${open ? ' · 收起' : ' · 展开'}</button>`;
   }
+  const shortBadge = (ws, a) => (ws && ws.lib && ws.short && ws.short.has(a.id) ? `<span class="tile-short" title="AI 初选：本次拍摄排名第 ${ws.short.get(a.id)}">AI ${ws.short.get(a.id)}</span>` : '');
   function tile(a, ws) {
-    return `<div class="tile-wrap" role="listitem" data-wrap="${esc(a.id)}"><button type="button" class="tile" data-asset="${esc(a.id)}" data-sm="${esc(sigMedia(a))}" data-sa="${esc(sigAi(a))}" data-sh="${esc(sigHuman(a))}" aria-label="${esc(tileLabel(a))}"><span class="tile-media">${photo(a, 'thumb')}<span class="tile-ai">${aiPill(a)}</span><span class="tile-human">${humanBadge(a)}</span><span class="tile-tags">${tileTags(a)}</span></span><span class="tile-cap"><span class="tile-name">${esc(a.name)}</span><span class="tile-file">${esc(tileSub(a))}</span></span></button><button type="button" class="tile-check" data-action="toggle-sel" data-id="${esc(a.id)}" aria-pressed="false" aria-label="多选：${esc(a.name)}">${ic('check')}</button>${burstBtn(ws, a)}</div>`;
+    return `<div class="tile-wrap" role="listitem" data-wrap="${esc(a.id)}"><button type="button" class="tile" data-asset="${esc(a.id)}" data-sm="${esc(sigMedia(a))}" data-sa="${esc(sigAi(a))}" data-sh="${esc(sigHuman(a))}" aria-label="${esc(tileLabel(a))}"><span class="tile-media">${photo(a, 'thumb')}<span class="tile-ai">${aiPill(a)}</span>${shortBadge(ws, a)}<span class="tile-human">${humanBadge(a)}</span><span class="tile-tags">${tileTags(a)}</span></span><span class="tile-cap"><span class="tile-name">${esc(a.name)}</span><span class="tile-file">${esc(tileSub(a))}</span></span></button><button type="button" class="tile-check" data-action="toggle-sel" data-id="${esc(a.id)}" aria-pressed="false" aria-label="多选：${esc(a.name)}">${ic('check')}</button>${burstBtn(ws, a)}</div>`;
   }
   function flagSeg(a) {
     const b = v => { const [label, key, tone, icon] = USE[v]; return `<button type="button" class="seg-btn f-${tone}" data-action="use" data-id="${esc(a.id)}" data-v="${v}" data-key="f-${v}-${esc(a.id)}" aria-pressed="${(a.use || 'pending') === v}">${icon ? ic(icon) : ''}${label}<kbd>${key}</kbd></button>`; };
-    return `<div class="seg flagseg" role="group" aria-label="选片用途">${Object.keys(USE).map(b).join('')}</div>`;
+    const keys = ui.ws && ui.ws.lib ? Object.keys(USE).filter(v => v !== 'record' || a.use === 'record') : Object.keys(USE);
+    return `<div class="seg flagseg" role="group" aria-label="选片用途">${keys.map(b).join('')}</div>`;
   }
   function starsHTML(a) {
     let h = '';
@@ -164,6 +167,9 @@
     'ws-filters': () => wsFilterChips(),
     'ws-batch': () => batchHTML(),
     'ws-count': () => wsCountHTML(),
+    'lib-filters': () => libFiltersHTML(),
+    'lib-side': () => libSideHTML(),
+    'lib-views': () => libViewsHTML(),
     'col-head': () => (ui.col ? colHeadHTML(ui.col) : ''),
     'col-actions': () => (ui.col ? colActionsHTML(ui.col) : ''),
     undo: () => `<button type="button" class="btn sm ghost" data-action="undo" data-key="undo" ${ui.undo.length ? '' : 'disabled'}>${ic('undo')}撤销</button>`,
@@ -741,8 +747,10 @@
       return `<div class="wpage">${head}<div class="page-scroll">${colToolbarHTML(t.id)}<div id="col-area">${colAreaHTML()}</div></div></div>`;
     }
     if (tab === 'runs') return `<div class="wpage">${head}<div class="page-scroll"><div class="runs">${(t.runs || []).slice().reverse().map(runHTML).join('') || '<div class="empty">还没有运行。</div>'}</div></div></div>`;
-    makeWs('preview', { task: t.id }, 'discovered', { taskId: t.id, start: prefs.get('last.' + t.id, null), encQuery: { task: t.id } });
-    return `<div class="wpage">${head}<div class="phases" data-bind="task-phases" data-id="${esc(t.id)}">${phasesHTML(t)}</div>${wsHTML()}</div>`;
+    // 契约修订 9：任务 Preview 是 Lightroom 式图库——按拍摄时间平铺，不按拍摄段或连拍强行分组
+    makeWs('preview', { task: t.id }, 'discovered', { taskId: t.id, start: prefs.get('last.' + t.id, null), lib: true, mode: 'grid', collapse: false,
+      lf: { flag: 'all', stars: 0, ai: false }, short: null, shortInfo: null, loupe: null });
+    return `<div class="wpage">${head}${libHTML()}</div>`;
   }
   const KIND = { scan: '首次扫描', append: '追加来源', rescan: '重新分析', retry: '重试失败项' };
   const RUNST = { queued: '排队中', running: '运行中', paused: '已暂停', stopped: '已停止', completed: '完成', partial: '部分完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' };
@@ -795,6 +803,7 @@
   }
   function visible(ws, a) {
     if (!passF(a, ws.filter)) return false;
+    if (ws.lib && !libPass(ws, a)) return false;
     const e = encOn(ws) && ws.enc.by.get(a.id);
     if (e && !ws.enc.open.has(e.id)) return e.candidates.includes(a.id);   // 收起的拍摄段只露代表候选
     if (!ws.collapse || !a.burst || ws.expanded.has(a.burst.id)) return true;
@@ -830,13 +839,14 @@
       ws.total = page.total;
       ws.loadedAll = ws.offset >= page.total || !page.items.length;
       addLoaded(ws, page.items);
-      if (ui.ws === ws) { patchBinds('ws-filters'); patchBinds('ws-count'); if (ws.start && !ws.allSet.has(ws.start) && !ws.loadedAll && ws.current === ws.ids[0]) { /* 起始项在后面的页里：保持第一项 */ } }
+      if (ui.ws === ws) { patchBinds('ws-filters'); patchBinds('ws-count'); patchBinds('lib-side'); if (ws.start && !ws.allSet.has(ws.start) && !ws.loadedAll && ws.current === ws.ids[0]) { /* 起始项在后面的页里：保持第一项 */ } }
     } catch (e) { toast(errMsg(e)); } finally { ws.loading = false; }
     if (ui.ws === ws && !ws.loadedAll) { const s = $('#grid-sentinel'); if (s && s.getBoundingClientRect().top < window.innerHeight + 400) loadMore(ws); }
   }
   async function pollWs(ws) {
     const items = await apiAll(Object.assign({}, ws.query, { order: ws.order, changed_after: ws.cursor }));
     if (ui.ws !== ws || !items.length) return;
+    if (ws.lib) loadShortlist(ws);
     store(items);
     const known = items.filter(a => ws.allSet.has(a.id)).map(a => a.id);
     known.forEach(id => S.details.delete(id));
@@ -845,7 +855,7 @@
     patchTiles(known);
     if (ws.encQuery) loadEnc(ws);
     if (known.includes(ws.current)) renderInspector();
-    patchBinds('ws-filters'); patchBinds('ws-count');
+    patchBinds('ws-filters'); patchBinds('ws-count'); patchBinds('lib-side');
     renderLightbox();
   }
   function wsFilterChips() {
@@ -864,7 +874,7 @@
     if (!ws) return '';
     const n = ws.sel.size;
     const manual = ws.kind === 'review' && ui.col && ui.col.kind === 'manual';
-    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格放大 · R 保留记录 / E 选入修图 / U 待定 / X 淘汰，1–5 星级</span>${singleToolsHTML(ws)}`;
+    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格放大 · P 选入修图 / X 淘汰 / U 待定 / R 保留记录，1–5 星级${ws.lib ? ' · G 网格 / E 单张 / C 比较 / F 全屏' : ''}</span>${singleToolsHTML(ws)}`;
     return `<span class="batch-n">已选 <b>${n}</b> 张 · 快捷键作用于全部已选</span>
       <button type="button" class="btn sm pick" data-action="batch" data-v="record" data-key="b-record">${ic('check')}保留记录</button>
       <button type="button" class="btn sm pick" data-action="batch" data-v="edit" data-key="b-edit">${ic('edit')}选入修图</button>
@@ -922,6 +932,118 @@
       if (c) c.setAttribute('aria-pressed', String(sel));
     });
     patchBinds('ws-batch');
+  }
+
+  // ---------- 图库（契约修订 9）：Lightroom Library 式的网格 / 单张 / 比较 / 全屏，一次拍摄为单位 ----------
+  const LIB_FLAG = [['all', '全部'], ['pick', '已选中'], ['none', '未标记'], ['reject', '已淘汰']];
+  const LIB_MODES = [['grid', '网格', 'G'], ['loupe', '单张', 'E'], ['compare', '比较', 'C'], ['full', '全屏', 'F']];
+  const LIB_QUICK = [['全部照片', { flag: 'all', stars: 0, ai: false }], ['AI 初选', { flag: 'all', stars: 0, ai: true }],
+    ['已选中', { flag: 'pick', stars: 0, ai: false }], ['3 星以上', { flag: 'all', stars: 3, ai: false }], ['未标记', { flag: 'none', stars: 0, ai: false }],
+    ['已淘汰', { flag: 'reject', stars: 0, ai: false }]];
+  function libPass(ws, a, f) {
+    f = f || ws.lf;
+    const use = a.use || 'pending';
+    if (f.flag === 'pick' && use !== 'edit' && use !== 'record') return false;
+    if (f.flag === 'none' && use !== 'pending') return false;
+    if (f.flag === 'reject' && use !== 'reject') return false;
+    if ((a.stars || 0) < f.stars) return false;
+    return !f.ai || !!(ws.short && ws.short.has(a.id));
+  }
+  function libHTML() {
+    const ws = ui.ws;
+    return `<div class="ws lib mode-${esc(ws.mode)} grid-${esc(prefs.get('grid', 'm'))}">
+      <div class="lib-bar">${bindEl('lib-filters')}<div class="ws-tools">${bindEl('ws-count', '', 'span')}<button type="button" class="btn sm ghost" data-action="burst-collapse" aria-pressed="${ws.collapse}">连拍${ws.collapse ? '已折叠' : '已展开'}</button><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button>${bindEl('undo', '', 'span')}<button type="button" class="btn sm ghost" data-action="shortcuts">${ic('keyboard')}快捷键</button></div></div>
+      <div class="lib-body">
+        <nav class="lib-side" aria-label="快捷视图">${bindEl('lib-side')}</nav>
+        <section class="ws-pane" aria-label="照片">
+          <div class="lib-loupe" id="lib-loupe"></div>
+          <div class="grid-scroll" id="grid-scroll"><div class="grid" id="grid" role="list"><div class="grid-empty">扫描开始后，照片会在这里逐步出现。</div></div><div id="grid-sentinel" aria-hidden="true"></div></div>
+          <div class="lib-foot">${bindEl('lib-views')}<label class="check-row"><input type="checkbox" data-pref="advance" ${prefs.get('advance', '1') === '1' ? 'checked' : ''}> 标记后自动下一张</label></div>
+          <div class="batch-bar" data-bind="ws-batch">${batchHTML()}</div>
+        </section>
+        <aside class="inspector" id="inspector" aria-label="照片信息"></aside>
+      </div></div>`;
+  }
+  function libFiltersHTML() {
+    const ws = ui.ws;
+    if (!ws || !ws.lib) return '';
+    const f = ws.lf, n = ws.shortInfo ? ws.shortInfo.size : 0;
+    const flags = LIB_FLAG.map(([v, l]) => `<button type="button" class="seg-btn" data-action="lib-f" data-k="flag" data-v="${v}" data-key="lf-${v}" aria-pressed="${f.flag === v}">${l}</button>`).join('');
+    const stars = [1, 2, 3, 4, 5].map(i => `<button type="button" class="star-btn${i <= f.stars ? ' on' : ''}" data-action="lib-f" data-k="stars" data-v="${i}" data-key="ls-${i}" aria-label="至少 ${i} 星" aria-pressed="${f.stars === i}">${ic('star')}</button>`).join('');
+    return `<div class="lib-filters"><span class="hint">旗标</span><div class="seg" role="group" aria-label="按用途筛选">${flags}</div>
+      <span class="hint">星级 ≥</span><div class="stars" role="group" aria-label="最低星级">${stars}</div>
+      <button type="button" class="btn sm ghost lib-ai" data-action="lib-f" data-k="ai" data-key="lf-ai" aria-pressed="${f.ai}" ${n ? '' : 'disabled'} title="${n ? '' : '还没有美学评分：扫描时启用「美学与选择建议」后才有 AI 初选'}"><span class="ai-tag">AI</span>只看 AI 初选${n ? ` · ${n}` : ''}</button></div>`;
+  }
+  function libSideHTML() {
+    const ws = ui.ws;
+    if (!ws || !ws.lib) return '';
+    const all = ws.all.map(A).filter(Boolean), si = ws.shortInfo;
+    const rows = LIB_QUICK.map(([label, f], i) => {
+      const on = f.flag === ws.lf.flag && f.stars === ws.lf.stars && f.ai === ws.lf.ai;
+      return `<button type="button" class="lib-q" data-action="lib-quick" data-i="${i}" data-key="lq-${i}" aria-pressed="${on}"><span>${label}</span><span class="hint">${all.filter(a => libPass(ws, a, f)).length}</span></button>`;
+    }).join('');
+    return `<h2 class="lib-h">快捷视图</h2>${rows}
+      <h2 class="lib-h">AI 初选</h2><p class="hint lib-note">${si && si.size ? `按本次拍摄排名挑出 <b>${si.size}</b> 张（前 10%，至少 20 张），整次拍摄质量都不理想时也照样挑出来。星级和旗标只由你决定。` : '还没有美学评分。扫描时启用「美学与选择建议」后，这里按本次拍摄排名给出初选。'}</p>
+      <p class="hint lib-note">拿不准的照片不进分组：这里按拍摄时间平铺，连拍可在上方折叠。${ws.loadedAll ? '' : '计数按已载入的照片。'}</p>`;
+  }
+  function libViewsHTML() {
+    const ws = ui.ws;
+    if (!ws || !ws.lib) return '';
+    return `<div class="seg" role="group" aria-label="视图">${LIB_MODES.map(([v, l, k]) => `<button type="button" class="seg-btn" data-action="lib-mode" data-v="${v}" data-key="lm-${v}" aria-pressed="${ws.mode === v}">${l}<kbd>${k}</kbd></button>`).join('')}</div>`;
+  }
+  async function loadShortlist(ws) {
+    try {
+      const r = await api('GET', `/tasks/${encodeURIComponent(ws.taskId)}/shortlist`);
+      const sig = r.asset_ids.join(',');
+      if (ws.shortInfo && ws.shortInfo.sig === sig) return;
+      ws.short = new Map(r.asset_ids.map((id, i) => [id, i + 1]));
+      ws.shortInfo = { size: r.size, scored: r.scored, sig };
+      if (ui.ws !== ws) return;
+      if (ws.lf.ai) recompute();
+      else $$('.tile[data-asset]').forEach(el => { const o = $('.tile-short', el); if (o) o.remove(); $('.tile-ai', el).insertAdjacentHTML('afterend', shortBadge(ws, A(el.dataset.asset))); });
+      patchBinds('lib-filters'); patchBinds('lib-side');
+    } catch (e) { /* 下次轮询再试 */ }
+  }
+  function libMode(v) {
+    const ws = ui.ws;
+    if (!ws || !ws.lib) return;
+    if (v === 'compare') { libCompare(); return; }
+    if (v === 'full') { libFull(); return; }
+    ws.mode = v;
+    const w = $('.ws.lib');
+    if (w) { w.classList.remove('mode-grid', 'mode-loupe'); w.classList.add('mode-' + v); }
+    patchBinds('lib-views');
+    renderLoupe();
+    const t = ws.current && $(`.tile[data-asset="${CSS.escape(ws.current)}"]`);
+    if (t) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  function libCompare() {                 // 和 Lightroom 一样：只选一张时与下一张比较
+    const ws = ui.ws;
+    if (ws.sel.size >= 2) { openCompare(); return; }
+    const i = ws.ids.indexOf(ws.current), other = ws.ids[i + 1] || ws.ids[i - 1];
+    if (!ws.current || !other) { toast('至少要有两张照片才能比较'); return; }
+    dvCompare([ws.current, other]);
+  }
+  function libFull() {
+    openLightbox();
+    const d = $('dialog.lightbox[open]');
+    if (d && d.requestFullscreen) d.requestFullscreen().catch(() => { /* 浏览器不允许时仍是放大查看 */ });
+  }
+  function renderLoupe() {               // 单张：原像素查看器（Z 级放大），并预取前后两张的大图
+    const ws = ui.ws, el = $('#lib-loupe');
+    if (!el || !ws || !ws.lib) return;
+    const a = ws.mode === 'loupe' && ws.current && A(ws.current);
+    const pk = a ? `${a.id}|${sigMedia(a)}` : '';
+    if (el.dataset.pk === pk) return;
+    el.dataset.pk = pk;
+    dvDrop(ws.loupe); ws.loupe = null;
+    if (!a) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="lib-stage"></div>';
+    const st = $('.lib-stage', el);
+    if (a.media === 'photo' && a.preview === 'ready') ws.loupe = dvMount(st, a, null, null);
+    else st.innerHTML = stageEl(a, S.details.get(a.id));
+    const i = ws.ids.indexOf(a.id);
+    [ws.ids[i + 1], ws.ids[i - 1]].forEach(id => { const n = id && A(id); if (n && n.media === 'photo' && n.preview === 'ready') new Image().src = mediaUrl(n.id, 'large'); });
   }
 
   // ---------- 拍摄段（契约修订 5B）：物种 → 拍摄段 → 连拍；收起的段只露代表候选 ----------
@@ -1076,7 +1198,7 @@
         ${flagSeg(a)}
         <div class="star-row">${starsHTML(a)}<span class="hint">1–5 星，0 清除</span></div>
         <label class="field-inline"><span class="hint">理由（可选，随下一次标记保存）</span><input id="mark-reason" class="input sm" maxlength="200" autocomplete="off"></label>
-        <label class="check-row"><input type="checkbox" data-pref="advance" ${prefs.get('advance', '0') === '1' ? 'checked' : ''}> 键盘标记后自动前进到下一张</label>
+        <label class="check-row"><input type="checkbox" data-pref="advance" ${prefs.get('advance', '1') === '1' ? 'checked' : ''}> 键盘标记后自动前进到下一张</label>
         ${hist.length ? `<details><summary class="hint">标记历史 ${hist.length} 条</summary><ul class="hist">${hist.slice().reverse().map(h => `<li>${esc(fmtTime(h.at))} · ${esc(FIELD[h.field] || h.field)} ${esc(h.old == null ? (h.field === 'use' ? '待定' : '无') : h.field === 'use' ? useZh(h.old) : h.old)} → ${esc(h.new == null ? (h.field === 'use' ? '待定' : '无') : h.field === 'use' ? useZh(h.new) : h.new)} · ${esc(h.actor)}${h.reason ? ' · ' + esc(h.reason === 'content_changed' ? '内容变化，系统清空' : h.reason) : ''}</li>`).join('')}</ul></details>` : '<p class="hint">尚无人工判断。浏览经过不计为已审。</p>'}
         ${cols.length ? `<div class="in-cols"><span class="hint">出现在 ${cols.length} 个集合，标记一致：</span>${cols.map(c => `<a class="col-ref" href="#/review/${esc(c.id)}">${esc(c.name)}</a>`).join('')}</div>` : ''}
       </section>
@@ -1170,6 +1292,7 @@
   function renderInspector() {
     const el = $('#inspector'), ws = ui.ws;
     if (!el || !ws) return;
+    renderLoupe();
     const a = ws.current && A(ws.current);
     if (!a) {
       if (el.dataset.mode !== 'empty') { el.dataset.mode = 'empty'; el.innerHTML = `<div class="insp-empty">${ic('lib')}<p>选择一张素材，查看大图、AI 建议与人工判断。</p></div>`; }
@@ -1255,7 +1378,7 @@
       ui.undo.push({ batch: r.batch_id, label });
       afterMarks(r.assets);
       toast(`${label} · ${ids.length} 张`, { action: { label: '撤销', run: doUndo } });
-      if (advance && prefs.get('advance', '0') === '1') move(1);
+      if (advance && prefs.get('advance', '1') === '1') move(1);
     } catch (e) {
       if (e.status === 409) { toast('有素材刚被其他客户端修改，已载入最新标记，请重新操作'); await Promise.all(ids.map(id => { S.details.delete(id); return ensureDetail(id); })); patchTiles(ids); renderInspector(); }
       else toast(errMsg(e));
@@ -2329,7 +2452,7 @@
     const row = (k, t) => `<tr><td>${k.split(' ').map(x => `<kbd>${x}</kbd>`).join(' ')}</td><td>${t}</td></tr>`;
     dialog({
       title: '键盘快捷键', cls: 'small',
-      body: `<table class="kbd-table">${row('R', '保留记录')}${row('E', '选入修图')}${row('U', '待定')}${row('X', '淘汰（不删除文件）')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('空格', '放大查看')}${row('C', '比较已选 2 张')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
+      body: `<table class="kbd-table">${row('P', '选入修图')}${row('X', '淘汰（不删除文件）')}${row('U', '待定')}${row('R', '保留记录')}${row('G / E', '图库：网格 / 单张')}${row('F', '图库：全屏')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('空格', '放大查看')}${row('C', '比较已选 2 张')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
         <p class="hint">在输入框中打字时快捷键不会触发。多选时标记作用于全部已选素材。</p>`,
     });
   }
@@ -2407,6 +2530,7 @@
       if (keep) ui.ws.start = keep;
       renderInspector();
       observeSentinel(ui.ws);
+      if (ui.ws.lib) loadShortlist(ui.ws);
       await loadMore(ui.ws);
       if (ui.ws && ui.ws.encQuery) await loadEnc(ui.ws);
     }
@@ -2593,6 +2717,9 @@
     },
     'clear-sel': () => { const ws = ui.ws; ws.sel = new Set(ws.current ? [ws.current] : []); applySel(); },
     'ws-filter': el => { ui.ws.filter = el.dataset.f; recompute(); },
+    'lib-f': el => { const f = ui.ws.lf, k = el.dataset.k; if (k === 'flag') f.flag = el.dataset.v; else if (k === 'stars') f.stars = f.stars === Number(el.dataset.v) ? 0 : Number(el.dataset.v); else f.ai = !f.ai; recompute(); },
+    'lib-quick': el => { ui.ws.lf = Object.assign({}, LIB_QUICK[Number(el.dataset.i)][1]); recompute(); },
+    'lib-mode': el => libMode(el.dataset.v),
     burst: el => { const ws = ui.ws, b = el.dataset.id; if (ws.expanded.has(b)) ws.expanded.delete(b); else ws.expanded.add(b); recompute(); },
     'enc-mode': () => { const ws = ui.ws; ws.encMode = !ws.encMode; prefs.set('enc', ws.encMode ? '1' : '0'); const b = $('[data-action="enc-mode"]'); b.setAttribute('aria-pressed', String(ws.encMode)); b.textContent = ws.encMode ? '按拍摄段' : '不分段'; recompute(); },
     'enc-toggle': el => { const o = ui.ws.enc.open, id = el.dataset.id; if (o.has(id)) o.delete(id); else o.add(id); recompute(); },
@@ -2929,10 +3056,11 @@
   });
   document.addEventListener('dblclick', e => {
     const tl = e.target.closest('.tile[data-asset]');
-    if (tl && ui.ws) { setCurrent(tl.dataset.asset); openLightbox(); }
+    if (tl && ui.ws) { setCurrent(tl.dataset.asset); if (ui.ws.lib) libMode('loupe'); else openLightbox(); }
   });
 
-  const KEY_USE = { r: 'record', e: 'edit', u: 'pending', x: 'reject' };
+  const KEY_USE = { p: 'edit', r: 'record', u: 'pending', x: 'reject' };
+  const LIB_KEY = { g: 'grid', e: 'loupe', c: 'compare', f: 'full' };
   document.addEventListener('keydown', e => {
     const tg = e.target;
     if (tg && tg.id === 'path-input' && e.key === 'Enter') { e.preventDefault(); addPath(); return; }
@@ -2948,6 +3076,10 @@
     if (!ws) return;
     if (mod && k.toLowerCase() === 'a' && !lb) { e.preventDefault(); ws.sel = new Set(ws.ids); applySel(); return; }
     if (mod || e.altKey) return;
+    const lk = ws.lib && !lb && LIB_KEY[k.toLowerCase()];
+    if (lk) { e.preventDefault(); libMode(lk); return; }
+    if (ws.lib && !lb && (k === ' ' || k === 'Enter') && (tg === document.body || tg.classList.contains('tile') || tg === main)) { e.preventDefault(); libMode(ws.mode === 'grid' ? 'loupe' : 'grid'); return; }
+    if (ws.lib && ws.mode === 'loupe' && (k === 'ArrowDown' || k === 'ArrowUp')) return;
     const targets = lb ? (ws.current ? [ws.current] : []) : selTargets();
     const markKey = (patch, label) => { if (targets.length) { e.preventDefault(); doMark(targets, patch, label, targets.length === 1); } };
     if (k === 'ArrowRight') { e.preventDefault(); move(1); }

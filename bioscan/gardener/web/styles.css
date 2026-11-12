@@ -1,21 +1,21 @@
 /* AfterShooting（Gardener）· 样式：深色，按 PRD 第 23–28 节界面概念 */
 :root {
-  --bg: #14191b;
-  --panel: #191f22;
-  --surface: #1c2326;
-  --surface-2: #222a2d;
-  --side: #111618;
-  --line: #2a3336;
-  --line-2: #394447;
-  --ink: #e8ede9;
-  --ink-2: #c8d0cb;
-  --muted: #98a39d;
-  --faint: #6e7973;
-  --accent: #a9d69f;
-  --accent-hover: #bce3b3;
-  --on-accent: #142019;
-  --accent-soft: rgba(169, 214, 159, .14);
-  --accent-line: rgba(169, 214, 159, .5);
+  --bg: #262626;
+  --panel: #2f2f2f;
+  --surface: #333333;
+  --surface-2: #3b3b3b;
+  --side: #1f1f1f;
+  --line: #3c3c3c;
+  --line-2: #4a4a4a;
+  --ink: #dedede;
+  --ink-2: #c6c6c6;
+  --muted: #a8a8a8;
+  --faint: #858585;
+  --accent: #e6e6e6;
+  --accent-hover: #ffffff;
+  --on-accent: #1a1a1a;
+  --accent-soft: rgba(255, 255, 255, .10);
+  --accent-line: rgba(255, 255, 255, .45);
   --pick: #93d29a;
   --pick-soft: rgba(147, 210, 154, .14);
   --reject: #ee9585;
@@ -27,11 +27,11 @@
   --info: #95bddb;
   --info-soft: rgba(149, 189, 219, .13);
   --info-line: rgba(149, 189, 219, .4);
-  --star: #f2c55c;
+  --star: #ececec;
   --hover: rgba(255, 255, 255, .06);
-  --canvas: #0d1112;
-  --canvas-2: #161b1d;
-  --canvas-line: #2a3336;
+  --canvas: #1f1f1f;
+  --canvas-2: #2a2a2a;
+  --canvas-line: #2c2c2c;
   --r: 10px;
   --r-sm: 7px;
   --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 8px 24px rgba(0, 0, 0, .18);
@@ -1212,3 +1212,38 @@ select.input { padding-right: 28px; }
 .cdv-info i { color: var(--muted); font-size: 13px; }
 .cdv-uses { margin: 0 auto; }
 .cdv-uses .cp-use { min-width: 120px; height: 44px; font-size: 14px; }
+
+/* ---------- 图库（契约修订 9）：Lightroom Library 式布局，中性灰 ---------- */
+.ws.lib { display: flex; flex-direction: column; }
+.lib-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.lib-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.lib-ai .ai-tag, .tile-short { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #d6a64a; color: #1a1a1a; }
+.lib-ai .ai-tag { margin-right: 6px; }
+.lib-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 210px minmax(0, 1fr) var(--insp-w); }
+.lib-side { min-height: 0; overflow: auto; padding: 12px 10px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.lib-h { margin: 10px 8px 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--muted); }
+.lib-h:first-child { margin-top: 0; }
+.lib-q { display: flex; justify-content: space-between; align-items: center; min-height: 36px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.lib-q:hover { background: var(--hover); }
+.lib-q[aria-pressed="true"] { background: var(--accent-soft); }
+.lib-note { margin: 0 8px 8px; line-height: 1.55; }
+.ws.lib .ws-pane { background: var(--canvas); }
+.ws.lib .tile-ai { display: none; }
+.tile-short { position: absolute; left: 8px; bottom: 8px; pointer-events: none; }
+.ws.lib .insp-canvas { display: none; }
+.lib-loupe { display: none; }
+.lib-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+.lib-foot kbd { margin-left: 6px; opacity: .7; }
+.ws.lib.mode-loupe .lib-loupe { display: flex; flex: 1; min-height: 0; padding: 12px; }
+.lib-stage { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.lib-stage > * { flex: 1; min-width: 0; }
+/* 单张：网格变成底部胶片带 */
+.ws.lib.mode-loupe .grid-scroll { flex: none; display: flex; overflow-x: auto; overflow-y: hidden; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--panel); }
+.ws.lib.mode-loupe .grid { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 112px; gap: 6px; }
+.ws.lib.mode-loupe .tile-cap, .ws.lib.mode-loupe .tile-tags, .ws.lib.mode-loupe .tile-check, .ws.lib.mode-loupe .burst-btn { display: none; }
+.ws.lib.mode-loupe .grid-empty { padding: 12px; }
+.ws.lib.mode-loupe #grid-sentinel { flex: none; width: 1px; }
+@media (max-width: 1100px) { .lib-body { grid-template-columns: minmax(0, 1fr) var(--insp-w); } .lib-side { display: none; } }
+@media (max-width: 760px) { .lib-body { display: flex; flex-direction: column; overflow: auto; } .ws.lib .inspector { border-left: 0; border-top: 1px solid var(--line); } }
+.lib-filters .seg-btn, .lib-foot .seg-btn { white-space: nowrap; }
+.lib-q { width: 100%; }

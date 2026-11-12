@@ -6,6 +6,7 @@ photos that have no encounter yet (a new photo joins the nearest placed one of i
 split or merge is never undone by a rescan."""
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +18,21 @@ GAP_S = 600            # a pause this long ends an observation
 SPECIES_GAP_S = 120    # a shorter one ends it when the species seen before and after share none
 CANDIDATES = 3         # representative candidates shown for a collapsed encounter
 LATEST = "SELECT max(id) FROM ai_suggestions GROUP BY asset_id"
+SHORTLIST_SHARE, SHORTLIST_MIN = 0.10, 20     # AI 初选: the top 10% of a shoot, at least 20 photos (revision 9)
+
+
+def shortlist(c: Any, task_id: str) -> dict[str, Any]:
+    """AI 初选 (contract revision 9): the task's scored photos ranked within this task only, so a shoot that is weak
+    overall still gets a shortlist. Order: not rejected, then a burst's best frame, then aesthetic score; the top
+    max(10%, 20) are kept (all of them when there are fewer). Photos without a score are left out, not guessed."""
+    rows = c.execute(
+        f"SELECT s.asset_id, s.verdict, s.score, s.burst_rank FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id "
+        f"WHERE s.id IN ({LATEST}) AND a.media = 'photo' AND s.score IS NOT NULL AND {IN_TASK_REP} "
+        "AND EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.task_id = ?)",
+        (task_id, task_id)).fetchall()
+    rows = sorted(rows, key=lambda r: (r["verdict"] == "reject", (r["burst_rank"] or 1) > 1, -r["score"], r["asset_id"]))
+    size = min(len(rows), max(math.ceil(len(rows) * SHORTLIST_SHARE), SHORTLIST_MIN))
+    return {"scored": len(rows), "size": size, "asset_ids": [r["asset_id"] for r in rows[:size]]}
 
 
 def seconds(taken_at: str) -> float:

@@ -527,5 +527,10 @@ _Avoid_: Event (an older time grouping), burst (a burst is a few near-identical 
 **AI suggestion**:
 A machine pick/reject/none with score and reasons, per task run; stored apart from Flag/Star.
 
+**Shortlist** (AI 初选):
+A task's scored photos ranked within that task only (not rejected, then a burst's best frame, then aesthetic
+score), top max(10%, 20) kept, so a weak shoot still gets one. A view, never a mark: stars and uses stay human.
+_Avoid_: AI pick (the per-photo suggestion verdict, which can be empty for a whole weak shoot)
+
 **Capability** (能力):
 A user-facing analysis switch (content, species, quality, ...) mapped to BioScan stages and reducers; not a model.

@@ -734,6 +734,16 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                               and set(sibs) & set(fk.members(o))]
         return out
 
+    @app.get(P + "/tasks/{tid}/shortlist")
+    def shortlist(tid: str):          # contract revision 9: same ranking as review.shortlist
+        fk.task(tid)
+        ms = [a for a in fk.assets.values() if tid in a["task_ids"] and a["media"] == "photo"
+              and (a["ai"] or {}).get("score") is not None]
+        ms.sort(key=lambda a: (a["ai"]["verdict"] == "reject", ((a["burst"] or {}).get("rank") or 1) > 1,
+                               -a["ai"]["score"], a["id"]))
+        size = min(len(ms), max(-(-len(ms) // 10), 20))
+        return {"scored": len(ms), "size": size, "asset_ids": [a["id"] for a in ms[:size]]}
+
     @app.get(P + "/encounters")
     def encounters(task: str = "", concept: str = ""):
         if not task and not concept:
