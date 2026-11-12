@@ -387,7 +387,8 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
     counts once per concept however many of its subjects show it. `confirmed` = photos a person confirmed;
     `candidates` = photos only the model names it on. `species` holds the cards with a confirmation (their
     number is "N species photographed", PRD §03), `to_confirm` the model-only ones; `unresolved` counts
-    photos whose subjects stop at genus/family or are unconfirmed. `task_id` narrows it to one task."""
+    photos whose subjects stop at genus/family or are unconfirmed. `task_id` narrows it to one task and adds each
+    card's `groups` / `decided` / `started` (契约修订 16, `review.species_progress`)."""
     from bioscan.gardener.query import IN_TASK_REP
 
     # The library counts each capture once (versions never count); a task counts its own representatives,
@@ -423,6 +424,9 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
         k["seen"][r["asset_id"]] = (r["taken_at"], r["stars"])
         k.setdefault("tasks", set()).update((r["tasks"] or "").split(",") if r["tasks"] else ())
     encs = _species_encounters(c, rule, scope, task_id)          # 契约修订 7A
+    if task_id:                                                  # 契约修订 16: decided / total groups in this task
+        from bioscan.gardener.review import species_progress
+        progress = species_progress(c, task_id)
     out: dict[str, list[dict[str, Any]]] = {"species": [], "to_confirm": []}
     for concept, k in cards.items():
         pref = prefs.get(concept)
@@ -440,6 +444,8 @@ def species(c: Any, task_id: str | None = None, include_hidden: bool = False) ->
                 "cover_id": pref["cover_asset_id"] if pinned else best, "cover_pinned": pinned,
                 "hidden": bool(pref is not None and pref["hidden"]), "encounters": encs.get(concept, 0),
                 "years": sorted({t[:4] for t in times}), "task_ids": sorted(k.get("tasks", ()))}
+        if task_id:
+            card |= progress.get(concept, {"groups": 0, "decided": 0, "started": 0})
         out["species" if k["confirmed"] else "to_confirm"].append(card)
     from bioscan.gardener import taxa
 

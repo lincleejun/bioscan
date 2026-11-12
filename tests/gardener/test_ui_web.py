@@ -344,3 +344,17 @@ def test_the_photo_grid_shows_groups_and_frames_one_subject_like_review():
     # the frame spans the grid's row and keeps its columns; in the loupe's filmstrip it takes no space
     assert ".grid > .gr-run { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid;" in css
     assert ".ws.mode-loupe .grid > .gr-run { display: contents; }" in css and ".ws.mode-loupe .gr-run-h { display: none; }" in css
+
+
+def test_species_progress_comes_from_the_server_and_shows_on_the_rail_and_the_species_cards():
+    """Revision 16: a group's state is the server's kept / rejected over all its frames (not the frames this browser
+    loaded); the Review rail and the task's species cards show decided / total groups and a done state; after a mark
+    the Review overview fetches the groups and the progress again."""
+    app, css = text("app.js"), text("styles.css")
+    assert "const kept = g.kept || 0, out = g.rejected || 0;" in app
+    assert "a.use === 'record' || a.use === 'edit').length" not in app             # no counting over the cache
+    assert app.count("${spProgHTML(k)}") == 2                                       # the rail row and the species card
+    assert "${k.decided} / ${k.groups} 组" in app and "已完成 · " in app
+    assert "if (ui.view === 'flow-review') await frReload();" in app                # pollFlow
+    assert "if (ui.view === 'flow-review') frReload().catch(e => toast(errMsg(e)));" in app   # afterMarks
+    assert ".sp-prog.is-done .bar > i { background: var(--accent); }" in css

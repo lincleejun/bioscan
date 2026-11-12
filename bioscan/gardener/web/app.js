@@ -402,7 +402,7 @@
     const list = sp.species.concat(sp.to_confirm).sort((x, y) => y.photos - x.photos);
     const un = sp.unresolved.genus_family + sp.unresolved.unconfirmed;
     const row = k => `<a class="rl-row${k.concept === concept ? ' is-here' : ''}" href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(k.concept))}"${k.concept === concept ? ' aria-current="page"' : ''}>
-      <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy"><span class="rl-text"><b>${esc(spName(k))}</b><small>${k.photos.toLocaleString()}${k.photos <= 2 ? `<span class="rl-prot">${ic('check')}仅 ${k.photos} 张 · 保护记录</span>` : ''}${k.confirmed ? '' : '<span class="rl-cand">待确认</span>'}</small></span>${ic('right')}</a>`;
+      <img src="${esc(mediaUrl(k.cover_id, 'thumb'))}" alt="" loading="lazy"><span class="rl-text"><b>${esc(spName(k))}</b>${spProgHTML(k)}<small>${k.photos.toLocaleString()}${k.photos <= 2 ? `<span class="rl-prot">${ic('check')}仅 ${k.photos} 张 · 保护记录</span>` : ''}${k.confirmed ? '' : '<span class="rl-cand">待确认</span>'}</small></span>${ic('right')}</a>`;
     // 契约修订 13：只有一两张、没人确认过的物种多半是认错的小框，折在一起，不占左栏
     const minor = k => !k.confirmed && k.photos <= 2;
     const few = list.filter(minor);
@@ -413,17 +413,25 @@
   }
   // 契约修订 13：审片单位是“组”——一个连拍，或一张单独的照片；拍摄段这一层不再出现在 Review 里。
   function groupsOf(enc) {
-    const gs = enc.encounters.flatMap(e => e.bursts.map(b => ({ id: b.id || 'one:' + b.rep, burst: b.id, rep: b.rep, asset_ids: b.asset_ids, candidates: [b.rep], photos: b.size, run: b.run || null, task: e.task_id })))
-      .concat((enc.unassigned || []).map(id => ({ id: 'one:' + id, burst: null, rep: id, asset_ids: [id], candidates: [id], photos: 1 })));
+    const use = enc.unassigned_use || {};
+    const gs = enc.encounters.flatMap(e => e.bursts.map(b => ({ id: b.id || 'one:' + b.rep, burst: b.id, rep: b.rep, asset_ids: b.asset_ids, candidates: [b.rep], photos: b.size, kept: b.kept || 0, rejected: b.rejected || 0, run: b.run || null, task: e.task_id })))
+      .concat((enc.unassigned || []).map(id => ({ id: 'one:' + id, burst: null, rep: id, asset_ids: [id], candidates: [id], photos: 1, kept: +['record', 'edit'].includes(use[id]), rejected: +(use[id] === 'reject') })));
     const at = g => (A(g.asset_ids[0]) || {}).taken_at || '';
     gs.sort((x, y) => (at(x) < at(y) ? -1 : at(x) > at(y) ? 1 : 0));
     gs.forEach((g, i) => { g.n = i + 1; });
     return gs;
   }
   const groupHref = (t, k, g, frame) => `#/task/${encodeURIComponent(t)}/compare/${encodeURIComponent(k)}/${encodeURIComponent(g.id)}${frame ? '/' + encodeURIComponent(frame) : ''}`;
-  function groupState(g) {            // 这一组决定到哪了：全部未动 / 部分 / 全部已判断
-    const as = g.asset_ids.map(A).filter(Boolean), kept = as.filter(a => a.use === 'record' || a.use === 'edit').length, out = as.filter(a => a.use === 'reject').length;
-    return { kept, out, done: as.length > 0 && kept + out === as.length, any: kept + out > 0 };
+  // 这一组决定到哪了（契约修订 16）：服务端按这一组的全部帧数出已留 / 已淘汰，不看浏览器里载入了哪些帧
+  function groupState(g) {
+    const kept = g.kept || 0, out = g.rejected || 0;
+    return { kept, out, done: g.photos > 0 && kept + out === g.photos, any: kept + out > 0 };
+  }
+  // 一个物种在本次拍摄里决定了几组（GET /species?task= 的 groups / decided）；全部决定即完成
+  function spProgHTML(k) {
+    if (k.groups == null) return '';
+    const done = k.groups > 0 && k.decided === k.groups;
+    return `<span class="sp-prog${done ? ' is-done' : ''}"><span class="bar bar-review" role="presentation"><i style="width:${pct(k.decided, k.groups)}%"></i></span><span>${done ? `${ic('check')}已完成 · ` : ''}${k.decided} / ${k.groups} 组</span></span>`;
   }
   function groupTileHTML(t, k, g, prev) {
     const a = A(g.rep);
@@ -498,6 +506,17 @@
     </div>`;
   }
   function frRefresh() { const c = $('#fr-center'), r = $('#fr-rules'); if (c) swap(c, frCenterHTML()); if (r && safeForStructure()) swap(r, frRulesHTML()); }
+  // 有人标记之后重取这一物种的组与各物种的进度（契约修订 16）：组的状态与左栏的“N / M 组”都来自服务端
+  async function frReload() {
+    const { t, k } = fr, token = ui.token;
+    if (!t || !k) return frRefresh();
+    const [enc, sp] = await Promise.all([api('GET', '/encounters', null, { task: t.id, concept: k.concept, candidates: candN() }), api('GET', '/species', null, { task: t.id })]);
+    if (token !== ui.token || ui.view !== 'flow-review') return;
+    Object.assign(fr, { enc, sp, groups: groupsOf(enc), k: sp.species.concat(sp.to_confirm).find(x => x.concept === k.concept) || k });
+    frRefresh();
+    const rail = $('.fr-rail'), more = rail && $('.rl-more', rail);
+    if (rail && safeForStructure()) { swap(rail, `<h2>本次拍到</h2>${railHTML(t, sp, k.concept)}`); const m = $('.rl-more', rail); if (m && more && more.open) m.open = true; }
+  }
 
   // 原像素比较（PRD §08、图 3）：两张同尺度，大图保留全图上下文，左下角是眼部（找不到则头部、动物）原像素细节；
   // 胶片条是本拍摄段的全部帧；四种用途作用于“当前选择”这一格。
@@ -709,7 +728,7 @@
     if (!items.length) return;
     store(items);
     items.forEach(a => { if (a.updated_at > fl.cursor) fl.cursor = a.updated_at; S.details.delete(a.id); });
-    if (ui.view === 'flow-review') frRefresh();
+    if (ui.view === 'flow-review') await frReload();
     if (ui.view === 'compare') cpChrome();
   }
 
@@ -1455,7 +1474,7 @@
     assets.forEach(x => { const a = A(x.id); if (a) Object.assign(a, { use: x.use, flag: x.flag, stars: x.stars, mark_version: x.version, judged: x.use !== 'pending' || !!x.stars }); S.details.delete(x.id); });
     patchTiles(assets.map(x => x.id)); renderInspector(); renderLightbox(); patchBinds();
     $$('dialog.compare[open] [data-cmp]').forEach(el => swap(el, cmpCapHTML(el.dataset.cmp)));
-    if (ui.view === 'flow-review') frRefresh();
+    if (ui.view === 'flow-review') frReload().catch(e => toast(errMsg(e)));
     if (ui.view === 'compare') cpChrome();
   }
   async function doMark(ids, patch, label, advance) {
@@ -1824,7 +1843,7 @@
     return `<article class="wl-card${sel ? ' is-sel' : ''}" data-concept="${esc(k.concept)}">
       <button type="button" class="wl-pick" data-action="sp-select" data-id="${esc(k.concept)}" aria-pressed="${!!sel}" aria-label="${esc(spName(k))}：${esc(spCount(k))}">
         <span class="wl-cover"><img src="${esc(mediaUrl(k.cover_id, 'large'))}" alt="" loading="lazy" decoding="async">${isNew ? '<span class="wl-badge new">新物种</span>' : ''}${k.confirmed ? '' : '<span class="wl-badge cand">待确认</span>'}${k.only_one ? '<span class="wl-badge one">仅 1 张</span>' : ''}</span>
-        <span class="wl-cap"><b>${esc(spName(k))}</b><small>${esc(spCount(k))}</small></span></button>
+        <span class="wl-cap"><b>${esc(spName(k))}</b><small>${esc(spCount(k))}</small>${spProgHTML(k)}</span></button>
       <span class="wl-kind">自动集合</span>
       <a class="wl-open" href="${esc(speciesHref(k.concept, task))}" aria-label="打开「${esc(spName(k))}」">${ic('right')}</a></article>`;
   }
@@ -2640,7 +2659,7 @@
   }
 
   // node --test（tests/gardener/web/）：只在 node 里交出纯视图函数并就此返回，下面挂 DOM 事件与轮询的代码不在 node 里跑；浏览器里没有 module，照常往下。
-  if (typeof module !== 'undefined' && module.exports) { module.exports = { store, aiPill, groupsOf, groupState, groupBlocksHTML, encOn, encOrder }; return; }
+  if (typeof module !== 'undefined' && module.exports) { module.exports = { store, aiPill, groupsOf, groupState, spProgHTML, groupBlocksHTML, encOn, encOrder }; return; }
 
   // ---------- 轮询 ----------
   async function refreshTasks() { S.tasks = await api('GET', '/tasks', null, { archived: 'all' }); }
