@@ -17,7 +17,9 @@ from bioscan.gardener.store import now
 GAP_S = 600            # a pause this long ends an observation
 SPECIES_GAP_S = 120    # a shorter one ends it when the species seen before and after share none
 CANDIDATES = 3         # representative candidates shown for a collapsed encounter
-LATEST = "SELECT max(id) FROM ai_suggestions GROUP BY asset_id"
+# An asset's latest suggestion, correlated on `s.asset_id` (index ai_asset). Never `id IN (SELECT max(id) ... GROUP BY
+# asset_id)`: that builds a library-wide list while the caller may hold the write lock (#131).
+LATEST = "s.id = (SELECT max(x.id) FROM ai_suggestions x WHERE x.asset_id = s.asset_id)"
 SHORTLIST_SHARE, SHORTLIST_MIN = 0.10, 20     # AI 初选: the top 10% of a shoot, at least 20 photos (revision 9)
 
 
@@ -27,7 +29,7 @@ def shortlist(c: Any, task_id: str) -> dict[str, Any]:
     max(10%, 20) are kept (all of them when there are fewer). Photos without a score are left out, not guessed."""
     rows = c.execute(
         f"SELECT s.asset_id, s.verdict, s.score, s.burst_rank FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id "
-        f"WHERE s.id IN ({LATEST}) AND a.media = 'photo' AND s.score IS NOT NULL AND {IN_TASK_REP} "
+        f"WHERE {LATEST} AND a.media = 'photo' AND s.score IS NOT NULL AND {IN_TASK_REP} "
         "AND EXISTS (SELECT 1 FROM task_assets ta WHERE ta.asset_id = a.id AND ta.task_id = ?)",
         (task_id, task_id)).fetchall()
     rows = sorted(rows, key=lambda r: (r["verdict"] == "reject", (r["burst_rank"] or 1) > 1, -r["score"], r["asset_id"]))
@@ -46,8 +48,8 @@ def seconds(taken_at: str) -> float:
 
 def _task_bursts(c: Any, task_id: str) -> dict[str, str]:
     return {r[0]: r[1] for r in c.execute(
-        f"SELECT s.asset_id, s.burst_id FROM ai_suggestions s JOIN task_assets ta ON ta.asset_id = s.asset_id "
-        f"WHERE ta.task_id = ? AND s.burst_id IS NOT NULL AND s.id IN ({LATEST})", (task_id,))}
+        "SELECT s.asset_id, s.burst_id FROM task_assets ta JOIN ai_suggestions s ON s.id = (SELECT max(x.id) FROM "
+        "ai_suggestions x WHERE x.asset_id = ta.asset_id) WHERE ta.task_id = ? AND s.burst_id IS NOT NULL", (task_id,))}
 
 
 def _task_species(c: Any, task_id: str) -> dict[str, set[str]]:
@@ -241,11 +243,11 @@ def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool
     frame showing it is kept). dry_run reports the reach, with the versions to send back as `expect`."""
     if not c.execute("SELECT 1 FROM assets WHERE id = ?", (asset_id,)).fetchone():
         raise st.NotFound(f"no asset {asset_id}")
-    row = c.execute(f"SELECT burst_id FROM ai_suggestions WHERE id IN ({LATEST}) AND asset_id = ?", (asset_id,)).fetchone()
+    row = c.execute("SELECT burst_id FROM ai_suggestions WHERE asset_id = ? ORDER BY id DESC LIMIT 1", (asset_id,)).fetchone()
     if row is None or row[0] is None:
         raise st.Error("这张照片不在连拍中")
     sibs = [r[0] for r in c.execute(
-        f"SELECT a.id FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE s.id IN ({LATEST}) "
+        f"SELECT a.id FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE {LATEST} "
         f"AND s.burst_id = ? AND a.id != ? AND {IN_TASK_REP} ORDER BY a.taken_at, a.id",   # bursts are per task
         (row[0], asset_id, row[0].split(":", 1)[0]))]
     marks = {i: st.mark_row(c, i) for i in [asset_id, *sibs]}
@@ -268,7 +270,9 @@ def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool
         others = c.execute(
             "SELECT ci.asset_id FROM current_ids ci JOIN assets a ON a.id = ci.asset_id LEFT JOIN marks m ON "
             "m.asset_id = a.id WHERE ci.concept = ? AND ci.level = 'species' AND a.version_of IS NULL AND "
-            "(ci.asset_id = ? OR coalesce(m.use, '') != 'reject')", (concept, asset_id)).fetchall()
+            "(ci.asset_id = ? OR coalesce(m.use, '') != 'reject') "
+            "AND ci.asset_id IN (SELECT asset_id FROM identifications WHERE concept = ?)",   # via identifications_concept
+            (concept, asset_id, concept)).fetchall()
         if not {r[0] for r in others} - holders:
             for i in holders:
                 protect.setdefault(i, []).append(concept)
@@ -375,7 +379,7 @@ def split_burst(c: Any, *, at: str | None = None, asset_ids: list[str] | None = 
         raise st.Error("要拆的照片须在同一个连拍里")
     b = bursts.pop()
     members = [dict(r) for r in c.execute(
-        f"SELECT s.*, a.taken_at FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE s.id IN ({LATEST}) "
+        f"SELECT s.*, a.taken_at FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE {LATEST} "
         "AND s.burst_id = ? ORDER BY a.taken_at, a.id", (b,))]
     order = [m["asset_id"] for m in members]
     moving = order[order.index(at):] if at is not None else [a for a in order if a in set(ids)]
