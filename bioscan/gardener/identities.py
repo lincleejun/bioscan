@@ -199,6 +199,23 @@ def _area(xyxy: str) -> float:
     return max(0.0, x1 - x0) * max(0.0, y1 - y0)
 
 
+def main_subjects(c: Any, asset_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """asset id -> its main subject (契约修订 17), the one rule for the photo's main species: the largest box a
+    person named a species on; else the largest box with a species-level name; else the largest box (its row has
+    no concept). The main animal is the big one, a small extra box is a bystander. Each value is the current_ids
+    row plus `area` (share of the frame). Read-side only; assets without a live identified subject are absent."""
+    best: dict[str, tuple[tuple, dict[str, Any]]] = {}
+    for part in st.chunks(asset_ids):
+        for r in c.execute("SELECT ci.*, s.xyxy FROM current_ids ci JOIN subjects s ON s.id = ci.subject_id "
+                           f"WHERE ci.asset_id IN ({st.marks_in(part)})", part):
+            row = dict(r) | {"area": _area(r["xyxy"])}
+            named = row["level"] == "species" and row["concept"] is not None
+            key = (named and row["source"] == "user", named, row["area"], row["subject_id"])
+            if row["asset_id"] not in best or key > best[row["asset_id"]][0]:
+                best[row["asset_id"]] = (key, row)
+    return {a: row for a, (_, row) in best.items()}
+
+
 def backfill(c: Any) -> int:
     """Subjects and ai identifications from every stored raw:identify result, oldest first (schema 1 -> 2)."""
     n = 0
