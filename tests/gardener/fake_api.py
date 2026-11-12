@@ -1032,7 +1032,7 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             "recoverable": True, "failed": [], "skipped": [], "note": NOTE})
         return p
 
-    # ---- 契约修订 11: 本地目录 (read-only browse of the owner's folders) ----
+    # ---- 契约修订 12: 本地目录 (read-only browse of the owner's folders) ----
     fs_root = "/Users/me/Pictures"
     fs_dirs = {fs_root: ["2026-11-01", "Lightroom"], fs_root + "/2026-11-01": [], fs_root + "/Lightroom": []}
 

@@ -268,7 +268,7 @@ It is browse-only: no marks, nothing is imported, copied or moved, and nothing i
 your files. Previews are made on request (a RAW's embedded JPEG, ~30 ms) into `<data-dir>/cache/fs/` (capped at 1 GiB,
 oldest first) and are removed by 管理 › 清除缓存. A path whose real location (after symlinks) is outside those places
 is refused (403), as is a `..` in the path (400). macOS may refuse a volume or library to the service process; it then
-shows as 不可读 until that program has access under System Settings › Privacy & Security. API: 契约修订 11 in
+shows as 不可读 until that program has access under System Settings › Privacy & Security. API: 契约修订 12 in
 `docs/gardener/contract.md`.
 
 ### HTTP API

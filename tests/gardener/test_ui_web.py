@@ -46,11 +46,11 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode", "mode", "panel", "libmore"}, keys
 
 
 def test_nav_order():
-    # PRD §05: 待整理 · 所有照片 · (本地目录, 契约修订 11) · Collections (Wildlife · 旅行 · 精选 · 待修图) · 任务与导入
+    # PRD §05: 待整理 · 所有照片 · (本地目录, 契约修订 12) · Collections (Wildlife · 旅行 · 精选 · 待修图) · 任务与导入
     assert re.findall(r'data-nav="([\w-]+)"', text("index.html")) == [
         "inbox", "library", "fs", "collections", "species", "col-trip", "col-featured", "col-edit", "tasks", "settings"]
     labels = re.findall(r'data-nav="[\w-]+"[^>]*>.*?</svg>([^<]+)<', text("index.html"))
@@ -200,11 +200,11 @@ def test_task_preview_is_a_lightroom_style_library():
     """Revision 9: the task Preview is a Library (grid / loupe / compare / full screen on G E C F, P X U and 0-5 on
     the photo), laid out flat by capture time with no encounter grouping, and AI 初选 comes from the shortlist route."""
     app = text("app.js")
-    assert "lib: true, mode: 'grid', collapse: false" in app
+    assert "lib: true, collapse: false" in app
     assert "const LIB_KEY = { g: 'grid', e: 'loupe', c: 'compare', f: 'full' };" in app
     # loupe marks only the photo on screen, as in Lightroom (#131); a poll keeps the photo being looked at;
     # auto-advance only from the photo the key was pressed on; P/R/U/X in compare mark the highlighted pane
-    assert "const one = lb || (ws.lib && ws.mode === 'loupe');" in app
+    assert "const one = lb || ws.mode === 'loupe';" in app
     assert "const targets = one ? (ws.current ? [ws.current] : []) : selTargets();" in app
     assert "(keep && id === ws.current) || visible(ws, A(id))" in app and "if (ws.lf.ai) recompute(true);" in app
     assert "ui.ws === ws && ws.current === from) move(1);" in app
@@ -238,11 +238,46 @@ def test_library_scales_to_thousands_of_photos():
     assert "addEventListener('visibilitychange', () => { if (!document.hidden) pollers.forEach(fn => fn()); })" in app
 
 
+def test_every_photo_view_has_the_same_two_layouts():
+    """Revision 11: every ws view (task Preview, collection Review, species, All photos) is built by one wsHTML with
+    grid (thumbnails only, no side panel) and loupe (big image + filmstrip, info panel beside it that Tab / I hide);
+    the mode is remembered per view; other screens open their photos in that loupe instead of their own viewers."""
+    app, css = text("app.js"), text("styles.css")
+    assert app.count("function wsHTML()") == 1 and "libHTML" not in app
+    assert app.count("${wsHTML()}") == 4                                          # preview, review, species, library
+    assert "{ encQuery: scope, view: 'species' }" in app and "{ view: 'library' }" in app
+    assert "mode: prefs.get('mode.' + view, 'grid')" in app and "prefs.set('mode.' + ws.view, v);" in app
+    assert ".ws.mode-grid .inspector, .ws.panel-off .inspector { display: none; }" in css
+    assert "if (ws.mode !== 'loupe' || prefs.get('panel', '1') !== '1') { el.innerHTML = '';" in app   # no detail fetch, no hidden reason
+    assert "togglePanel();" in app and "k === 'Tab' && !e.shiftKey && ws.mode === 'loupe'" in app
+    # the old inspector photo, subject zoom and the collection's own lightbox are gone
+    for gone in ("insp-canvas", "canvasBarHTML", "ui.zoom", "applyZoom", "cdOpen", "cdv"):
+        assert gone not in app and gone not in css, gone
+    # opening a photo from another screen lands in the shared loupe at that photo, even inside a collapsed group
+    assert "open ? { start: open, open, mode: 'loupe' } : {}" in app and "if (a.id === ws.open) return true;" in app
+    assert app.count('data-action="open-photo"') == 2 and "'cd-open': el => { ui.open = el.dataset.id;" in app
+    # a missed animal is drawn on the loupe's big image; an encounter poll keeps the photo being looked at
+    assert "$('#lib-loupe')" in app and "if (ui.ws === ws) recompute(had);" in app
+
+
+def test_all_photos_filters_are_compact_and_side_lists_scroll_on_their_own():
+    """Owner feedback 2026-11-12: 全部素材 shows one row (search, task, use, stars, sort) and folds the rest behind
+    更多筛选 (n); every active filter is a removable chip; the search box writes the existing `species` or `q`
+    filter, never a key of its own. The Review rail and the scan groups scroll apart from the page."""
+    app, css = text("app.js"), text("styles.css")
+    assert "const LIB_MAIN = ['task', 'use', 'stars_min', 'order'];" in app
+    assert 'data-action="lib-more" aria-controls="lib-more"' in app and "prefs.set('libmore'" in app
+    assert 'data-action="lib-unset"' in app and "'lib-unset': el => { delete ui.lib[el.dataset.k]; route(true); }" in app
+    assert '<select class="input sm" data-lib-sfield' in app                     # no name: never reaches ui.lib
+    assert "t.matches('[data-lib-sfield]')" in app.split("t.form.id === 'lib-filters'")[0]
+    assert ".page.fr, .page.sc { overflow: hidden; }" in css
+    assert ".fr-rail, .fr-center, .fr-rules, .sc .fl-main, .sc .fl-panel { min-height: 0; overflow: auto; }" in css
+
 def test_local_folder_browser_is_read_only_and_reuses_the_library_layout():
-    """契约修订 11: 本地目录 lists folders through /fs/*, says plainly that nothing is imported, has no marks,
+    """契约修订 12: 本地目录 lists folders through /fs/*, says plainly that nothing is imported, has no marks,
     and loads thumbnails lazily in the library's grid / loupe layout."""
     js, css = text("app.js"), text("styles.css")
-    fs = js[js.index("契约修订 11：本地目录"):js.index("契约修订 11 结束")]
+    fs = js[js.index("契约修订 12：本地目录"):js.index("契约修订 12 结束")]
     assert set(re.findall(r"api\('(\w+)', '(/fs/[\w/]+)'", fs)) == {("GET", "/fs/roots"), ("GET", "/fs/list")}
     assert "/fs/thumb?" in fs and 'loading="lazy"' in fs
     assert "只浏览：不导入、不复制、不移动文件，也不写入 AfterShooting 的记录" in fs
@@ -252,4 +287,4 @@ def test_local_folder_browser_is_read_only_and_reuses_the_library_layout():
     assert "{ g: 'grid', e: 'loupe', f: 'full' }" in fs and "ArrowRight" in fs
     assert "fs-task" in fs and "#/task/" in fs                                       # a covered folder links to its task
     assert "case 'fs':" in js and "Object.assign(VIEWS, { fs: vFs })" in fs
-    assert ".ws.lib.fs .lib-body" in css and ".fs-tree" in css
+    assert ".ws.lib.fs .lib-side { width: 280px; }" in css and ".fs-tree" in css
