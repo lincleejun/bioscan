@@ -105,6 +105,62 @@ def assign_encounters(c: Any, task_id: str) -> int:
     return n
 
 
+RUN_GAP_S = 30         # groups this close in time, showing the same subject, are one subject run
+RUN_SIZE = 3.0         # ... when the subject's size in the frame differs by less than this factor
+RUN_SHARE = 0.6        # a group's subject: the species this share of its frames' main animals carry
+
+
+def subject_runs(c: Any, task_id: str) -> dict[str, str]:
+    """asset id -> subject run (修订 13): the task's groups (bursts and single photos) in time order, where
+    adjacent groups join into one run when they show the same subject: the same species on the main animal
+    (the largest box) of RUN_SHARE of each group's frames, at most RUN_GAP_S apart, the subject's size within a
+    factor of RUN_SIZE. Computed from the current identifications (so a person's correction moves it), never
+    stored: a run is a hint that groups belong together, the group stays the unit a person decides on."""
+    rows = [dict(r) for r in c.execute(
+        "SELECT a.id, a.taken_at, s.burst_id FROM task_assets ta JOIN assets a ON a.id = ta.asset_id LEFT JOIN "
+        "ai_suggestions s ON s.id = (SELECT max(x.id) FROM ai_suggestions x WHERE x.asset_id = a.id) WHERE ta.task_id = ? "
+        f"AND {IN_TASK_REP} AND a.taken_at IS NOT NULL ORDER BY a.taken_at, a.id", (task_id, task_id))]
+    main: dict[str, tuple[float, str | None]] = {}          # asset -> (area, species concept) of its largest subject
+    for r in c.execute("SELECT ci.asset_id, s.xyxy, ci.level, ci.concept FROM current_ids ci JOIN subjects s ON s.id = "
+                       "ci.subject_id JOIN task_assets ta ON ta.asset_id = ci.asset_id WHERE ta.task_id = ?", (task_id,)):
+        x0, y0, x1, y1 = st.loads(r[1])
+        area = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+        if area > main.get(r[0], (-1.0, None))[0]:
+            main[r[0]] = (area, r[3] if r[2] == "species" else None)
+    groups: list[list[dict[str, Any]]] = []
+    at: dict[str, int] = {}
+    for r in rows:                                  # a burst's frames are one group even with another photo between
+        k = r["burst_id"] or f"one:{r['id']}"
+        if k not in at:
+            at[k] = len(groups)
+            groups.append([])
+        groups[at[k]].append(r)
+
+    def subject(g: list[dict[str, Any]]) -> tuple[str | None, float]:
+        seen = [main[m["id"]] for m in g if m["id"] in main]
+        names: dict[str, int] = {}
+        for _, concept in seen:
+            if concept:
+                names[concept] = names.get(concept, 0) + 1
+        top = max(names, key=lambda k: (names[k], k), default=None)
+        areas = sorted(a for a, _ in seen)
+        return (top if top and names[top] >= RUN_SHARE * len(seen) else None), (areas[len(areas) // 2] if areas else 0.0)
+
+    out: dict[str, str] = {}
+    run, prev = 0, None
+    for g in groups:
+        name, area = subject(g)
+        start, end = seconds(g[0]["taken_at"]), seconds(g[-1]["taken_at"])
+        same = (prev is not None and name is not None and name == prev[0] and start - prev[2] <= RUN_GAP_S
+                and min(area, prev[1]) > 0 and max(area, prev[1]) <= RUN_SIZE * min(area, prev[1]))
+        if not same:
+            run += 1
+        prev = (name, area, end)
+        for m in g:
+            out[m["id"]] = f"run{run}"
+    return out
+
+
 def _rank(m: dict[str, Any]) -> tuple:
     """Representative order: a person's choice first (edit, record, stars), then the cull's burst rank and score."""
     return (m["use"] == "edit", m["use"] == "record", m["stars"], -(m["burst_rank"] or 10 ** 6), m["score"] or 0.0)
@@ -145,6 +201,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     from bioscan.gardener import taxa
 
     shown = taxa.display(c, sorted({k for e in out.values() for k in e["species"]}))
+    runs = {t: subject_runs(c, t) for t in {e["task_id"] for e in out.values()}} if task_id else {}
     result = []
     for e in out.values():
         ms = e.pop("members")
@@ -155,7 +212,8 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
         for k, g in groups.items():
             rep = max(g, key=_rank)
             bursts.append({"id": None if isinstance(k, tuple) else k, "size": len(g), "rep": rep["id"],
-                           "asset_ids": [m["id"] for m in g], "_rank": _rank(rep)})
+                           "asset_ids": [m["id"] for m in g], "_rank": _rank(rep),
+                           "run": runs.get(e["task_id"], {}).get(g[0]["id"])})
         cands = [b["rep"] for b in sorted(bursts, key=lambda b: b["_rank"], reverse=True)[:candidates]]
         for b in bursts:
             b.pop("_rank")

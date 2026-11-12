@@ -300,3 +300,10 @@ def test_review_is_by_group_with_merge_split_move_and_a_one_key_keep():
     assert "'cp-quick'" in app and "k === 'enter'" in app and "k === ']'" in app and "k === 'm'" in app
     assert "'task-regroup'" in app and "零星识别" in app and "比较当前拍摄段" not in app
     assert ".gr-grid" in text("styles.css")
+
+
+def test_same_subject_runs_are_framed_together_and_a_tile_shows_no_pill_without_a_suggestion():
+    app = text("app.js")
+    assert "function groupBlocksHTML" in app and "'run-merge'" in app and "同一对象" in app
+    assert "pill('无 AI 建议'" not in app and "if (!a.ai || (a.ai.verdict === 'none' && a.ai.score == null)) return '';" in app
+    assert "原片离线 · 分析未完成" in app and ".gr-run" in text("styles.css")
