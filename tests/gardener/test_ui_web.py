@@ -302,6 +302,15 @@ def test_review_is_by_group_with_merge_split_move_and_a_one_key_keep():
     assert ".gr-grid" in text("styles.css")
 
 
+def test_z_toggles_one_to_one_the_loupe_keeps_its_zoom_and_browsing_does_not_ask_for_original_pixels():
+    """Contract revision 13 (viewer): Z is fit <-> 1:1 in the single view and full screen; a zoomed loupe stays
+    zoomed on the next photo; at fit-to-window, or with the original offline, no /detail request is made and the
+    label is neutral, not the red failure."""
+    app = text("app.js")
+    assert "dvDo(zv, zv.z > 1.02 ? 'fit' : 'one')" in app and "ws.loupe = dvMount(st, a, keep, null)" in app
+    assert "v.z <= 1.02 || shown <= v.pw * 1.05 || off" in app and "offline: '原片离线 · 仅预览'" in app
+
+
 def test_same_subject_runs_are_framed_together_and_a_tile_shows_no_pill_without_a_suggestion():
     app = text("app.js")
     assert "function groupBlocksHTML" in app and "'run-merge'" in app and "同一对象" in app

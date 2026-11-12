@@ -985,7 +985,7 @@
     if (!ws) return '';
     const n = ws.sel.size;
     const manual = ws.kind === 'review' && ui.col && ui.col.kind === 'manual';
-    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格看单张 · P 选入修图 / X 淘汰 / U 待定 / R 保留记录，1–5 星级 · G 网格 / E 单张 / C 比较 / F 全屏 · Tab 或 I 信息面板</span>${singleToolsHTML(ws)}`;
+    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格看单张 · P 选入修图 / X 淘汰 / U 待定 / R 保留记录，1–5 星级 · G 网格 / E 单张 / C 比较 / F 全屏 / Z 原像素 · Tab 或 I 信息面板</span>${singleToolsHTML(ws)}`;
     return `<span class="batch-n">已选 <b>${n}</b> 张 · ${ws.mode === 'loupe' ? '单张视图里快捷键只作用于当前这张' : '快捷键作用于全部已选'}</span>
       <button type="button" class="btn sm pick" data-action="batch" data-v="record" data-key="b-record">${ic('check')}保留记录</button>
       <button type="button" class="btn sm pick" data-action="batch" data-v="edit" data-key="b-edit">${ic('edit')}选入修图</button>
@@ -1152,11 +1152,12 @@
     const pk = a ? `${a.id}|${sigMedia(a)}` : '';
     if (el.dataset.pk === pk) return;
     el.dataset.pk = pk;
+    const old = ws.loupe, keep = old && old.z > 1.02 ? { z: old.z, cx: old.cx, cy: old.cy } : null;   // 放大着换张：留在同一处，连拍里逐张比眼睛
     dvDrop(ws.loupe); ws.loupe = null;
     if (!a) { el.innerHTML = ''; return; }
     el.innerHTML = '<div class="lib-stage"></div>';
     const st = $('.lib-stage', el);
-    if (a.media === 'photo' && a.preview === 'ready') ws.loupe = dvMount(st, a, null, null);
+    if (a.media === 'photo' && a.preview === 'ready') ws.loupe = dvMount(st, a, keep, null);
     else st.innerHTML = stageEl(a);
     const i = ws.ids.indexOf(a.id);
     [ws.ids[i + 1], ws.ids[i - 1]].forEach(id => { const n = id && A(id); if (n && n.media === 'photo' && n.preview === 'ready') new Image().src = mediaUrl(n.id, 'large'); });
@@ -2082,7 +2083,7 @@
   // .dv-frame 代表整张直立画面，快速预览铺满它。放大到预览不够清楚时，按可见区域（外加一圈余量）向
   // /assets/{id}/detail 请求原像素裁切，按返回的像素框叠在 frame 的同一位置。换图先显示快速预览，再异步取细节；
   // 缩放、平移、换图或“取消”都会放弃上一个请求。比例只在原像素可用时给出，快速预览只说“预览放大 ×N（不是原像素）”。
-  const DV_LABEL = { preview: '快速预览', loading: '原像素细节加载中', ready: '原像素细节可用', failed: '原像素细节不可用' };
+  const DV_LABEL = { preview: '快速预览', loading: '原像素细节加载中', ready: '原像素细节可用', failed: '原像素细节不可用', offline: '原片离线 · 仅预览' };
   const DV_MAX_RATIO = 4;                 // 最多放大到一个原像素占 4 个屏幕像素
   const PART_ZH = { head: '头部', eye: '眼部' };
   const dvLive = new Set();
@@ -2251,9 +2252,10 @@
     if (!g.fw || !v.pw || !dvLive.has(v)) return;
     if (v.after && v.after()) { dvWant(v); return; }         // 第 3、4 张等前两张的原像素先到
     const shown = g.fw * v.z * dpr();                         // 整幅画面此刻占的设备像素宽
-    if (shown <= v.pw * 1.05) {                               // 快速预览已经够清楚：不取原像素
+    const off = (A(v.id) || {}).online === false;             // 原片离线：取不到原像素，不必每张都去要一次再报错
+    if (v.z <= 1.02 || shown <= v.pw * 1.05 || off) {         // 适合窗口（只是翻看）或快速预览已经够清楚：不取原像素
       if (v.ctl) v.ctl.abort();
-      v.ctl = null; v.box = null; v.det.hidden = true; v.state = 'preview'; dvLabel(v);
+      v.ctl = null; v.box = null; v.det.hidden = true; v.state = off ? 'offline' : 'preview'; dvLabel(v);
       return;
     }
     const hx = g.cw / (2 * g.fw * v.z), hy = g.ch / (2 * g.fh * v.z);
@@ -3204,6 +3206,9 @@
     if (!ws) return;
     if (mod && k.toLowerCase() === 'a' && !lb) { e.preventDefault(); ws.sel = new Set(ws.ids); applySel(); return; }
     if (mod || e.altKey) return;
+    // Z：适合窗口 ↔ 原像素 1:1（单张视图与全屏；照 Lightroom）
+    const zv = lb ? ui.lbView : ws.mode === 'loupe' ? ws.loupe : null;
+    if (k.toLowerCase() === 'z' && zv && dvLive.has(zv)) { e.preventDefault(); dvDo(zv, zv.z > 1.02 ? 'fit' : 'one'); return; }
     const lk = !lb && LIB_KEY[k.toLowerCase()];
     if (lk) { e.preventDefault(); libMode(lk); return; }
     const onPhotos = tg === document.body || tg === main || tg.tagName === 'H1' || tg.classList.contains('tile');
