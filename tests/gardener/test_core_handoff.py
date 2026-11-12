@@ -63,6 +63,7 @@ print(json.encode(out))
     assert got == [c["want"] for c in cases]
 
 
+@pytest.mark.skipif(not shutil.which("lua"), reason="lua not installed")
 def test_the_plugin_decodes_json_into_plain_tables(tmp_path):
     """Found in Lightroom Classic 14.2: dkjson's default decode tags every array with a metatable, and the SDK
     (catalog:createKeyword's synonyms) rejects it with "Assertion failed: packed". Every decode in the plugin
@@ -202,6 +203,7 @@ def test_species_keywords_use_the_lists_hierarchy(monkeypatch):
     assert handoff.keyword("name:Foo bar", "Foo bar", None, None) == ["Animalia", "Foo bar"]
 
 
+@pytest.mark.skipif(not shutil.which("lua"), reason="lua not installed")
 def test_export_templates_are_read_without_setfenv_and_only_hard_drive_exports_are_used(tmp_path):
     """Found in Lightroom Classic 14.2: the SDK's Lua has no setfenv, so every export failed; and the owner's
     export presets were other plug-ins' services (DxO, LRTimelapse), which must be refused, not run."""

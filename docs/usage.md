@@ -100,6 +100,8 @@ Every format's metadata reader is tested on small synthetic files (`tests/unit/t
 ```sh
 uv run python -m bioscan.service.decode /path/to/card -r    # per file: ext, container, lat, lon, taken_at; then a count per extension
 ```
+A RAW with a standard TIFF header (ARW, NEF, NRW, CR2, PEF, SRW, DNG) whose image data runs past the end of the file, e.g. a copy cut short, gets an `error` event ("RAW 文件不完整（被截断）…") instead of a result: LibRaw decodes such a file without complaint, filling the missing rows with black or with the previous photo's pixels. The check reads only the IFDs. It has been checked on Sony ARW and Lightroom DNG. ORF, RW2, CR3 and RAF are not checked.
+
 `taken_at` keeps the sub-second part when the camera writes one (`SubSecTimeOriginal`), so burst frames get distinct, ordered times: `2026-05-01T08:00:00.37-07:00`. `bioscan gt folders` reads DateTimeOriginal, SubSecTimeOriginal and OffsetTimeOriginal with `exiftool` (the CLI does not load Pillow) and writes them in the same form.
 
 ### Ports and environment variables
@@ -268,6 +270,22 @@ species or collection). The plugin reports per photo whether the preset was appl
 Gardener marks a photo exported only from that result. A photo whose develop settings changed in Lightroom after
 Gardener applied a preset is skipped and reported, never overwritten. Export takes a Hard Drive export preset (a preset of
 another plug-in's export service is refused). Checked in Lightroom Classic 14.2 (契约修订 7B). Rules: `docs/gardener/contract.md`, 契约修订 5E.
+
+### Gardener: 本地目录 (browse folders on disk)
+
+「本地目录」 in the left nav of the Gardener UI (`gardener serve`) browses what is already on disk without importing it. It shows
+`~/Pictures`, `~/Documents`, `~/Desktop`, `~/Downloads`, every volume mounted under `/Volumes` (memory cards, external
+disks; a symlink there such as `Macintosh HD -> /` is not a volume) and the service's `--allow-root` folders, nothing else.
+Pick a folder in the tree on the left; the right side shows its photos and videos (same file types and RAW+JPEG pairing
+as a scan) as a grid, or one large image with a filmstrip: G grid, E single, F full screen, ←/→ next and previous.
+A folder inside a task's source gets a 「任务」 badge that opens the task.
+
+It is browse-only: no marks, nothing is imported, copied or moved, and nothing is written to the database or next to
+your files. Previews are made on request (a RAW's embedded JPEG, ~30 ms) into `<data-dir>/cache/fs/` (capped at 1 GiB,
+oldest first) and are removed by 管理 › 清除缓存. A path whose real location (after symlinks) is outside those places
+is refused (403), as is a `..` in the path (400). macOS may refuse a volume or library to the service process; it then
+shows as 不可读 until that program has access under System Settings › Privacy & Security. API: 契约修订 12 in
+`docs/gardener/contract.md`.
 
 ### HTTP API
 

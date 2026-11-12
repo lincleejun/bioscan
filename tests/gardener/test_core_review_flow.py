@@ -86,6 +86,11 @@ def test_keep_best_previews_its_reach_skips_protected_and_only_record_frames_and
         t = scanned(c, src)
         keep, protected, p3, wren, p4 = ids(c, task=t["id"])
         assert len(names) == 5
+        # the burst voted the lone wren frame an owl (修订 13); a person names it back, and that is never outvoted
+        sid = c.get(f"{API}/assets/{wren}").json()["subjects"][0]["id"]
+        assert c.get(f"{API}/assets/{wren}").json()["subjects"][0]["current"]["concept"] == "avibase:test-asio"
+        c.post(f"{API}/identifications", json={"subject_ids": [sid], "claim": {
+            "level": "species", "concept": WREN["concept"], "taxon": WREN["scientific"], "common": WREN["common"]}})
         mark(c, [protected], stars=3)
         r = c.post(f"{API}/marks/keep-best", json={"asset_id": keep, "dry_run": True}).json()
         assert r["dry_run"] and r["batch_id"] is None and sorted(r["reject"]) == sorted([p3, p4])

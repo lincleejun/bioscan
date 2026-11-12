@@ -102,7 +102,8 @@ class Fake:
             a["ai"] = {"verdict": ai[0], "score": ai[1], "reasons": ai[2]} if ai else None
             a["content_label_zh"] = content
             a["species"] = {"taxon": sp[0], "common": sp[1], "p": 0.71} if sp else None
-            a["burst"] = {"id": f"{t['id']}:{burst[0]}", "rank": burst[1], "size": burst[2]} if burst else None
+            a["burst"] = {"id": f"{t['id']}:{burst[0]}", "rank": burst[1], "size": burst[2],
+                          "rep": (ids or [a["id"]])[0]} if burst else None   # 修订 15: b1's best frame is its first
             a["analysis"] = "done" if ai else ("failed" if media == "photo" else "partial")
             a["lat"], a["lon"] = (25.3, 98.8) if i < 3 else (None, None)
             a["caps"] = {c.id: {"state": "not_enabled", "version": None, "error": None, "data": None}
@@ -594,6 +595,8 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             return fk.new_run(t, "rescan", scope={k: body[k] for k in ("capabilities", "asset_ids") if body.get(k)})
         if action == "retry":
             return fk.new_run(t, "retry", scope={"asset_ids": body.get("asset_ids") or []})
+        if action == "regroup":                               # 契约修订 13
+            return fk.new_run(t, "regroup", scope={})
         moves = {"pause": ({"running", "queued"}, "paused"), "resume": ({"paused"}, "queued"),
                  "stop": ({"running", "queued", "paused"}, "stopped")}
         if action in moves:
@@ -705,6 +708,7 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
 
     @app.get(P + "/species")
     def species(task: str = "", hidden: str = "0"):
+        # 修订 16: with `task`, each card also carries groups / decided / started (there are no cards here)
         return {"species": [], "to_confirm": [], "confirmed_total": 0, "unresolved": {"genus_family": 0, "unconfirmed": 0}}
 
     @app.patch(P + "/species/{concept}")
@@ -734,6 +738,16 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                               and set(sibs) & set(fk.members(o))]
         return out
 
+    @app.get(P + "/tasks/{tid}/shortlist")
+    def shortlist(tid: str):          # contract revision 9: same ranking as review.shortlist
+        fk.task(tid)
+        ms = [a for a in fk.assets.values() if tid in a["task_ids"] and a["media"] == "photo"
+              and (a["ai"] or {}).get("score") is not None]
+        ms.sort(key=lambda a: (a["ai"]["verdict"] == "reject", ((a["burst"] or {}).get("rank") or 1) > 1,
+                               -a["ai"]["score"], a["id"]))
+        size = min(len(ms), max(-(-len(ms) // 10), 20))
+        return {"scored": len(ms), "size": size, "asset_ids": [a["id"] for a in ms[:size]]}
+
     @app.get(P + "/encounters")
     def encounters(task: str = "", concept: str = ""):
         if not task and not concept:
@@ -742,12 +756,14 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         bursts: dict = {}
         for a in ms:
             bursts.setdefault((a["burst"] or {}).get("id") or a["id"], []).append(a["id"])
-        bs = [{"id": k if k not in bursts[k] else None, "size": len(v), "rep": v[0], "asset_ids": v}
-              for k, v in bursts.items()]
+        bs = [{"id": k if k not in bursts[k] else None, "size": len(v), "rep": v[0], "asset_ids": v,
+               "run": ms[0]["id"],                                 # 修订 14: one subject run, named by its first photo
+               "kept": sum(fk.assets[i]["use"] in ("record", "edit") for i in v),     # 修订 16
+               "rejected": sum(fk.assets[i]["use"] == "reject" for i in v)} for k, v in bursts.items()]
         enc = {"id": "e_fake1", "task_id": task or ms[0]["task_ids"][0], "origin": "auto", "start": ms[0]["taken_at"],
                "end": ms[-1]["taken_at"], "photos": len(ms), "asset_ids": [a["id"] for a in ms], "bursts": bs,
                "candidates": [b["rep"] for b in bs][:3], "species": []} if ms else None
-        return {"encounters": [enc] if enc else [], "unassigned": []}
+        return {"encounters": [enc] if enc else [], "unassigned": [], "unassigned_use": {}}
 
     @app.post(P + "/encounters/{eid}/split", status_code=201)
     def encounter_split(eid: str, body: dict):
@@ -772,6 +788,21 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             raise Err(400, "要拆的照片须在同一个连拍里", "bad_request")
         new = a["burst"]["id"] + "~p_fake"
         return {"burst_id": new if len(ids) > 1 else None, "from": a["burst"]["id"], "moved": ids}
+
+    # ---- contract revision 13: shapes only; behaviour is tested on the real service ----
+    @app.post(P + "/bursts/merge", status_code=201)
+    def burst_merge(body: dict):
+        ids = body.get("asset_ids") or []
+        fk.task(body.get("task_id") or "")
+        if len(ids) < 2:
+            raise Err(400, "合并需要同一任务里的两张以上照片", "bad_request")
+        return {"burst_id": f"{body['task_id']}:merged~p_fake", "from": [], "size": len(ids), "rep": ids[0]}
+
+    @app.post(P + "/identifications/move")
+    def identifications_move(body: dict):
+        if body.get("asset_ids") is None and not (body.get("task_id") and body.get("from_concept")):
+            raise Err(400, "asset_ids, or task_id with from_concept, is required", "bad_request")
+        return {"batch_id": "b_fake", "dry_run": False, "changed": [], "skipped": []}
 
     @app.post(P + "/collections/{cid}/preview-rule")
     def preview_rule(cid: str, body: dict):
@@ -1021,6 +1052,46 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             "trashed_files": len(files), "trashed_bytes": sum(f["size"] for f in files), "freed_bytes": 0,
             "recoverable": True, "failed": [], "skipped": [], "note": NOTE})
         return p
+
+    # ---- 契约修订 12: 本地目录 (read-only browse of the owner's folders) ----
+    fs_root = "/Users/me/Pictures"
+    fs_dirs = {fs_root: ["2026-11-01", "Lightroom"], fs_root + "/2026-11-01": [], fs_root + "/Lightroom": []}
+
+    def fs_check(path: str) -> str:
+        if not path.startswith("/") or ".." in path.split("/"):
+            raise Err(400, "路径不能含 ..", "bad_request")
+        if not (path == fs_root or path.startswith(fs_root + "/")):
+            raise Err(403, "不在可浏览的位置内", "forbidden")
+        return path
+
+    @app.get(P + "/fs/roots")
+    def fs_roots():
+        return [{"name": "图片", "path": fs_root, "kind": "home", "online": True},
+                {"name": "下载", "path": "/Users/me/Downloads", "kind": "home", "online": True},
+                {"name": "CARD", "path": "/Volumes/CARD", "kind": "volume", "online": False}]
+
+    @app.get(P + "/fs/list")
+    def fs_list(path: str, offset: int = 0, limit: int = 300):
+        fs_check(path)
+        if path not in fs_dirs:
+            raise Err(404, f"不存在：{path}", "not_found")
+        n = 40 if path.endswith("2026-11-01") else 0
+        items = [{"name": f"DSC{i:05d}.ARW", "path": f"{path}/DSC{i:05d}.ARW", "media": "photo", "kind": "raw",
+                  "size": 24_000_000, "mtime": "2026-11-01T08:00:00Z",
+                  "files": [{"name": f"DSC{i:05d}.ARW", "role": "raw", "size": 24_000_000}]} for i in range(n)]
+        tasks = [{"id": "t_0001", "title": "测试"}] if path.endswith("2026-11-01") else []
+        return {"path": path, "name": path.rsplit("/", 1)[1], "root": {"name": "图片", "path": fs_root, "kind": "home"},
+                "parent": None if path == fs_root else fs_root, "tasks": tasks,
+                "dirs": [{"name": d, "path": f"{path}/{d}", "photos": 40 if d.startswith("2026") else 0, "videos": 0,
+                          "dirs": 0, "readable": True, "tasks": [{"id": "t_0001", "title": "测试"}] if d.startswith("2026") else []}
+                         for d in fs_dirs[path]],
+                "photos": n, "videos": 0, "skipped": 0, "total": n, "offset": offset, "limit": limit,
+                "items": items[offset:offset + limit]}
+
+    @app.get(P + "/fs/thumb")
+    def fs_thumb(path: str, size: str = "thumb"):
+        fs_check(path)
+        return Response(_jpeg((90, 110, 60 + 20 * (len(path) % 7))), media_type="image/jpeg")
 
     if static and WEB.is_dir():
         app.mount("/", StaticFiles(directory=WEB, html=True), name="web")

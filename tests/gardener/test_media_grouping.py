@@ -31,7 +31,7 @@ def test_subjects_taxa_animal_types_scenes_people_and_videos():
     g = by_key(suggest(assets))
     assert g["species:Megascops asio"].name == "Eastern Screech-Owl" and g["species:Megascops asio"].kind == "species"
     assert g["species:Megascops"].name == "Megascops（属）"
-    assert g["animal:bird"].asset_ids == ["b0", "b1", "b2"] and g["animal:bird"].name == "鸟类 · 未识别到种"
+    assert g["animal:bird"].asset_ids == ["b0", "b1", "b2"] and g["animal:bird"].name == "鸟类"
     assert g["scene:mountain"].name == "山地" and g["scene:mountain"].kind == "scene"
     assert g["person:other"].asset_ids == ["p0", "p1", "p2"]                 # people without a known face
     assert g["other:video"].asset_ids == ["v"] and g["other:none"].name == "未分类"

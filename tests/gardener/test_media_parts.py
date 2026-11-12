@@ -97,7 +97,7 @@ def test_run_queue_model_work_holds_the_device_lock():
 
 
 def test_ui_compare_up_to_four_and_part_buttons():
-    """Revision 7C in the viewer: compare takes 2-4 photos, keys 1-4 pick the slot the filmstrip replaces,
+    """Revision 7C in the viewer: compare takes 2-4 photos, a click picks the slot the filmstrip replaces (revision 9),
     slots 3-4 fetch original pixels after the first two, and 看头部 / 看眼部 ask the parts route (fake §6 mirror)."""
     from fake_api import create_app
     from fastapi.testclient import TestClient
@@ -105,7 +105,7 @@ def test_ui_compare_up_to_four_and_part_buttons():
 
     js = text("app.js")
     assert "const CMP_MAX = 4;" in js and "ws.sel.size > CMP_MAX" in js
-    assert "/^[1-4]$/.test(e.key)" in js and "v.after = () => panes.slice(0, 2)" in js
+    assert "/^[1-4]$/.test(e.key)" not in js and "v.after = () => panes.slice(0, 2)" in js
     assert "api('GET', `/assets/${encodeURIComponent(v.id)}/parts`, null, { subject: s.id })" in js
     assert "看头部" in js and "看眼部" in js and "没有足够确定的" in js
     c = TestClient(create_app(static=False))

@@ -323,7 +323,25 @@ def test_select_flags_no_lead_room_and_the_flag_never_changes_the_selection():
     all3 = tilted("all", 0, 5.0)
     all3["products"] |= {k: v for k, v in facing("all", 0, "left", ((0.02, 0.0, 0.3, 0.4), 0.9))["products"].items()
                          if k in ("identify", "facing")}
-    assert cull.flags(all3) == ["horizon_tilt", "tight_headroom", "no_lead_room"] == list(cull.FLAGS)
+    all3["products"]["quality"]["subject"]["area"] = 0.003
+    assert cull.flags(all3) == ["horizon_tilt", "tight_headroom", "no_lead_room", "subject_too_small"] == list(cull.FLAGS)
+
+
+def test_a_sharp_burst_of_small_subjects_is_flagged_and_still_picked():
+    """#131: a distant bird on a long lens. subject_too_small is a flag: the burst's best frame is
+    picked, nothing is rejected, and a quality product from before #131 that still lists the reason
+    (Gardener's stored raw:quality) is read the same way."""
+    frames = [ev(f"f{i}", i * 0.2, blur=0.15, aesthetic=0.5 + i / 10) for i in range(5)]
+    for f in frames:
+        f["products"]["quality"]["subject"]["area"] = 0.003
+    frames[0]["products"]["quality"]["reject_reasons"] = ["subject_too_small"]       # an older product
+    r = run(frames)
+    assert [p for p, x in r.items() if x["keep"]] == ["f4"] and r["f4"]["status"] == "pick"
+    assert all(x["reasons"] == [] and x["flags"] == ["subject_too_small"] for x in r.values())
+    assert cull.final_reasons(frames[0]) == set() and "subject_too_small" not in cull.SCOPES
+    edge = ev("edge", 0.0)
+    edge["products"]["quality"]["subject"]["area"] = cull.SMALL_SUBJECT
+    assert cull.flags(edge) == []
 
 
 @pytest.mark.parametrize("bad", [-1, "0.1", True, float("nan"), 1.5])
@@ -336,3 +354,14 @@ def test_select_checks_lead_room_min(bad):
 def test_select_checks_horizon_flag_deg(bad):
     with pytest.raises(ValueError, match="select.horizon_flag_deg"):
         cull.check_select(SELECT | {"horizon_flag_deg": bad})
+
+
+def test_frames_one_shutter_press_apart_chain_whatever_the_vectors_say():
+    """#144: panning with a flying bird changes the frame vector between frames 0.15 s apart."""
+    pan = [ev("a", 0.0), ev("b", 0.15, v=[0.0, 1.0]), ev("c", 0.3), ev("d", 0.9, v=[0.0, 1.0])]
+    off = cull.burst(pan, BURST)
+    assert [off[p]["id"] for p in "abcd"] == [None] * 4                       # shutter_gap_s defaults to 0: unchanged
+    on = cull.burst(pan, BURST | {"shutter_gap_s": 0.35})
+    assert [on[p]["id"] for p in "abcd"] == ["b0001"] * 3 + [None]            # d: past the shutter gap and unlike
+    with pytest.raises(ValueError, match="shutter_gap_s must be a number >= 0"):
+        cull.check_burst(BURST | {"shutter_gap_s": -1})

@@ -57,7 +57,7 @@ def test_create_scan_completes_with_previews_results_groups_and_summary(env, tmp
         r = c.get(f"{API}/assets/{pair['id']}/thumb")
         assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
         h = c.get(f"{API}/health").json()
-        assert h["status"] == "ok" and h["schema_version"] == 3 and h["worker"]["state"] == "idle"
+        assert h["status"] == "ok" and h["schema_version"] == 4 and h["worker"]["state"] == "idle"
         assert not any(p.name.endswith(".jpg") and "thumb" in p.name for p in src.rglob("*"))   # nothing written in src
         assert sorted(os.listdir(src)) == ["IMG_0000.jpg", "IMG_0001.jpg", "IMG_0002.jpg", "clip.mov", "notes.txt", "sub"]
 
@@ -310,3 +310,41 @@ def test_task_validation_and_local_only(env, tmp_path):
     with env.client(allow_roots=[str(tmp_path / "elsewhere")]) as c:
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": [str(src)]}).status_code == 400
     assert BASE.startswith("http://127.0.0.1")
+
+
+def test_pair_with_a_corrupt_jpeg_previews_and_analyses_the_raw(env, fakes, tmp_path):
+    """The JPEG is a pair's primary; when it cannot be read, the RAW gives the preview and the analysis."""
+    src = tmp_path / "card"
+    os.rename(make_jpg(src / "raw.jpg", color=(200, 30, 30)), src / "DSC_0002.arw")   # the fake toolkit "reads" it
+    (src / "DSC_0002.jpg").write_bytes(b"not a jpeg" * 10)
+    with env.client() as c:
+        t = wait_task(c, create_task(c, [str(src)], caps=["content"])["id"])
+        assert t["scan"]["status"] == "completed", c.get(f"{API}/runs/{t['scan']['run_id']}").json()
+        (item,) = assets(c, task=t["id"])["items"]
+        d = c.get(f"{API}/assets/{item['id']}").json()
+        assert item["preview"] == "ready" and d["meta"]["preview_source"] == str(src / "DSC_0002.arw")
+        assert "unreadable" in d["meta"]["primary_error"]
+        assert fakes.analyzed == [(str(src / "DSC_0002.arw"), ("content",))]
+        wait_task(c, create_task(c, [str(src)], caps=["quality"])["id"])   # a later task analyses the RAW too
+        assert c.get(f"{API}/assets/{item['id']}").json()["meta"]["preview_source"] == str(src / "DSC_0002.arw")
+        assert fakes.analyzed[-1] == (str(src / "DSC_0002.arw"), ("quality",))
+
+
+def test_the_tasks_place_stands_in_for_missing_gps_and_a_photos_own_gps_wins(env, fakes, tmp_path):
+    """Found on the owner's Byxbee Park card: no photo had GPS, so species came from the whole world
+    (African Fish Eagle in Palo Alto). A task can carry where the shoot was, like `bioscan --lat/--lon`."""
+
+    src = tmp_path / "card"
+    photos(src, 2)
+    with env.client() as c:
+        t = wait_task(c, create_task(c, [str(src)], lat=37.457, lon=-122.104)["id"])
+        assert t["location"] == {"lat": 37.457, "lon": -122.104}
+        assert fakes.where == {"IMG_0000.jpg": (37.457, -122.104), "IMG_0001.jpg": (37.457, -122.104)}
+        with st.Store(env.data).tx() as db:                                  # one photo has its own GPS
+            db.execute("UPDATE assets SET lat = 1.5, lon = 2.5 WHERE primary_path LIKE '%IMG_0001.jpg'")
+        assert c.patch(f"{API}/tasks/{t['id']}", json={"lat": 37.4, "lon": -122.1}).json()["location"]["lat"] == 37.4
+        c.post(f"{API}/tasks/{t['id']}/rescan", json={"capabilities": ["species"]})
+        wait_task(c, t["id"])
+        assert fakes.where == {"IMG_0000.jpg": (37.4, -122.1), "IMG_0001.jpg": (1.5, 2.5)}
+        assert c.patch(f"{API}/tasks/{t['id']}", json={"lat": 37.4}).status_code == 400   # both or neither
+        assert c.patch(f"{API}/tasks/{t['id']}", json={"lat": None, "lon": None}).json()["location"] is None
