@@ -64,7 +64,8 @@ def _plans(c, fn):
         fn()
     finally:
         c.set_trace_callback(None)
-    return {q: [r[3] for r in c.execute("EXPLAIN QUERY PLAN " + q)] for q in sqls if "ai_suggestions" in q}
+    # "suggestions": the reads go through the current_suggestions view (修订 15), whose plan still names ai_suggestions
+    return {q: [r[3] for r in c.execute("EXPLAIN QUERY PLAN " + q)] for q in sqls if "suggestions" in q}
 
 
 def test_task_scoped_latest_reads_never_walk_the_whole_library(c):

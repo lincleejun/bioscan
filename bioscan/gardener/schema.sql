@@ -103,6 +103,12 @@ CREATE TABLE IF NOT EXISTS ai_suggestions (
   version TEXT, created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_asset ON ai_suggestions (asset_id, id);
+-- Each asset's current suggestion: its latest row (修订 15). Correlated on asset_id (index ai_asset), never
+-- `id IN (SELECT max(id) ... GROUP BY asset_id)`: that builds a library-wide list under the write lock (#131).
+-- Derived, so recreated on every start, like current_ids.
+DROP VIEW IF EXISTS current_suggestions;
+CREATE VIEW current_suggestions AS
+SELECT s.* FROM ai_suggestions s WHERE s.id = (SELECT max(x.id) FROM ai_suggestions x WHERE x.asset_id = s.asset_id);
 
 -- Human layer: global per asset, shared by every collection.
 CREATE TABLE IF NOT EXISTS marks (

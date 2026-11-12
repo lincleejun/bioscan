@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from bioscan.gardener import review
 from bioscan.gardener import store as st
 from bioscan.gardener.store import dumps, loads, now
 
@@ -133,8 +132,8 @@ def burst_consensus(c: Any, task_id: str, run_id: str | None) -> int:
     reads the model's own latest row, never an earlier vote. Returns the rows written.
     ponytail: a majority of frames, not posterior mass; weigh by p if close votes turn out wrong."""
     bursts: dict[str, list[str]] = {}
-    for r in c.execute("SELECT s.asset_id, s.burst_id FROM task_assets ta JOIN ai_suggestions s ON s.id = (SELECT max(x.id) "
-                       "FROM ai_suggestions x WHERE x.asset_id = ta.asset_id) WHERE ta.task_id = ?", (task_id,)):
+    for r in c.execute("SELECT s.asset_id, s.burst_id FROM task_assets ta JOIN current_suggestions s ON s.asset_id = "
+                       "ta.asset_id WHERE ta.task_id = ?", (task_id,)):
         bursts.setdefault(r[1] or f"single:{r[0]}", []).append(r[0])
     ai = "SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'ai' AND x.undone = 0"
     subs: dict[str, list[dict[str, Any]]] = {}
@@ -261,8 +260,8 @@ def _bursts(c: Any, asset_ids: list[str]) -> dict[str, str]:
     """asset id -> its latest burst id (task-scoped, ai_suggestions), for the assets that have one."""
     marks = st.marks_in(asset_ids)
     return {r[0]: r[1] for r in c.execute(
-        f"SELECT asset_id, burst_id FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions "
-        f"WHERE asset_id IN ({marks}) GROUP BY asset_id) AND burst_id IS NOT NULL", asset_ids)}
+        f"SELECT asset_id, burst_id FROM current_suggestions WHERE asset_id IN ({marks}) AND burst_id IS NOT NULL",
+        asset_ids)}
 
 
 def _resolve(target: dict[str, Any], claim: dict[str, Any]) -> dict[str, Any] | None:
@@ -328,8 +327,8 @@ def identify(c: Any, subject_ids: list[str], new_subjects: list[dict[str, Any]],
                 continue
             # ponytail: scans ai_suggestions per target (no burst_id index); add one if a large batch of targets gets slow.
             sibs = [r[0] for r in c.execute(
-                f"SELECT s.asset_id FROM ai_suggestions s WHERE {review.LATEST} AND s.burst_id = ? AND s.asset_id != ? "
-                "ORDER BY s.asset_id", (burst, s["asset_id"]))]
+                "SELECT asset_id FROM current_suggestions WHERE burst_id = ? AND asset_id != ? "
+                "ORDER BY asset_id", (burst, s["asset_id"]))]
         elif scope == "encounter":       # contract revision 5B: the other photos of the target's encounter(s)
             sibs = [r[0] for r in c.execute(
                 "SELECT DISTINCT asset_id FROM encounter_members WHERE encounter_id IN (SELECT encounter_id FROM "

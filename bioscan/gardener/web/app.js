@@ -934,7 +934,7 @@
       if (a.updated_at > ws.cursor) ws.cursor = a.updated_at;
       if (ws.allSet.has(a.id)) return;
       ws.allSet.add(a.id); ws.all.push(a.id); fresh.push(a.id);
-      if (a.burst) { const r = ws.burstRep.get(a.burst.id); if (!r || (A(r).burst || {}).rank > a.burst.rank && !ws.ids.includes(r)) ws.burstRep.set(a.burst.id, a.id); }
+      if (a.burst) ws.burstRep.set(a.burst.id, a.burst.rep);      // 修订 15：一组显示哪一帧由服务端定（review.representative）
     });
     const vis = fresh.filter(id => visible(ws, A(id)));
     if (!vis.length) return;
@@ -972,10 +972,14 @@
     if (ws.lib) loadShortlist(ws);
     store(items);
     const known = items.filter(a => ws.allSet.has(a.id)).map(a => a.id);
+    // 人的决定会换掉一组的代表帧：以最新返回的为准（其余帧没变，不会再返回）
+    const moved = known.map(A).filter(a => a.burst && ws.burstRep.get(a.burst.id) !== a.burst.rep);
+    moved.forEach(a => ws.burstRep.set(a.burst.id, a.burst.rep));
     known.forEach(id => S.details.delete(id));
     // 已载入的就地更新；全部载入后才追加新素材（否则留给分页按原顺序载入）
     if (ws.loadedAll) addLoaded(ws, items); else items.forEach(a => { if (a.updated_at > ws.cursor) ws.cursor = a.updated_at; });
     patchTiles(known);
+    if (moved.length && ws.collapse) recompute(true);
     if (ws.encQuery) loadEnc(ws);
     if (known.includes(ws.current)) renderInspector();
     patchBinds('ws-filters'); patchBinds('ws-count'); patchBinds('lib-side');
