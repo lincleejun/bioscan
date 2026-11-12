@@ -1866,7 +1866,7 @@
   // ---------- 全部素材 ----------
   const LIBF = [
     ['task', '任务', 'sel'], ['collection', '集合', 'sel'], ['media', '媒体', [['', '不限'], ['photo', '照片'], ['video', '视频']]],
-    ['use', '选片用途', [['', '不限'], ['record', '保留记录'], ['edit', '选入修图'], ['pending', '待定'], ['reject', '淘汰']]],
+    ['use', '旗标/用途', [['', '不限'], ['record', '保留记录'], ['edit', '选入修图'], ['pending', '待定'], ['reject', '淘汰']]],
     ['stars_min', '星级', [['', '不限'], ['1', '≥ 1 星'], ['3', '≥ 3 星'], ['5', '5 星']]],
     ['ai', 'AI 建议', [['', '不限'], ['pick', '建议保留'], ['reject', '建议舍弃'], ['none', '无建议']]],
     ['judged', '判断状态', [['', '不限'], ['yes', '已判断'], ['no', '未判断']]],
@@ -1878,23 +1878,43 @@
     ['order', '排序', [['time', '拍摄时间'], ['discovered', '发现顺序'], ['path', '文件名'], ['score', 'AI 分数']]],
   ];
   const libRule = () => { const r = {}; Object.entries(ui.lib).forEach(([k, v]) => { if (v !== '' && v != null && k !== 'order') r[k] = v; }); return r; };
+  // 常用的几项放在一行（搜索框 + 下列四项），其余收进「更多筛选」；生效的筛选都显示为可移除的标签（owner 反馈 2026-11-12）
+  const LIB_MAIN = ['task', 'use', 'stars_min', 'order'];
+  const LIB_TXT = { date_from: ['起始日期', 'date'], date_to: ['结束日期', 'date'], content: ['内容', 'search', '场景大类或标签'], species: ['物种', 'search', '学名或俗名'], q: ['文件名', 'search', '包含…'] };
   async function vLibrary() {
     if (!S.cols.length) await refreshCols();
     let tags = [];
     try { tags = await api('GET', '/tags'); } catch (e) { tags = []; }
     const f = ui.lib;
     const opts = k => (k === 'task' ? [['', '全部任务']].concat(S.tasks.map(t => [t.id, t.title])) : k === 'collection' ? [['', '全部集合']].concat(S.cols.map(c => [c.id, c.name])) : [['', '全部标签']].concat(tags.filter(t => t.active).map(t => [t.id, t.name])));
-    const sel = ([name, label, o]) => `<label class="fsel"><span>${label}</span><select class="input sm" name="${name}">${(o === 'sel' ? opts(name) : o).map(([v, l]) => `<option value="${esc(v)}" ${String(f[name] || (name === 'order' ? 'time' : '')) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
-    const txt = (name, label, type, ph) => `<label class="fsel"><span>${label}</span><input class="input sm" type="${type}" name="${name}" value="${esc(f[name] || '')}" placeholder="${esc(ph || '')}"></label>`;
-    makeWs('query', libRule(), f.order || 'time', {});
+    const optsOf = ([name, , o]) => (o === 'sel' ? opts(name) : o);
+    const sel = d => `<label class="fsel"><span>${d[1]}</span><select class="input sm" name="${d[0]}">${optsOf(d).map(([v, l]) => `<option value="${esc(v)}" ${String(f[d[0]] || (d[0] === 'order' ? 'time' : '')) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+    const txt = name => { const [label, type, ph] = LIB_TXT[name]; return `<label class="fsel"><span>${label}</span><input class="input sm" type="${type}" name="${name}" value="${esc(f[name] || '')}" placeholder="${esc(ph || '')}"></label>`; };
+    // 搜索框写物种或文件名中的一个（两者在服务端是分开、同时生效的条件）；另一个留在「更多筛选」里
+    const sf = ui.libSF || (f.q && !f.species ? 'q' : 'species'), other = sf === 'q' ? 'species' : 'q';
+    const rule = libRule(), more = Object.keys(rule).filter(k => !LIB_MAIN.includes(k) && k !== sf).length;
+    const open = prefs.get('libmore', '0') === '1';
+    const chip = ([k, v]) => {
+      const d = LIBF.find(x => x[0] === k), o = d && optsOf(d).find(x => x[0] === String(v));
+      const t = `${d ? d[1] : (LIB_TXT[k] || [k])[0]}：${o ? o[1] : v}`;
+      return `<button type="button" class="fchip" data-action="lib-unset" data-k="${esc(k)}" aria-label="移除筛选 ${esc(t)}">${esc(t)}${ic('x')}</button>`;
+    };
+    makeWs('query', rule, f.order || 'time', {});
     return `<div class="wpage">
       <header class="rv-head">
         <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">全部素材</h1><span class="hint">跨任务组合筛选；结果可直接 Review、保存为 Smart Collection 或导出。</span></div>
           <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button><button type="button" class="btn sm ghost" data-action="save-smart">保存为 Smart Collection…</button><button type="button" class="btn sm ghost" data-action="export">${ic('download')}导出…</button><button type="button" class="btn sm ghost" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></div>
         <form class="filters" id="lib-filters" aria-label="组合筛选">
-          ${LIBF.map(sel).join('')}
-          ${txt('date_from', '起始日期', 'date')}${txt('date_to', '结束日期', 'date')}
-          ${txt('content', '内容', 'search', '场景大类或标签')}${txt('species', '物种', 'search', '学名或俗名')}${txt('q', '文件名', 'search', '包含…')}
+          <div class="lf-row">
+            <div class="lf-search">${ic('zoom')}<select class="input sm" data-lib-sfield aria-label="搜索范围"><option value="species" ${sf === 'species' ? 'selected' : ''}>物种</option><option value="q" ${sf === 'q' ? 'selected' : ''}>文件名</option></select><input class="input sm" type="search" name="${sf}" value="${esc(f[sf] || '')}" placeholder="${sf === 'q' ? '文件名包含…' : '学名或俗名'}" aria-label="搜索${sf === 'q' ? '文件名' : '物种'}"></div>
+            ${LIBF.filter(d => LIB_MAIN.includes(d[0])).map(sel).join('')}
+            <button type="button" class="btn sm ghost" data-action="lib-more" aria-controls="lib-more" aria-expanded="${open}">更多筛选${more ? ` (${more})` : ''}</button>
+          </div>
+          <div class="lf-more" id="lib-more" ${open ? '' : 'hidden'}>
+            ${LIBF.filter(d => !LIB_MAIN.includes(d[0])).map(sel).join('')}
+            ${['date_from', 'date_to', 'content', other].map(txt).join('')}
+          </div>
+          ${Object.keys(rule).length ? `<div class="chips lf-chips" role="group" aria-label="生效的筛选">${Object.entries(rule).map(chip).join('')}</div>` : ''}
         </form>
       </header>
       ${wsHTML()}
@@ -2527,6 +2547,8 @@
     setHTML(main, html);
     if (view === 'compare' && ui.view === 'compare') cpRender();
     main.scrollTop = 0;
+    const here = view === 'flow-review' && $('.fr-rail .is-here');   // 左栏各自滚动：换物种后当前这一行仍在视野里
+    if (here) here.scrollIntoView({ block: 'nearest' });
     prefs.set('route', location.hash);
     const navKey = view === 'collections' && params.cat ? 'col-' + params.cat : NAV_OF[view];
     $$('.nav a').forEach(a => { if (a.dataset.nav === navKey) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
@@ -2801,6 +2823,8 @@
       } catch (e) { toast(errMsg(e)); }
     },
     'lib-clear': () => { ui.lib = {}; route(true); },
+    'lib-unset': el => { delete ui.lib[el.dataset.k]; route(true); },
+    'lib-more': el => { const m = $('#lib-more'); m.hidden = !m.hidden; el.setAttribute('aria-expanded', String(!m.hidden)); prefs.set('libmore', m.hidden ? '0' : '1'); },
     'save-smart': () => { const rule = libRule(); dialog({
       title: '保存为 Smart Collection', focus: '#ss-name',
       body: `<div class="field"><label for="ss-name">名称</label><input id="ss-name" class="input" maxlength="80"></div><p class="hint">规则：<span class="mono">${esc(JSON.stringify(rule))}</span>。成员按规则实时求值；完成审阅时记录快照，之后新增显示「新增待审」。</p>`,
@@ -3118,6 +3142,9 @@
       if (t.name === 'preset') { d.preset = t.value; const p = S.presets.find(x => x.id === t.value); d.caps = expandCaps(p ? p.capabilities : []); $('#cap-toggles').innerHTML = capToggles(d.caps, 'cap'); }
       else if (t.name === 'cap') { d.caps = expandCaps($$('input[name=cap]:checked').map(i => i.value)); $('#cap-toggles').innerHTML = capToggles(d.caps, 'cap'); }
       else if (t.name === 'run_mode') d.run_mode = t.value;
+    } else if (t.matches('[data-lib-sfield]')) {
+      ui.libSF = t.value;
+      route(true);
     } else if (t.form && t.form.id === 'lib-filters') {
       ui.lib[t.name] = t.value;
       route(true);
