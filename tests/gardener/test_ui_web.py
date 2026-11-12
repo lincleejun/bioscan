@@ -46,7 +46,7 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode", "libmore"}, keys
 
 
 def test_nav_order():
@@ -236,3 +236,17 @@ def test_library_scales_to_thousands_of_photos():
     assert app.count("setInterval(") == 1
     assert "every(2000, pollNow);" in app and "every(30000, disk);" in app and "every(2000, async () => {" in app
     assert "addEventListener('visibilitychange', () => { if (!document.hidden) pollers.forEach(fn => fn()); })" in app
+
+
+def test_all_photos_filters_are_compact_and_side_lists_scroll_on_their_own():
+    """Owner feedback 2026-11-12: 全部素材 shows one row (search, task, use, stars, sort) and folds the rest behind
+    更多筛选 (n); every active filter is a removable chip; the search box writes the existing `species` or `q`
+    filter, never a key of its own. The Review rail and the scan groups scroll apart from the page."""
+    app, css = text("app.js"), text("styles.css")
+    assert "const LIB_MAIN = ['task', 'use', 'stars_min', 'order'];" in app
+    assert 'data-action="lib-more" aria-controls="lib-more"' in app and "prefs.set('libmore'" in app
+    assert 'data-action="lib-unset"' in app and "'lib-unset': el => { delete ui.lib[el.dataset.k]; route(true); }" in app
+    assert '<select class="input sm" data-lib-sfield' in app                     # no name: never reaches ui.lib
+    assert "t.matches('[data-lib-sfield]')" in app.split("t.form.id === 'lib-filters'")[0]
+    assert ".page.fr, .page.sc { overflow: hidden; }" in css
+    assert ".fr-rail, .fr-center, .fr-rules, .sc .fl-main, .sc .fl-panel { min-height: 0; overflow: auto; }" in css
