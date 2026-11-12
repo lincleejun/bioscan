@@ -288,3 +288,14 @@ def test_local_folder_browser_is_read_only_and_reuses_the_library_layout():
     assert "fs-task" in fs and "#/task/" in fs                                       # a covered folder links to its task
     assert "case 'fs':" in js and "Object.assign(VIEWS, { fs: vFs })" in fs
     assert ".ws.lib.fs .lib-side { width: 280px; }" in css and ".fs-tree" in css
+
+
+def test_review_is_by_group_with_merge_split_move_and_a_one_key_keep():
+    """Contract revision 13: the Review overview and the compare page work on groups (bursts), a group merges into
+    the one before it, a group or a whole species moves to another species, and Enter keeps one frame."""
+    app = text("app.js")
+    assert "function groupsOf(enc)" in app and "'gr-merge'" in app and "'cp-merge'" in app and "'cp-split'" in app
+    assert "api('POST', '/bursts/merge'" in app and "api('POST', '/identifications/move'" in app
+    assert "'cp-quick'" in app and "k === 'enter'" in app and "k === ']'" in app and "k === 'm'" in app
+    assert "'task-regroup'" in app and "零星识别" in app and "比较当前拍摄段" not in app
+    assert ".gr-grid" in text("styles.css")

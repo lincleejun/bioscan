@@ -594,6 +594,8 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             return fk.new_run(t, "rescan", scope={k: body[k] for k in ("capabilities", "asset_ids") if body.get(k)})
         if action == "retry":
             return fk.new_run(t, "retry", scope={"asset_ids": body.get("asset_ids") or []})
+        if action == "regroup":                               # 契约修订 13
+            return fk.new_run(t, "regroup", scope={})
         moves = {"pause": ({"running", "queued"}, "paused"), "resume": ({"paused"}, "queued"),
                  "stop": ({"running", "queued", "paused"}, "stopped")}
         if action in moves:
@@ -782,6 +784,21 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             raise Err(400, "要拆的照片须在同一个连拍里", "bad_request")
         new = a["burst"]["id"] + "~p_fake"
         return {"burst_id": new if len(ids) > 1 else None, "from": a["burst"]["id"], "moved": ids}
+
+    # ---- contract revision 13: shapes only; behaviour is tested on the real service ----
+    @app.post(P + "/bursts/merge", status_code=201)
+    def burst_merge(body: dict):
+        ids = body.get("asset_ids") or []
+        fk.task(body.get("task_id") or "")
+        if len(ids) < 2:
+            raise Err(400, "合并需要同一任务里的两张以上照片", "bad_request")
+        return {"burst_id": f"{body['task_id']}:merged~p_fake", "from": [], "size": len(ids), "rep": ids[0]}
+
+    @app.post(P + "/identifications/move")
+    def identifications_move(body: dict):
+        if body.get("asset_ids") is None and not (body.get("task_id") and body.get("from_concept")):
+            raise Err(400, "asset_ids, or task_id with from_concept, is required", "bad_request")
+        return {"batch_id": "b_fake", "dry_run": False, "changed": [], "skipped": []}
 
     @app.post(P + "/collections/{cid}/preview-rule")
     def preview_rule(cid: str, body: dict):

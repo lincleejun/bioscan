@@ -137,3 +137,30 @@ def test_the_reducer_is_told_about_quality_and_gardener_groups_wider_than_the_al
     assert [out[f"a{i}"]["burst"] and out[f"a{i}"]["burst"]["size"] for i in range(4)] == [3, 3, 3, None]
     assert out["a2"]["burst"]["rank"] == 1                                        # the sharpest frame, not the first
     assert analyze.burst_order(rows([(0.0, like), (0.2, like)])) == ["a1", "a0"]
+
+
+def test_photos_move_to_another_species_in_one_undoable_step(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 4)
+    fakes.boxes["IMG_0003.jpg"] = [owl_box(), owl_box((0.6, 0.6, 0.9, 0.9), **TIT)]
+    wren = {"level": "species", "concept": WREN["concept"], "taxon": WREN["scientific"], "common": WREN["common"]}
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        r = c.post(f"{API}/identifications/move", json={"asset_ids": a[:2], "from_concept": OWL, "claim": wren})
+        assert r.status_code == 200, r.text
+        assert len(r.json()["changed"]) == 2 and r.json()["batch_id"]
+        assert names(c, a[0]) == names(c, a[1]) == [("species", WREN["concept"])] and names(c, a[2]) == [("species", OWL)]
+        run(c, t, "regroup")                                          # a person's move is never outvoted by the burst
+        assert names(c, a[0]) == [("species", WREN["concept"])]
+        assert c.post(f"{API}/identifications/undo", json={"batch_id": r.json()["batch_id"]}).status_code == 200
+        assert names(c, a[0]) == [("species", OWL)]
+        # the whole card of a task: every subject called the owl, the second animal of the last photo stays
+        r = c.post(f"{API}/identifications/move", json={"task_id": t["id"], "from_concept": OWL, "claim": wren}).json()
+        assert len(r["changed"]) == 4 and names(c, a[3])[0] == ("species", WREN["concept"])
+        assert [k["common"] for k in c.get(f"{API}/species").json()["species"]] == ["Pacific Wren"]
+        # without from_concept only photos with a single animal move; nothing to move is an error, not a silent no-op
+        r = c.post(f"{API}/identifications/move", json={"asset_ids": [a[3]], "claim": {"level": "unconfirmed"}})
+        assert r.status_code == 400
+        assert c.post(f"{API}/identifications/move", json={"claim": wren}).status_code == 400
+        assert c.post(f"{API}/identifications/move", json={"asset_ids": a, "claim": {"level": "species"}}).status_code == 400

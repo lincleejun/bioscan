@@ -838,6 +838,39 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                                        reason=reason if isinstance(reason, str) else None,
                                        dry_run=bool(body.get("dry_run")))
 
+    @r.post("/identifications/move")
+    def move_identifications(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
+        """Move photos from one species to another in one undoable step (修订 13): the subjects currently named
+        `from_concept` (or, without it, the only subject of each photo) on `asset_ids`, or on every photo of
+        `task_id`, take `claim`. Undo with POST /identifications/undo."""
+        claim = body.get("claim")
+        if not isinstance(claim, dict) or claim.get("level") not in identities.LEVELS:
+            raise Error(f"claim.level must be one of {', '.join(identities.LEVELS)}")
+        if claim["level"] == "species" and not (isinstance(claim.get("concept"), str) and isinstance(claim.get("taxon"), str)):
+            raise Error("a species claim needs concept and taxon (the scientific name)")
+        if claim["level"] != "species":
+            claim = {"level": claim["level"], "concept": None, "common": None,
+                     "taxon": claim.get("taxon") if claim["level"] in ("genus", "family") else None}
+        frm, tid = text(body, "from_concept"), text(body, "task_id")
+        ids = strs(body["asset_ids"], "asset_ids") if body.get("asset_ids") is not None else None
+        if ids is None and not (tid and frm):
+            raise Error("asset_ids, or task_id with from_concept, is required")
+        with store.tx() as c:
+            if ids is None:
+                ids = [x[0] for x in c.execute("SELECT asset_id FROM task_assets WHERE task_id = ?", (tid,))]
+            sids: list[str] = []
+            for part in st.chunks(ids):
+                rows = c.execute(f"SELECT asset_id, subject_id, concept FROM current_ids WHERE asset_id IN ({st.marks_in(part)})",
+                                 part).fetchall()
+                per: dict[str, list[Any]] = {}
+                for x in rows:
+                    per.setdefault(x[0], []).append(x)
+                for xs in per.values():
+                    sids += [x[1] for x in xs if x[2] == frm] if frm else ([xs[0][1]] if len(xs) == 1 else [])
+            if not sids:
+                raise Error("没有可以改的主体：这些照片里没有这个物种，或一张照片里有多只动物（请在单张视图里改）")
+            return identities.identify(c, sids, [], claim, scope="subject", actor=actor, reason="move", dry_run=False)
+
     @r.post("/identifications/undo")
     def undo_identifications(body: dict[str, Any] = BODY) -> dict[str, Any]:
         with store.tx() as c:
