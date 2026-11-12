@@ -266,13 +266,18 @@ class Analyzer:
         """rows: {asset_id, path, taken_at, camera, products: {stage: raw product}}, a whole task's
         photos. Returns {asset_id: {"burst": {id, rank, size} | None, "suggestion": {verdict, score,
         rank, reasons} | None}}; burst ids are local to this call (contract §10 X3). burst runs with
-        the burst capability, select (the AI suggestion) with aesthetic."""
+        the burst capability, select (the AI suggestion) with aesthetic. A burst's rank is select's burst
+        order (cull.burst_order: not rejected, subject sharpness, not cut off, exposure, then aesthetic)
+        whenever quality ran, so the best frame is not just the first one without aesthetic (#131); with
+        neither it is capture order."""
         reducers = {}
         res = _resolve(caps) if _model_caps(caps) else None
         if res is None:
             return {r["asset_id"]: {"burst": None, "suggestion": None} for r in rows}
         if "burst" in caps:
             reducers["burst"] = res.reducer_options["burst"]
+            if "quality" in caps:
+                reducers["select"] = res.reducer_options["select"]
         if "aesthetic" in caps:
             reducers["burst"] = res.reducer_options["burst"]
             reducers["select"] = res.reducer_options["select"]
@@ -291,11 +296,12 @@ class Analyzer:
         out: dict[str, dict] = {}
         for ev in out_events:
             p = ev["products"]
-            b, s = p.get("burst") if "burst" in reducers else None, p.get("select")
+            b, s = p.get("burst") if "burst" in reducers else None, p.get("select") if "select" in reducers else None
             burst = None
             if b and b.get("id"):
                 burst = {"id": b["id"], "rank": s["burst_rank"] if s else b["index"] + 1, "size": b["size"]}
-            out[ev["path"]] = {"burst": burst, "suggestion": _suggestion(s, burst, per_category) if s else None}
+            suggestion = _suggestion(s, burst, per_category) if s and "aesthetic" in caps else None
+            out[ev["path"]] = {"burst": burst, "suggestion": suggestion}
         return out
 
 

@@ -95,6 +95,24 @@ def test_burst_alone_takes_time_and_camera_from_rows():
     a.close()
 
 
+def test_without_aesthetic_a_burst_ranks_by_quality_not_capture_order():
+    """#131: the owner's run had aesthetic off, so the first frame (here soft, rejected) was the burst's best."""
+    a = analyzer(fake_engine())
+
+    def row(i, t, blur, reasons=(), cut=False):
+        q = {"subject": {"blur": blur, "exposure": 0.0, "cut": cut}, "reject_reasons": list(reasons)}
+        return {"asset_id": i, "path": f"/x/{i}", "taken_at": t, "camera": "SONY ILCE-7M4",
+                "products": {"embed": {"dim": 2, "vector": [1.0, 0.0]}, "quality": q}}
+    rows = [row("a", "2025-03-01T08:00:00.1", 0.9, ["soft_subject"]), row("b", "2025-03-01T08:00:00.4", 0.1, cut=True),
+            row("c", "2025-03-01T08:00:00.7", 0.12), row("d", "2025-03-01T08:00:01.0", 0.5)]
+    got = a.reduce(rows, ["meta", "burst", "quality"])
+    assert {i: got[i]["burst"]["rank"] for i in "abcd"} == {"c": 1, "b": 2, "d": 3, "a": 4}   # within sharp_tie: uncut first
+    assert all(x["suggestion"] is None for x in got.values())       # no AI suggestion without aesthetic
+    got = a.reduce(rows, ["meta", "burst"])                          # no quality: nothing to rank by but time
+    assert [got[i]["burst"]["rank"] for i in "abcd"] == [1, 2, 3, 4]
+    a.close()
+
+
 def test_a_model_that_does_not_load_makes_its_capabilities_unavailable(photos):
     a = analyzer(fake_engine(fail="bioclip"))
     out = run(a, photos, WILDLIFE)
