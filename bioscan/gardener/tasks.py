@@ -41,7 +41,6 @@ GROUP_NEEDS = {"person": ("people", "content"), "animal": ("content", "species")
 SUBJECT_CAPS = ("content", "species", "people")
 PEOPLE_EVERY = 64            # regroup after this many people results
 META_BATCH = 64
-KEEP_META = ("missing", "content_changed_at", "preview_source", "primary_error")   # not from read_meta: kept by it
 FAILED_MAX = 200
 
 
@@ -453,7 +452,7 @@ class RunExec:
         with self.store.tx() as c:
             for r in rows:
                 m = dict(got.get(r["primary_path"]) or {})
-                keep = {k: v for k, v in loads(r["meta"], {}).items() if k in KEEP_META}
+                keep = {k: v for k, v in loads(r["meta"], {}).items() if k in ("missing", "content_changed_at")}
                 c.execute("UPDATE assets SET taken_at = ?, camera = ?, lens = ?, width = ?, height = ?, orientation = ?, "
                           "lat = ?, lon = ?, duration_s = ?, meta = ?, updated_at = ? WHERE id = ?",
                           (m.get("taken_at"), m.get("camera"), m.get("lens"), m.get("width"), m.get("height"),

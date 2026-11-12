@@ -325,7 +325,6 @@ def test_pair_with_a_corrupt_jpeg_previews_and_analyses_the_raw(env, fakes, tmp_
         assert item["preview"] == "ready" and d["meta"]["preview_source"] == str(src / "DSC_0002.arw")
         assert "unreadable" in d["meta"]["primary_error"]
         assert fakes.analyzed == [(str(src / "DSC_0002.arw"), ("content",))]
-        r = c.post(f"{API}/tasks/{t['id']}/rescan", json={}).json()   # read_meta keeps what the preview found
-        wait_until(lambda: c.get(f"{API}/runs/{r['id']}").json()["status"] in ("completed", "partial"), what="rescan")
+        wait_task(c, create_task(c, [str(src)], caps=["quality"])["id"])   # a later task analyses the RAW too
         assert c.get(f"{API}/assets/{item['id']}").json()["meta"]["preview_source"] == str(src / "DSC_0002.arw")
-        assert fakes.analyzed[-1][0] == str(src / "DSC_0002.arw")
+        assert fakes.analyzed[-1] == (str(src / "DSC_0002.arw"), ("quality",))

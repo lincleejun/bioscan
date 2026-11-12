@@ -63,7 +63,7 @@ def read_meta(paths: list[str]) -> dict[str, dict]   # 批量；键: taken_at(IS
                                                       # lat, lon, duration_s, video_codec, fps, playable(bool|None)
 def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path) -> Preview
     # thumb 长边 360、large 长边 1600，JPEG；RAW 先 rawpy.extract_thumb()（长边须 ≥ 1600，否则 half_size 解码；
-    # 解码失败时退回 ≥ 360 的小内嵌图），meta.source_width/height 取 LibRaw 尺寸（默认裁切）；TIFF 系 RAW 先核对
+    # 解码失败时退回 ≥ 360 的小内嵌图），meta.source_width/height 取 LibRaw 尺寸（默认裁切）；标准 TIFF 头的 RAW（ARW/NEF/DNG/CR2 等；ORF、RW2、CR3、RAF 未核对）先核对
     # IFD 里条带/瓦片的结尾不超过文件大小（decode.raw_truncated），被截断即 ok=False（LibRaw 对截断文件不报错，
     # 缺的行是黑的，或是同进程上一张照片的像素）；16 位 TIFF 缩放到 8 位（decode.rgb8）；视频 ffmpeg 取帧
     # 失败返回 ok=False + error，不抛异常。tasks.build_preview：primary 失败且素材是 RAW+JPEG 对时，改用另一个

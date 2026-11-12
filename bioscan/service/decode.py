@@ -237,14 +237,16 @@ _MAX_IFDS, _MAX_ENTRIES, _MAX_COUNT = 64, 1000, 1 << 16
 
 
 def raw_truncated(f: BinaryIO, size: int) -> str | None:
-    """Why a TIFF-family RAW (ARW, NEF, DNG, CR2, PEF, ORF, RW2, ...) is cut short, or None.
+    """Why a RAW with a standard TIFF header (ARW, NEF, NRW, DNG, CR2, PEF, SRW) is cut short, or None.
 
     LibRaw decodes a truncated RAW without an error: the missing rows come back black, or, in a
     process that decoded another photo before, as that photo's pixels (a reused buffer). So this
     reads the IFDs (IFD0 chain and SubIFDs, a few KB through `f`) and says the file is truncated when
     an IFD or the end of a strip, tile or embedded JPEG lies past `size`. Anything it cannot parse
-    is not a verdict (None): LibRaw decides. Validated on Sony ARW and Lightroom DNG.
-    ponytail: TIFF family only; CR3 / RAF / others are not checked (add a box walk when one shows up)."""
+    is not a verdict (None): LibRaw decides; an offset of 0xFFFFFFFF (a placeholder) is ignored.
+    Validated on Sony ARW and Lightroom DNG only.
+    ponytail: standard TIFF headers only; ORF / RW2 (their own magic; some RW2 keep the real data
+    offset in tag 0x118), CR3, RAF are not checked. Add each once it is checked on a real file."""
     def read(at: int, n: int) -> bytes:
         f.seek(at)
         b = f.read(n)
@@ -252,12 +254,13 @@ def raw_truncated(f: BinaryIO, size: int) -> str | None:
             raise EOFError
         return b
 
+    end = 0
     try:
         head = read(0, 8)
-        if head[:4] not in _TIFF and head[:4] not in _TIFF_VARIANT:
+        if head[:4] not in _TIFF:
             return None
         e = "<" if head[:2] == b"II" else ">"
-        todo, seen, end = [struct.unpack(e + "L", head[4:8])[0]], set(), 0
+        todo, seen = [struct.unpack(e + "L", head[4:8])[0]], set()
         while todo and len(seen) < _MAX_IFDS:
             at = todo.pop()
             if not at or at in seen:
@@ -283,10 +286,10 @@ def raw_truncated(f: BinaryIO, size: int) -> str | None:
                 tags[t] = struct.unpack(e + ("H" if typ == 3 else "L") * count, raw[:nbytes])
             for o, c in _DATA_TAGS:
                 if o in tags and c in tags:
-                    end = max(end, *(a + b for a, b in zip(tags[o], tags[c])))
+                    end = max(end, *(a + b for a, b in zip(tags[o], tags[c]) if a != 0xFFFFFFFF))
             todo += [*tags.get(0x014A, ()), struct.unpack(e + "L", block[12 * n:12 * n + 4])[0]]
     except (EOFError, struct.error, OSError):
-        return None
+        pass                    # an IFD or array cut off: judge by what was read before it
     if end > size:
         return f"RAW 文件不完整（被截断）：图像数据需要 {end} 字节，文件只有 {size} 字节"
     return None

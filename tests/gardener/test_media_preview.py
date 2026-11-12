@@ -11,7 +11,7 @@ import types
 
 import numpy as np
 import pytest
-from media_fixtures import make_jpg
+from media_fixtures import make_jpg, tiff_raw
 from PIL import Image
 
 from bioscan.gardener import preview
@@ -204,37 +204,6 @@ def test_small_embedded_preview_is_decoded_instead(tmp_path, monkeypatch):
     assert p.ok and p.method == "raw-embedded" and sizes(large) == [(1024, 683)]   # the small one beats none
 
 
-def tiff_raw(strips=None, tiles=None, sub=False, endian="<") -> bytes:
-    """A minimal TIFF RAW: IFD0 (optionally pointing to one SubIFD that holds the data tags) and
-    strip / tile data of the given (offset, length) layout, padded to the declared end."""
-    def ifd(at, entries, nxt=0):
-        out = struct.pack(endian + "H", len(entries))
-        for tag, values in entries:
-            n = len(values)
-            out += struct.pack(endian + "HHL", tag, 4, n)
-            out += struct.pack(endian + "L", values[0] if n == 1 else at + 2 + 12 * len(entries) + 4)
-        out += struct.pack(endian + "L", nxt)
-        for _, values in entries:
-            if len(values) > 1:
-                out += struct.pack(endian + "L" * len(values), *values)
-        return out
-
-    data = []
-    for kind in ((0x0111, 0x0117), (0x0144, 0x0145)):
-        layout = strips if kind[0] == 0x0111 else tiles
-        if layout:
-            data += [(kind[0], [o for o, _ in layout]), (kind[1], [n for _, n in layout])]
-    head = (b"II*\x00" if endian == "<" else b"MM\x00*") + struct.pack(endian + "L", 8)
-    if sub:
-        sub_at = 8 + len(ifd(8, [(0x014A, [0])]))
-        body = ifd(8, [(0x014A, [sub_at])]) + ifd(sub_at, data)
-    else:
-        body = ifd(8, data)
-    end = max(o + n for o, n in (strips or []) + (tiles or []))
-    out = head + body
-    return out + b"\x01" * (end - len(out))
-
-
 def test_raw_truncated_reads_the_ifds_against_the_file_size():
     for kw in ({"strips": [(512, 4000)]}, {"tiles": [(512, 1000), (1512, 3000)], "sub": True},
                {"strips": [(600, 100), (700, 3000)], "endian": ">"}):
@@ -245,6 +214,11 @@ def test_raw_truncated_reads_the_ifds_against_the_file_size():
         assert "截断" in decode.raw_truncated(io.BytesIO(cut), len(cut)), kw
         head = data[:200]
         assert "截断" in decode.raw_truncated(io.BytesIO(head), len(head)), kw
+    data = tiff_raw(tiles=[(600, 1000), (1600, 3000)], sub=True, jpeg=(300, 290))
+    sub_arrays = data.index(struct.pack("<LL", 600, 1600))             # the SubIFD's out-of-line tile offsets
+    cut = data[:sub_arrays + 4]                                        # after IFD0's JPEG, inside those arrays
+    assert decode.raw_truncated(io.BytesIO(data), len(data)) is None
+    assert "截断" in decode.raw_truncated(io.BytesIO(cut), len(cut))    # judged by what was read before the cut
     for junk in (b"", b"\xff\xd8 a jpeg", b"MM\x00*\x00\x00\x00\x08\xff\xff"):
         assert decode.raw_truncated(io.BytesIO(junk), len(junk)) is None           # no verdict, never raises
     junk = b"II*\x00" + b"\xff" * 50                                                 # IFD0 past the end
