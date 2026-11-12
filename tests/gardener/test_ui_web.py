@@ -255,7 +255,8 @@ def test_every_photo_view_has_the_same_two_layouts():
         assert gone not in app and gone not in css, gone
     # opening a photo from another screen lands in the shared loupe at that photo, even inside a collapsed group
     assert "open ? { start: open, open, mode: 'loupe' } : {}" in app and "if (a.id === ws.open) return true;" in app
-    assert app.count('data-action="open-photo"') == 2 and "'cd-open': el => { ui.open = el.dataset.id;" in app
+    # one left: the import page's tiles. The Review overview opens a group in the compare page (revision 13)
+    assert app.count('data-action="open-photo"') == 1 and "'cd-open': el => { ui.open = el.dataset.id;" in app
     # a missed animal is drawn on the loupe's big image; an encounter poll keeps the photo being looked at
     assert "$('#lib-loupe')" in app and "if (ui.ws === ws) recompute(had);" in app
 
