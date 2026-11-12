@@ -211,6 +211,22 @@ Review reasons are rules, never a model: `unconfirmed` (level unconfirmed), `coa
 
 `report.html` is a view of `summary.json` alone, with `bioscan cull`'s stylesheet and photo tiles (the `jpg` copy, else the photo when a browser can show it, else its format): the one line and a proportional category strip, the taxa per kind with their best frame, the review queue grouped by suggested name (English beside Latin, with the level at genus or family) with reasons in words and the candidates, counts of people and empty frames, errors, run facts. Not built yet (design §3): verdict buttons, `names.json`, `review.json` and `bioscan gt review`; thumbnails of RAW files without a `jpg` copy.
 
+### Sorting bird photos into species folders
+
+`scripts/sort_birds.py` moves photos of one bird species into `DEST/<common name>/`, decided by bioscan's models
+alone. A photo moves only when the gate says bird with P(person) < 0.1, every box is a bird graded to the same
+species, the best box's posterior is >= 0.8, p_geo >= 0.03 (BirdNET's default location filter) at the folder's
+place and week, and quality gives no soft/motion/defocus reason and a measurable subject blur. Anything else is skipped with its reason.
+```sh
+uv run python scripts/sort_birds.py run   --places places.csv --out OUT --url URL   # folder,lat,lon per row; resumable
+uv run python scripts/sort_birds.py plan  --out OUT --dest DEST                     # OUT/plan.csv + counts; moves nothing
+uv run python scripts/sort_birds.py apply --out OUT --dest DEST                     # moves; OUT/moves.tsv logs src, dst per file
+```
+A folder may appear on several rows (a trip at several places): a photo moves when it passes at any of them.
+Same-stem files (RAW, JPEG, HIF, XMP) move together, the RAW's verdict decides, a same-named file at the target is
+never overwritten (the photo goes to `<species>/<source folder>/` instead), and an existing folder with the same
+letters (`Red-Tailed-Hawk`) is reused.
+
 ### Lightroom Classic (experimental)
 
 One-time install, then restart Lightroom Classic once:
