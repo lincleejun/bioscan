@@ -409,12 +409,6 @@
       + (un ? `<a class="rl-row" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved" data-task="${esc(t.id)}"><span class="rl-ph">${ic('warn')}</span><span class="rl-text"><b>待鉴定</b><small>${un}</small></span>${ic('right')}</a>` : '')
       + `<a class="rl-row" href="#/task/${esc(t.id)}/collections"><span class="rl-ph">${ic('grid')}</span><span class="rl-text"><b>其他分组</b><small>人物、场景与未识别的动物</small></span>${ic('right')}</a>`;
   }
-  function thumbHTML(t, k, e, id, cand) {
-    const a = A(id);
-    if (!a) return '';
-    const u = USE[a.use];
-    return `<a class="et${cand ? ' is-cand' : ''}" href="${esc(speciesHref(k, t.id))}" data-action="open-photo" data-id="${esc(id)}" aria-label="${esc(tileLabel(a))}${cand ? '，候选' : ''}">${photo(a, 'large')}${cand ? '<span class="et-cand">候选</span>' : ''}${u && a.use !== 'pending' ? `<span class="et-use u-${a.use}">${ic(u[3] || 'check')}${u[0]}</span>` : ''}${a.stars ? `<span class="et-star">${'★'.repeat(a.stars)}</span>` : ''}</a>`;
-  }
   // 契约修订 13：审片单位是“组”——一个连拍，或一张单独的照片；拍摄段这一层不再出现在 Review 里。
   function groupsOf(enc) {
     const gs = enc.encounters.flatMap(e => e.bursts).map(b => ({ id: b.id || 'one:' + b.rep, burst: b.id, rep: b.rep, asset_ids: b.asset_ids, candidates: [b.rep], photos: b.size }))
