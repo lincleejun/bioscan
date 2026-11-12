@@ -214,7 +214,8 @@ class Fakes:
     def toolkit(self) -> Toolkit:
         return Toolkit(discover=discover, quick_hash=quick_hash, is_online=os.path.exists, read_meta=read_meta,
                        make_preview=make_preview, analyzer=self.analyzer, suggest=self.suggest, export=self.export,
-                       reveal=self.revealed.append, faces=self.faces)
+                       reveal=self.revealed.append, faces=self.faces,
+                       reduce=lambda rows, caps: FakeAnalyzer(self, None).reduce(rows, caps))
 
 
 class FakeFaces:
@@ -283,7 +284,16 @@ class FakeAnalyzer:
                                  None, f"identify@{self.fakes.version}")
 
     def reduce(self, rows, caps):
-        return {r["asset_id"]: {"burst": {"id": "b1", "rank": i + 1, "size": len(rows)},
+        """Every photo of the task is one burst, as long as each was taken less than ten minutes after the one before; a
+        photo further away is in no burst (so a shoot spread over hours is not one burst that votes on its name)."""
+        from datetime import datetime
+
+        def secs(r):
+            return datetime.fromisoformat(r["taken_at"][:19]).timestamp() if r.get("taken_at") else None
+        ts = [secs(r) for r in rows]
+        near = [i > 0 and (ts[i] is None or ts[i - 1] is None or abs(ts[i] - ts[i - 1]) < 600) for i in range(len(rows))]
+        one = all(near[1:])
+        return {r["asset_id"]: {"burst": {"id": "b1", "rank": i + 1, "size": len(rows)} if one else None,
                                 "suggestion": {"verdict": "pick" if i == 0 else "reject", "score": 5.0 - i,
                                                "rank": i + 1, "reasons": ["测试理由"]}}
                 for i, r in enumerate(rows)}

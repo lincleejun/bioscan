@@ -109,6 +109,97 @@ def ingest(c: Any, asset_id: str, run_id: str | None, version: str | None, produ
     return written
 
 
+BURST = "burst"                  # identifications.reason of a row burst_consensus wrote
+VOTE_SHARE, VOTE_MIN = 0.6, 2    # the winning species needs this share of the burst's named frames, and this many
+VOTE_LEAD = 3                    # ... and this many times the frames of the runner-up (2 against 1 is no majority)
+VOTE_OVER = 3                    # frames it takes to replace a frame's own species (2 are enough to fill in a genus)
+STRAY_MIN = 4                    # a name seen once is noise only in a burst of at least this many frames
+STRAY_AREA = 0.5                 # ... and only on a box under this share of the frame's largest box (an extra box)
+
+
+def burst_consensus(c: Any, task_id: str, run_id: str | None) -> int:
+    """One name per burst (#144), from the model's own claims on the burst's frames:
+    - the frames that show a single animal vote; when one species has VOTE_MIN frames, VOTE_SHARE of the named
+      ones and VOTE_LEAD times the runner-up, and no other species is named VOTE_MIN times (that is a second
+      bird, not noise), the voting frames the model left at genus, family or unconfirmed take it; a frame the
+      model gave another species takes it only when the winner has VOTE_OVER frames and that other species is
+      seen on no second frame of the burst;
+    - a species named on one frame only, on an extra box (a frame with several animals, the box under STRAY_AREA
+      of the frame's largest), in a burst of STRAY_MIN frames or more where some species is named on VOTE_MIN
+      frames or a person named one, is noise: it becomes unconfirmed, so it waits in 待鉴定 instead of making a
+      card of its own. A lone bird named once keeps its name (it may be a real second species).
+    Both are new ai rows with reason BURST. A person's identification is never touched or outvoted; a burst that
+    changes (split, merge, rescan) gets the model's own claims back where the rule no longer holds. Idempotent:
+    reads the model's own latest row, never an earlier vote. Returns the rows written.
+    ponytail: a majority of frames, not posterior mass; weigh by p if close votes turn out wrong."""
+    bursts: dict[str, list[str]] = {}
+    for r in c.execute("SELECT s.asset_id, s.burst_id FROM task_assets ta JOIN ai_suggestions s ON s.id = (SELECT max(x.id) "
+                       "FROM ai_suggestions x WHERE x.asset_id = ta.asset_id) WHERE ta.task_id = ?", (task_id,)):
+        bursts.setdefault(r[1] or f"single:{r[0]}", []).append(r[0])
+    ai = "SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = 'ai' AND x.undone = 0"
+    subs: dict[str, list[dict[str, Any]]] = {}
+    for r in c.execute(
+            "SELECT s.id, s.asset_id, s.xyxy, (SELECT max(x.id) FROM identifications x WHERE x.subject_id = s.id AND x.source = "
+            f"'user' AND x.undone = 0) human, ({ai} AND coalesce(x.reason, '') != ?) own, ({ai}) latest FROM subjects s "
+            "JOIN task_assets ta ON ta.asset_id = s.asset_id WHERE ta.task_id = ? AND s.removed_at IS NULL",
+            (BURST, task_id)):
+        subs.setdefault(r["asset_id"], []).append(dict(r))
+    ids = sorted({i for ss in subs.values() for s in ss for i in (s["human"], s["own"], s["latest"]) if i})
+    rows = {r["id"]: dict(r) for part in st.chunks(ids) for r in c.execute(
+        f"SELECT * FROM identifications WHERE id IN ({st.marks_in(part)})", part)}
+    keep = ("concept", "taxon", "common", "level", "p", "reason", "run_id", "version", "qualifier")
+    t, written = now(), 0
+    for frames in bursts.values():
+        mine = [s for a in frames for s in subs.get(a, []) if not s["human"] and s["own"]]
+        seen: dict[str, set[str]] = {}                    # species -> the frames the model names it on
+        for s in mine:
+            own = rows[s["own"]]
+            if own["level"] == "species" and own["concept"]:
+                seen.setdefault(own["concept"], set()).add(s["asset_id"])
+        firm = {k for k, v in seen.items() if len(v) >= VOTE_MIN} | {
+            rows[s["human"]]["concept"] for a in frames for s in subs.get(a, []) if s["human"]} - {None}
+        alone = {s["id"] for a in frames if len(ss := subs.get(a, [])) == 1 for s in ss}
+        tally: dict[str, list[dict[str, Any]]] = {}
+        for s in mine:
+            own = rows[s["own"]]
+            if s["id"] in alone and own["level"] == "species" and own["concept"]:
+                tally.setdefault(own["concept"], []).append(own)
+        named = sum(len(g) for g in tally.values())
+        top = max(tally.values(), key=lambda g: (len(g), sum(r["p"] or 0.0 for r in g), g[0]["concept"]), default=[])
+        second = max((len(g) for g in tally.values() if g is not top), default=0)
+        win = top[0] if (len(frames) > 1 and len(top) >= VOTE_MIN and len(top) >= VOTE_SHARE * named
+                         and second < VOTE_MIN and len(top) >= VOTE_LEAD * second) else None
+        big = {a: max(_area(s["xyxy"]) for s in subs.get(a, [])) for a in frames if subs.get(a)}
+        for s in mine:
+            own, latest = rows[s["own"]], rows[s["latest"]]
+            want = {k: own[k] for k in keep}
+            named_other = own["level"] == "species" and own["concept"] != (win or {}).get("concept")
+            stray = (own["level"] == "species" and own["concept"] not in firm and bool(firm) and s["id"] not in alone
+                     and _area(s["xyxy"]) < STRAY_AREA * big[s["asset_id"]])
+            if (win is not None and s["id"] in alone and (own["level"] != "species" or (
+                    named_other and len(top) >= VOTE_OVER and own["concept"] not in firm))):
+                want |= {"concept": win["concept"], "taxon": win["taxon"], "common": win["common"], "level": "species",
+                         "p": None, "reason": BURST, "run_id": run_id, "qualifier": None}
+            elif stray and len(frames) >= STRAY_MIN:
+                want |= {"concept": None, "taxon": None, "common": None, "level": "unconfirmed", "p": None,
+                         "reason": BURST, "run_id": run_id, "qualifier": None}
+            if all(latest[k] == want[k] for k in ("concept", "level", "reason")):
+                continue
+            c.execute("INSERT INTO identifications (subject_id, asset_id, concept, taxon, common, level, qualifier, "
+                      "candidates, p, source, run_id, version, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                      "'ai', ?, ?, ?, ?)", (s["id"], s["asset_id"], want["concept"], want["taxon"], want["common"],
+                                            want["level"], want["qualifier"], own["candidates"], want["p"],
+                                            want["run_id"], want["version"], want["reason"], t))
+            c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, s["asset_id"]))     # pollers see it (X7)
+            written += 1
+    return written
+
+
+def _area(xyxy: str) -> float:
+    x0, y0, x1, y1 = loads(xyxy)
+    return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+
 def backfill(c: Any) -> int:
     """Subjects and ai identifications from every stored raw:identify result, oldest first (schema 1 -> 2)."""
     n = 0
