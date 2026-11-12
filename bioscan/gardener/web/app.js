@@ -416,7 +416,7 @@
     const ids = open ? e.asset_ids : e.candidates.concat(rest).slice(0, Math.max(4, e.candidates.length));
     const runs = e.bursts.filter(b => b.size > 1);
     return `<section class="er" data-enc="${esc(e.id)}"><header class="er-head"><h3>拍摄段 ${String(e.n).padStart(2, '0')}</h3><span>${esc(fmtTime(e.start).slice(11) || '—')}${e.end && e.end !== e.start ? ' – ' + esc(fmtTime(e.end).slice(11)) : ''}</span>
-      <span class="er-meta">${e.photos} 张${runs.length ? ` · ${runs.length} 组连拍` : ''}</span>${e.photos > ids.length || open ? `<button type="button" class="er-more" data-action="fr-toggle" data-id="${esc(e.id)}" aria-expanded="${open}">${open ? '收起' : `展开全部 ${e.photos} 张`}${ic('right')}</button>` : ''}</header>
+      <span class="er-meta">${e.photos} 张${runs.length ? ` · ${runs.length} 组连拍` : ''}</span><a class="er-more" href="#/task/${esc(t.id)}/compare/${esc(encodeURIComponent(k))}/${esc(e.id)}">比较这一段${ic('right')}</a>${e.photos > ids.length || open ? `<button type="button" class="er-more" data-action="fr-toggle" data-id="${esc(e.id)}" aria-expanded="${open}">${open ? '收起' : `展开全部 ${e.photos} 张`}${ic('right')}</button>` : ''}</header>
       <div class="er-strip${open ? ' is-open' : ''}">${ids.map(id => thumbHTML(t, k, e, id, cands.has(id))).join('')}</div></section>`;
   }
   function frCenterHTML() {
@@ -1066,8 +1066,9 @@
       if (ws.enc && ws.enc.sig === sig) return;
       const by = new Map();
       r.encounters.forEach((e, i) => { e.n = i + 1; e.asset_ids.forEach(id => by.set(id, e)); });
+      const had = !!ws.enc;               // 刷新（不是第一次载入）时不换正在看的这张
       ws.enc = { list: r.encounters, by, sig, open: ws.enc ? ws.enc.open : new Set() };
-      if (ui.ws === ws) recompute(true);
+      if (ui.ws === ws) recompute(had);
     } catch (e) { if (ui.ws === ws) toast(errMsg(e)); }
   }
   function encOrder(ws) {
@@ -1279,7 +1280,7 @@
     if (!el || !ws) return;
     renderLoupe();
     patchBinds('lib-views');
-    if (ws.mode !== 'loupe' || prefs.get('panel', '1') !== '1') return;
+    if (ws.mode !== 'loupe' || prefs.get('panel', '1') !== '1') { el.innerHTML = ''; el.dataset.mode = ''; return; }   // 不留隐藏的理由框
     const a = ws.current && A(ws.current);
     if (!a) {
       if (el.dataset.mode !== 'empty') { el.dataset.mode = 'empty'; el.innerHTML = `<div class="insp-empty">${ic('lib')}<p>选择一张照片，查看 AI 建议与人工判断。</p></div>`; }

@@ -248,7 +248,7 @@ def test_every_photo_view_has_the_same_two_layouts():
     assert "{ encQuery: scope, view: 'species' }" in app and "{ view: 'library' }" in app
     assert "mode: prefs.get('mode.' + view, 'grid')" in app and "prefs.set('mode.' + ws.view, v);" in app
     assert ".ws.mode-grid .inspector, .ws.panel-off .inspector { display: none; }" in css
-    assert "if (ws.mode !== 'loupe' || prefs.get('panel', '1') !== '1') return;" in app      # no detail fetch in grid
+    assert "if (ws.mode !== 'loupe' || prefs.get('panel', '1') !== '1') { el.innerHTML = '';" in app   # no detail fetch, no hidden reason
     assert "togglePanel();" in app and "k === 'Tab' && !e.shiftKey && ws.mode === 'loupe'" in app
     # the old inspector photo, subject zoom and the collection's own lightbox are gone
     for gone in ("insp-canvas", "canvasBarHTML", "ui.zoom", "applyZoom", "cdOpen", "cdv"):
@@ -257,4 +257,4 @@ def test_every_photo_view_has_the_same_two_layouts():
     assert "open ? { start: open, open, mode: 'loupe' } : {}" in app and "if (a.id === ws.open) return true;" in app
     assert app.count('data-action="open-photo"') == 2 and "'cd-open': el => { ui.open = el.dataset.id;" in app
     # a missed animal is drawn on the loupe's big image; an encounter poll keeps the photo being looked at
-    assert "$('#lib-loupe')" in app and "if (ui.ws === ws) recompute(true);" in app
+    assert "$('#lib-loupe')" in app and "if (ui.ws === ws) recompute(had);" in app
