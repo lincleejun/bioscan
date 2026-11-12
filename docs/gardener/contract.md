@@ -711,3 +711,19 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 完成与导入页的核对格子：进入任务 Preview。
   - 比较页（`#/task/…/compare/…`）保持原样，它就是拍摄段的比较模式（C）。扫描进度页的格子只用来显示进度，保持原样。物种总览的卡片代表物种而不是照片，点开进入单个物种视图。
 - **删除**：检视器里的大图、上一张 / 下一张 / 主体放大 / 放大按钮条（原像素查看器已有动物框与缩放）。“标出漏掉的动物”改为在单张视图的大图上画框：画框期间查看器暂时换成整张预览，画完或按 Esc 后恢复。
+
+## 契约修订 12：本地目录——只读浏览磁盘上的文件夹（2026-11-12，owner 决定；优先于上文冲突处）
+
+依据：owner 想先按自己的整理方式看到磁盘上已有的照片。导入、复制、移动以后再做；本版**只读**，不写数据库，也不在来源里写任何东西（ADR 0001）。
+
+- **可见位置**（每次请求重新计算，存储卡可随时插拔）：`~/Pictures`、`~/Documents`、`~/Desktop`、`~/Downloads`（kind `home`）；`/Volumes` 下每个已挂载的卷（`volume`，其中的符号链接不算卷，例如 `Macintosh HD -> /`）；服务的 `--allow-root` 目录（`allow-root`）。同一真实路径只列一次。没有 `--allow-root` 时仍只有前两类，不是“不限”。
+- **路径安全**（`browse.resolve`，三个接口共用）：不是绝对路径或含 `..` 段 → 400；按真实路径（跟随符号链接后）不在任何可见位置内，或在位置内的某段以 `.` 开头 → 403；不存在 → 404。先查位置、后查存在，位置以外的路径无法探测。列表里不出现隐藏项与符号链接（文件与文件夹都不列，与 `scan.discover` 不跟随链接文件夹一致）。macOS 隐私保护拒绝读取时：根为 `online: false`、子文件夹 `readable: false`，列出它 → 403 并说明原因。
+- **`GET /fs/roots`** → `[{name, path（真实路径）, kind: home | volume | allow-root, online}]`。`online` 以真正列出目录为准（`os.access` 对受隐私保护的卷也说可读）。
+- **`GET /fs/list?path=&offset=0&limit=300`**（`limit` ≤ 2000）→ `{path, name, root: {name, path, kind}, parent（到根时为 null）, tasks, dirs, photos, videos, skipped, total, offset, limit, items}`：
+  - `items`：这一层的媒体，规则与 RAW+JPEG 配对与扫描相同（`scan.folder`，从 `discover` 抽出的单层逻辑，不另立文件类型表），按文件名（不分大小写）排序后分页。每项 `{name, path（代表文件：配对时是 JPEG）, media: photo | video, kind: raw+jpeg | raw | jpeg | image | video, size（各文件之和）, mtime（ISO 8601 UTC）, files: [{name, role, size}]}`。`photos`、`videos`、`total` 是整层的数，`skipped` 是边车、不支持与隐藏文件数。
+  - `dirs`：子文件夹（不含隐藏与链接），每个 `{name, path, photos, videos, dirs, readable, tasks}`。计数只看直接子项的文件名（不 stat、不递归）；一次列表最多花 0.3 s 计数，之后的子文件夹计数为 `null`。
+  - `tasks` / `dirs[].tasks`：来源包含该文件夹的任务 `[{id, title}]`（任务递归扫描来源，所以来源的子文件夹也算）。
+- **`GET /fs/thumb?path=&size=thumb|large`** → JPEG（长边 360 / 1600），按需生成：`preview.make_preview`（RAW 用内嵌预览）；`size=thumb` 只写缩略图（RAW 内嵌预览 ≥ 360 即可，不为大图解码）。缓存在 `<cache>/fs/<key[:2]>/<key>.t|l.jpg`，`key = sha256(真实路径, 大小, mtime_ns)`：文件变了就是新键。上限 1 GiB，超出时按修改时间删最旧的到 90 %。`POST /storage/clear-cache` 一并删除。只能预览照片或视频扩展名的文件（否则 400）；生成失败 404 附原因。响应带 `Cache-Control: private, max-age=86400`，界面在 URL 里加 `v=<mtime>`。
+- **界面**：左侧导航“所有照片”之后加「本地目录」（`#/fs/<编码后的路径>`）。左侧文件夹树单独滚动、按需展开、显示计数与「任务」徽标（链到任务）；右侧沿用图库的网格 / 单张版式（网格只有缩略图与文件名，单张 = 大图 + 胶片带），G / E / F、←/→、空格切换；每页 300 张、滚动到底再取，缩略图 `loading="lazy"`。没有标记、比较与检查器（这些文件还不是 Gardener 的照片）。页头说明“只浏览：不导入、不复制、不移动文件，也不写入 AfterShooting 的记录”。
+- **测量**（2026-11-12，owner 的 Mac，测试服务 8796）：`~/Pictures/2026/2026-11-01`（1,264 张 ARW）列表 8–44 ms；2,000 个空 ARW 的合成文件夹 11–19 ms；浏览器从打开到第一格 42–48 ms，首屏只请求可见的 60 张缩略图；冷缩略图 60 张、6 路并发共 0.68 s，缓存命中中位 6 ms；大图（1600）约 95 ms。2,000 张真实 RAW 的缩略图未测。
+- CLI / MCP 本版不加命令。

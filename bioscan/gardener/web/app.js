@@ -2481,6 +2481,7 @@
       case 'review': return ['review', { id: parts[1], grid: parts[2] === 'grid' }];
       case 'collections': return parts[1] === 'deleted' ? ['deleted', {}] : ['collections', { cat: CAT[parts[1]] ? parts[1] : '' }];
       case 'library': return ['library', {}];
+      case 'fs': return ['fs', { path: parts.slice(1).join('/') }];
       case 'species': return parts[1] === 'task' ? (parts[3] ? ['species-one', { concept: parts[3], task: parts[2] }] : ['species', { task: parts[2] }]) : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
       case 'settings': return ['settings', {}];
       case 'import': return ['import', { task: parts[1], plan: parts[2] }];
@@ -3263,6 +3264,159 @@
     },
   });
   // ---------- 契约修订 5E 结束 ----------
+
+  // ---------- 契约修订 12：本地目录——只浏览磁盘上的文件夹，不导入、不写记录；网格 / 单张沿用图库（.ws.lib）的版式 ----------
+  // 没有标记（这些文件还不是 Gardener 的照片），所以 ui.ws 保持为空：标记、比较、检查器的代码都碰不到这里。
+  const FS_PAGE = 300;
+  const FS_KIND = { 'raw+jpeg': 'RAW+JPEG', raw: 'RAW', jpeg: 'JPEG', image: '图片', video: '视频' };
+  const FS_GROUP = [['home', '本机'], ['volume', '外置卷与存储卡'], ['allow-root', '服务允许的目录']];
+  const fsv = { roots: [], open: new Set(), kids: new Map(), list: null, items: [], cur: -1, mode: 'grid', busy: false, err: null, treeTop: 0 };
+  const fsHref = p => '#/fs/' + encodeURIComponent(p);
+  const fsImg = (x, size) => `${API}/fs/thumb?${new URLSearchParams({ path: x.path, size, v: x.mtime })}`;
+  function fsTaskBadge(tasks) {
+    if (!tasks || !tasks.length) return '';
+    return `<a class="fs-task" href="#/task/${esc(encodeURIComponent(tasks[0].id))}" title="已在任务中：${esc(tasks.map(t => t.title).join('、'))}">${ic('check')}任务</a>`;
+  }
+  function fsNode(d, depth) {
+    const open = fsv.open.has(d.path), kids = fsv.kids.get(d.path), here = fsv.list && fsv.list.path === d.path;
+    const off = d.online === false || d.readable === false, n = d.photos == null ? null : d.photos + d.videos;
+    const tw = d.dirs === 0 || off ? '<span class="fs-tw"></span>'
+      : `<button type="button" class="fs-tw" data-action="fs-toggle" data-path="${esc(d.path)}" aria-expanded="${open}" aria-label="${open ? '收起' : '展开'}">${ic('right')}</button>`;
+    return `<div class="fs-row${here ? ' is-here' : ''}${off ? ' off' : ''}" style="--d:${depth}">${tw}<a href="${esc(fsHref(d.path))}"${here ? ' aria-current="page"' : ''} title="${esc(d.path)}">${ic('folder')}<span class="fs-name">${esc(d.name)}</span>${off ? '<span class="hint">不可读</span>' : n ? `<span class="hint">${n.toLocaleString()}</span>` : ''}</a>${fsTaskBadge(d.tasks)}</div>`
+      + (open && kids ? kids.map(k => fsNode(k, depth + 1)).join('') : '');
+  }
+  function fsTreeHTML() {
+    return FS_GROUP.map(([kind, label]) => {
+      const rs = fsv.roots.filter(r => r.kind === kind);
+      return rs.length ? `<h2 class="lib-h">${label}</h2>${rs.map(r => fsNode(r, 0)).join('')}` : '';
+    }).join('');
+  }
+  function fsTile(x, i) {
+    return `<div class="tile-wrap${i === fsv.cur ? ' is-current' : ''}" role="listitem"><button type="button" class="tile" data-fs="${i}" aria-label="${esc(x.name)}"><span class="tile-media"><span class="ph"><img src="${esc(fsImg(x, 'thumb'))}" alt="" loading="lazy" decoding="async"><span class="ph-note ph-fallback">无法生成预览</span></span></span><span class="tile-cap"><span class="tile-name">${esc(x.name)}</span><span class="tile-file">${esc(FS_KIND[x.kind] || x.kind)} · ${fmtBytes(x.size)}</span></span></button></div>`;
+  }
+  function fsCrumbs(l) {
+    const rel = l.path.slice(l.root.path.length).split('/').filter(Boolean);
+    let p = l.root.path;
+    const parts = [`<a href="${esc(fsHref(p))}">${esc(l.root.name)}</a>`].concat(rel.map(s => { p += '/' + s; return `<a href="${esc(fsHref(p))}">${esc(s)}</a>`; }));
+    return `<nav class="fs-crumbs" aria-label="路径">${parts.join(ic('right'))}</nav>`;
+  }
+  function fsViewsHTML() {
+    return `<div class="seg" role="group" aria-label="视图">${[['grid', '网格', 'G'], ['loupe', '单张', 'E'], ['full', '全屏', 'F']].map(([v, l, k]) => `<button type="button" class="seg-btn" data-action="fs-mode" data-v="${v}" aria-pressed="${fsv.mode === v}">${l}<kbd>${k}</kbd></button>`).join('')}</div>`;
+  }
+  async function fsLoadKids(path) {
+    if (fsv.kids.has(path)) return;
+    try { fsv.kids.set(path, (await api('GET', '/fs/list', null, { path, limit: 1 })).dirs); } catch (e) { fsv.kids.set(path, []); }
+  }
+  async function vFs(p) {
+    const path = p.path || '';
+    fsv.err = null; fsv.list = null; fsv.items = []; fsv.cur = -1;
+    const [roots, list] = await Promise.all([api('GET', '/fs/roots'), path ? api('GET', '/fs/list', null, { path, limit: FS_PAGE }).catch(e => { fsv.err = e; return null; }) : null]);
+    fsv.roots = roots;
+    if (list) {
+      fsv.list = list; fsv.items = list.items; fsv.cur = list.items.length ? 0 : -1;
+      fsv.kids.set(list.path, list.dirs);
+      const anc = [];
+      for (let a = list.path; a.length >= list.root.path.length; a = a.slice(0, a.lastIndexOf('/')) || '/') { anc.push(a); if (a === list.root.path || a === '/') break; }
+      anc.forEach(a => fsv.open.add(a));
+      await Promise.all(anc.map(fsLoadKids));
+    }
+    if (!list || !fsv.items.length) fsv.mode = 'grid';
+    setTimeout(fsMount, 0);
+    const l = fsv.list;
+    const head = l ? `${fsCrumbs(l)}<span class="hint">${l.photos.toLocaleString()} 张照片${l.videos ? ` · ${l.videos.toLocaleString()} 段视频` : ''}${l.dirs.length ? ` · ${l.dirs.length} 个子文件夹` : ''}</span>${fsTaskBadge(l.tasks)}` : '<span class="hint">在左侧选择一个文件夹</span>';
+    const body = fsv.err ? `<div class="grid-empty">${esc(errMsg(fsv.err))}</div>`
+      : !l ? '<div class="grid-empty">选择左侧的文件夹，浏览里面的照片与视频。</div>'
+        : fsv.items.length ? fsv.items.map(fsTile).join('') : `<div class="grid-empty">这个文件夹里没有照片或视频${l.dirs.length ? '，看看子文件夹' : ''}。</div>`;
+    return `<div class="wpage"><div class="ws lib fs mode-${esc(fsv.mode)} grid-${esc(prefs.get('grid', 'm'))}">
+      <div class="lib-bar"><h1 tabindex="-1">本地目录</h1>${head}<div class="ws-tools"><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button></div></div>
+      <p class="fs-note">${ic('warn')}只浏览：不导入、不复制、不移动文件，也不写入 AfterShooting 的记录。要整理这些照片，请新建扫描任务。</p>
+      <div class="lib-body"><nav class="lib-side fs-tree" id="fs-tree" aria-label="文件夹">${fsTreeHTML()}</nav>
+        <section class="ws-pane" aria-label="照片"><div class="lib-loupe" id="fs-loupe"></div>
+          <div class="grid-scroll" id="fs-scroll"><div class="grid" id="fs-grid" role="list">${body}</div><div id="fs-sentinel" aria-hidden="true"></div></div>
+          <div class="lib-foot">${fsViewsHTML()}<span class="hint">G 网格 · E 单张 · F 全屏 · ←/→ 换张 · 空格切换</span></div></section></div></div></div>`;
+  }
+  function fsMount() {
+    const tree = $('#fs-tree'), s = $('#fs-sentinel');
+    if (ui.view !== 'fs' || !tree) return;
+    tree.scrollTop = fsv.treeTop;
+    tree.addEventListener('scroll', () => { fsv.treeTop = tree.scrollTop; }, { passive: true });
+    if (s && 'IntersectionObserver' in window) new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) fsMore(); }, { root: $('#fs-scroll'), rootMargin: '600px' }).observe(s);
+    fsLoupe();
+  }
+  async function fsMore() {
+    const l = fsv.list;
+    if (!l || fsv.busy || fsv.items.length >= l.total) return;
+    fsv.busy = true;
+    try {
+      const r = await api('GET', '/fs/list', null, { path: l.path, offset: fsv.items.length, limit: FS_PAGE });
+      if (fsv.list !== l) return;
+      const start = fsv.items.length;
+      fsv.items = fsv.items.concat(r.items);
+      const g = $('#fs-grid');
+      if (g) g.insertAdjacentHTML('beforeend', r.items.map((x, i) => fsTile(x, start + i)).join(''));
+    } catch (e) { toast(errMsg(e)); } finally { fsv.busy = false; }
+  }
+  function fsLoupe() {
+    const el = $('#fs-loupe'), x = fsv.items[fsv.cur];
+    if (!el) return;
+    if (fsv.mode !== 'loupe' || !x) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="lib-stage fs-stage"><img src="${esc(fsImg(x, 'large'))}" alt="${esc(x.name)}"></div>
+      <p class="fs-cap"><b>${esc(x.name)}</b> · ${esc(FS_KIND[x.kind] || x.kind)} · ${fmtBytes(x.size)} · 修改于 ${esc(fmtTime(x.mtime))}${x.media === 'video' ? ' · 视频只显示封面' : ''} · ${fsv.cur + 1} / ${fsv.list.total}</p>`;
+    [fsv.items[fsv.cur + 1], fsv.items[fsv.cur - 1]].forEach(n => { if (n) new Image().src = fsImg(n, 'large'); });
+  }
+  function fsSet(i) {
+    if (!fsv.items.length) return;
+    fsv.cur = Math.max(0, Math.min(fsv.items.length - 1, i));
+    $$('#fs-grid .tile-wrap.is-current').forEach(w => w.classList.remove('is-current'));
+    const t = $(`#fs-grid .tile[data-fs="${fsv.cur}"]`);
+    if (t) { t.parentElement.classList.add('is-current'); t.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+    fsLoupe();
+    if (fsv.cur >= fsv.items.length - 3) fsMore();
+  }
+  function fsMode(v) {
+    if (v === 'full') {
+      fsMode('loupe');
+      const el = $('#fs-loupe');
+      if (el && el.requestFullscreen) el.requestFullscreen().catch(() => { /* 浏览器不允许时仍是单张 */ });
+      return;
+    }
+    if (v === 'loupe' && fsv.cur < 0) return;
+    fsv.mode = v;
+    const w = $('.ws.fs');
+    if (w) { w.classList.remove('mode-grid', 'mode-loupe'); w.classList.add('mode-' + v); }
+    $$('[data-action="fs-mode"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    fsLoupe();
+    fsSet(fsv.cur);
+  }
+  Object.assign(VIEWS, { fs: vFs });
+  Object.assign(NAV_OF, { fs: 'fs' });
+  Object.assign(TITLES, { fs: '本地目录' });
+  Object.assign(ACTIONS, {
+    'fs-mode': el => fsMode(el.dataset.v),
+    'fs-toggle': async el => {
+      const p = el.dataset.path;
+      if (fsv.open.has(p)) fsv.open.delete(p); else { fsv.open.add(p); await fsLoadKids(p); }
+      const tree = $('#fs-tree');
+      if (tree) setHTML(tree, fsTreeHTML());
+    },
+  });
+  document.addEventListener('click', e => {
+    const t = ui.view === 'fs' && e.target.closest('.tile[data-fs]');
+    if (t) fsSet(Number(t.dataset.fs));
+  });
+  document.addEventListener('dblclick', e => {
+    const t = ui.view === 'fs' && e.target.closest('.tile[data-fs]');
+    if (t) { fsSet(Number(t.dataset.fs)); fsMode('loupe'); }
+  });
+  document.addEventListener('keydown', e => {
+    if (ui.view !== 'fs' || isField(e.target) || $('dialog[open]') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key, v = { g: 'grid', e: 'loupe', f: 'full' }[k.toLowerCase()];
+    if (v) { e.preventDefault(); fsMode(v); }
+    else if (k === 'ArrowRight' || k === 'ArrowLeft') { e.preventDefault(); fsSet(fsv.cur + (k === 'ArrowRight' ? 1 : -1)); }
+    else if ((k === ' ' || k === 'Enter') && !e.target.closest('a, button:not(.tile)')) { e.preventDefault(); fsMode(fsv.mode === 'grid' ? 'loupe' : 'grid'); }
+    else if (k === 'Escape' && fsv.mode === 'loupe' && !document.fullscreenElement) fsMode('grid');
+  });
+  // ---------- 契约修订 12 结束 ----------
 
   window.addEventListener('hashchange', () => route());
   (async function boot() {
