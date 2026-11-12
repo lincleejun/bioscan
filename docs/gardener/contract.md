@@ -668,3 +668,4 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **多个版本都有标记**：取最近一次标记的那个（`marks.updated_at` 降序，再按 asset id）。
 - **代表已有人工标记**：从不覆盖，两边都不变。`GET /assets/{代表}` 的 `versions[]` 增加 `use`、`stars` 和 `marks_differ`（版本有标记且与代表不同），界面可据此提示。
 - **拆分**：`POST /assets/{id}/split-version` 不动代表的标记。
+- **已受影响的数据库（owner 选定补救）**：`meta.schema_version` 升为 `4`。启动迁移从 3 升到 4 时只跑一次 `versions.backfill_carry`：凡是没有人工标记、且与某个有人工标记的版本同在一个任务里的代表，按上面同一规则（最近标记的版本）转移；全部写成一批 `mark_history`，`actor = system`，`reason = version:carry:backfill:<版本 asset id>`，批号写入服务日志，也可从代表的 `mark_history` 查到；一次 `POST /marks/undo` 即全部撤销，撤销后不会再补。已有标记的代表从不改动。

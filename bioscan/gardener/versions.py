@@ -19,6 +19,7 @@ versions: the most recently marked wins (marks.updated_at, then asset id). A rep
 keeps them; a version whose marks differ shows `marks_differ` in the representative's detail."""
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -27,6 +28,7 @@ from typing import Any
 from bioscan.gardener import store as st
 from bioscan.gardener.store import dumps, loads, now
 
+log = logging.getLogger("bioscan.gardener")
 NUMBER = re.compile(r"^([a-z_]*\d{3,})")
 MAX_DIST = 10           # bits of 64; same-day different shots sit above this ~97% of the time
 AMBIGUOUS = 2           # another capture within this many bits of the best: leave the export alone
@@ -159,9 +161,23 @@ def link(store: st.Store, task_id: str, thumb: Callable[[str], Path], model_caps
     return counts
 
 
-def carry_marks(c: Any, joined: dict[str, list[str]]) -> None:
-    """A representative without marks takes those of its most recently marked new version (one batch)."""
-    batch = st.new_id("b")
+def backfill_carry(c: Any) -> int:
+    """Schema 4, once: databases made before 契约修订 10B left marks on versions linked to an unmarked
+    representative of the same task. Carry them now as one undoable system batch (version:carry:backfill:<id>)."""
+    joined: dict[str, list[str]] = {}
+    for r in c.execute("SELECT DISTINCT a.version_of rep, a.id FROM assets a JOIN task_assets v ON v.asset_id = a.id "
+                       "JOIN task_assets t ON t.task_id = v.task_id AND t.asset_id = a.version_of").fetchall():
+        joined.setdefault(r["rep"], []).append(r["id"])
+    batch, n = carry_marks(c, joined, "version:carry:backfill:")
+    if n:
+        log.info("schema 4: carried the marks of %d version(s) to their representative (undo batch %s)", n, batch)
+    return n
+
+
+def carry_marks(c: Any, joined: dict[str, list[str]], reason: str = "version:carry:") -> tuple[str, int]:
+    """A representative without marks takes those of its most recently marked new version (one batch).
+    Returns (batch id, representatives changed)."""
+    batch, n = st.new_id("b"), 0
     for rep, vids in sorted(joined.items()):
         if c.execute("SELECT 1 FROM marks WHERE asset_id = ? AND (use IS NOT NULL OR stars > 0)", (rep,)).fetchone():
             continue                                    # a person's marks on the representative stay
@@ -169,7 +185,9 @@ def carry_marks(c: Any, joined: dict[str, list[str]]) -> None:
                         "(use IS NOT NULL OR stars > 0) ORDER BY updated_at DESC, asset_id LIMIT 1", vids).fetchone()
         if src:
             st.apply_marks(c, [rep], {"use": src["use"], "stars": src["stars"]}, actor="system",
-                           reason=f"version:carry:{src['asset_id']}", batch=batch)
+                           reason=f"{reason}{src['asset_id']}", batch=batch)
+            n += 1
+    return batch, n
 
 
 def set_version(c: Any, aid: str, target: tuple[str, str] | None, model_caps: list[str], t: str) -> bool:
