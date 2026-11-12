@@ -875,7 +875,7 @@
     const n = ws.sel.size;
     const manual = ws.kind === 'review' && ui.col && ui.col.kind === 'manual';
     if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格放大 · P 选入修图 / X 淘汰 / U 待定 / R 保留记录，1–5 星级${ws.lib ? ' · G 网格 / E 单张 / C 比较 / F 全屏' : ''}</span>${singleToolsHTML(ws)}`;
-    return `<span class="batch-n">已选 <b>${n}</b> 张 · 快捷键作用于全部已选</span>
+    return `<span class="batch-n">已选 <b>${n}</b> 张 · ${ws.lib && ws.mode === 'loupe' ? '单张视图里快捷键只作用于当前这张' : '快捷键作用于全部已选'}</span>
       <button type="button" class="btn sm pick" data-action="batch" data-v="record" data-key="b-record">${ic('check')}保留记录</button>
       <button type="button" class="btn sm pick" data-action="batch" data-v="edit" data-key="b-edit">${ic('edit')}选入修图</button>
       <button type="button" class="btn sm ghost" data-action="batch" data-v="pending" data-key="b-pending">待定</button>
@@ -913,9 +913,10 @@
     });
     return out;
   }
-  function recompute() {
+  function recompute(keep) {                // keep：后台刷新时，正在看的这张即使不再符合筛选也留着，直到人自己换张
     const ws = ui.ws;
-    ws.ids = (encOn(ws) ? encOrder(ws) : ws.all).filter(id => visible(ws, A(id)));
+    ws.ids = (encOn(ws) ? encOrder(ws) : ws.all).filter(id => (keep && id === ws.current) || visible(ws, A(id)));
+    ws.kept = keep && ws.current && ws.ids.includes(ws.current) && !visible(ws, A(ws.current)) ? ws.current : null;
     ws.sel = new Set(Array.from(ws.sel).filter(id => ws.ids.includes(id)));
     if (!ws.ids.includes(ws.current)) ws.current = ws.ids[0] || null;
     if (ws.current) ws.sel.add(ws.current);
@@ -999,7 +1000,7 @@
       ws.short = new Map(r.asset_ids.map((id, i) => [id, i + 1]));
       ws.shortInfo = { size: r.size, scored: r.scored, sig };
       if (ui.ws !== ws) return;
-      if (ws.lf.ai) recompute();
+      if (ws.lf.ai) recompute(true);
       else $$('.tile[data-asset]').forEach(el => { const o = $('.tile-short', el); if (o) o.remove(); $('.tile-ai', el).insertAdjacentHTML('afterend', shortBadge(ws, A(el.dataset.asset))); });
       patchBinds('lib-filters'); patchBinds('lib-side');
     } catch (e) { /* 下次轮询再试 */ }
@@ -1012,7 +1013,7 @@
     ws.mode = v;
     const w = $('.ws.lib');
     if (w) { w.classList.remove('mode-grid', 'mode-loupe'); w.classList.add('mode-' + v); }
-    patchBinds('lib-views');
+    patchBinds('lib-views'); patchBinds('ws-batch');
     renderLoupe();
     const t = ws.current && $(`.tile[data-asset="${CSS.escape(ws.current)}"]`);
     if (t) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -1335,6 +1336,7 @@
     const hadTileFocus = document.activeElement && document.activeElement.classList.contains('tile');
     ws.current = id;
     if (!(opts && opts.keepSel)) { ws.sel = new Set([id]); ws.anchor = id; }
+    if (ws.kept && ws.kept !== id) recompute();       // 人换了张：刚才留着的那张不再符合筛选，现在移走
     applySel();
     renderInspector();
     const t = $(`.tile[data-asset="${CSS.escape(id)}"]`);
@@ -1368,6 +1370,7 @@
   async function doMark(ids, patch, label, advance) {
     ids = ids.filter(id => A(id));
     if (!ids.length) return;
+    const ws = ui.ws, from = ws && ws.current;   // 按键时就定下从哪张往下走；响应回来前人已换张就不再前进
     const body = Object.assign({ asset_ids: ids, expect: {} }, patch);
     ids.forEach(id => { body.expect[id] = A(id).mark_version; });
     const reason = $('#mark-reason');
@@ -1378,7 +1381,7 @@
       ui.undo.push({ batch: r.batch_id, label });
       afterMarks(r.assets);
       toast(`${label} · ${ids.length} 张`, { action: { label: '撤销', run: doUndo } });
-      if (advance && prefs.get('advance', '1') === '1') move(1);
+      if (advance && prefs.get('advance', '1') === '1' && ui.ws === ws && ws.current === from) move(1);
     } catch (e) {
       if (e.status === 409) { toast('有素材刚被其他客户端修改，已载入最新标记，请重新操作'); await Promise.all(ids.map(id => { S.details.delete(id); return ensureDetail(id); })); patchTiles(ids); renderInspector(); }
       else toast(errMsg(e));
@@ -1702,7 +1705,7 @@
           <figcaption><span class="cd-cap"><b class="${a.species && !a.species.confirmed ? 'is-cand' : ''}">${esc(spLine(a))}</b><small>${esc(a.taken_at ? fmtTime(a.taken_at) : a.name)}</small></span>${x ? `<button type="button" class="btn sm ghost" data-action="${x[0]}" data-id="${esc(id)}">${x[1]}</button>` : ''}</figcaption></figure>`; }).join('')}</div></details>`;
     }).join('');
   }
-  // 集合里点一张：原像素查看器，←/→ 换张，R/E/U/X 标用途；纠正物种去 Review（检视器里逐只动物改）
+  // 集合里点一张：原像素查看器，←/→ 换张，P/R/U/X 标用途；纠正物种去 Review（检视器里逐只动物改）
   function cdFootHTML(a) {
     const sp = a.species;
     return `<div class="cdv-info"><b>${esc(spLine(a))}</b>${sp ? `<i>${esc(sp.taxon)}</i>` : ''}<span class="hint">${esc([a.name, a.content_label_zh, a.taken_at && fmtTime(a.taken_at)].filter(Boolean).join(' · '))}</span></div>
@@ -2216,15 +2219,18 @@
     const ws = ui.ws, panes = [], n = ids.length;
     let active = n - 1;
     const sync = () => prefs.get('cmpsync', '1') === '1';
-    const onKey = e => {                                        // 1–4：选中胶片条要替换的一格（焦点可能在 body 上）
-      if (!d.open || isField(e.target) || e.metaKey || e.ctrlKey || e.altKey || !/^[1-4]$/.test(e.key) || Number(e.key) > n) return;
+    const onKey = e => {                                        // 1–4：选中胶片条要替换的一格；P/R/U/X 标高亮这一格（焦点可能在 body 上）
+      if (!d.open || isField(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const u = KEY_USE[e.key.toLowerCase()];
+      if (u) { e.preventDefault(); doMark([panes[active].id], { use: u }, useZh(u)); return; }
+      if (!/^[1-4]$/.test(e.key) || Number(e.key) > n) return;
       e.preventDefault();
       active = Number(e.key) - 1;
       strip();
     };
     const d = dialog({ title: n === 2 ? '并排比较' : `${n} 张比较`, cls: 'compare', onClose: () => { panes.forEach(dvDrop); document.removeEventListener('keydown', onKey); },
       body: `<div class="cmp-grid n${n}">${ids.map((id, i) => `<figure class="cmp-item" data-pane="${i}"><span class="cmp-slot" aria-hidden="true">${i + 1}</span><div class="cmp-view"></div><figcaption data-cmp="${esc(id)}">${cmpCapHTML(id)}</figcaption></figure>`).join('')}</div>
-        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（${n === 2 ? '两边' : '各张'}同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；“看头部 / 看眼部”放大到 OWLv2 找到的部位（同步时其余各张对准各自的同一部位）；拖动平移，滚轮或双击放大；按 1–${n} 选中一格，点胶片条缩略图替换它。可以全部保留、全部舍弃或都不标记。${PREVIEW_NOTE}</span></div>
+        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（${n === 2 ? '两边' : '各张'}同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；“看头部 / 看眼部”放大到 OWLv2 找到的部位（同步时其余各张对准各自的同一部位）；拖动平移，滚轮或双击放大；按 1–${n} 选中一格，P / X / U 标记高亮的这一格，点胶片条缩略图替换它。可以全部保留、全部舍弃或都不标记。${PREVIEW_NOTE}</span></div>
         <div class="cmp-strip" role="group" aria-label="同一连拍：点缩略图替换高亮的一格"></div>` });
     function onView(v, kind, extra) {
       if (!sync()) return;
@@ -2453,7 +2459,7 @@
     dialog({
       title: '键盘快捷键', cls: 'small',
       body: `<table class="kbd-table">${row('P', '选入修图')}${row('X', '淘汰（不删除文件）')}${row('U', '待定')}${row('R', '保留记录')}${row('G / E', '图库：网格 / 单张')}${row('F', '图库：全屏')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('空格', '放大查看')}${row('C', '比较已选 2 张')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
-        <p class="hint">在输入框中打字时快捷键不会触发。多选时标记作用于全部已选素材。</p>`,
+        <p class="hint">在输入框中打字时快捷键不会触发。多选时标记作用于全部已选素材；单张视图、全屏与比较里只作用于眼前这张（比较里是高亮的一格）。</p>`,
     });
   }
 
@@ -3080,7 +3086,8 @@
     if (lk) { e.preventDefault(); libMode(lk); return; }
     if (ws.lib && !lb && (k === ' ' || k === 'Enter') && (tg === document.body || tg.classList.contains('tile') || tg === main)) { e.preventDefault(); libMode(ws.mode === 'grid' ? 'loupe' : 'grid'); return; }
     if (ws.lib && ws.mode === 'loupe' && (k === 'ArrowDown' || k === 'ArrowUp')) return;
-    const targets = lb ? (ws.current ? [ws.current] : []) : selTargets();
+    const one = lb || (ws.lib && ws.mode === 'loupe');            // 全屏与单张视图：键位只作用于当前这张（照 Lightroom）
+    const targets = one ? (ws.current ? [ws.current] : []) : selTargets();
     const markKey = (patch, label) => { if (targets.length) { e.preventDefault(); doMark(targets, patch, label, targets.length === 1); } };
     if (k === 'ArrowRight') { e.preventDefault(); move(1); }
     else if (k === 'ArrowLeft') { e.preventDefault(); move(-1); }
