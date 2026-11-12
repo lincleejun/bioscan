@@ -621,8 +621,9 @@
   async function cpQuick() {
     const id = cp.shown[cp.active], a = A(id), use = a.use === 'edit' ? 'edit' : 'record';
     try {
-      const pre = await api('POST', '/marks/keep-best', { asset_id: id, dry_run: true });
-      const done = await api('POST', '/marks/keep-best', { asset_id: id, keep_use: use, expect: pre.expect });
+      const within = cp.enc.asset_ids;          // 只淘汰屏幕上这一组的帧：同一连拍里别的物种的帧不在这里，不能动
+      const pre = await api('POST', '/marks/keep-best', { asset_id: id, dry_run: true, within });
+      const done = await api('POST', '/marks/keep-best', { asset_id: id, keep_use: use, expect: pre.expect, within });
       if (done.batch_id) { ui.undo.push({ batch: done.batch_id, label: '留这张，其余淘汰' }); patchBinds('undo'); }
       const kept = done.skipped.length;
       toast(`第 ${cp.enc.n} 组：${useZh(use)} 1 张，淘汰 ${done.reject.length} 张${kept ? `，${kept} 张没动（你标过的，或某物种的唯一记录）` : ''}`, done.batch_id ? { action: { label: '撤销', run: doUndo } } : undefined);

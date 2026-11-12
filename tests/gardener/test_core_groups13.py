@@ -40,17 +40,17 @@ def burst(c, aid):
 
 def test_a_burst_takes_its_majority_name_and_a_person_or_a_second_bird_is_never_outvoted(env, fakes, tmp_path):
     src = tmp_path / "card"
-    photos(src, 5)                                                    # the fake cull: one burst
+    photos(src, 6)                                                    # the fake cull: one burst
     fakes.boxes["IMG_0001.jpg"] = [owl_box(level="genus")]            # the model stopped at the genus here
     fakes.boxes["IMG_0003.jpg"] = [owl_box(**WREN)]                   # and called this frame something else
-    fakes.boxes["IMG_0004.jpg"] = [owl_box(), owl_box((0.6, 0.6, 0.9, 0.9), **TIT)]   # an extra box, named once
+    fakes.boxes["IMG_0004.jpg"] = [owl_box(), owl_box((0.6, 0.6, 0.7, 0.7), **TIT)]   # a small extra box, named once
     with env.client() as c:
         t = scanned(c, src)
         a = ids(c, task=t["id"])
         assert [names(c, i) for i in a[:4]] == [[("species", OWL)]] * 4          # genus and the odd name: the owl
-        assert names(c, a[4]) == [("species", OWL), ("unconfirmed", None)]       # a name seen once in 5 frames: 待鉴定
+        assert names(c, a[4]) == [("species", OWL), ("unconfirmed", None)]       # an extra box named once: 待鉴定
         cards = c.get(f"{API}/species").json()["to_confirm"]
-        assert [(k["common"], k["photos"]) for k in cards] == [("Eastern Screech-Owl", 5)]
+        assert [(k["common"], k["photos"]) for k in cards] == [("Eastern Screech-Owl", 6)]
         def rows():
             with sqlite3.connect(env.data / "gardener.sqlite") as db:
                 return db.execute("SELECT count(*) FROM identifications").fetchone()[0]
@@ -164,3 +164,33 @@ def test_photos_move_to_another_species_in_one_undoable_step(env, fakes, tmp_pat
         assert r.status_code == 400
         assert c.post(f"{API}/identifications/move", json={"claim": wren}).status_code == 400
         assert c.post(f"{API}/identifications/move", json={"asset_ids": a, "claim": {"level": "species"}}).status_code == 400
+
+
+def test_keep_best_within_only_rejects_the_frames_on_screen(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 5)                                                    # one burst
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        shown = a[:3]                                                 # the group on screen: three of the five frames
+        r = c.post(f"{API}/marks/keep-best", json={"asset_id": a[0], "dry_run": True, "within": shown}).json()
+        assert sorted(r["reject"]) == sorted(a[1:3]) and set(r["expect"]) == set(shown)
+        c.post(f"{API}/marks/keep-best", json={"asset_id": a[0], "keep_use": "record", "expect": r["expect"], "within": shown})
+        uses = [c.get(f"{API}/assets/{i}").json()["use"] for i in a]
+        assert uses == ["record", "reject", "reject", "pending", "pending"]
+        assert c.post(f"{API}/marks/keep-best", json={"asset_id": a[0], "within": "x"}).status_code == 400
+
+
+def test_a_thin_vote_fills_in_a_genus_but_never_replaces_a_species_and_a_lone_bird_named_once_keeps_its_name(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 4)
+    fakes.boxes["IMG_0002.jpg"] = [owl_box(level="genus")]
+    fakes.boxes["IMG_0003.jpg"] = [owl_box(**WREN)]                   # a lone bird, named once
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        # two owls against one wren: no majority (the runner-up has a third of the named frames), nothing changes
+        assert names(c, a[2]) == [("genus", None)] and names(c, a[3]) == [("species", WREN["concept"])]
+        # split the wren off: two owls and a genus are left, so the genus is filled in; the wren keeps its name
+        c.post(f"{API}/bursts/split", json={"asset_ids": [a[3]]})
+        assert names(c, a[2]) == [("species", OWL)] and names(c, a[3]) == [("species", WREN["concept"])]

@@ -236,11 +236,13 @@ def merge_encounters(c: Any, ids: list[str], *, actor: str) -> str:
 
 
 def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool,
-              expect: dict[str, int] | None = None) -> dict[str, Any]:
+              expect: dict[str, int] | None = None, within: list[str] | None = None) -> dict[str, Any]:
     """保留此张并淘汰相似帧 (PRD §08): `asset_id` gets `keep_use`, the other frames of its burst get reject,
     one batch (one undo). Skipped: frames a person already protected (record, edit or stars: reason human)
     and frames that would leave a species with no photo that is not rejected (reason only_record; every
-    frame showing it is kept). dry_run reports the reach, with the versions to send back as `expect`."""
+    frame showing it is kept). dry_run reports the reach, with the versions to send back as `expect`.
+    `within` limits the frames that may be rejected to those ids (修订 13: the group on screen holds one species'
+    frames of the burst, and a key press must not reject a frame the person is not looking at)."""
     if not c.execute("SELECT 1 FROM assets WHERE id = ?", (asset_id,)).fetchone():
         raise st.NotFound(f"no asset {asset_id}")
     row = c.execute("SELECT burst_id FROM ai_suggestions WHERE asset_id = ? ORDER BY id DESC LIMIT 1", (asset_id,)).fetchone()
@@ -250,6 +252,8 @@ def keep_best(c: Any, asset_id: str, *, keep_use: str, actor: str, dry_run: bool
         f"SELECT a.id FROM ai_suggestions s JOIN assets a ON a.id = s.asset_id WHERE {LATEST} "
         f"AND s.burst_id = ? AND a.id != ? AND {IN_TASK_REP} ORDER BY a.taken_at, a.id",   # bursts are per task
         (row[0], asset_id, row[0].split(":", 1)[0]))]
+    if within is not None:
+        sibs = [i for i in sibs if i in set(within)]
     marks = {i: st.mark_row(c, i) for i in [asset_id, *sibs]}
     skipped, cand = [], []
     for i in sibs:

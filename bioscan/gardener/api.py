@@ -921,9 +921,10 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         expect = body.get("expect")
         if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
             raise Error("expect must be {asset_id: version}")
+        within = strs(body["within"], "within") if body.get("within") is not None else None
         with store.tx() as c:
             out = rv.keep_best(c, text(body, "asset_id", required=True), keep_use=use, actor=actor,
-                               dry_run=bool(body.get("dry_run")), expect=expect)
+                               dry_run=bool(body.get("dry_run")), expect=expect, within=within)
         cols: dict[str, dict[str, Any]] = {}            # 7A: the person's collections the rejects are in (PRD §05)
         auto = {r["id"] for r in store.all("SELECT id FROM collections WHERE origin = 'auto'")} if out["reject"] else set()
         for i in out["reject"]:
