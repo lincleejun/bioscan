@@ -636,8 +636,8 @@
       cpNext();
     } catch (e) { toast(e.status === 409 ? '有照片刚被修改，请再按一次' : errMsg(e)); }
   }
-  async function groupMerge(task, a, b) {
-    const r = await api('POST', '/bursts/merge', { task_id: task, asset_ids: [a, b] });
+  async function groupMerge(task, a, b, all) {
+    const r = await api('POST', '/bursts/merge', { task_id: task, asset_ids: all || [a, b] });
     S.details.clear();
     toast(`已并成一组，共 ${r.size} 张`);
     return r;
@@ -976,6 +976,8 @@
       <button type="button" class="btn sm reject" data-action="batch" data-v="reject" data-key="b-reject">${ic('x')}淘汰</button>
       <label class="batch-stars"><span class="sr-only">批量星级</span><select class="input sm" data-action-change="batch-stars" aria-label="批量星级"><option value="">星级…</option>${[0, 1, 2, 3, 4, 5].map(i => `<option value="${i}">${i ? i + ' 星' : '清除星级'}</option>`).join('')}</select></label>
       <button type="button" class="btn sm ghost" data-action="compare" data-key="b-cmp" ${n <= CMP_MAX ? '' : `disabled title="选择 2–${CMP_MAX} 张时可比较"`}>${ic('compare')}比较</button>
+      <button type="button" class="btn sm ghost" data-action="batch-merge" data-key="b-merge" title="这些是同一只、同一个瞬间：连同它们所在的连拍并成一组">并成一组</button>
+      <button type="button" class="btn sm ghost" data-action="batch-move" data-key="b-move" title="把选中的照片改成另一个物种（可撤销）">改物种…</button>
       <button type="button" class="btn sm ghost" data-action="add-to-col" data-key="b-add">加入集合…</button>
       ${manual ? '<button type="button" class="btn sm ghost" data-action="split-col" data-key="b-split">拆分为新集合…</button><button type="button" class="btn sm ghost" data-action="remove-from-col" data-key="b-rm">移出本组</button>' : ''}
       <button type="button" class="btn sm ghost" data-action="clear-sel" data-key="b-clear">取消选择</button>`;
@@ -2718,6 +2720,17 @@
         if (location.hash === to) route(); else location.hash = to;
       });
     }),
+    // 多选后的合并与改物种（契约修订 13）：同一个任务里的照片才能并成一组
+    'batch-merge': async () => {
+      const ids = [...ui.ws.sel], tasks = new Set(ids.map(id => ((A(id) || {}).task_ids || [])[0]));
+      if (tasks.size !== 1 || tasks.has(undefined)) { toast('只能把同一次拍摄里的照片并成一组'); return; }
+      try { await groupMerge([...tasks][0], ids[0], ids[1], ids); await pollNow(); } catch (e) { toast(errMsg(e)); }
+    },
+    'batch-move': () => {
+      const ids = [...ui.ws.sel], from = ui.view === 'species-one' && ui.sp ? ui.sp.concept : undefined;
+      chooseSpecies(`选中的 ${ids.length} 张是什么`, from ? '选中的照片里叫当前这个物种的都会改过去，可撤销。' : '只改画面里只有一只动物的照片；有多只的请在单张视图里逐只改。可撤销。', claim =>
+        moveSpecies(Object.assign({ asset_ids: ids, claim }, from ? { from_concept: from } : {}), `已改为 ${claim.common || claim.taxon || '不确定'}`, () => route(true)));
+    },
     'gr-merge': async el => { try { await groupMerge(fr.t.id, el.dataset.a, el.dataset.b); await pollNow(); route(); } catch (e) { toast(errMsg(e)); } },
     'cp-keep': () => keepBest(cp.shown[cp.active]),
     'cp-full': () => { const el = $('.cp'); if (document.fullscreenElement) document.exitFullscreen(); else if (el && el.requestFullscreen) el.requestFullscreen(); },
