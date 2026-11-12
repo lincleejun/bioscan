@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS managed_files (
   PRIMARY KEY (asset_id, path)
 );
 CREATE INDEX IF NOT EXISTS managed_files_source ON managed_files (source_path);
+CREATE INDEX IF NOT EXISTS managed_files_path ON managed_files (path);   -- 10A: who else uses a file (cleanup)
 CREATE INDEX IF NOT EXISTS managed_files_hash ON managed_files (size, quick_hash);
 
 -- ---- 契约修订 5E: Lightroom handoff and cleanup plans (handoff.py, cleanup.py) ----

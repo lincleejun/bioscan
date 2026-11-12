@@ -3150,7 +3150,7 @@
   // ---------- 契约修订 5E：Lightroom 交接与清理计划 ----------
   const HANDOFF_ST = { written: ['已写出交接文件 · 等待 Lightroom 返回结果', 'wait'], applied: ['已在 Lightroom 中处理', 'ok'], partial: ['部分照片未成功', 'fail'], failed: ['没有照片成功', 'fail'] };
   const ITEM_ST = { pending: ['等待结果', 'wait'], ok: ['成功', 'ok'], skipped: ['跳过', 'muted'], failed: ['失败', 'fail'], trashed: ['已移到废纸篓', 'ok'] };
-  const WHY_ZH = { offline: '原片离线', file_missing: 'Lightroom 找不到文件', develop: '显影', preset_missing: 'Lightroom 里找不到这个预设', not_in_lightroom: '照片没有进入 Lightroom', develop_failed: '预设未应用', not_rejected: '已不再是淘汰，未动', changed: '文件在计划之后有变化，未动', stars: '星级', keywords: '关键词' };
+  const WHY_ZH = { offline: '原片离线', file_missing: 'Lightroom 找不到文件', develop: '显影', preset_missing: 'Lightroom 里找不到这个预设', not_in_lightroom: '照片没有进入 Lightroom', develop_failed: '预设未应用', not_rejected: '已不再是淘汰，未动', changed: '文件在计划之后有变化，未动', shared: '另一张保留的照片也在用这个文件，未动',stars: '星级', keywords: '关键词' };
   const why = r => esc(WHY_ZH[r] || r || '');
   const TRASH_COPY = '文件移到废纸篓，可在废纸篓中恢复；移到废纸篓不释放磁盘空间，在 Finder 中清空废纸篓后才真正释放。Gardener 不做永久删除。';
   const STEP_ZH = { applied: '预设已应用', same: '预设此前已应用', conflict: '显影在 Lightroom 中改过，未应用预设', exported: '已导出', skipped: '未导出', failed: '失败' };
@@ -3240,7 +3240,7 @@
     ui.plan = plan;
     const sm = plan.summary, rep = plan.report;
     const spName = s => `${esc(s.zh || s.common || s.taxon)} <i class="hint">${esc(s.taxon)}</i>`;
-    const left = plan.items.some(i => i.state === 'ready' && i.files.some(f => f.result !== 'trashed'));
+    const left = plan.items.some(i => i.state === 'ready' && i.files.some(f => f.result !== 'trashed' && f.reason !== 'shared'));
     return `<div class="page"><a class="back" href="#/cleanup">${ic('left')}清理计划</a>
       <header class="page-head"><div><h1 tabindex="-1">清理计划</h1>
         <p class="lede">淘汰 <b>${sm.rejected}</b> 张 · 可清理 <b>${sm.ready}</b> 张、${sm.files} 个文件、<b>${fmtBytes(sm.bytes)}</b>${sm.offline ? ` · ${sm.offline} 张原片离线，跳过（不会当成已删除）` : ''}</p>
