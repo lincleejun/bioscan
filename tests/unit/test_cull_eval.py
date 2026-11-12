@@ -42,7 +42,7 @@ def test_the_set_is_labelled_and_deterministic(made, tmp_path):
     assert {by[f"s001-{v}.jpg"]["reject_reasons"] for v in ("blur", "smear")} == {"soft_subject"}
     assert (by["s001-shake.jpg"]["reject_reasons"], by["s001-defocus.jpg"]["reject_reasons"]) == ("motion", "defocus")
     assert (by["s001-over.jpg"]["reject_reasons"], by["s001-under.jpg"]["reject_reasons"]) == ("overexposed", "underexposed")
-    assert by["s001-small.jpg"]["reject_reasons"] == "subject_too_small" and by["s001-cut.jpg"]["keep"] == 0
+    assert (by["s001-small.jpg"]["reject_reasons"], by["s001-small.jpg"]["keep"]) == ("", 1) and by["s001-cut.jpg"]["keep"] == 0
     bursts = [r for r in rows if r["burst_id"]]
     assert {r["burst_id"] for r in bursts} == {"s000", "s002"} and len(bursts) == 8
     assert [r["taken_at"][-12:-6] for r in bursts[:4]] == ["00.000", "00.200", "00.400", "00.600"]

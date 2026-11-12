@@ -32,8 +32,9 @@ LABEL_ZH = {
     "abstract": "抽象"}
 REASON_ZH = {"soft_subject": "主体不清晰", "motion": "运动模糊", "defocus": "失焦", "motion_or_defocus": "运动模糊或失焦",
              "overexposed": "过曝", "underexposed": "欠曝", "subject_cut": "主体被画面边缘裁切",
-             "subject_too_small": "主体过小", "no_subject": "像有动物但未找到主体"}
-FLAG_ZH = {"horizon_tilt": "提示：地平线倾斜", "tight_headroom": "提示：主体上方空间紧", "no_lead_room": "提示：主体朝向一侧空间不足"}
+             "no_subject": "像有动物但未找到主体"}
+FLAG_ZH = {"horizon_tilt": "提示：地平线倾斜", "tight_headroom": "提示：主体上方空间紧", "no_lead_room": "提示：主体朝向一侧空间不足",
+           "subject_too_small": "提示：主体在画面中很小"}
 
 
 @dataclass

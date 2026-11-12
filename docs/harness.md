@@ -359,7 +359,8 @@ subject box is known (a preds file's best identify box, or a CSV): per source th
 and motion smear on the subject box (`soft_subject`), the same smear over the whole frame (`motion`), the same Gaussian
 blur over the whole frame (`defocus`), a
 crop cutting 40% of the box off (`subject_cut`), +2 and −2 EV in linear light (`overexposed`, `underexposed`), the
-photo shrunk onto a canvas so the subject covers 0.3% of it (`subject_too_small`), and for every third source a
+photo shrunk onto a canvas so the subject covers 0.3% of it (keep 1, no reason: a small subject is select's
+`subject_too_small` flag, not a reject, #131), and for every third source a
 burst of 4 frames shifted by up to 2%, 0.2 s apart (keep 1, one `burst_id`). Every other photo is 10 minutes from the
 next. The script is deterministic from its seed (docstring: every variant and parameter).
 

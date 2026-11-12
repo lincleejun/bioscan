@@ -323,7 +323,25 @@ def test_select_flags_no_lead_room_and_the_flag_never_changes_the_selection():
     all3 = tilted("all", 0, 5.0)
     all3["products"] |= {k: v for k, v in facing("all", 0, "left", ((0.02, 0.0, 0.3, 0.4), 0.9))["products"].items()
                          if k in ("identify", "facing")}
-    assert cull.flags(all3) == ["horizon_tilt", "tight_headroom", "no_lead_room"] == list(cull.FLAGS)
+    all3["products"]["quality"]["subject"]["area"] = 0.003
+    assert cull.flags(all3) == ["horizon_tilt", "tight_headroom", "no_lead_room", "subject_too_small"] == list(cull.FLAGS)
+
+
+def test_a_sharp_burst_of_small_subjects_is_flagged_and_still_picked():
+    """#131: a distant bird on a long lens. subject_too_small is a flag: the burst's best frame is
+    picked, nothing is rejected, and a quality product from before #131 that still lists the reason
+    (Gardener's stored raw:quality) is read the same way."""
+    frames = [ev(f"f{i}", i * 0.2, blur=0.15, aesthetic=0.5 + i / 10) for i in range(5)]
+    for f in frames:
+        f["products"]["quality"]["subject"]["area"] = 0.003
+    frames[0]["products"]["quality"]["reject_reasons"] = ["subject_too_small"]       # an older product
+    r = run(frames)
+    assert [p for p, x in r.items() if x["keep"]] == ["f4"] and r["f4"]["status"] == "pick"
+    assert all(x["reasons"] == [] and x["flags"] == ["subject_too_small"] for x in r.values())
+    assert cull.final_reasons(frames[0]) == set() and "subject_too_small" not in cull.SCOPES
+    edge = ev("edge", 0.0)
+    edge["products"]["quality"]["subject"]["area"] = cull.SMALL_SUBJECT
+    assert cull.flags(edge) == []
 
 
 @pytest.mark.parametrize("bad", [-1, "0.1", True, float("nan"), 1.5])

@@ -17,7 +17,7 @@ have one meaning) and covers 2-50 % of the frame. Per source, deterministically 
 | defocus | the same Gaussian blur over the whole frame | defocus | 0 |
 | cut | cropped so that 40 % of the box is outside the new frame | subject_cut | 0 |
 | over / under | +2 / -2 EV in linear light, clipped back to 8 bit | overexposed / underexposed | 0 |
-| small | the photo shrunk onto a canvas twice its size, subject at 0.3 % of the frame | subject_too_small | 0 |
+| small | the photo shrunk onto a canvas twice its size, subject at 0.3 % of the frame | none (select's subject_too_small flag, #131) | 1 |
 | burst | (every `--burst-every`-th source) 4 frames shifted by up to 2 %, 0.2 s apart | none (burst_id) | 1 |
 
 Every variant gets its own capture time, 10 minutes apart, so only burst frames can form a burst.
@@ -171,7 +171,7 @@ def build(sources: list[dict], out: str | Path, seed: int = 7, burst_every: int 
             emit(cropped, src, i, "cut", "subject_cut")
         emit(ev(im, EV), src, i, "over", "overexposed")
         emit(ev(im, -EV), src, i, "under", "underexposed")
-        emit(small(im, box, rng), src, i, "small", "subject_too_small")
+        emit(small(im, box, rng), src, i, "small", keep=1)          # a small subject is a flag, not a reject (#131)
         if burst_every and i % burst_every == 0:
             t0 = START + timedelta(seconds=SHOT_GAP_S * shot)
             shot += 1
