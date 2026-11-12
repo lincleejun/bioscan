@@ -141,6 +141,12 @@ def _decode_raw(path: str) -> tuple[np.ndarray, int]:
     orientation that was applied."""
     import rawpy
 
+    from bioscan.service.decode import raw_truncated
+
+    with open(path, "rb") as f:
+        why = raw_truncated(f, os.fstat(f.fileno()).st_size)
+    if why:                     # LibRaw would show black rows, or another photo's pixels
+        raise ValueError(why)
     with rawpy.imread(path) as raw:
         flip, w, h = raw.sizes.flip, raw.sizes.width, raw.sizes.height
         pixels = raw.postprocess(use_camera_wb=True, output_bps=8)

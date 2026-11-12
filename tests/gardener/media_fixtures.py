@@ -3,6 +3,8 @@ Engine (a minimal copy of tests/contract/conftest.py's fakes: every frame is a b
 Western over Eastern Screech-Owl)."""
 from __future__ import annotations
 
+import struct
+
 import numpy as np
 from PIL import Image
 
@@ -100,3 +102,34 @@ def fake_engine(fail: str | None = None) -> Engine:
     return Engine("cpu", Loaders(siglip2=loader("siglip2", FakeSigLIP2), owlv2=loader("owlv2", FakeOWLv2),
                                  species=loader("bioclip", lambda: (FakeBioCLIP(), {"bird": owl_list()})),
                                  geo=lambda: None))
+
+
+def tiff_raw(strips=None, tiles=None, sub=False, jpeg=None, endian="<") -> bytes:
+    """A minimal TIFF RAW: IFD0 (with `sub`, pointing to one SubIFD that holds the data tags, IFD0
+    keeping only an embedded JPEG at `jpeg`) and strip / tile data of the given (offset, length)
+    layout, padded to the declared end. Arrays of more than one value follow their IFD."""
+    def ifd(at, entries):
+        out, extra = struct.pack(endian + "H", len(entries)), b""
+        for tag, values in entries:
+            out += struct.pack(endian + "HHL", tag, 4, len(values))
+            if len(values) == 1:
+                out += struct.pack(endian + "L", values[0])
+            else:
+                out += struct.pack(endian + "L", at + 2 + 12 * len(entries) + 4 + len(extra))
+                extra += struct.pack(endian + "L" * len(values), *values)
+        return out + struct.pack(endian + "L", 0) + extra
+
+    data = []
+    for (o, c), layout in (((0x0111, 0x0117), strips), ((0x0144, 0x0145), tiles)):
+        if layout:
+            data += [(o, [a for a, _ in layout]), (c, [n for _, n in layout])]
+    head = (b"II*\x00" if endian == "<" else b"MM\x00*") + struct.pack(endian + "L", 8)
+    if sub:
+        first = [(0x0201, [jpeg[0]]), (0x0202, [jpeg[1]])] if jpeg else []
+        sub_at = 8 + len(ifd(8, [*first, (0x014A, [0])]))
+        body = ifd(8, [*first, (0x014A, [sub_at])]) + ifd(sub_at, data)
+    else:
+        body = ifd(8, data)
+    end = max(o + n for o, n in (strips or []) + (tiles or []) + ([jpeg] if jpeg else []))
+    out = head + body
+    return out + b"\x01" * (end - len(out))

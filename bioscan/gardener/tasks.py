@@ -563,9 +563,9 @@ class RunExec:
         for caps, ids in by_caps.items():
             items = []
             for part in st.chunks(ids):
-                items += [{"asset_id": r["id"], "path": r["primary_path"], "lat": r["lat"], "lon": r["lon"],
-                           "taken_at": r["taken_at"]} for r in self.store.all(
-                    f"SELECT id, primary_path, lat, lon, taken_at FROM assets WHERE id IN ({st.marks_in(part)}) "
+                items += [{"asset_id": r["id"], "path": loads(r["meta"], {}).get("preview_source") or r["primary_path"],
+                           "lat": r["lat"], "lon": r["lon"], "taken_at": r["taken_at"]} for r in self.store.all(
+                    f"SELECT id, primary_path, meta, lat, lon, taken_at FROM assets WHERE id IN ({st.marks_in(part)}) "
                     "ORDER BY taken_at, primary_path", part)]
             n = 0
             async for res in analyzer.analyze(items, list(caps), self.stopping):
@@ -880,16 +880,30 @@ def mark_missing(store: st.Store, root: str, seen: set[str]) -> int:
     return len({r["asset_id"] for r in gone})
 
 
+def _try_preview(tk: Toolkit, path: str, media: str, thumb: Path, large: Path) -> tuple[bool, str | None, str | None]:
+    try:
+        p = tk.make_preview(path, media, thumb, large)
+        return p.ok, p.method, p.error
+    except Exception as exc:  # noqa: BLE001 - make_preview should not raise; a raise is a failed preview
+        return False, None, f"{type(exc).__name__}: {exc}"
+
+
 def build_preview(store: st.Store, tk: Toolkit, asset_id: str, primary: str, media: str,
                   run_id: str | None = None) -> bool:
-    """Make (or rebuild) the asset's previews in the cache and record the outcome."""
+    """Make (or rebuild) the asset's previews in the cache and record the outcome. When the primary
+    fails and the asset is a RAW+JPEG pair, the preview comes from the other file: meta.preview_source
+    names it (analysis reads it too) and meta.primary_error says why the primary failed."""
     thumb, large = preview_paths(store, asset_id)
     thumb.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        p = tk.make_preview(primary, media, thumb, large)
-        ok, method, err = p.ok, p.method, p.error
-    except Exception as exc:  # noqa: BLE001 - make_preview should not raise; a raise is a failed preview
-        ok, method, err = False, None, f"{type(exc).__name__}: {exc}"
+    ok, method, err = _try_preview(tk, primary, media, thumb, large)
+    source = None
+    if not ok and media == "photo" and tk.is_online(primary):
+        for f in store.all("SELECT path FROM asset_files WHERE asset_id = ? AND path != ? AND role IN ('raw', 'jpeg') "
+                           "AND online = 1 ORDER BY path", (asset_id, primary)):
+            got = _try_preview(tk, f["path"], media, thumb, large)
+            if got[0]:
+                primary_error, (ok, method, _), source = err, got, f["path"]
+                break
     online = ok or tk.is_online(primary)
     t = now()
     with store.tx() as c:
@@ -899,8 +913,13 @@ def build_preview(store: st.Store, tk: Toolkit, asset_id: str, primary: str, med
             c.execute("UPDATE assets SET online = 0, meta = ?, updated_at = ? WHERE id = ?",
                       (dumps(meta | {"missing": True}), t, asset_id))
             return False
-        c.execute("UPDATE assets SET preview_status = ?, preview_method = ?, preview_error = ?, updated_at = ? "
-                  "WHERE id = ?", ("ready" if ok else "failed", method, err, t, asset_id))
+        meta = {k: v for k, v in loads(c.execute("SELECT meta FROM assets WHERE id = ?", (asset_id,)).fetchone()[0],
+                                       {}).items() if k not in ("preview_source", "primary_error")}
+        if source:
+            meta |= {"preview_source": source, "primary_error": primary_error}
+            err = None
+        c.execute("UPDATE assets SET preview_status = ?, preview_method = ?, preview_error = ?, meta = ?, updated_at = ? "
+                  "WHERE id = ?", ("ready" if ok else "failed", method, err, dumps(meta), t, asset_id))
         if not ok and run_id:
             record(c, asset_id, run_id, "preview", "failed", None, err, None)
     return ok

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from core_fixtures import *  # noqa: F403 - fixtures (env, fakes)
 from core_fixtures import create_task, wait_task
+from media_fixtures import tiff_raw
 from PIL import Image, ImageOps
 
 from bioscan.gardener import detail
@@ -143,6 +144,20 @@ def test_raw_detail_is_cut_to_the_camera_crop(tmp_path, monkeypatch):
     try:
         out = d.get("as01", str(tmp_path / "x.ARW"), (0, 0, 1, 1))
         assert out.full == (270, 380) and out.orientation == 6
+    finally:
+        d.close()
+
+
+def test_truncated_raw_is_refused_not_decoded(tmp_path, monkeypatch):
+    """LibRaw would hand back black rows (or a previous photo's pixels) for a cut RAW."""
+    fake_rawpy(monkeypatch, 0)
+    whole = tiff_raw(strips=[(512, 50_000)])
+    (tmp_path / "x.ARW").write_bytes(whole[:len(whole) // 3])
+    d = Details(tmp_path / "cache")
+    try:
+        with pytest.raises(ValueError, match="截断"):
+            d.get("as01", str(tmp_path / "x.ARW"), (0, 0, 1, 1))
+        assert FakeLibRaw.calls == 0
     finally:
         d.close()
 
