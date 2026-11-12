@@ -10,9 +10,16 @@ Rules, in this order, among a task's photos:
    preview looks the same (64-bit difference hash, any 90° rotation, at most MAX_DIST bits apart)
    and no capture taken at another time looks as close.
 The representative is the RAW (DNG after other RAWs), then the largest image, then the path. A
-person's "not the same capture" (`version_lock`) is never overridden."""
+person's "not the same capture" (`version_lock`) is never overridden.
+
+Marks follow the representative (契约修订 10B): a photo with human marks (a use or stars) that becomes a
+version of a representative without any carries them over as one system batch (reason version:carry:<id>),
+so the edit list, import and handoff keep the photo and `POST /marks/undo` takes it back. Several such
+versions: the most recently marked wins (marks.updated_at, then asset id). A representative that has marks
+keeps them; a version whose marks differ shows `marks_differ` in the representative's detail."""
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -21,6 +28,7 @@ from typing import Any
 from bioscan.gardener import store as st
 from bioscan.gardener.store import dumps, loads, now
 
+log = logging.getLogger("bioscan.gardener")
 NUMBER = re.compile(r"^([a-z_]*\d{3,})")
 MAX_DIST = 10           # bits of 64; same-day different shots sit above this ~97% of the time
 AMBIGUOUS = 2           # another capture within this many bits of the best: leave the export alone
@@ -128,6 +136,7 @@ def link(store: st.Store, task_id: str, thumb: Callable[[str], Path], model_caps
     want = plan(rows, hashes)
     t = now()
     counts = {"same_capture": 0, "export": 0}
+    joined: dict[str, list[str]] = {}                  # representative -> assets that became its versions now
     with store.tx() as c:
         for aid, hs in fresh.items():
             meta = loads(c.execute("SELECT meta FROM assets WHERE id = ?", (aid,)).fetchone()[0], {})
@@ -146,7 +155,39 @@ def link(store: st.Store, task_id: str, thumb: Callable[[str], Path], model_caps
                 continue
             if target:
                 counts[target[1]] += 1
+                if target[0] in mine and (not old or old[0] != target[0]):   # outside: still its own here (修订 6)
+                    joined.setdefault(target[0], []).append(r["id"])
+        carry_marks(c, joined)
     return counts
+
+
+def backfill_carry(c: Any) -> int:
+    """Schema 4, once: databases made before 契约修订 10B left marks on versions linked to an unmarked
+    representative of the same task. Carry them now as one undoable system batch (version:carry:backfill:<id>)."""
+    joined: dict[str, list[str]] = {}
+    for r in c.execute("SELECT DISTINCT a.version_of rep, a.id FROM assets a JOIN task_assets v ON v.asset_id = a.id "
+                       "JOIN task_assets t ON t.task_id = v.task_id AND t.asset_id = a.version_of").fetchall():
+        joined.setdefault(r["rep"], []).append(r["id"])
+    batch, n = carry_marks(c, joined, "version:carry:backfill:")
+    if n:
+        log.info("schema 4: carried the marks of %d version(s) to their representative (undo batch %s)", n, batch)
+    return n
+
+
+def carry_marks(c: Any, joined: dict[str, list[str]], reason: str = "version:carry:") -> tuple[str, int]:
+    """A representative without marks takes those of its most recently marked new version (one batch).
+    Returns (batch id, representatives changed)."""
+    batch, n = st.new_id("b"), 0
+    for rep, vids in sorted(joined.items()):
+        if c.execute("SELECT 1 FROM marks WHERE asset_id = ? AND (use IS NOT NULL OR stars > 0)", (rep,)).fetchone():
+            continue                                    # a person's marks on the representative stay
+        src = c.execute(f"SELECT asset_id, use, stars FROM marks WHERE asset_id IN ({st.marks_in(vids)}) AND "
+                        "(use IS NOT NULL OR stars > 0) ORDER BY updated_at DESC, asset_id LIMIT 1", vids).fetchone()
+        if src:
+            st.apply_marks(c, [rep], {"use": src["use"], "stars": src["stars"]}, actor="system",
+                           reason=f"{reason}{src['asset_id']}", batch=batch)
+            n += 1
+    return batch, n
 
 
 def set_version(c: Any, aid: str, target: tuple[str, str] | None, model_caps: list[str], t: str) -> bool:

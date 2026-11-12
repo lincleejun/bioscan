@@ -17,8 +17,9 @@ from typing import Any
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import query
 
-SCHEMA_VERSION = 3                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
+SCHEMA_VERSION = 4                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
                                    # 3: four uses replace Pick/Reject (marks.use) + encounters (contract revision 5B)
+                                   # 4: marks hidden on versions carried to their representative (契约修订 10B)
 SCHEMA = Path(__file__).with_name("schema.sql")
 DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
                                     "capability_versions": {}, "cap_status": {}}
@@ -171,11 +172,15 @@ class Store:
                     from bioscan.gardener import identities
 
                     identities.backfill(c)
-                migrate_uses(c)
-                from bioscan.gardener import review
+                if int(row[0]) < 3:
+                    migrate_uses(c)
+                    from bioscan.gardener import review
 
-                for t in c.execute("SELECT id FROM tasks").fetchall():
-                    review.assign_encounters(c, t[0])
+                    for t in c.execute("SELECT id FROM tasks").fetchall():
+                        review.assign_encounters(c, t[0])
+                from bioscan.gardener import versions
+
+                versions.backfill_carry(c)
                 c.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
             t = now()
             for pid, p in capmod.PRESETS.items():
@@ -323,9 +328,13 @@ class Store:
             p = caps["people"]["data"]
             caps["people"]["data"] = p | {"faces": self.face_people(asset_id, p.get("faces", []))}
         of = self.one("SELECT id, primary_path FROM assets WHERE id = ?", (a["version_of"],)) if a["version_of"] else None
+        mine = self.one("SELECT use, stars FROM marks WHERE asset_id = ?", (asset_id,)) or {"use": None, "stars": 0}
         versions = [{"id": v["id"], "name": Path(v["primary_path"]).name, "path": v["primary_path"],
-                     "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"])}
-                    for v in self.all("SELECT * FROM assets WHERE version_of = ? ORDER BY primary_path", (asset_id,))]
+                     "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"]),
+                     "use": v["use"] or "pending", "stars": v["stars"] or 0,     # 契约修订 10B: a version's own marks
+                     "marks_differ": bool(v["use"] or v["stars"]) and (v["use"], v["stars"]) != (mine["use"], mine["stars"])}
+                    for v in self.all("SELECT a.*, m.use, m.stars FROM assets a LEFT JOIN marks m ON m.asset_id = a.id "
+                                      "WHERE a.version_of = ? ORDER BY a.primary_path", (asset_id,))]
         ai_history = [{"run_id": r["run_id"], "verdict": r["verdict"], "score": r["score"],
                        "reasons": loads(r["reasons"], []), "version": r["version"], "at": r["created_at"]}
                       for r in self.all("SELECT * FROM ai_suggestions WHERE asset_id = ? AND run_id != 'user' "

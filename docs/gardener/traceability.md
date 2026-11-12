@@ -47,7 +47,7 @@
 | R40 | 本机访问默认（§12） | `server.py` 默认 127.0.0.1 | 代码审阅 | 见 PR 证据 |
 | R41 | 多维分组：主体（人物、物种、动物类型、场景）为组，带 GPS 的大组按地点细分；时间不切分也不单独成组（owner 2026-10-21，契约修订 2/3） | `grouping.py`、`tasks.regroup`、`collections.parent_id` | `test_media_grouping*`、`test_core_scan*`、`test_core_review*` | 见 PR 证据 |
 | R42 | 按人分组：本地人脸检测与聚类；给人物分组或单张脸命名，所有任务与以后的扫描直接归入，同名即合并（owner 2026-10-21，契约修订 3） | `faces.py`、`people.py`、能力 `people`、`PATCH /collections`、`POST /assets/{id}/faces/{i}` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据；聚类质量未验证（无标注） |
-| R43 | 导出图与跨目录副本作为原片的版本合并，只出现一次；人可撤销（owner 2026-10-21） | `versions.py`、`assets.version_of`、`POST /assets/{id}/split-version` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据 |
+| R43 | 导出图与跨目录副本作为原片的版本合并，只出现一次；人可撤销（owner 2026-10-21）；成为版本时人工标记随代表走（契约修订 10B，#131） | `versions.py`（`carry_marks`、schema 4 `backfill_carry`）、`assets.version_of`、`POST /assets/{id}/split-version`、`AssetDetail.versions[].marks_differ` | `test_media_people_versions*`、`test_core_groups*`、`test_core_version_marks.py` | 见 PR 证据 |
 
 | R44 | 物种身份用概念 ID（`avibase:`/`mdd:`/`name:`），改学名不改身份（ADR 0002，PRD §15） | BioScan `names.read_avilist/read_mdd`、`contract.Candidate.concept` | `tests/unit/test_names.py::test_concept_ids_*`；契约 golden（去掉 concept 后不变） | 已由测试证实；真实名单 18,076 个概念全部唯一 |
 | R45 | 按主体（每只动物）记录识别，ID 跨重跑稳定；一张照片多个物种（PRD §03，AC03） | `identities.ingest`、表 `subjects`/`identifications` | `test_core_identities.py::test_a_rerun_box_*`、`test_a_two_species_photo_*` | 已由测试证实 |
