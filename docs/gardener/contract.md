@@ -32,7 +32,7 @@
 ## 2 存储
 
 - 数据目录 `--data-dir`（默认 `$GARDENER_HOME`，否则 `~/.gardener`）：`gardener.sqlite`（WAL）、`cache/previews/<id[2:4]>/<id>.thumb.jpg|.large.jpg`、`exports/`（默认导出位置）、`logs/`。
-- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
+- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。分析开始时把能力标为待运行（`mark_pending`）按块提交（每块至多 500 张），人的写入（如 `POST /marks`）最多等一块；每块是幂等写入，崩溃后从剩下的继续。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
 - DDL 见 `schema.sql`；`meta.schema_version` = `1`。数据库只存预览索引（`assets.preview_status/method`），不存图片。
 - 原片只读：Gardener 绝不在来源目录写入、改名、移动、删除；不得调用 BioScan 的 `jpg` stage、`/apply`、XMP 写入。导出目的地若位于任何任务来源目录之内则拒绝（400）。
 - 清理缓存只删 `cache/`，把 `preview_status` 置回 `pending`；原片在线时按需重建（请求预览时同步生成）。
@@ -198,7 +198,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **X4 文件变化与缺失**：**永远不删除** `assets`、`task_assets`、`marks`、`mark_history`、集合成员行。来源在线但文件不见 → `asset_files.online=0` 且 `assets.meta.missing=true`（summary 计 `missing`，与 `offline_sources` 区分）；之后重新出现即恢复。同一路径 size/mtime 变化且 `quick_hash` 不同 = **内容变化**：沿用同一 `asset_id`；在 `mark_history` 写入 `actor=system, reason=content_changed` 的记录并把当前 Flag/Star **清空**（旧判断保留在历史中，可 undo 该 batch 恢复）；`assets.meta.content_changed_at` 记录时间；能力状态回 `pending` 并在本运行重新预览与分析；旧 results/ai_suggestions 保留为历史。已完成集合把这类成员计入 `review.changed_since`。size/mtime 变但 hash 相同 = 未变化，只更新 mtime。
 - **X5 marks 省略与 null**：`POST /marks` 中键**省略 = 不改**，`flag: null` = 清除 Flag，`stars: 0` = 清除星级。CLI/MCP 只发送用户明确给出的键。
 - **X6 本组不留清 Pick**：`resolution=clear_picks` 经同一 marks 写入路径：把这些素材 Flag 设为 `null`（**不是** reject），写 `mark_history`（同一 batch_id、actor、reason=`zero:<collection_id>`），响应带 `batch_id`，`POST /marks/undo` 可恢复。
-- **X7 changed_after**：任何影响 AssetItem 的写入（marks、asset_caps、results、ai_suggestions、预览状态、集合成员、标签、在线状态）都同时更新 `assets.updated_at`。所有记录时间戳统一为 UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`（定长，可字符串比较）；`changed_after` 为严格大于。
+- **X7 changed_after**：任何影响 AssetItem 的写入（marks、asset_caps、results、ai_suggestions、预览状态、集合成员、标签、在线状态）都同时更新 `assets.updated_at`。所有记录时间戳统一为 UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`（定长，可字符串比较）；`changed_after` 为严格大于。`assets(updated_at)` 有索引，轮询按它读变化的素材，不扫全部素材；UI 的 `apiAll` 每页取 1000（服务上限），批量写入后整个任务都变了时少翻页。分块写入的每块各取时间戳，轮询游标不会越过之后的块。
 - **X8 自动集合身份**：重组时先按**成员重叠**把每个建议组匹配到该任务已有的同 `group_kind` 自动集合（重叠成员数最多者；无重叠才新建）；`auto_key` 只在首次创建时确定，以后不变。被软删除或被合并掉的自动集合**不恢复、不再加成员**；其已有成员也不会因此被塞进新建的同 key 集合（建议组与已删集合重叠时跳过这些成员）。scene/species 组的 key 本身稳定（标签 id），仍按同一规则处理已删集合。
 - **X9 导出输入形状**：`export(dest_dir, *, title, scope, collections, assets, copy, conflict, protected)`：`assets` = **AssetDetail 列表**（§6.3，含 files、flag、stars、ai、ai_history[0].version、caps 不需要、collections）；`collections` = `Collection` 列表（§6.5，另含 `member_ids`）；`scope = {kind: collection|asset_ids|rule, value, scope: picked|all|selected}`；复制目录 `dest_dir/files/<安全化 title>/`，`title` 由单元 1 给出（集合名或“筛选结果”），跨任务导出同样只用 title。XML 每个素材含：所有文件原路径（与复制路径、sha256）、flag、stars、AI verdict/score/reasons/version、所属集合及其审阅状态。导出不复制 XMP sidecar，ExportReport 加 `notes: ["未包含来源目录中的 XMP sidecar"]`。
 - **标签拆分（PRD §7 / D25 已确认，首版必须）**：`POST /tags/{id}/split {names: [新名], assign?: {新名: [asset_ids]}}` → 新建子标签（原标签保留或停用由 `deactivate_source` 决定，默认保留），记 `tag_history`，人工与 AI 的 `asset_tags` 来源分开保留。
@@ -425,7 +425,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 目标路径在计划中冻结，执行时不再重新推导。目标位于任何任务来源目录之内 → 400。
 - **`ImportPlan`** = `{id, task_id, seq, status: planned|queued|running|completed|partial|failed, dest_root, folder, dest_dir, place, include_pending, created_at, started_at, finished_at, error, interruptions, stale, uses: {record, edit, pending, reject, total}, not_copied: {reject, pending, versions}, unfinished: {offline, analysis_pending, scan_active}, assets, files, bytes, sidecars, copy_files, copy_bytes, needed_bytes, free_bytes, enough_space, duplicates: {identical, reuse, duplicate, items}, renamed: {files, items}, progress: {files_total, files_done, files_failed, bytes_total, bytes_done, assets_total, assets_done, assets_failed}, failed: [{asset_id, path, error}]}`（列表最多 200 项）。`GET /imports?task=`、`GET /imports/{id}`。
 - **执行** `POST /imports/{id}/run`：
-  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
+  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。计划生成后任务中又有决定变化（`stale: true`，只对 planned 计划计算）→ 409“生成计划后照片的决定又有变化，这个计划已过期；请重新生成导入计划”，不复制任何文件，UI 只给“更新导入计划”。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
   - 每个文件：核对来源大小与计划一致，经 `export._copy` 复制（临时文件 + sha256 回读 + 硬链接或 O_EXCL 发布，从不覆盖），再核对字节数，然后立即提交为 `done` 并登记到 `managed_files`。目标已存在时：内容相同即算完成，否则列为失败，不覆盖。
   - 幂等与恢复：已完成的文件不再复制；重启时 running → queued（`interruptions` + 1）、copying → pending，并清理本目录中崩溃留下的 `.gardener-part` 临时文件。同一来源再生成计划得到 `reuse`，不复制、不新建素材。
   - 结果：有任何失败文件 → `partial`（全部失败为 `failed`），`failed` 逐项列出；不得称为成功。来源只读，不删除、不写入。
@@ -604,7 +604,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 选中 2–4 张后按 C 或点“比较”。两张时仍是原来的并排比较（默认不变）；3、4 张为 2×2 网格，每格左上角有格号。
   - 每格各自标明“快速预览 / 原像素细节加载中 / 原像素细节可用 · 原像素 N% / 不可用：原因”（同 5C）。
   - “同步缩放与平移”（偏好 `cmpsync`）对所有格生效：各格保持同一原像素比例。点动物框时，其余各格对准离它最近的动物；点“看头部 / 看眼部”时，其余各格保持同一比例，各自对准自己找到的同一部位（没找到的格不动）。
-  - 按 1–4 选中一格（高亮），点胶片条缩略图替换这一格。比较打开时数字键不改星级。
+  - 按 1–4 选中一格（高亮），点胶片条缩略图替换这一格。比较打开时数字键不改星级。（已由修订 9 取代：点一格选中，数字键给这一格打星。）
   - 前两张不比两图比较慢：第 3、4 格的原像素请求要等前两格不在“加载中”时才发出（细节池只有 2 个线程）。快速预览照常并行加载。
 - **`GET /assets/{id}/parts?subject=<subject id>`**（`parts.py`）：
   - 返回 `{asset_id, subject, kind, file: raw|image, parts: [{name: head|eye, xyxy, score}], floor: {head, eye}, ms}`，`xyxy` 是直立画面的 0–1 比例（与 `subjects.xyxy` 同一坐标）。
@@ -655,7 +655,8 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 
 - **`GET /tasks/{id}/shortlist`** → `{scored, size, asset_ids}`（AI 初选，`review.shortlist`）：本任务的代表版本照片中有美学分的，按 不是 AI 淘汰 → 连拍最佳帧（`burst_rank` 1 或不在连拍）→ 美学分降序 → asset id 排序，取前 `max(ceil(10%), 20)` 张（不足时全取）。整次拍摄质量都差时也不为空；没有分的照片不猜，不入选。只是视图：不写星级、用途或 `ai_suggestions`。任务不存在 404。
 - **任务 Preview = 图库**：按发现顺序平铺（不按拍摄段分组，连拍默认展开，可折叠）。顶部：旗标（全部 / 已选中 = 记录或修图 / 未标记 = 待定 / 已淘汰）、最低星级、只看 AI 初选；左侧快捷视图与计数；中间网格，或单张（原像素查看器，底部胶片带，预取前后两张大图）；右侧人工判断与信息（不再重复大图）；格子上显示 AI 初选名次，不显示 AI 建议标签。
-- **键位（全局，照 Lightroom）**：P 选入修图、X 淘汰、U 待定、R 保留记录、0–5 星级；图库内 G 网格、E 单张、C 比较（只选一张时与下一张比较）、F 全屏、空格 / 回车在网格与单张间切换。“标记后自动下一张”默认开。
+- **键位（全局，照 Lightroom）**：P 选入修图、X 淘汰、U 待定、R 保留记录、0–5 星级；图库内 G 网格、E 单张、C 比较（只选一张时与下一张比较）、F 全屏、空格 / 回车在网格与单张间切换。“标记后自动下一张”默认开。单张视图里键位只作用于当前这张（与全屏相同，多选不受影响）；网格里多选时作用于全部已选。比较对话框里点一格选中它（高亮，打开时先高亮来时的那张），P/X/U/R 与 0–5 只标这一格；这取代修订 7C 的“按 1–4 选中一格、数字键不改星级”。自动下一张从按键时那张往下走，响应回来前人已换张就不再前进。后台轮询（AI 初选变化）不会把正在看的这张移出列表，人换张后才按筛选移走。
+- **大批照片（#131）**：重新打开任务时回到上次看的那张，即使它在第一页 200 张之后（一直翻页到载入它，期间不选别的，人换张前不覆盖保存的位置）；网格格子用 `content-visibility: auto`，只渲染看得见的；标签页隐藏时所有定时轮询暂停，回到前台立刻各轮询一次。
 - **图库里的用途按钮**只显示 选入修图 / 待定 / 淘汰；照片已是保留记录时才显示保留记录。用途数据与其他页面不变。
 - **外观**：全局改为 Lightroom 式中性灰（`styles.css` 的 `:root` 色值）。
 - CLI / MCP 本版不加初选命令（`GET /tasks/{id}/shortlist` 可直接调用）。
@@ -669,3 +670,22 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **执行时再核对**：开始执行与每组移动前都按此刻的淘汰状态再判断；变成共用的文件跳过，`report.skipped` 里记 `{asset_id, path, reason: "shared"}`，计划为 `partial`。
 - 计划后某个路径还在磁盘上、但已不是这张照片的文件（例如变成失效的链接）→ 该组 `skipped: changed`（原来抛 `KeyError`）。
 - 已知上限：被清理那张的 `managed_files` 记录保留；之后另一张也淘汰时，要把两张放进同一个计划才能清理共用副本。
+
+## 契约修订：没有美学分时的连拍名次（2026-11-11，#131 P1；优先于上文冲突处）
+
+依据：owner 的实际运行没有开美学能力，`ai_suggestions.burst_rank` 于是等于拍摄顺序，连拍的“最佳帧”就是第一帧，常常是被判为失焦的那张（owner 的库：217 个连拍中 59 个的第一名被淘汰，其中 24 个连拍里另有未被淘汰的帧）。
+
+- **连拍名次**：开了连拍且开了质量能力时，`burst_rank` 一律按 `select` 的连拍排序（`cull.burst_order`：未被淘汰 → 主体清晰度（相差 `sharp_tie` 内算一样）→ 主体未被裁切 → 曝光在范围内 → 美学分（有时））；只开连拍、没有质量能力时仍按拍摄顺序。
+- **AI 建议**（`ai_suggestions.verdict` 等）仍只在开了美学能力时给出；没有美学分时只排连拍名次，不出 pick / reject。
+- 读 `burst_rank` 的地方（连拍代表、拍摄段代表、AI 初选、保留此张并淘汰相似帧、拆分连拍后的重新编号）不用改动。已有的库在下一次运行的 reduce 后更新。
+- **物种分组与连拍（同一 P1 的第二项）未改**：任务内分组从修订 4（S6）起不再生成物种组，物种卡片按主体的当前结论派生（修订 4 S4；修订 7A：连拍操作不碰识别与物种卡片），按连拍多数改卡片成员与之冲突，待 owner 决定。
+
+## 契约修订 10B：成为副本版本时标记随代表走（2026-11-12，#131）
+
+问题：双卡机身先扫 JPEG 卡并打了用途 / 星级，后加 RAW 卡时 RAW 成为代表版本、JPEG 成为隐藏版本，标记留在隐藏的 JPEG 上：代表显示待定、0 星，修图筛选、导入（不含待定）和交接都丢了这张照片。
+
+- **随代表走**：一张有人工标记（用途不是待定，或星级 > 0）的照片在 `versions.link` 中新成为某代表的版本，而该代表没有人工标记时，在同一事务里把用途与星级写到代表上（`apply_marks`，`flag`、`marks.version`、`updated_at` 照常派生）。每次链接的所有转移是一批 `mark_history`，`actor = system`，`reason = version:carry:<版本 asset id>`；`POST /marks/undo` 撤销这一批即恢复代表原状。版本自己的标记不变。代表不在本任务里时不转移：按修订 6，这张照片在本任务里仍算自己的照片，标记照常可见。
+- **多个版本都有标记**：取最近一次标记的那个（`marks.updated_at` 降序，再按 asset id）。
+- **代表已有人工标记**：从不覆盖，两边都不变。`GET /assets/{代表}` 的 `versions[]` 增加 `use`、`stars` 和 `marks_differ`（版本有标记且与代表不同），界面可据此提示。
+- **拆分**：`POST /assets/{id}/split-version` 不动代表的标记。
+- **已受影响的数据库（owner 选定补救）**：`meta.schema_version` 升为 `4`。启动迁移从 3 升到 4 时只跑一次 `versions.backfill_carry`：凡是没有人工标记、且与某个有人工标记的版本同在一个任务里的代表，按上面同一规则（最近标记的版本）转移；全部写成一批 `mark_history`，`actor = system`，`reason = version:carry:backfill:<版本 asset id>`，批号写入服务日志，也可从代表的 `mark_history` 查到；一次 `POST /marks/undo` 即全部撤销，撤销后不会再补。已有标记的代表从不改动。

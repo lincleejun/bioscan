@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from bioscan.gardener import review
 from bioscan.gardener import store as st
 from bioscan.gardener.store import dumps, loads, now
 
@@ -234,11 +235,10 @@ def identify(c: Any, subject_ids: list[str], new_subjects: list[dict[str, Any]],
             burst = _bursts(c, [s["asset_id"]]).get(s["asset_id"])
             if burst is None:
                 continue
-            # ponytail: scans every asset's latest suggestion per target; a burst_id index on a "latest" table if a
-            # library-wide batch of many targets gets slow.
+            # ponytail: scans ai_suggestions per target (no burst_id index); add one if a large batch of targets gets slow.
             sibs = [r[0] for r in c.execute(
-                "SELECT asset_id FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions GROUP BY asset_id) "
-                "AND burst_id = ? AND asset_id != ? ORDER BY asset_id", (burst, s["asset_id"]))]
+                f"SELECT s.asset_id FROM ai_suggestions s WHERE {review.LATEST} AND s.burst_id = ? AND s.asset_id != ? "
+                "ORDER BY s.asset_id", (burst, s["asset_id"]))]
         elif scope == "encounter":       # contract revision 5B: the other photos of the target's encounter(s)
             sibs = [r[0] for r in c.execute(
                 "SELECT DISTINCT asset_id FROM encounter_members WHERE encounter_id IN (SELECT encounter_id FROM "

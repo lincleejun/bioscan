@@ -162,7 +162,7 @@ USE_ZH = (("edit", "选入修图"), ("record", "保留记录"), ("pending", "待
 
 def import_text(p: dict) -> str:
     u, nc, d, g = p.get("uses", {}), p.get("not_copied", {}), p.get("duplicates", {}), p.get("progress", {})
-    lines = [f"导入计划 {p['id']}（批次 {p['seq']}）：{p['status']}" + ("（决定已变化，建议重新生成计划）" if p.get("stale") else ""),
+    lines = [f"导入计划 {p['id']}（批次 {p['seq']}）：{p['status']}" + ("（决定已变化，计划已过期：需重新生成才能导入）" if p.get("stale") else ""),
              "用途：" + "，".join(f"{zh} {u.get(k, 0)}" for k, zh in USE_ZH) + f"，共 {u.get('total', 0)} 张",
              f"导入 {p['assets']} 张 · {p['files']} 个文件（含 sidecar {p['sidecars']}）· {_bytes(p['bytes'])}",
              f"目标：{p['dest_dir']}",

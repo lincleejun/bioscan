@@ -366,10 +366,13 @@ def managed(store: st.Store, asset_id: str) -> list[dict[str, Any]]:
 
 def start(store: st.Store, runner: Runner, pid: str, protected: list[Path]) -> dict[str, Any]:
     """Queue a plan (again). A queued, running or completed plan is left as it is; otherwise failed files go back
-    to pending. 409 when what is left to copy does not fit on the destination."""
+    to pending. 409 when the plan is stale (a decision changed after planning: it would copy the old choice) or when
+    what is left to copy does not fit on the destination."""
     p = plan_json(store, pid)
     if p["status"] in ("queued", "running", "completed"):
         return p
+    if p["stale"]:
+        raise Conflict("生成计划后照片的决定又有变化，这个计划已过期；请重新生成导入计划")
     check_dest(p["dest_root"], protected)
     if not p["enough_space"]:
         raise Conflict("目标磁盘空间不足", needed_bytes=p["needed_bytes"], free_bytes=p["free_bytes"])

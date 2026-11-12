@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS assets (
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS assets_taken ON assets (taken_at);
+CREATE INDEX IF NOT EXISTS assets_updated ON assets (updated_at);   -- changed_after polls (contract §10 X7)
 
 CREATE TABLE IF NOT EXISTS asset_files (
   path TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id), role TEXT NOT NULL,  -- raw | jpeg | image | video
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS run_assets (
 );
 
 CREATE INDEX IF NOT EXISTS results_asset ON results (asset_id, capability, id);
+CREATE INDEX IF NOT EXISTS results_run ON results (run_id, capability, status);   -- RunExec.save_counts, polled
 
 -- AI suggestion layer, separate from the human layer (marks). One row per asset per run.
 CREATE TABLE IF NOT EXISTS ai_suggestions (

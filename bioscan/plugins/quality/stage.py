@@ -54,7 +54,6 @@ UNDER_RANGE = 0.2       # ... as long as the frame has tones to place (99.9th mi
                         # a flat or foggy frame without highlights is low-contrast, not underexposed)
 CUT_MARGIN = 0.01       # a box edge this close to the frame edge (fraction of the side) touches it
 CUT_MAX_AREA = 0.5      # a box this large that touches an edge is a deliberate tight crop, not a cut
-TOO_SMALL = 0.005       # subject box under this share of the frame area: subject_too_small
 NO_SUBJECT_GATE = 0.5   # no box although the gate gives the animal classes this much: no_subject
 PLACEMENT_NEAR = 0.08   # box centre within this (normalised distance) of a thirds point / the centre
 THIRDS = [(x, y) for x in (1 / 3, 2 / 3) for y in (1 / 3, 2 / 3)]
@@ -215,8 +214,6 @@ def assess(image: Image.Image, boxes: list[dict[str, Any]], gate: dict[str, floa
         reasons += exposure_reasons(frame, subject)
         if cut:
             reasons.append("subject_cut")
-        if area < TOO_SMALL:
-            reasons.append("subject_too_small")
     else:
         sharpest = sharpest_tile(gray, None)
         frame["blur"] = _r(sharpest)
