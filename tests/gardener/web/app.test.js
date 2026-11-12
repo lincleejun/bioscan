@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 const app = require(path.join(__dirname, '../../../bioscan/gardener/web/app.js'));
-const { store, aiPill, groupsOf, groupState, groupBlocksHTML, encOn, encOrder } = app;
+const { store, aiPill, groupsOf, groupState, spProgHTML, groupBlocksHTML, encOn, encOrder } = app;
 
 // ---------- groupsOf ----------
 test('groupsOf: bursts and unassigned singles become groups ordered by capture time and numbered', () => {
@@ -18,19 +18,22 @@ test('groupsOf: bursts and unassigned singles become groups ordered by capture t
   ]);
   const enc = {
     encounters: [
-      { task_id: 't1', bursts: [{ id: 'b1', rep: 'g2', asset_ids: ['g1', 'g2'], size: 2, run: 'r1' }] },
+      { task_id: 't1', bursts: [{ id: 'b1', rep: 'g2', asset_ids: ['g1', 'g2'], size: 2, kept: 1, rejected: 0, run: 'r1' }] },
       { task_id: 't2', bursts: [{ id: null, rep: 'g4', asset_ids: ['g4'], size: 1 }] },
     ],
     unassigned: ['g5', 'g3'],
+    unassigned_use: { g5: 'reject', g3: 'pending' },
   };
   const gs = groupsOf(enc);
   assert.deepEqual(gs.map(g => [g.n, g.id]), [[1, 'one:g3'], [2, 'one:g4'], [3, 'b1'], [4, 'one:g5']]);
   const b1 = gs[2];
-  assert.deepEqual(b1, { id: 'b1', burst: 'b1', rep: 'g2', asset_ids: ['g1', 'g2'], candidates: ['g2'], photos: 2, run: 'r1', task: 't1', n: 3 });
+  assert.deepEqual(b1, { id: 'b1', burst: 'b1', rep: 'g2', asset_ids: ['g1', 'g2'], candidates: ['g2'], photos: 2, kept: 1, rejected: 0, run: 'r1', task: 't1', n: 3 });
+  assert.deepEqual([gs[1].kept, gs[1].rejected], [0, 0]);   // counts missing from the server → nothing decided
+  assert.deepEqual([gs[3].kept, gs[3].rejected], [0, 1]);   // an unassigned single takes its state from unassigned_use
   assert.equal(gs[1].burst, null);          // a burst without an id is a single, named after its rep
   assert.equal(gs[1].run, null);            // no run given → null
   assert.equal(gs[1].task, 't2');
-  assert.deepEqual(gs[0], { id: 'one:g3', burst: null, rep: 'g3', asset_ids: ['g3'], candidates: ['g3'], photos: 1, n: 1 });
+  assert.deepEqual(gs[0], { id: 'one:g3', burst: null, rep: 'g3', asset_ids: ['g3'], candidates: ['g3'], photos: 1, kept: 0, rejected: 0, n: 1 });
 });
 
 test('groupsOf: no unassigned list, and assets not in the cache sort first', () => {
@@ -94,17 +97,36 @@ test('groupBlocksHTML: no groups gives no HTML', () => {
   assert.equal(groupBlocksHTML([], tileOf), '');
 });
 
-// ---------- groupState ----------
-test('groupState: untouched, partial, done, all rejected, nothing in the cache', () => {
-  store([
-    { id: 's1', use: 'pending' }, { id: 's2' }, { id: 's3', use: 'edit' }, { id: 's4', use: 'record' }, { id: 's5', use: 'reject' },
-  ]);
-  const st = ids => groupState({ asset_ids: ids });
-  assert.deepEqual(st(['s1', 's2']), { kept: 0, out: 0, done: false, any: false });
-  assert.deepEqual(st(['s1', 's3', 's5']), { kept: 1, out: 1, done: false, any: true });
-  assert.deepEqual(st(['s3', 's4', 's5']), { kept: 2, out: 1, done: true, any: true });
-  assert.deepEqual(st(['s5']), { kept: 0, out: 1, done: true, any: true });
-  assert.deepEqual(st(['s-missing']), { kept: 0, out: 0, done: false, any: false });
+// ---------- groupState (契约修订 16: from the server's per-group counts, never the browser cache) ----------
+test('groupState: untouched, partial, done, all rejected, from server counts', () => {
+  const st = (photos, kept, rejected) => groupState({ asset_ids: [], photos, kept, rejected });
+  assert.deepEqual(st(2, 0, 0), { kept: 0, out: 0, done: false, any: false });
+  assert.deepEqual(st(3, 1, 1), { kept: 1, out: 1, done: false, any: true });
+  assert.deepEqual(st(3, 2, 1), { kept: 2, out: 1, done: true, any: true });
+  assert.deepEqual(st(1, 0, 1), { kept: 0, out: 1, done: true, any: true });
+  assert.deepEqual(groupState({ asset_ids: ['x'], photos: 1 }), { kept: 0, out: 0, done: false, any: false });
+});
+
+test('groupState: frames in the cache do not decide a group; the server counts over all its frames do', () => {
+  // the two loaded frames are both marked, but the group has 5 frames and the server says only 2 are decided
+  store([{ id: 'c1', use: 'record' }, { id: 'c2', use: 'reject' }]);
+  assert.deepEqual(groupState({ asset_ids: ['c1', 'c2', 'c3', 'c4', 'c5'], photos: 5, kept: 1, rejected: 1 }), { kept: 1, out: 1, done: false, any: true });
+  // and the other way round: the cache says pending, the server says everything is decided
+  store([{ id: 'd1', use: 'pending' }]);
+  assert.equal(groupState({ asset_ids: ['d1'], photos: 1, kept: 1, rejected: 0 }).done, true);
+});
+
+// ---------- spProgHTML ----------
+test('spProgHTML: decided / total groups, a done state when complete, nothing without task progress', () => {
+  assert.equal(spProgHTML({ photos: 3 }), '');
+  const part = spProgHTML({ groups: 12, decided: 3, started: 5 });
+  assert.match(part, /3 \/ 12 组/);
+  assert.match(part, /width:25%/);
+  assert.doesNotMatch(part, /is-done|已完成/);
+  const done = spProgHTML({ groups: 4, decided: 4, started: 4 });
+  assert.match(done, /class="sp-prog is-done"/);
+  assert.match(done, /已完成 · 4 \/ 4 组/);
+  assert.doesNotMatch(spProgHTML({ groups: 0, decided: 0, started: 0 }), /is-done/);
 });
 
 // ---------- aiPill ----------

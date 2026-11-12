@@ -998,6 +998,13 @@ select.input { padding-right: 28px; }
 .rl-row.is-here { background: rgba(169, 214, 159, .1); border-color: var(--accent-line); }
 .rl-text b { font-size: 15px; }
 .rl-text small { font-size: 15px; color: var(--ink-2); }
+/* 契约修订 16：物种在本次拍摄里的进度（已决定 / 全部组），左栏与物种卡片共用，样式同集合的 .col-progress */
+.sp-prog { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; width: 100%; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sp-prog .bar { display: block; flex: 1 1 40px; max-width: 120px; }
+.sp-prog > span:last-child { white-space: nowrap; }
+.sp-prog .ic { width: 12px; height: 12px; vertical-align: -2px; }
+.sp-prog.is-done { color: var(--accent); }
+.sp-prog.is-done .bar > i { background: var(--accent); }
 .rl-prot { display: inline-flex; align-items: center; gap: 3px; color: var(--warn); font-size: 11.5px; }
 .rl-prot .ic { width: 12px; height: 12px; }
 .rl-cand { color: var(--warn); font-size: 11.5px; }

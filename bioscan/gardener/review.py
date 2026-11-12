@@ -215,7 +215,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
         for k, g in groups.items():
             rep = representative(g)
             bursts.append({"id": None if isinstance(k, tuple) else k, "size": len(g), "rep": rep["id"],
-                           "asset_ids": [m["id"] for m in g], "_rank": _rank(rep),
+                           "asset_ids": [m["id"] for m in g], "_rank": _rank(rep), **_tally([m["use"] for m in g]),
                            "run": runs.get(e["task_id"], {}).get(g[0]["id"])})
         cands = [b["rep"] for b in sorted(bursts, key=lambda b: b["_rank"], reverse=True)[:candidates]]
         for b in bursts:
@@ -237,7 +237,39 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     unassigned = [r[0] for r in c.execute(
         f"SELECT a.id FROM assets a WHERE {' AND '.join(un_conds)} AND NOT EXISTS (SELECT 1 FROM encounter_members "
         f"em WHERE em.asset_id = a.id AND {placed}) ORDER BY a.taken_at, a.id", [*un_ps, *([task_id] if task_id else [])])]
-    return {"encounters": result, "unassigned": unassigned}
+    uses = {r[0]: r[1] or "pending" for part in st.chunks(unassigned)
+            for r in c.execute(f"SELECT asset_id, use FROM marks WHERE asset_id IN ({st.marks_in(part)})", part)}
+    return {"encounters": result, "unassigned": unassigned, "unassigned_use": {i: uses.get(i, "pending") for i in unassigned}}
+
+
+KEPT, OUT = ("record", "edit"), ("reject",)     # a frame is decided when a person kept or rejected it (修订 16)
+
+
+def _tally(uses: list[str | None]) -> dict[str, int]:
+    return {"kept": sum(u in KEPT for u in uses), "rejected": sum(u in OUT for u in uses)}
+
+
+def species_progress(c: Any, task_id: str) -> dict[str, dict[str, int]]:
+    """concept -> {groups, decided, started} within a task (契约修订 16), in one query. The groups are the ones
+    `encounters(task_id=, concept=)` lists: this species' frames of one burst within one encounter, or one frame
+    (also each photo of the task without an encounter). A group is decided when every one of those frames is
+    marked record / edit / reject, started when at least one is; a species is complete when all its groups are."""
+    groups: dict[str, dict[Any, list[str | None]]] = {}
+    for r in c.execute(
+            "SELECT DISTINCT ci.concept, a.id, em.encounter_id, s.burst_id, m.use FROM task_assets ta "
+            "JOIN assets a ON a.id = ta.asset_id JOIN current_ids ci ON ci.asset_id = a.id "
+            "LEFT JOIN encounter_members em ON em.asset_id = a.id AND em.task_id = ta.task_id "
+            "LEFT JOIN current_suggestions s ON s.asset_id = a.id LEFT JOIN marks m ON m.asset_id = a.id "
+            f"WHERE ta.task_id = ? AND {IN_TASK_REP} AND ci.level = 'species' AND ci.concept IS NOT NULL",
+            (task_id, task_id)):
+        key = (r[2], r[3] or r[1]) if r[2] else (None, r[1])
+        groups.setdefault(r[0], {}).setdefault(key, []).append(r[4])
+    out = {}
+    for concept, gs in groups.items():
+        ts = [(_tally(u), len(u)) for u in gs.values()]
+        out[concept] = {"groups": len(ts), "decided": sum(t["kept"] + t["rejected"] == n for t, n in ts),
+                        "started": sum(t["kept"] + t["rejected"] > 0 for t, _ in ts)}
+    return out
 
 
 def _live(c: Any, eid: str) -> dict[str, Any]:

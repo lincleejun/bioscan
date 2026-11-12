@@ -708,6 +708,7 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
 
     @app.get(P + "/species")
     def species(task: str = "", hidden: str = "0"):
+        # 修订 16: with `task`, each card also carries groups / decided / started (there are no cards here)
         return {"species": [], "to_confirm": [], "confirmed_total": 0, "unresolved": {"genus_family": 0, "unconfirmed": 0}}
 
     @app.patch(P + "/species/{concept}")
@@ -756,11 +757,13 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         for a in ms:
             bursts.setdefault((a["burst"] or {}).get("id") or a["id"], []).append(a["id"])
         bs = [{"id": k if k not in bursts[k] else None, "size": len(v), "rep": v[0], "asset_ids": v,
-               "run": ms[0]["id"]} for k, v in bursts.items()]     # 修订 14: one subject run, named by its first photo
+               "run": ms[0]["id"],                                 # 修订 14: one subject run, named by its first photo
+               "kept": sum(fk.assets[i]["use"] in ("record", "edit") for i in v),     # 修订 16
+               "rejected": sum(fk.assets[i]["use"] == "reject" for i in v)} for k, v in bursts.items()]
         enc = {"id": "e_fake1", "task_id": task or ms[0]["task_ids"][0], "origin": "auto", "start": ms[0]["taken_at"],
                "end": ms[-1]["taken_at"], "photos": len(ms), "asset_ids": [a["id"] for a in ms], "bursts": bs,
                "candidates": [b["rep"] for b in bs][:3], "species": []} if ms else None
-        return {"encounters": [enc] if enc else [], "unassigned": []}
+        return {"encounters": [enc] if enc else [], "unassigned": [], "unassigned_use": {}}
 
     @app.post(P + "/encounters/{eid}/split", status_code=201)
     def encounter_split(eid: str, body: dict):

@@ -383,6 +383,13 @@ Adjacent bursts of one task that show the same subject (same species on the main
 around those bursts in Review, 所有照片 and the species page, with a one-step merge; the burst stays the unit decided on.
 _Avoid_: sequence, encounter (an encounter is wider and stored)
 
+**Decided group** (已决定的组):
+A group of a species in a task (that species' frames of one burst within one encounter, or one photo) every one of
+whose frames has a use of record, edit or reject; a **started** group has at least one such frame. A species is
+**complete** in a task when all its groups are decided. Counted on the server from the marks of every frame
+(`review.species_progress`, `GET /species?task=`), never from what a page has loaded; stars alone decide nothing.
+_Avoid_: reviewed, judged (judged also counts stars), coverage (that is a collection's)
+
 **Regroup run**:
 A task run of kind `regroup` (`POST /tasks/{id}/regroup`): bursts, the burst vote, encounters and auto collections
 again from stored results; no file is read and no model runs.
