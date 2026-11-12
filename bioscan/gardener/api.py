@@ -902,6 +902,11 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             task_or_404(task)
         return rv.encounters(store.conn(), task_id=task, concept=concept, candidates=candidates)
 
+    @r.get("/tasks/{tid}/shortlist")
+    def get_shortlist(tid: str) -> dict[str, Any]:
+        task_or_404(tid)
+        return rv.shortlist(store.conn(), tid)
+
     @r.post("/encounters/{eid}/split", status_code=201)
     def split_encounter(eid: str, body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         """{at: asset_id} moves that photo and the later ones, {asset_ids} exactly those, to a new encounter."""
