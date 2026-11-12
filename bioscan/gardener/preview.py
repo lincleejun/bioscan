@@ -336,22 +336,24 @@ def _save(image: Image.Image, edge: int, dest: Path) -> None:
         raise
 
 
-def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path) -> Preview:
+def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path | None) -> Preview:
     """Writes thumb_path (long edge 360) and large_path (long edge 1600; smaller when the source is),
     JPEG. RAW: the embedded preview when its long edge is at least 1600, else a half-size decode
     (else a smaller embedded preview of at least 360); a truncated RAW fails (decode.raw_truncated);
     the source size is LibRaw's. JPEG / PNG / TIFF: Pillow, upright by EXIF, 16-bit scaled to 8;
-    video: an ffmpeg frame. Never raises: a failure is ok=False with the reason."""
-    thumb_path, large_path = Path(thumb_path), Path(large_path)
+    video: an ffmpeg frame. `large_path` None writes only the thumb (a RAW then needs an embedded
+    preview of only 360). Never raises: a failure is ok=False with the reason."""
+    paths = [Path(thumb_path)] + ([Path(large_path)] if large_path is not None else [])
+    need = LARGE_EDGE if large_path is not None else THUMB_EDGE
     src_dir = Path(primary).resolve().parent
-    if src_dir in (thumb_path.resolve().parent, large_path.resolve().parent):
+    if src_dir in [p.resolve().parent for p in paths]:
         return Preview(False, None, "预览路径位于原片目录：拒绝写入", {})
     try:
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        large_path.parent.mkdir(parents=True, exist_ok=True)
+        for p in paths:
+            p.parent.mkdir(parents=True, exist_ok=True)
         got, method, notes = None, None, {}
         if media == "video":
-            got, method = _video_frame(primary, large_path.parent), "video-frame"
+            got, method = _video_frame(primary, paths[-1].parent), "video-frame"
         elif is_raw(primary):
             from bioscan.service import decode
 
@@ -364,7 +366,7 @@ def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path) -
                 image, size, edge = _raw_embedded(primary)
             except Exception as exc:  # noqa: BLE001 - fall back to decoding, say why
                 notes["embedded_error"] = f"{type(exc).__name__}: {exc}"
-            if edge >= LARGE_EDGE:
+            if edge >= need:
                 got, method = (image, size), "raw-embedded"
             else:                       # none, or smaller than the large preview (Lightroom's 1024 px DNG)
                 try:
@@ -376,8 +378,9 @@ def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path) -
         else:
             got, method = _raster(primary), "image"
         image, (w, h) = got
-        _save(image, LARGE_EDGE, large_path)
-        _save(image, THUMB_EDGE, thumb_path)
+        if large_path is not None:
+            _save(image, LARGE_EDGE, Path(large_path))
+        _save(image, THUMB_EDGE, Path(thumb_path))
         return Preview(True, method, None, {"source_width": w, "source_height": h, **notes})
     except Exception as exc:  # noqa: BLE001 - contract: never raise
         return Preview(False, None, f"{type(exc).__name__}: {exc}", {})

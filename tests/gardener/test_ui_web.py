@@ -50,11 +50,11 @@ def test_localstorage_only_holds_ui_preferences():
 
 
 def test_nav_order():
-    # PRD §05: 待整理 · 所有照片 · Collections (Wildlife · 旅行 · 精选 · 待修图) · 任务与导入
+    # PRD §05: 待整理 · 所有照片 · (本地目录, 契约修订 11) · Collections (Wildlife · 旅行 · 精选 · 待修图) · 任务与导入
     assert re.findall(r'data-nav="([\w-]+)"', text("index.html")) == [
-        "inbox", "library", "collections", "species", "col-trip", "col-featured", "col-edit", "tasks", "settings"]
+        "inbox", "library", "fs", "collections", "species", "col-trip", "col-featured", "col-edit", "tasks", "settings"]
     labels = re.findall(r'data-nav="[\w-]+"[^>]*>.*?</svg>([^<]+)<', text("index.html"))
-    assert labels == ["待整理", "所有照片", "Collections", "Wildlife", "旅行", "精选", "待修图", "任务与导入", "管理"]
+    assert labels == ["待整理", "所有照片", "本地目录", "Collections", "Wildlife", "旅行", "精选", "待修图", "任务与导入", "管理"]
 
 
 @pytest.mark.parametrize("phrase", [
@@ -236,3 +236,20 @@ def test_library_scales_to_thousands_of_photos():
     assert app.count("setInterval(") == 1
     assert "every(2000, pollNow);" in app and "every(30000, disk);" in app and "every(2000, async () => {" in app
     assert "addEventListener('visibilitychange', () => { if (!document.hidden) pollers.forEach(fn => fn()); })" in app
+
+
+def test_local_folder_browser_is_read_only_and_reuses_the_library_layout():
+    """契约修订 11: 本地目录 lists folders through /fs/*, says plainly that nothing is imported, has no marks,
+    and loads thumbnails lazily in the library's grid / loupe layout."""
+    js, css = text("app.js"), text("styles.css")
+    fs = js[js.index("契约修订 11：本地目录"):js.index("契约修订 11 结束")]
+    assert set(re.findall(r"api\('(\w+)', '(/fs/[\w/]+)'", fs)) == {("GET", "/fs/roots"), ("GET", "/fs/list")}
+    assert "/fs/thumb?" in fs and 'loading="lazy"' in fs
+    assert "只浏览：不导入、不复制、不移动文件，也不写入 AfterShooting 的记录" in fs
+    assert "ws lib fs mode-" in fs and "lib-loupe" in fs and "grid-scroll" in fs      # the library's layout classes
+    for banned in ("/marks", "doMark", "ui.ws =", "starsHTML", "flagSeg"):           # no marks here
+        assert banned not in fs, banned
+    assert "{ g: 'grid', e: 'loupe', f: 'full' }" in fs and "ArrowRight" in fs
+    assert "fs-task" in fs and "#/task/" in fs                                       # a covered folder links to its task
+    assert "case 'fs':" in js and "Object.assign(VIEWS, { fs: vFs })" in fs
+    assert ".ws.lib.fs .lib-body" in css and ".fs-tree" in css

@@ -255,6 +255,22 @@ Gardener marks a photo exported only from that result. A photo whose develop set
 Gardener applied a preset is skipped and reported, never overwritten. Export takes a Hard Drive export preset (a preset of
 another plug-in's export service is refused). Checked in Lightroom Classic 14.2 (契约修订 7B). Rules: `docs/gardener/contract.md`, 契约修订 5E.
 
+### Gardener: 本地目录 (browse folders on disk)
+
+「本地目录」 in the left nav of the Gardener UI (`gardener serve`) browses what is already on disk without importing it. It shows
+`~/Pictures`, `~/Documents`, `~/Desktop`, `~/Downloads`, every volume mounted under `/Volumes` (memory cards, external
+disks; a symlink there such as `Macintosh HD -> /` is not a volume) and the service's `--allow-root` folders, nothing else.
+Pick a folder in the tree on the left; the right side shows its photos and videos (same file types and RAW+JPEG pairing
+as a scan) as a grid, or one large image with a filmstrip: G grid, E single, F full screen, ←/→ next and previous.
+A folder inside a task's source gets a 「任务」 badge that opens the task.
+
+It is browse-only: no marks, nothing is imported, copied or moved, and nothing is written to the database or next to
+your files. Previews are made on request (a RAW's embedded JPEG, ~30 ms) into `<data-dir>/cache/fs/` (capped at 1 GiB,
+oldest first) and are removed by 管理 › 清除缓存. A path whose real location (after symlinks) is outside those places
+is refused (403), as is a `..` in the path (400). macOS may refuse a volume or library to the service process; it then
+shows as 不可读 until that program has access under System Settings › Privacy & Security. API: 契约修订 11 in
+`docs/gardener/contract.md`.
+
 ### HTTP API
 
 ```sh

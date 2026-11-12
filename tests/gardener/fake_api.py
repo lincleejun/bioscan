@@ -1032,6 +1032,46 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
             "recoverable": True, "failed": [], "skipped": [], "note": NOTE})
         return p
 
+    # ---- 契约修订 11: 本地目录 (read-only browse of the owner's folders) ----
+    fs_root = "/Users/me/Pictures"
+    fs_dirs = {fs_root: ["2026-11-01", "Lightroom"], fs_root + "/2026-11-01": [], fs_root + "/Lightroom": []}
+
+    def fs_check(path: str) -> str:
+        if not path.startswith("/") or ".." in path.split("/"):
+            raise Err(400, "路径不能含 ..", "bad_request")
+        if not (path == fs_root or path.startswith(fs_root + "/")):
+            raise Err(403, "不在可浏览的位置内", "forbidden")
+        return path
+
+    @app.get(P + "/fs/roots")
+    def fs_roots():
+        return [{"name": "图片", "path": fs_root, "kind": "home", "online": True},
+                {"name": "下载", "path": "/Users/me/Downloads", "kind": "home", "online": True},
+                {"name": "CARD", "path": "/Volumes/CARD", "kind": "volume", "online": False}]
+
+    @app.get(P + "/fs/list")
+    def fs_list(path: str, offset: int = 0, limit: int = 300):
+        fs_check(path)
+        if path not in fs_dirs:
+            raise Err(404, f"不存在：{path}", "not_found")
+        n = 40 if path.endswith("2026-11-01") else 0
+        items = [{"name": f"DSC{i:05d}.ARW", "path": f"{path}/DSC{i:05d}.ARW", "media": "photo", "kind": "raw",
+                  "size": 24_000_000, "mtime": "2026-11-01T08:00:00Z",
+                  "files": [{"name": f"DSC{i:05d}.ARW", "role": "raw", "size": 24_000_000}]} for i in range(n)]
+        tasks = [{"id": "t_0001", "title": "测试"}] if path.endswith("2026-11-01") else []
+        return {"path": path, "name": path.rsplit("/", 1)[1], "root": {"name": "图片", "path": fs_root, "kind": "home"},
+                "parent": None if path == fs_root else fs_root, "tasks": tasks,
+                "dirs": [{"name": d, "path": f"{path}/{d}", "photos": 40 if d.startswith("2026") else 0, "videos": 0,
+                          "dirs": 0, "readable": True, "tasks": [{"id": "t_0001", "title": "测试"}] if d.startswith("2026") else []}
+                         for d in fs_dirs[path]],
+                "photos": n, "videos": 0, "skipped": 0, "total": n, "offset": offset, "limit": limit,
+                "items": items[offset:offset + limit]}
+
+    @app.get(P + "/fs/thumb")
+    def fs_thumb(path: str, size: str = "thumb"):
+        fs_check(path)
+        return Response(_jpeg((90, 110, 60 + 20 * (len(path) % 7))), media_type="image/jpeg")
+
     if static and WEB.is_dir():
         app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
     return app

@@ -58,6 +58,54 @@ def _role(ext: str) -> str | None:
     return "video" if ext in VIDEO_EXT else None
 
 
+def folder(dirpath: str, names: list[str], *, stat: bool = True) -> tuple[list[Discovered], list[Skipped]]:
+    """The media in one folder from its file `names` (not recursive): the rules and RAW+JPEG pairing of
+    discover(). `stat=False` skips os.stat (size and mtime read 0), for a quick count."""
+    found: list[Discovered] = []
+    skipped: list[Skipped] = []
+    stems: dict[str, list[FileInfo]] = {}
+    keys: set[str] = set()
+    for name in sorted(names):
+        path = os.path.join(dirpath, name)
+        ext = os.path.splitext(name)[1].lower()
+        if name.lower() in SIDECAR_NAMES or ext in SIDECAR_EXT:
+            skipped.append(Skipped(path, "sidecar"))
+            continue
+        if name.startswith("."):
+            skipped.append(Skipped(path, "hidden"))
+            continue
+        if "\n" in name or "\r" in name:   # a line break would split exiftool's argfile (preview.py)
+            skipped.append(Skipped(path, "unsafe_name"))
+            continue
+        role = _role(ext)
+        if role is None:
+            skipped.append(Skipped(path, "unsupported"))
+            continue
+        try:
+            st = os.stat(path) if stat else None
+        except OSError:
+            skipped.append(Skipped(path, "unreadable"))
+            continue
+        info = FileInfo(path, role, ext, st.st_size if st else 0, st.st_mtime_ns if st else 0)
+        stems.setdefault(os.path.splitext(name)[0].lower(), []).append(info)
+    for stem, infos in stems.items():
+        by_ext = sorted(infos, key=lambda f: (f.ext, f.path))
+        raw = next((f for f in by_ext if f.role == "raw"), None)
+        jpeg = next((f for f in by_ext if f.role == "jpeg"), None)
+        if raw and jpeg:
+            key = f"{dirpath}/{stem}|rawjpeg"
+            found.append(Discovered(key, "photo", jpeg.path, sorted([raw, jpeg], key=lambda f: f.path)))
+        for f in infos:
+            if raw and jpeg and f in (raw, jpeg):
+                continue
+            key = f"{dirpath}/{os.path.basename(f.path).lower()}"
+            if key in keys:                 # a case-sensitive file system: IMG.jpg next to IMG.JPG
+                key = f"{dirpath}/{os.path.basename(f.path)}|exact"
+            keys.add(key)
+            found.append(Discovered(key, "video" if f.role == "video" else "photo", f.path, [f]))
+    return found, skipped
+
+
 def discover(root: str) -> tuple[list[Discovered], list[Skipped]]:
     """Every media file under `root`, recursively, sorted by path. Hidden files and folders, sidecars
     and unknown types are Skipped (a hidden or symlinked folder once, not its contents). In one folder, a RAW and
@@ -80,46 +128,9 @@ def discover(root: str) -> tuple[list[Discovered], list[Skipped]]:
             elif os.path.islink(os.path.join(dirpath, d)):      # not followed: it may lead out of the source
                 skipped.append(Skipped(os.path.join(dirpath, d), "symlink"))
         dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and not os.path.islink(os.path.join(dirpath, d)))
-        stems: dict[str, list[FileInfo]] = {}
-        keys: set[str] = set()
-        for name in sorted(names):
-            path = os.path.join(dirpath, name)
-            ext = os.path.splitext(name)[1].lower()
-            if name.lower() in SIDECAR_NAMES or ext in SIDECAR_EXT:
-                skipped.append(Skipped(path, "sidecar"))
-                continue
-            if name.startswith("."):
-                skipped.append(Skipped(path, "hidden"))
-                continue
-            if "\n" in name or "\r" in name:   # a line break would split exiftool's argfile (preview.py)
-                skipped.append(Skipped(path, "unsafe_name"))
-                continue
-            role = _role(ext)
-            if role is None:
-                skipped.append(Skipped(path, "unsupported"))
-                continue
-            try:
-                st = os.stat(path)
-            except OSError:
-                skipped.append(Skipped(path, "unreadable"))
-                continue
-            info = FileInfo(path, role, ext, st.st_size, st.st_mtime_ns)
-            stems.setdefault(os.path.splitext(name)[0].lower(), []).append(info)
-        for stem, infos in stems.items():
-            by_ext = sorted(infos, key=lambda f: (f.ext, f.path))
-            raw = next((f for f in by_ext if f.role == "raw"), None)
-            jpeg = next((f for f in by_ext if f.role == "jpeg"), None)
-            if raw and jpeg:
-                key = f"{dirpath}/{stem}|rawjpeg"
-                found.append(Discovered(key, "photo", jpeg.path, sorted([raw, jpeg], key=lambda f: f.path)))
-            for f in infos:
-                if raw and jpeg and f in (raw, jpeg):
-                    continue
-                key = f"{dirpath}/{os.path.basename(f.path).lower()}"
-                if key in keys:                 # a case-sensitive file system: IMG.jpg next to IMG.JPG
-                    key = f"{dirpath}/{os.path.basename(f.path)}|exact"
-                keys.add(key)
-                found.append(Discovered(key, "video" if f.role == "video" else "photo", f.path, [f]))
+        f, sk = folder(dirpath, names)
+        found += f
+        skipped += sk
     found.sort(key=lambda d: (d.primary, d.pair_key))
     skipped.sort(key=lambda s: s.path)
     return found, skipped

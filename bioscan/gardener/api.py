@@ -24,8 +24,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import bioscan
+from bioscan.gardener import browse, cleanup, detail, handoff, identities, imports, parts, people, query, tasks, taxa
 from bioscan.gardener import capabilities as capmod
-from bioscan.gardener import cleanup, detail, handoff, identities, imports, parts, people, query, tasks, taxa
 from bioscan.gardener import review as rv
 from bioscan.gardener import store as st
 from bioscan.gardener import versions as vers
@@ -1453,6 +1453,9 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     # ---- end 契约修订 5E ----
 
     app.include_router(r)
+    # 契约修订 11: 本地目录, read-only (browse.py)
+    app.include_router(browse.router(store.cache_dir, roots, lambda: store.all(
+        "SELECT s.task_id, s.path, t.title FROM sources s JOIN tasks t ON t.id = s.task_id ORDER BY t.created_at")))
     if (WEB_DIR / "index.html").exists():
         from fastapi.staticfiles import StaticFiles
 

@@ -1247,3 +1247,35 @@ select.input { padding-right: 28px; }
 @media (max-width: 760px) { .lib-body { display: flex; flex-direction: column; overflow: auto; } .ws.lib .inspector { border-left: 0; border-top: 1px solid var(--line); } }
 .lib-filters .seg-btn, .lib-foot .seg-btn { white-space: nowrap; }
 .lib-q { width: 100%; }
+
+/* ---------- 契约修订 11：本地目录（只浏览）。版式沿用图库 .ws.lib 的网格 / 单张；左侧文件夹树单独滚动 ---------- */
+.ws.lib.fs .lib-bar h1 { margin: 0; font-size: 16px; }
+.ws.lib.fs .lib-body { grid-template-columns: 280px minmax(0, 1fr); }
+.fs-note { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 16px; font-size: 12px; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--line); }
+.fs-note .ic { width: 14px; height: 14px; }
+.fs-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; font-size: 13px; }
+.fs-crumbs a { color: var(--ink-2); text-decoration: none; padding: 2px 4px; border-radius: var(--r-sm); }
+.fs-crumbs a:hover { background: var(--hover); }
+.fs-crumbs a:last-child { color: var(--ink); font-weight: 600; }
+.fs-crumbs .ic { width: 12px; height: 12px; color: var(--faint); }
+.fs-tree { gap: 0; }
+.fs-row { display: flex; align-items: center; gap: 2px; min-height: 30px; padding-left: calc(var(--d, 0) * 14px); border-radius: var(--r-sm); }
+.fs-row:hover { background: var(--hover); }
+.fs-row.is-here { background: var(--accent-soft); }
+.fs-row.off { opacity: .55; }
+.fs-row > a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 4px 4px; color: var(--ink); text-decoration: none; font-size: 13px; }
+.fs-row > a .ic { flex: none; width: 15px; height: 15px; color: var(--muted); }
+.fs-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fs-tw { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.fs-tw .ic { width: 12px; height: 12px; transition: transform .12s; }
+.fs-tw[aria-expanded="true"] .ic { transform: rotate(90deg); }
+.fs-task { flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 3px; font-size: 11px; color: var(--accent); background: var(--accent-soft); text-decoration: none; white-space: nowrap; }
+.fs-task .ic { width: 11px; height: 11px; }
+.ws.lib.fs.mode-loupe .lib-loupe { flex-direction: column; gap: 6px; }
+.fs-stage { align-items: center; justify-content: center; background: var(--canvas); }
+.fs-stage img { max-width: 100%; max-height: 100%; object-fit: contain; flex: none; }
+.fs-cap { flex: none; margin: 0; font-size: 12px; color: var(--muted); text-align: center; }
+.lib-loupe:fullscreen { background: #000; padding: 0; }
+.lib-loupe:fullscreen .fs-cap { color: #bbb; padding-bottom: 8px; }
+.ws.lib.fs .tile-media, .ws.lib.fs .tile .ph { display: block; }
+.ws.lib.fs.mode-loupe .tile-wrap { contain-intrinsic-size: auto 112px auto 84px; }   /* off-screen strip tiles: strip height, not grid height */
