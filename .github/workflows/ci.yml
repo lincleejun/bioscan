@@ -23,6 +23,11 @@ jobs:
       - run: uv sync --locked
       - name: lua (Lightroom's Lua 5.1, for the plugin tests)
         run: sudo apt-get update -q && sudo apt-get install -y -q lua5.1 && lua -v && luac -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: node --test (Gardener web view functions)
+        run: node --test 'tests/gardener/web/*.test.js'
       - name: ruff
         run: uv run ruff check .
       - name: pytest (fake models; real-model tests skip here, see models.yml)

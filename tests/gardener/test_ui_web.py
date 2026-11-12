@@ -133,6 +133,13 @@ def test_js_parses(name):
     subprocess.run(["node", "--check", str(WEB / name)], check=True, capture_output=True)
 
 
+@pytest.mark.skipif(not shutil.which("node"), reason="node not installed: the app.js view-function tests need node 22+")
+def test_js_view_functions():
+    """Runs tests/gardener/web/*.test.js (node --test) against the pure view functions of app.js."""
+    r = subprocess.run(["node", "--test", str(Path(__file__).parent / "web" / "*.test.js")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
 def test_restore_cleared_judgment_flow():
     """Recheck B: a judgment the service cleared (content changed / zero clear_picks) is restorable from the
     detail panel by undoing its batch; the fake mirrors the shapes the panel reads."""
