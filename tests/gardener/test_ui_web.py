@@ -209,6 +209,8 @@ def test_task_preview_is_a_lightroom_style_library():
     assert "(keep && id === ws.current) || visible(ws, A(id))" in app and "if (ws.lf.ai) recompute(true);" in app
     assert "ui.ws === ws && ws.current === from) move(1);" in app
     assert "doMark([panes[active].id], { use: u }, useZh(u));" in app
+    assert "doMark([panes[active].id], { stars: Number(k) }" in app       # 0-5 in compare rate the clicked pane
+    assert "let active = Math.max(0, ids.indexOf(ws && ws.current));" in app
     assert "api('GET', `/tasks/${encodeURIComponent(ws.taskId)}/shortlist`)" in app
     vtask = app[app.index("async function vTask"):app.index("const KIND = {")]
     assert "encQuery" not in vtask                              # no forced grouping on the task preview

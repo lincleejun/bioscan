@@ -2213,24 +2213,21 @@
     ui.lbView = dvMount(ph, a, keep, null);
     return true;
   }
-  // 比较（2–4 张，契约修订 5C / 7C）：各张同一原像素比例；可同步缩放平移，也可各自点选动物；1–4 键选中要被
-  // 胶片条替换的一格；第 3、4 张的原像素在前两张之后才取，所以前两张不比两图比较慢。底部是所在连拍的胶片条。
+  // 比较（2–4 张，契约修订 5C / 7C）：各张同一原像素比例；可同步缩放平移，也可各自点选动物；点一格选中它（高亮），
+  // P/X/U/R 与 0–5 标这一格，胶片条替换这一格（修订 9 取代 7C 的 1–4 选格）；第 3、4 张的原像素在前两张之后才取，所以前两张不比两图比较慢。底部是所在连拍的胶片条。
   function dvCompare(ids) {
     const ws = ui.ws, panes = [], n = ids.length;
-    let active = n - 1;
+    let active = Math.max(0, ids.indexOf(ws && ws.current));       // 先高亮来时的那张
     const sync = () => prefs.get('cmpsync', '1') === '1';
-    const onKey = e => {                                        // 1–4：选中胶片条要替换的一格；P/R/U/X 标高亮这一格（焦点可能在 body 上）
+    const onKey = e => {                                        // P/R/U/X 与 0–5 标高亮的一格（焦点可能在 body 上）
       if (!d.open || isField(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
-      const u = KEY_USE[e.key.toLowerCase()];
-      if (u) { e.preventDefault(); doMark([panes[active].id], { use: u }, useZh(u)); return; }
-      if (!/^[1-4]$/.test(e.key) || Number(e.key) > n) return;
-      e.preventDefault();
-      active = Number(e.key) - 1;
-      strip();
+      const u = KEY_USE[e.key.toLowerCase()], k = e.key;
+      if (u) { e.preventDefault(); doMark([panes[active].id], { use: u }, useZh(u)); }
+      else if (/^[0-5]$/.test(k)) { e.preventDefault(); doMark([panes[active].id], { stars: Number(k) }, k === '0' ? '清除星级' : `${k} 星`); }
     };
     const d = dialog({ title: n === 2 ? '并排比较' : `${n} 张比较`, cls: 'compare', onClose: () => { panes.forEach(dvDrop); document.removeEventListener('keydown', onKey); },
       body: `<div class="cmp-grid n${n}">${ids.map((id, i) => `<figure class="cmp-item" data-pane="${i}"><span class="cmp-slot" aria-hidden="true">${i + 1}</span><div class="cmp-view"></div><figcaption data-cmp="${esc(id)}">${cmpCapHTML(id)}</figcaption></figure>`).join('')}</div>
-        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（${n === 2 ? '两边' : '各张'}同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；“看头部 / 看眼部”放大到 OWLv2 找到的部位（同步时其余各张对准各自的同一部位）；拖动平移，滚轮或双击放大；按 1–${n} 选中一格，P / X / U 标记高亮的这一格，点胶片条缩略图替换它。可以全部保留、全部舍弃或都不标记。${PREVIEW_NOTE}</span></div>
+        <div class="cmp-foot"><label class="check-row"><input type="checkbox" data-cmp-sync ${sync() ? 'checked' : ''}> 同步缩放与平移（${n === 2 ? '两边' : '各张'}同一原像素比例）</label><span class="hint">点画面中的动物框，把那只放到中间放大；“看头部 / 看眼部”放大到 OWLv2 找到的部位（同步时其余各张对准各自的同一部位）；拖动平移，滚轮或双击放大；点一格选中它（高亮），P / X / U 与 0–5 标记这一格，点胶片条缩略图替换它。可以全部保留、全部舍弃或都不标记。${PREVIEW_NOTE}</span></div>
         <div class="cmp-strip" role="group" aria-label="同一连拍：点缩略图替换高亮的一格"></div>` });
     function onView(v, kind, extra) {
       if (!sync()) return;
