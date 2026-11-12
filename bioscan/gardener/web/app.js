@@ -2719,7 +2719,7 @@
     'batch-merge': async () => {
       const ids = [...ui.ws.sel], tasks = new Set(ids.map(id => ((A(id) || {}).task_ids || [])[0]));
       if (tasks.size !== 1 || tasks.has(undefined)) { toast('只能把同一次拍摄里的照片并成一组'); return; }
-      try { await groupMerge([...tasks][0], ids[0], ids[1], ids); await pollNow(); } catch (e) { toast(errMsg(e)); }
+      try { await groupMerge([...tasks][0], ids[0], ids[1], ids); await pollNow(); route(true); } catch (e) { toast(errMsg(e)); }
     },
     'batch-move': () => {
       const ids = [...ui.ws.sel], from = ui.view === 'species-one' && ui.sp ? ui.sp.concept : undefined;
