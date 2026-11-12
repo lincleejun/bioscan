@@ -194,3 +194,29 @@ def test_a_thin_vote_fills_in_a_genus_but_never_replaces_a_species_and_a_lone_bi
         # split the wren off: two owls and a genus are left, so the genus is filled in; the wren keeps its name
         c.post(f"{API}/bursts/split", json={"asset_ids": [a[3]]})
         assert names(c, a[2]) == [("species", OWL)] and names(c, a[3]) == [("species", WREN["concept"])]
+
+
+def test_adjacent_groups_of_the_same_subject_are_one_run_until_the_subject_or_the_time_changes(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 6)                                                    # a minute apart: the fake cull's one burst
+    for n in ("IMG_0004.jpg", "IMG_0005.jpg"):
+        fakes.boxes[n] = [owl_box(**WREN)]
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[4]})              # [owl x4] [wren x2]
+        c.post(f"{API}/bursts/split", json={"at": a[2]})              # [owl x2] [owl x2] [wren x2]
+
+        def runs(concept):
+            enc = c.get(f"{API}/encounters", params={"task": t["id"], "concept": concept}).json()["encounters"]
+            return {b["rep"]: b["run"] for e in enc for b in e["bursts"]}
+
+        owl = runs(OWL)
+        assert len(owl) == 2 and all(owl.values())
+        assert len(set(owl.values())) == 2                            # same owl, but a minute apart: two runs
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:     # the same frames, shot within seconds
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+        owl, wren = runs(OWL), runs(WREN["concept"])
+        assert len(set(owl.values())) == 1                            # two owl groups 5 s apart: one run
+        assert set(wren.values()).isdisjoint(owl.values())            # the wren group right after is another subject

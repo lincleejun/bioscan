@@ -99,13 +99,14 @@
   }
   function aiPill(a) {
     switch (a.analysis) {
-      case 'pending': return pill('等待分析', 'wait');
+      case 'pending': return a.online === false ? pill('原片离线 · 分析未完成', 'off') : pill('等待分析', 'wait');
       case 'running': return pill('分析中', 'run');
       case 'failed': return pill('分析失败', 'fail');
       case 'unavailable': return pill('能力不可用', 'fail');
       default: break;
     }
-    if (!a.ai) return pill('无 AI 建议', 'off');
+    // 没有选片建议（没开「美学与选择建议」，或模型没有倾向）时不贴标签：它说的是留或舍，不是物种，贴满每一格只会让人误会
+    if (!a.ai || (a.ai.verdict === 'none' && a.ai.score == null)) return '';
     return pill(`AI ${VERDICT[a.ai.verdict] || a.ai.verdict} · ${fmtScore(a.ai.score)}`, 'ai-' + (a.ai.verdict === 'none' ? 'maybe' : a.ai.verdict));
   }
   function humanBadge(a) {
@@ -411,7 +412,7 @@
   }
   // 契约修订 13：审片单位是“组”——一个连拍，或一张单独的照片；拍摄段这一层不再出现在 Review 里。
   function groupsOf(enc) {
-    const gs = enc.encounters.flatMap(e => e.bursts).map(b => ({ id: b.id || 'one:' + b.rep, burst: b.id, rep: b.rep, asset_ids: b.asset_ids, candidates: [b.rep], photos: b.size }))
+    const gs = enc.encounters.flatMap(e => e.bursts).map(b => ({ id: b.id || 'one:' + b.rep, burst: b.id, rep: b.rep, asset_ids: b.asset_ids, candidates: [b.rep], photos: b.size, run: b.run || null }))
       .concat((enc.unassigned || []).map(id => ({ id: 'one:' + id, burst: null, rep: id, asset_ids: [id], candidates: [id], photos: 1 })));
     const at = g => (A(g.asset_ids[0]) || {}).taken_at || '';
     gs.sort((x, y) => (at(x) < at(y) ? -1 : at(x) > at(y) ? 1 : 0));
@@ -431,6 +432,27 @@
       <span class="gt-n">${g.photos > 1 ? `${g.photos} 张` : '单张'}</span>${s.any ? `<span class="gt-s">${s.kept ? `<b class="k">留 ${s.kept}</b>` : ''}${s.out ? `<b class="x">淘 ${s.out}</b>` : ''}</span>` : ''}</a>
       ${prev ? `<button type="button" class="gt-merge" data-action="gr-merge" data-a="${esc(prev.rep)}" data-b="${esc(g.rep)}" title="和前一组是同一只、同一个瞬间：并成一组" aria-label="把第 ${g.n} 组并入第 ${prev.n} 组">${ic('left')}并入前一组</button>` : ''}</div>`;
   }
+  // 连着的几组如果拍的是同一个对象（服务端 review.subject_runs：主体物种相同、相隔不到半分钟、主体大小相近），
+  // 框在一起显示，并可以一次并成一组；组仍然是做决定的单位。
+  function groupBlocksHTML(t, k, groups) {
+    const blocks = [];
+    groups.forEach((g, i) => {
+      const last = blocks[blocks.length - 1], prev = groups[i - 1];
+      if (last && prev && g.run && g.run === prev.run) last.push(g); else blocks.push([g]);
+    });
+    let html = '', loose = [];
+    const flush = () => { if (loose.length) { html += `<div class="gr-grid">${loose.join('')}</div>`; loose = []; } };
+    blocks.forEach(b => {
+      const tiles = b.map(g => groupTileHTML(t, k, g, groups[g.n - 2]));
+      if (b.length < 2) { loose.push(tiles[0]); return; }
+      flush();
+      const n = b.reduce((s, g) => s + g.photos, 0);
+      html += `<section class="gr-run" aria-label="同一对象：第 ${b[0].n} 到 ${b[b.length - 1].n} 组"><header class="gr-run-h"><b>同一对象</b><span>连着的 ${b.length} 组 · ${n} 张</span>
+        <button type="button" class="btn sm ghost" data-action="run-merge" data-ids="${esc(b.map(g => g.rep).join(','))}" title="这几组是同一只、同一段：并成一组，之后只需留一次">并成一组</button></header><div class="gr-grid">${tiles.join('')}</div></section>`;
+    });
+    flush();
+    return html;
+  }
   function frCenterHTML() {
     const { t, k, groups } = fr;
     if (!k) return '<div class="empty">本次还没有识别出物种。可以在「其他分组」里浏览全部照片，或等扫描继续。</div>';
@@ -438,7 +460,7 @@
     return `<div class="fr-top"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i> · ${groups.length} 组 · ${fr.ids.length} 张 · 已决定 ${done} 组${k.confirmed ? '' : ' · <span class="txt-warn">只有模型候选</span>'}</p></div>
       <div class="fr-acts"><button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
       <a class="btn sm ghost" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div>
-      <div class="gr-grid">${groups.map((g, i) => groupTileHTML(t, k.concept, g, groups[i - 1])).join('')}</div>
+      ${groupBlocksHTML(t, k.concept, groups)}
       ${!groups.length ? '<div class="empty">这个物种在本次拍摄中还没有照片。</div>' : ''}`;
   }
   function frRulesHTML() {
@@ -2728,6 +2750,7 @@
       chooseSpecies(`选中的 ${ids.length} 张是什么`, from ? '选中的照片里叫当前这个物种的都会改过去，可撤销。' : '只改画面里只有一只动物的照片；有多只的请在单张视图里逐只改。可撤销。', claim =>
         moveSpecies(Object.assign({ asset_ids: ids, claim }, from ? { from_concept: from } : {}), `已改为 ${claim.common || claim.taxon || '不确定'}`, () => route(true)));
     },
+    'run-merge': async el => { try { const ids = el.dataset.ids.split(','); await groupMerge(fr.t.id, ids[0], ids[1], ids); await pollNow(); route(); } catch (e) { toast(errMsg(e)); } },
     'gr-merge': async el => { try { await groupMerge(fr.t.id, el.dataset.a, el.dataset.b); await pollNow(); route(); } catch (e) { toast(errMsg(e)); } },
     'cp-keep': () => keepBest(cp.shown[cp.active]),
     'cp-full': () => { const el = $('.cp'); if (document.fullscreenElement) document.exitFullscreen(); else if (el && el.requestFullscreen) el.requestFullscreen(); },

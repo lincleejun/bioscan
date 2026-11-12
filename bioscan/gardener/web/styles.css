@@ -1305,3 +1305,8 @@ select.input { padding-right: 28px; }
 .wpage:has(.ws.mode-loupe) .task-head .crumbs, .wpage:has(.ws.mode-loupe) .task-head .th-sub, .wpage:has(.ws.mode-loupe) .task-head .th-sources,
 .wpage:has(.ws.mode-loupe) .task-head .th-more, .wpage:has(.ws.mode-loupe) .task-head .th-progress, .wpage:has(.ws.mode-loupe) .task-head .th-actions { display: none; }
 .ws.mode-loupe .lib-side { display: none; }
+.gr-run { margin-top: 12px; padding: 8px 10px 10px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface-2); }
+.gr-run .gr-grid { padding-top: 8px; border-top: 0; }
+.gr-run-h { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); }
+.gr-run-h b { color: var(--ink); font-size: 14px; } .gr-run-h .btn { margin-left: auto; }
+.gr-run + .gr-grid, .gr-grid + .gr-grid { margin-top: 12px; }

@@ -309,3 +309,10 @@ def test_z_toggles_one_to_one_the_loupe_keeps_its_zoom_and_browsing_does_not_ask
     app = text("app.js")
     assert "dvDo(zv, zv.z > 1.02 ? 'fit' : 'one')" in app and "ws.loupe = dvMount(st, a, keep, null)" in app
     assert "v.z <= 1.02 || shown <= v.pw * 1.05 || off" in app and "offline: '原片离线 · 仅预览'" in app
+
+
+def test_same_subject_runs_are_framed_together_and_a_tile_shows_no_pill_without_a_suggestion():
+    app = text("app.js")
+    assert "function groupBlocksHTML" in app and "'run-merge'" in app and "同一对象" in app
+    assert "pill('无 AI 建议'" not in app and "if (!a.ai || (a.ai.verdict === 'none' && a.ai.score == null)) return '';" in app
+    assert "原片离线 · 分析未完成" in app and ".gr-run" in text("styles.css")
