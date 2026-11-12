@@ -323,9 +323,13 @@ class Store:
             p = caps["people"]["data"]
             caps["people"]["data"] = p | {"faces": self.face_people(asset_id, p.get("faces", []))}
         of = self.one("SELECT id, primary_path FROM assets WHERE id = ?", (a["version_of"],)) if a["version_of"] else None
+        mine = self.one("SELECT use, stars FROM marks WHERE asset_id = ?", (asset_id,)) or {"use": None, "stars": 0}
         versions = [{"id": v["id"], "name": Path(v["primary_path"]).name, "path": v["primary_path"],
-                     "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"])}
-                    for v in self.all("SELECT * FROM assets WHERE version_of = ? ORDER BY primary_path", (asset_id,))]
+                     "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"]),
+                     "use": v["use"] or "pending", "stars": v["stars"] or 0,     # 契约修订 10B: a version's own marks
+                     "marks_differ": bool(v["use"] or v["stars"]) and (v["use"], v["stars"]) != (mine["use"], mine["stars"])}
+                    for v in self.all("SELECT a.*, m.use, m.stars FROM assets a LEFT JOIN marks m ON m.asset_id = a.id "
+                                      "WHERE a.version_of = ? ORDER BY a.primary_path", (asset_id,))]
         ai_history = [{"run_id": r["run_id"], "verdict": r["verdict"], "score": r["score"],
                        "reasons": loads(r["reasons"], []), "version": r["version"], "at": r["created_at"]}
                       for r in self.all("SELECT * FROM ai_suggestions WHERE asset_id = ? AND run_id != 'user' "

@@ -659,3 +659,12 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **图库里的用途按钮**只显示 选入修图 / 待定 / 淘汰；照片已是保留记录时才显示保留记录。用途数据与其他页面不变。
 - **外观**：全局改为 Lightroom 式中性灰（`styles.css` 的 `:root` 色值）。
 - CLI / MCP 本版不加初选命令（`GET /tasks/{id}/shortlist` 可直接调用）。
+
+## 契约修订 10B：成为副本版本时标记随代表走（2026-11-12，#131）
+
+问题：双卡机身先扫 JPEG 卡并打了用途 / 星级，后加 RAW 卡时 RAW 成为代表版本、JPEG 成为隐藏版本，标记留在隐藏的 JPEG 上：代表显示待定、0 星，修图筛选、导入（不含待定）和交接都丢了这张照片。
+
+- **随代表走**：一张有人工标记（用途不是待定，或星级 > 0）的照片在 `versions.link` 中新成为某代表的版本，而该代表没有人工标记时，在同一事务里把用途与星级写到代表上（`apply_marks`，`flag`、`marks.version`、`updated_at` 照常派生）。每次链接的所有转移是一批 `mark_history`，`actor = system`，`reason = version:carry:<版本 asset id>`；`POST /marks/undo` 撤销这一批即恢复代表原状。版本自己的标记不变。代表不在本任务里时不转移：按修订 6，这张照片在本任务里仍算自己的照片，标记照常可见。
+- **多个版本都有标记**：取最近一次标记的那个（`marks.updated_at` 降序，再按 asset id）。
+- **代表已有人工标记**：从不覆盖，两边都不变。`GET /assets/{代表}` 的 `versions[]` 增加 `use`、`stars` 和 `marks_differ`（版本有标记且与代表不同），界面可据此提示。
+- **拆分**：`POST /assets/{id}/split-version` 不动代表的标记。

@@ -507,6 +507,7 @@ _Avoid_: Event group, day split (earlier groupings, kept only in older databases
 **Version** (同一拍摄的版本):
 Another asset of the same capture: a copy in another folder (same camera file number, time and camera) or an export
 without EXIF matched by file number and preview hash. Its representative stands for it in lists, groups and review.
+A marked photo that becomes a version hands its marks to an unmarked representative (an undoable system batch).
 _Avoid_: Duplicate (versions are kept, never removed)
 
 **Person** (人物):
