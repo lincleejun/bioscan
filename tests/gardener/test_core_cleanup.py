@@ -35,7 +35,7 @@ def shoot(c, fakes, tmp_path):
     """IMG_0..2: owls; IMG_3: the only wren. IMG_0 has an XMP sidecar."""
     src = tmp_path / "card"
     for i in range(4):
-        make_jpg(src / f"IMG_{i}.jpg", when=1_700_000_000 + 60 * i)
+        make_jpg(src / f"IMG_{i}.jpg", when=1_700_000_000 + 600 * i)   # minutes apart: no burst, so no burst vote on the wren
     (src / "IMG_0.xmp").write_text("<x:xmpmeta/>")
     fakes.boxes["IMG_3.jpg"] = [owl_box(**WREN)]
     t = wait_task(c, create_task(c, [str(src)])["id"])
@@ -182,3 +182,110 @@ def test_a_second_run_of_a_plan_already_running_is_refused(env, fakes, tmp_path)
         finally:
             cleanup._RUNNING.discard(p["id"])
         assert c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).status_code == 200
+
+
+# ---- 契约修订 10A: a file another asset still uses never goes to the Trash (#131) ----
+def _twice(c, tmp_path):
+    """The same card imported twice: the second import records the first one's managed copies (5D duplicate), so
+    each managed file in lib/ (A.ARW, A.JPG, A.xmp, A.ARW.acr, B.JPG) belongs to two assets."""
+    from test_core_imports import card, plan, run, scanned
+
+    first, second, lib = card(tmp_path / "card"), tmp_path / "again", tmp_path / "lib"
+    tid, ids1 = scanned(c, first)
+    assert run(c, plan(c, tid, lib)["id"])["status"] == "completed"
+    shutil.copytree(first, second)
+    tid2, ids2 = scanned(c, second)
+    assert run(c, plan(c, tid2, lib)["id"])["status"] == "completed"
+    return ids1, ids2, next(lib.iterdir()), first, second
+
+
+def test_rejecting_a_duplicate_never_moves_the_managed_copies_the_kept_photo_uses(env, tmp_path):
+    """The P0 of #131: B (and A with its sidecars) are kept in task 1 and rejected in task 2; cleaning task 2 moves
+    only the second card's files and shows every shared managed copy as skipped, reason `shared`."""
+    trash = Bin(tmp_path / "bin")
+    with env.client(trash=trash) as c:
+        ids1, ids2, lib, _first, again = _twice(c, tmp_path)
+        rej = [ids2["A.JPG"], ids2["B.JPG"]]
+        c.post(f"{API}/marks", json={"asset_ids": rej, "use": "reject"})
+        p = c.post(f"{API}/cleanup-plans", json={"asset_ids": rej}).json()
+        done = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()
+        kept = c.get(f"{API}/assets/{ids1['B.JPG']}").json()
+    shared = sorted(Path(f["path"]).name for i in done["items"] for f in i["files"] if f["reason"] == "shared")
+    assert shared == ["A.ARW", "A.ARW.acr", "A.JPG", "A.xmp", "B.JPG"]
+    assert all(f["path"].startswith(str(lib)) for i in done["items"] for f in i["files"] if f["reason"] == "shared")
+    assert sorted(trash.moved) == sorted(str(again / n) for n in ("A.ARW", "A.JPG", "A.xmp", "B.JPG"))
+    assert p["summary"]["shared"] == 5 and p["summary"]["files"] == 4 and done["status"] == "ran"
+    assert all((lib / n).exists() for n in shared)
+    assert str(lib / "B.JPG") in str(kept["managed"])
+
+
+def test_both_duplicates_rejected_in_one_plan_move_the_shared_copy_once(env, tmp_path):
+    trash = Bin(tmp_path / "bin")
+    with env.client(trash=trash) as c:
+        ids1, ids2, lib, first, again = _twice(c, tmp_path)
+        both = [ids1["B.JPG"], ids2["B.JPG"]]
+        c.post(f"{API}/marks", json={"asset_ids": both, "use": "reject"})
+        p = c.post(f"{API}/cleanup-plans", json={"asset_ids": both}).json()
+        done = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()
+    assert sorted(trash.moved) == sorted([str(first / "B.JPG"), str(again / "B.JPG"), str(lib / "B.JPG")])
+    assert done["status"] == "ran" and done["report"]["skipped"] == []
+
+
+def test_a_duplicate_kept_after_planning_keeps_the_shared_copy(env, tmp_path):
+    """Run-time re-check: both duplicates were rejected when planned; task 1's is kept before the run."""
+    trash = Bin(tmp_path / "bin")
+    with env.client(trash=trash) as c:
+        ids1, ids2, lib, first, again = _twice(c, tmp_path)
+        both = [ids2["B.JPG"], ids1["B.JPG"]]                     # the lib copy is planned under task 2's asset
+        c.post(f"{API}/marks", json={"asset_ids": both, "use": "reject"})
+        p = c.post(f"{API}/cleanup-plans", json={"asset_ids": both}).json()
+        c.post(f"{API}/marks", json={"asset_ids": [ids1["B.JPG"]], "use": "record"})
+        done = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()
+    assert trash.moved == [str(again / "B.JPG")] and (lib / "B.JPG").exists() and (first / "B.JPG").exists()
+    assert {"asset_id": ids2["B.JPG"], "path": str(lib / "B.JPG"), "reason": "shared"} in done["report"]["skipped"]
+    assert done["status"] == "partial"
+
+
+def test_a_library_scanned_as_a_task_shares_its_files_with_the_imported_asset(env, tmp_path):
+    """The source-file half of 10A: lib/B.JPG is a managed copy of the card's B and a source file of the lib scan's B."""
+    from test_core_imports import by_name, card, plan, run
+
+    trash = Bin(tmp_path / "bin")
+    with env.client(trash=trash) as c:
+        src = card(tmp_path / "card")
+        t = wait_task(c, create_task(c, [str(src)], caps=[])["id"])
+        cb = by_name(c, t["id"])["B.JPG"]
+        c.post(f"{API}/marks", json={"asset_ids": [cb], "use": "record"})
+        assert run(c, plan(c, t["id"], tmp_path / "lib")["id"])["status"] == "completed"
+        lib = next((tmp_path / "lib").iterdir())
+        lb = by_name(c, wait_task(c, create_task(c, [str(lib)], caps=[])["id"])["id"])["B.JPG"]
+        moved = []
+        for reject, keep in ((cb, lb), (lb, cb), (None, None)):
+            both = [cb, lb]              # last round: both rejected; the card's asset claims every file of lib's
+            c.post(f"{API}/marks", json={"asset_ids": [reject] if reject else both, "use": "reject"})
+            if keep:
+                c.post(f"{API}/marks", json={"asset_ids": [keep], "use": "record"})
+            p = c.post(f"{API}/cleanup-plans", json={"asset_ids": [reject] if reject else both}).json()
+            files = {f["path"]: f["reason"] for i in p["items"] for f in i["files"]}
+            if reject:
+                assert files[str(lib / "B.JPG")] == "shared"
+                c.post(f"{API}/marks", json={"asset_ids": [reject], "use": "record"})
+            else:
+                done = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()
+                moved = trash.moved
+    assert sorted(moved) == sorted([str(src / "B.JPG"), str(lib / "B.JPG")]) and done["status"] == "ran"
+
+
+def test_a_planned_file_that_is_no_longer_a_plain_file_is_reported_as_changed(env, fakes, tmp_path):
+    """#131: a planned path still on disk but no longer one of the asset's files (here a dangling link) used to
+    raise KeyError in the re-check."""
+    trash = Bin(tmp_path / "bin")
+    with env.client(trash=trash) as c:
+        src, aids = shoot(c, fakes, tmp_path)
+        c.post(f"{API}/marks", json={"asset_ids": [aids[1]], "use": "reject"})
+        p = c.post(f"{API}/cleanup-plans", json={"asset_ids": [aids[1]]}).json()
+        (src / "IMG_1.jpg").unlink()
+        (src / "IMG_1.jpg").symlink_to(tmp_path / "nowhere.jpg")
+        r = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True})
+    assert r.status_code == 200, r.text
+    assert trash.moved == [] and r.json()["report"]["skipped"] == [{"asset_id": aids[1], "reason": "changed"}]

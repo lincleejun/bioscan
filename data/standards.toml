@@ -669,22 +669,6 @@ how = "album smoke, plugin_metrics.quality.subject_cut (needs the detector to bo
 source = "no published figure"
 
 [[standard]]
-id = "culling.album.subject_too_small.reject_recall"
-tier = "album"
-profile = "album"
-plugin = "quality"
-dimension = "culling"
-title = "Album: subjects shrunk to 0.3% of the frame rejected as subject_too_small"
-scope = "subject_too_small"
-metric = "reject_recall"
-op = ">="
-community = 0.50
-stretch = 0.80
-unit = "fraction"
-how = "album smoke, plugin_metrics.quality.subject_too_small (a subject the detector misses is not rejected)"
-source = "no published figure"
-
-[[standard]]
 id = "culling.album.all.burst_pair_f1"
 tier = "album"
 profile = "album"

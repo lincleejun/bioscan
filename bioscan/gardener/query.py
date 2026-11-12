@@ -14,7 +14,7 @@ CHOICES = {"media": ("photo", "video"), "flag": ("pick", "reject", "none"), "ai"
            "id_state": ("confirmed", "candidate", "unresolved", "reconfirm"), "use": ("record", "edit", "pending", "reject")}
 MAX_DEPTH = 4    # smart rules may name other collections; this bounds the chain (and cycles)
 
-LATEST_AI = "(SELECT s.verdict FROM ai_suggestions s WHERE s.asset_id = a.id ORDER BY s.id DESC LIMIT 1)"
+LATEST_AI = "(SELECT s.verdict FROM current_suggestions s WHERE s.asset_id = a.id)"
 JUDGED = "EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND (m.flag IS NOT NULL OR m.stars > 0))"
 ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user' AND ci.concept IS NOT NULL",
              "candidate": "ci.level = 'species' AND ci.source = 'ai'",

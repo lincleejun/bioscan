@@ -17,8 +17,9 @@ from typing import Any
 from bioscan.gardener import capabilities as capmod
 from bioscan.gardener import query
 
-SCHEMA_VERSION = 3                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
+SCHEMA_VERSION = 4                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
                                    # 3: four uses replace Pick/Reject (marks.use) + encounters (contract revision 5B)
+                                   # 4: marks hidden on versions carried to their representative (契约修订 10B)
 SCHEMA = Path(__file__).with_name("schema.sql")
 MODEL_CAP_IDS = frozenset(c.id for c in capmod.CAPABILITIES if c.stages or c.local)   # same set as tasks.MODEL_CAPS
 DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
@@ -172,11 +173,15 @@ class Store:
                     from bioscan.gardener import identities
 
                     identities.backfill(c)
-                migrate_uses(c)
-                from bioscan.gardener import review
+                if int(row[0]) < 3:
+                    migrate_uses(c)
+                    from bioscan.gardener import review
 
-                for t in c.execute("SELECT id FROM tasks").fetchall():
-                    review.assign_encounters(c, t[0])
+                    for t in c.execute("SELECT id FROM tasks").fetchall():
+                        review.assign_encounters(c, t[0])
+                from bioscan.gardener import versions
+
+                versions.backfill_carry(c)
                 c.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
             t = now()
             for pid, p in capmod.PRESETS.items():
@@ -255,9 +260,7 @@ class Store:
             q = marks_in(part)
             rows = self.all(f"SELECT a.*, m.flag, m.use, coalesce(m.stars, 0) stars, coalesce(m.version, 0) mark_version "
                             f"FROM assets a LEFT JOIN marks m ON m.asset_id = a.id WHERE a.id IN ({q})", part)
-            ai = {r["asset_id"]: r for r in self.all(
-                f"SELECT * FROM ai_suggestions WHERE id IN (SELECT max(id) FROM ai_suggestions WHERE asset_id IN ({q}) "
-                "GROUP BY asset_id)", part)}
+            ai = {r["asset_id"]: r for r in self.all(f"SELECT * FROM current_suggestions WHERE asset_id IN ({q})", part)}
             data: dict[tuple[str, str], Any] = {(r["asset_id"], r["capability"]): loads(r["data"]) for r in self.all(
                 f"SELECT asset_id, capability, data FROM results WHERE id IN (SELECT max(id) FROM results WHERE "
                 f"asset_id IN ({q}) AND capability IN ('content', 'species') AND status = 'done' "
@@ -332,9 +335,13 @@ class Store:
             p = caps["people"]["data"]
             caps["people"]["data"] = p | {"faces": self.face_people(asset_id, p.get("faces", []))}
         of = self.one("SELECT id, primary_path FROM assets WHERE id = ?", (a["version_of"],)) if a["version_of"] else None
+        mine = self.one("SELECT use, stars FROM marks WHERE asset_id = ?", (asset_id,)) or {"use": None, "stars": 0}
         versions = [{"id": v["id"], "name": Path(v["primary_path"]).name, "path": v["primary_path"],
-                     "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"])}
-                    for v in self.all("SELECT * FROM assets WHERE version_of = ? ORDER BY primary_path", (asset_id,))]
+                     "reason": v["version_reason"], "preview": v["preview_status"], "online": bool(v["online"]),
+                     "use": v["use"] or "pending", "stars": v["stars"] or 0,     # 契约修订 10B: a version's own marks
+                     "marks_differ": bool(v["use"] or v["stars"]) and (v["use"], v["stars"]) != (mine["use"], mine["stars"])}
+                    for v in self.all("SELECT a.*, m.use, m.stars FROM assets a LEFT JOIN marks m ON m.asset_id = a.id "
+                                      "WHERE a.version_of = ? ORDER BY a.primary_path", (asset_id,))]
         ai_history = [{"run_id": r["run_id"], "verdict": r["verdict"], "score": r["score"],
                        "reasons": loads(r["reasons"], []), "version": r["version"], "at": r["created_at"]}
                       for r in self.all("SELECT * FROM ai_suggestions WHERE asset_id = ? AND run_id != 'user' "
@@ -403,16 +410,33 @@ class Store:
         by = {"time": "a.taken_at IS NULL, a.taken_at, a.primary_path",
               "path": "a.primary_path",
               "discovered": disc,
-              "score": "(SELECT s.score FROM ai_suggestions s WHERE s.asset_id = a.id ORDER BY s.id DESC LIMIT 1) "
-                       "IS NULL, (SELECT s.score FROM ai_suggestions s WHERE s.asset_id = a.id ORDER BY s.id DESC "
-                       "LIMIT 1) DESC, a.taken_at, a.primary_path"}.get(order)
+              "score": "(SELECT s.score FROM current_suggestions s WHERE s.asset_id = a.id) IS NULL, "
+                       "(SELECT s.score FROM current_suggestions s WHERE s.asset_id = a.id) DESC, a.taken_at, a.primary_path"
+              }.get(order)
         if by is None:
             raise Error("order must be discovered|time|path|score")
         total = self.one(f"SELECT count(*) n FROM assets a WHERE {sql}", ps)["n"]
         ops = [filters["task"]] if order == "discovered" and filters.get("task") else []
         ids = [r["id"] for r in self.all(f"SELECT a.id FROM assets a WHERE {sql} ORDER BY {by}, a.id LIMIT ? OFFSET ?",
                                          [*ps, *ops, limit, offset])]
-        return {"total": total, "items": self.asset_items(ids), "offset": offset}
+        items = self.asset_items(ids)
+        bursts = sorted({a["burst"]["id"] for a in items if a["burst"]})
+        if bursts:          # 修订 15: each group's representative among the frames this query matches, not one page
+            from bioscan.gardener import review
+
+            scope, sps = query.where(self, {k: v for k, v in filters.items() if k != "changed_after"})
+            frames: dict[str, list[dict[str, Any]]] = {}
+            for part in chunks(bursts):
+                for r in self.all("SELECT a.id, m.use, coalesce(m.stars, 0) stars, s.burst_id, s.burst_rank, s.score "
+                                  "FROM current_suggestions s JOIN assets a ON a.id = s.asset_id LEFT JOIN marks m ON "
+                                  f"m.asset_id = a.id WHERE s.burst_id IN ({marks_in(part)}) AND {scope} "
+                                  "ORDER BY a.taken_at, a.id", [*part, *sps]):
+                    frames.setdefault(r["burst_id"], []).append(r)
+            for a in items:         # a run wrote in between the two reads: this frame stands until the next poll
+                if a["burst"]:
+                    g = frames.get(a["burst"]["id"])
+                    a["burst"]["rep"] = review.representative(g)["id"] if g else a["id"]
+        return {"total": total, "items": items, "offset": offset}
 
     def ids_where(self, filters: dict[str, Any]) -> list[str]:
         sql, ps = query.where(self, filters)
@@ -467,8 +491,8 @@ class Store:
                      "coalesce(sum(m.flag = 'pick'), 0) picks, coalesce(sum(m.flag = 'reject'), 0) rejects "
                      f"FROM assets a LEFT JOIN marks m ON m.asset_id = a.id WHERE {sql}", ps)
         ai = {r["verdict"]: r["n"] for r in self.all(
-            "SELECT verdict, count(*) n FROM ai_suggestions WHERE id IN (SELECT max(s.id) FROM ai_suggestions s "
-            f"JOIN assets a ON a.id = s.asset_id WHERE {sql} GROUP BY s.asset_id) GROUP BY verdict", ps)}
+            f"SELECT s.verdict, count(*) n FROM assets a CROSS JOIN current_suggestions s ON s.asset_id = a.id "
+            f"WHERE {sql} GROUP BY s.verdict", ps)}      # CROSS: SQLite keeps assets first, then index ai_asset
         covers = [r["id"] for r in self.all(
             f"SELECT a.id FROM assets a WHERE {sql} ORDER BY a.preview_status != 'ready', a.taken_at, a.primary_path "
             "LIMIT 4", ps)]

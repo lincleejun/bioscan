@@ -329,7 +329,8 @@ they were fitted on (50, 100, 200, 500, 1,000), next to the general head and the
 
 **Reject reason**:
 Why a rule rejects a photo, one of `soft_subject`, `motion`, `defocus`, `overexposed`, `underexposed`,
-`subject_cut`, `subject_too_small`, `no_subject` (the `quality` stage; `select` may waive one per scene category).
+`subject_cut`, `no_subject` (the `quality` stage; `select` may waive one per scene category). A small subject is
+not one: `subject_too_small` is a **flag** (#131), and an older quality product that still lists it is not rejected.
 `motion_or_defocus`, the name before `motion` and `defocus` were split, is still accepted in waivers and ground
 truth, where it means either.
 Rules only: a photo is never rejected for taste.
@@ -340,7 +341,9 @@ A note `select` puts on a photo that never changes its status, rank, keep or sta
 `horizon_tilt` when the scene stage's horizon (landscapes only) tilts more than `horizon_flag_deg`, default 3°;
 `tight_headroom` when the subject's box starts less than `headroom_min` (default 0.02) of the frame height below the
 frame top and fills under half the frame; `no_lead_room` when the subject faces the nearer side edge (its **facing**)
-with less than `lead_room_min` (default 0.1) of the frame width in front of its box and fills under half the frame.
+with less than `lead_room_min` (default 0.1) of the frame width in front of its box and fills under half the frame;
+`subject_too_small` when the subject's box covers under 0.5% of the frame (a distant animal on a long lens: a sharp
+burst of it still gets its best frame picked).
 It shows in the cull record, `aesthetic score`'s CSV and page; XMP gets nothing.
 _Avoid_: warning, soft reject
 
@@ -362,9 +365,34 @@ _Avoid_: good photo, select (a verb here)
 **Burst**:
 Frames of one camera at most `max_gap_s` apart whose frame vectors are alike (cosine at least `min_cosine`),
 chained in time order by the `burst` reducer; a frame in no burst has id null.
-In Gardener a person may split a wrong burst (`POST /bursts/split`); the split is kept as a burst override and
-applied over every later run of the reducer.
+Frames at most `shutter_gap_s` apart (0 = off, the default) chain whatever the vectors say.
+In Gardener a burst is the unit of review (组: one moment of one subject; a photo in no burst is a group of one):
+it groups wider than the album profile (`analyze.GROUP`), a person may split a wrong burst (`POST /bursts/split`)
+or merge bursts (`POST /bursts/merge`), and both are kept as burst overrides applied over every later run.
 _Avoid_: sequence, series, stack
+
+**Burst vote** (组内同名):
+Gardener's rule that a burst's frames share one name (`identities.burst_consensus`): the frames showing a single
+animal take the majority species of the model's own claims, a species named on one frame of a larger burst becomes
+unconfirmed, and a person's identification is never outvoted. Written as ai identifications with reason `burst`.
+_Avoid_: smoothing, consensus model
+
+**Subject run** (同一对象):
+Adjacent bursts of one task that show the same subject (same species on the main animal, close in time, similar size;
+`review.subject_runs`), named by the run's first photo. Computed on read, never stored: a hint drawn as a frame
+around those bursts in Review, 所有照片 and the species page, with a one-step merge; the burst stays the unit decided on.
+_Avoid_: sequence, encounter (an encounter is wider and stored)
+
+**Decided group** (已决定的组):
+A group of a species in a task (that species' frames of one burst within one encounter, or one photo) every one of
+whose frames has a use of record, edit or reject; a **started** group has at least one such frame. A species is
+**complete** in a task when all its groups are decided. Counted on the server from the marks of every frame
+(`review.species_progress`, `GET /species?task=`), never from what a page has loaded; stars alone decide nothing.
+_Avoid_: reviewed, judged (judged also counts stars), coverage (that is a collection's)
+
+**Regroup run**:
+A task run of kind `regroup` (`POST /tasks/{id}/regroup`): bursts, the burst vote, encounters and auto collections
+again from stored results; no file is read and no model runs.
 
 **Scene category**:
 The bucket `select` ranks within: the photo's scene group (`by = "group"`, the default; the label when the stage
@@ -507,6 +535,7 @@ _Avoid_: Event group, day split (earlier groupings, kept only in older databases
 **Version** (同一拍摄的版本):
 Another asset of the same capture: a copy in another folder (same camera file number, time and camera) or an export
 without EXIF matched by file number and preview hash. Its representative stands for it in lists, groups and review.
+A marked photo that becomes a version hands its marks to an unmarked representative (an undoable system batch).
 _Avoid_: Duplicate (versions are kept, never removed)
 
 **Person** (人物):
@@ -522,10 +551,16 @@ _Avoid_: Flag, Pick (the older two-state form; `flag` survives only as a derived
 **Encounter** (拍摄段):
 One continuous observation within a task: photos close in time (and showing the same species, when known); bursts
 nest inside. Suggested by the service, then a person may split or merge; a rescan only places photos not yet placed.
+No page shows it as a unit of review any more (revision 14: the burst is); it stays in the API and as an identify scope.
 _Avoid_: Event (an older time grouping), burst (a burst is a few near-identical frames inside one encounter)
 
 **AI suggestion**:
 A machine pick/reject/none with score and reasons, per task run; stored apart from Flag/Star.
+
+**Shortlist** (AI 初选):
+A task's scored photos ranked within that task only (not rejected, then a burst's best frame, then aesthetic
+score), top max(10%, 20) kept, so a weak shoot still gets one. A view, never a mark: stars and uses stay human.
+_Avoid_: AI pick (the per-photo suggestion verdict, which can be empty for a whole weak shoot)
 
 **Capability** (能力):
 A user-facing analysis switch (content, species, quality, ...) mapped to BioScan stages and reducers; not a model.

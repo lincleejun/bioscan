@@ -32,7 +32,7 @@
 ## 2 存储
 
 - 数据目录 `--data-dir`（默认 `$GARDENER_HOME`，否则 `~/.gardener`）：`gardener.sqlite`（WAL）、`cache/previews/<id[2:4]>/<id>.thumb.jpg|.large.jpg`、`exports/`（默认导出位置）、`logs/`。
-- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
+- 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。分析开始时把能力标为待运行（`mark_pending`）按块提交（每块至多 500 张），人的写入（如 `POST /marks`）最多等一块；每块是幂等写入，崩溃后从剩下的继续。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
 - DDL 见 `schema.sql`；`meta.schema_version` = `1`。数据库只存预览索引（`assets.preview_status/method`），不存图片。
 - 原片只读：Gardener 绝不在来源目录写入、改名、移动、删除；不得调用 BioScan 的 `jpg` stage、`/apply`、XMP 写入。导出目的地若位于任何任务来源目录之内则拒绝（400）。
 - 清理缓存只删 `cache/`，把 `preview_status` 置回 `pending`；原片在线时按需重建（请求预览时同步生成）。
@@ -62,8 +62,12 @@ def is_online(path: str) -> bool
 def read_meta(paths: list[str]) -> dict[str, dict]   # 批量；键: taken_at(ISO), camera, lens, width, height, orientation,
                                                       # lat, lon, duration_s, video_codec, fps, playable(bool|None)
 def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path) -> Preview
-    # thumb 长边 360、large 长边 1600，JPEG；RAW 先 rawpy.extract_thumb()，失败再 half_size 解码；视频 ffmpeg 取帧
-    # 失败返回 ok=False + error，不抛异常
+    # thumb 长边 360、large 长边 1600，JPEG；RAW 先 rawpy.extract_thumb()（长边须 ≥ 1600，否则 half_size 解码；
+    # 解码失败时退回 ≥ 360 的小内嵌图），meta.source_width/height 取 LibRaw 尺寸（默认裁切）；标准 TIFF 头的 RAW（ARW/NEF/DNG/CR2 等；ORF、RW2、CR3、RAF 未核对）先核对
+    # IFD 里条带/瓦片的结尾不超过文件大小（decode.raw_truncated），被截断即 ok=False（LibRaw 对截断文件不报错，
+    # 缺的行是黑的，或是同进程上一张照片的像素）；16 位 TIFF 缩放到 8 位（decode.rgb8）；视频 ffmpeg 取帧
+    # 失败返回 ok=False + error，不抛异常。tasks.build_preview：primary 失败且素材是 RAW+JPEG 对时，改用另一个
+    # 文件出预览，meta.preview_source 记下它（分析也读它），meta.primary_error 记 primary 的错误
 
 # analyze.py
 @dataclass class ItemResult: asset_id: str; capability: str; status: str   # done | failed | unrecognized | unavailable
@@ -134,7 +138,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - `POST /tasks/{id}/sources {paths}` → `Run`(append)；`POST /tasks/{id}/pause|resume|stop|archive|unarchive|verify-sources`；`POST /tasks/{id}/rescan {capabilities?, asset_ids?}` → `Run`；`POST /tasks/{id}/retry {asset_ids?}` → `Run`
 - `GET /runs/{id}` → `Run`（含 `summary`）
 
-`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, location: {lat, lon}|null, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, taken: {from, to}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。`taken` = 本任务素材拍摄时间（EXIF）的最早与最晚，没有素材时为 null。`location` = 拍摄地点：`POST /tasks` 与 `PATCH /tasks/{id}` 接受 `{lat, lon}`（两个都给，或都为 null 清除）；识别时只给没有 GPS 的照片用，照片自带 GPS 优先（同 `bioscan --lat/--lon`）；运行排队时冻结在 `config.location`，改了之后 `rescan` 物种才生效。
+`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, location: {lat, lon}|null, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, taken: {from, to}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。`taken` = 本任务素材拍摄时间（EXIF）的最早与最晚，没有素材时两者为 null；流程页页头显示这个拍摄日期范围，没有时显示创建日。
 
 `Run = {id, task_id, seq, kind, status, phase, config, scope, counts, summary, error, queued_at, started_at, finished_at}`
 
@@ -198,7 +202,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **X4 文件变化与缺失**：**永远不删除** `assets`、`task_assets`、`marks`、`mark_history`、集合成员行。来源在线但文件不见 → `asset_files.online=0` 且 `assets.meta.missing=true`（summary 计 `missing`，与 `offline_sources` 区分）；之后重新出现即恢复。同一路径 size/mtime 变化且 `quick_hash` 不同 = **内容变化**：沿用同一 `asset_id`；在 `mark_history` 写入 `actor=system, reason=content_changed` 的记录并把当前 Flag/Star **清空**（旧判断保留在历史中，可 undo 该 batch 恢复）；`assets.meta.content_changed_at` 记录时间；能力状态回 `pending` 并在本运行重新预览与分析；旧 results/ai_suggestions 保留为历史。已完成集合把这类成员计入 `review.changed_since`。size/mtime 变但 hash 相同 = 未变化，只更新 mtime。
 - **X5 marks 省略与 null**：`POST /marks` 中键**省略 = 不改**，`flag: null` = 清除 Flag，`stars: 0` = 清除星级。CLI/MCP 只发送用户明确给出的键。
 - **X6 本组不留清 Pick**：`resolution=clear_picks` 经同一 marks 写入路径：把这些素材 Flag 设为 `null`（**不是** reject），写 `mark_history`（同一 batch_id、actor、reason=`zero:<collection_id>`），响应带 `batch_id`，`POST /marks/undo` 可恢复。
-- **X7 changed_after**：任何影响 AssetItem 的写入（marks、asset_caps、results、ai_suggestions、预览状态、集合成员、标签、在线状态）都同时更新 `assets.updated_at`。所有记录时间戳统一为 UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`（定长，可字符串比较）；`changed_after` 为严格大于。
+- **X7 changed_after**：任何影响 AssetItem 的写入（marks、asset_caps、results、ai_suggestions、预览状态、集合成员、标签、在线状态）都同时更新 `assets.updated_at`。所有记录时间戳统一为 UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`（定长，可字符串比较）；`changed_after` 为严格大于。`assets(updated_at)` 有索引，轮询按它读变化的素材，不扫全部素材；UI 的 `apiAll` 每页取 1000（服务上限），批量写入后整个任务都变了时少翻页。分块写入的每块各取时间戳，轮询游标不会越过之后的块。
 - **X8 自动集合身份**：重组时先按**成员重叠**把每个建议组匹配到该任务已有的同 `group_kind` 自动集合（重叠成员数最多者；无重叠才新建）；`auto_key` 只在首次创建时确定，以后不变。被软删除或被合并掉的自动集合**不恢复、不再加成员**；其已有成员也不会因此被塞进新建的同 key 集合（建议组与已删集合重叠时跳过这些成员）。scene/species 组的 key 本身稳定（标签 id），仍按同一规则处理已删集合。
 - **X9 导出输入形状**：`export(dest_dir, *, title, scope, collections, assets, copy, conflict, protected)`：`assets` = **AssetDetail 列表**（§6.3，含 files、flag、stars、ai、ai_history[0].version、caps 不需要、collections）；`collections` = `Collection` 列表（§6.5，另含 `member_ids`）；`scope = {kind: collection|asset_ids|rule, value, scope: picked|all|selected}`；复制目录 `dest_dir/files/<安全化 title>/`，`title` 由单元 1 给出（集合名或“筛选结果”），跨任务导出同样只用 title。XML 每个素材含：所有文件原路径（与复制路径、sha256）、flag、stars、AI verdict/score/reasons/version、所属集合及其审阅状态。导出不复制 XMP sidecar，ExportReport 加 `notes: ["未包含来源目录中的 XMP sidecar"]`。
 - **标签拆分（PRD §7 / D25 已确认，首版必须）**：`POST /tags/{id}/split {names: [新名], assign?: {新名: [asset_ids]}}` → 新建子标签（原标签保留或停用由 `deactivate_source` 决定，默认保留），记 `tag_history`，人工与 AI 的 `asset_tags` 来源分开保留。
@@ -363,7 +367,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - 跳过 `human`：已有人工决定（记录、修图或星级）。
     - 跳过 `only_record`：淘汰后某个物种（当前结论，种级）在全库不再有未淘汰的照片；显示该物种的帧全部保留，`concepts` 列出物种。
     - 保留与淘汰同一 batch，`POST /marks/undo` 一次撤销。`dry_run` 不写入，返回的 `expect` 原样带回执行；期间被改过 → 409。不在连拍中 → 400。
-  - **界面键盘**：R 保留记录、E 选入修图、U 待定、X 淘汰、1–5 星级（0 清除）、⌘/Ctrl+Z 撤销；P 不再使用。输入框内不触发。
+  - **界面键盘**：R 保留记录、E 选入修图、U 待定、X 淘汰、1–5 星级（0 清除）、⌘/Ctrl+Z 撤销；P 不再使用。输入框内不触发。（修订 9 改为 Lightroom 键位：P 选入修图，E 为单张视图。）
 - **拍摄段 Encounter**（PRD §03、§07）：
   - 任务内一次连续观察；同一照片在每个任务里属于一个拍摄段；只收有拍摄时间的代表版本。
   - 建议规则（`review.assign_encounters`）：按拍摄时间（相机本地，不换算）排序。停顿超过 600 s 断开；停顿超过 120 s 且前后照片的物种（当前种级结论）没有交集也断开；同一连拍内永不断开。
@@ -425,7 +429,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 目标路径在计划中冻结，执行时不再重新推导。目标位于任何任务来源目录之内 → 400。
 - **`ImportPlan`** = `{id, task_id, seq, status: planned|queued|running|completed|partial|failed, dest_root, folder, dest_dir, place, include_pending, created_at, started_at, finished_at, error, interruptions, stale, uses: {record, edit, pending, reject, total}, not_copied: {reject, pending, versions}, unfinished: {offline, analysis_pending, scan_active}, assets, files, bytes, sidecars, copy_files, copy_bytes, needed_bytes, free_bytes, enough_space, duplicates: {identical, reuse, duplicate, items}, renamed: {files, items}, progress: {files_total, files_done, files_failed, bytes_total, bytes_done, assets_total, assets_done, assets_failed}, failed: [{asset_id, path, error}]}`（列表最多 200 项）。`GET /imports?task=`、`GET /imports/{id}`。
 - **执行** `POST /imports/{id}/run`：
-  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
+  - 后台线程 `imports.Runner` 按批次号依次执行，不占扫描队列名额，也不阻塞 Review。queued/running/completed 的计划原样返回；partial/failed 的失败文件回到待处理再跑一次。计划生成后任务中又有决定变化（`stale: true`，只对 planned 计划计算）→ 409“生成计划后照片的决定又有变化，这个计划已过期；请重新生成导入计划”，不复制任何文件，UI 只给“更新导入计划”。剩余所需容量大于可用空间 → 409 `{needed_bytes, free_bytes}`。
   - 每个文件：核对来源大小与计划一致，经 `export._copy` 复制（临时文件 + sha256 回读 + 硬链接或 O_EXCL 发布，从不覆盖），再核对字节数，然后立即提交为 `done` 并登记到 `managed_files`。目标已存在时：内容相同即算完成，否则列为失败，不覆盖。
   - 幂等与恢复：已完成的文件不再复制；重启时 running → queued（`interruptions` + 1）、copying → pending，并清理本目录中崩溃留下的 `.gardener-part` 临时文件。同一来源再生成计划得到 `reuse`，不复制、不新建素材。
   - 结果：有任何失败文件 → `partial`（全部失败为 `failed`），`failed` 逐项列出；不得称为成功。来源只读，不删除、不写入。
@@ -604,7 +608,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 选中 2–4 张后按 C 或点“比较”。两张时仍是原来的并排比较（默认不变）；3、4 张为 2×2 网格，每格左上角有格号。
   - 每格各自标明“快速预览 / 原像素细节加载中 / 原像素细节可用 · 原像素 N% / 不可用：原因”（同 5C）。
   - “同步缩放与平移”（偏好 `cmpsync`）对所有格生效：各格保持同一原像素比例。点动物框时，其余各格对准离它最近的动物；点“看头部 / 看眼部”时，其余各格保持同一比例，各自对准自己找到的同一部位（没找到的格不动）。
-  - 按 1–4 选中一格（高亮），点胶片条缩略图替换这一格。比较打开时数字键不改星级。
+  - 按 1–4 选中一格（高亮），点胶片条缩略图替换这一格。比较打开时数字键不改星级。（已由修订 9 取代：点一格选中，数字键给这一格打星。）
   - 前两张不比两图比较慢：第 3、4 格的原像素请求要等前两格不在“加载中”时才发出（细节池只有 2 个线程）。快速预览照常并行加载。
 - **`GET /assets/{id}/parts?subject=<subject id>`**（`parts.py`）：
   - 返回 `{asset_id, subject, kind, file: raw|image, parts: [{name: head|eye, xyxy, score}], floor: {head, eye}, ms}`，`xyxy` 是直立画面的 0–1 比例（与 `subjects.xyxy` 同一坐标）。
@@ -648,3 +652,143 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - `GET /encounters` 增加 `candidates`（1–8，默认 3）：每个拍摄段给几张代表候选；Review 总览的“每组推荐 N 张”用它。
 - **Smart Collection 的人工例外（PRD §04）**：成员 = (规则命中 ∪ 人工固定) − 人工排除，按 Asset 去重。`POST /collections/{id}/members` 对 Smart 也可用：`add` 固定规则没命中的照片，`remove` 排除一张（规则以后也不会把它加回来），`reset` 去掉固定或排除、交回规则决定（`reset` 只用于 Smart）。Smart 的 `Collection` 增加 `rule_hits`（只按规则命中的张数）与 `exceptions: {added, excluded}`（固定与排除的 Asset ID）。Lightroom 交接仍用当次成员快照。
 - 规则编辑提供常用条件的表单（物种、用途、星级、物种结论、日期、拍摄任务，全部满足），JSON 只作为“高级”选项；改规则仍先显示增减再保存。
+
+## 契约修订 9：任务 Preview 改为 Lightroom 式图库、AI 初选（2026-11-11，owner 确认，优先于上文冲突处）
+
+依据：owner 的选片流程是“看片 → 打星 / 旗标 → 筛选 → 精修”；AI 识别与聚类还不够准，所以人和 AI 协作，以一次拍摄为单位，拿不准的不强行分组。
+
+- **`GET /tasks/{id}/shortlist`** → `{scored, size, asset_ids}`（AI 初选，`review.shortlist`）：本任务的代表版本照片中有美学分的，按 不是 AI 淘汰 → 连拍最佳帧（`burst_rank` 1 或不在连拍）→ 美学分降序 → asset id 排序，取前 `max(ceil(10%), 20)` 张（不足时全取）。整次拍摄质量都差时也不为空；没有分的照片不猜，不入选。只是视图：不写星级、用途或 `ai_suggestions`。任务不存在 404。
+- **任务 Preview = 图库**：按发现顺序平铺（不按拍摄段分组，连拍默认展开，可折叠）。顶部：旗标（全部 / 已选中 = 记录或修图 / 未标记 = 待定 / 已淘汰）、最低星级、只看 AI 初选；左侧快捷视图与计数；中间网格，或单张（原像素查看器，底部胶片带，预取前后两张大图）；右侧人工判断与信息（不再重复大图）；格子上显示 AI 初选名次，不显示 AI 建议标签。
+- **键位（全局，照 Lightroom）**：P 选入修图、X 淘汰、U 待定、R 保留记录、0–5 星级；图库内 G 网格、E 单张、C 比较（只选一张时与下一张比较）、F 全屏、空格 / 回车在网格与单张间切换。“标记后自动下一张”默认开。单张视图里键位只作用于当前这张（与全屏相同，多选不受影响）；网格里多选时作用于全部已选。比较对话框里点一格选中它（高亮，打开时先高亮来时的那张），P/X/U/R 与 0–5 只标这一格；这取代修订 7C 的“按 1–4 选中一格、数字键不改星级”。自动下一张从按键时那张往下走，响应回来前人已换张就不再前进。后台轮询（AI 初选变化）不会把正在看的这张移出列表，人换张后才按筛选移走。
+- **大批照片（#131）**：重新打开任务时回到上次看的那张，即使它在第一页 200 张之后（一直翻页到载入它，期间不选别的，人换张前不覆盖保存的位置）；网格格子用 `content-visibility: auto`，只渲染看得见的；标签页隐藏时所有定时轮询暂停，回到前台立刻各轮询一次。
+- **图库里的用途按钮**只显示 选入修图 / 待定 / 淘汰；照片已是保留记录时才显示保留记录。用途数据与其他页面不变。
+- **外观**：全局改为 Lightroom 式中性灰（`styles.css` 的 `:root` 色值）。
+- CLI / MCP 本版不加初选命令（`GET /tasks/{id}/shortlist` 可直接调用）。
+- **侧栏与筛选（2026-11-12，owner 反馈）**：Review 总览与扫描页的页面本身不滚，左侧「本次拍到」、中间内容、右侧分组 / 规则各自滚动（窄屏堆叠时扫描页恢复整页滚动），换物种后当前这一行仍在视野里；物种页、Collection 详情的侧栏高度不超过视口、内部滚动。全部素材默认只显示一行：搜索框（选物种或文件名，写原有的 `species` 或 `q`，两者仍是分开、同时生效的条件）、任务、旗标/用途、最低星级、排序；其余收进「更多筛选 (n)」，n 为生效的其余条件数，展开与否记为界面偏好 `libmore`。所有生效的筛选显示为可移除的标签。筛选语义与 `GET /assets` 不变。
+
+## 契约修订 10A：清理不动别的照片还在用的文件（2026-11-11，#131 P0；修订 5D、5E 的衔接，优先于上文冲突处）
+
+依据：导入遇到重复（5D `duplicate` / `identical`）时，把已有的 `lib/` 副本（含 sidecar）也登记为新照片的受管理副本，两张照片共用一个文件。5E 原文“受管理副本……清理时与原片、sidecar 一起移到废纸篓”会把保留那张的唯一副本移走。导入语义不变；清理改为：
+
+- **共用的文件不动**：一个文件（原片、受管理副本、sidecar；目录里找到的 sidecar 跟随它所属的文件）若还被另一张照片列为原片或受管理副本，且那张不是同一计划里仍为淘汰的照片，就不进 `cleanup_files`，计划里该文件 `result: skipped`、`reason: shared`，不计入 `files`、`bytes`；`summary.shared` 为这样的文件数。照片的其余文件照常清理。
+- **两张都淘汰、在同一计划里**：共用文件只列在第一张下，只移一次。
+- **执行时再核对**：开始执行与每组移动前都按此刻的淘汰状态再判断；变成共用的文件跳过，`report.skipped` 里记 `{asset_id, path, reason: "shared"}`，计划为 `partial`。
+- 计划后某个路径还在磁盘上、但已不是这张照片的文件（例如变成失效的链接）→ 该组 `skipped: changed`（原来抛 `KeyError`）。
+- 已知上限：被清理那张的 `managed_files` 记录保留；之后另一张也淘汰时，要把两张放进同一个计划才能清理共用副本。
+
+## 契约修订：没有美学分时的连拍名次（2026-11-11，#131 P1；优先于上文冲突处）
+
+依据：owner 的实际运行没有开美学能力，`ai_suggestions.burst_rank` 于是等于拍摄顺序，连拍的“最佳帧”就是第一帧，常常是被判为失焦的那张（owner 的库：217 个连拍中 59 个的第一名被淘汰，其中 24 个连拍里另有未被淘汰的帧）。
+
+- **连拍名次**：开了连拍且开了质量能力时，`burst_rank` 一律按 `select` 的连拍排序（`cull.burst_order`：未被淘汰 → 主体清晰度（相差 `sharp_tie` 内算一样）→ 主体未被裁切 → 曝光在范围内 → 美学分（有时））；只开连拍、没有质量能力时仍按拍摄顺序。
+- **AI 建议**（`ai_suggestions.verdict` 等）仍只在开了美学能力时给出；没有美学分时只排连拍名次，不出 pick / reject。
+- 读 `burst_rank` 的地方（连拍代表、拍摄段代表、AI 初选、保留此张并淘汰相似帧、拆分连拍后的重新编号）不用改动。已有的库在下一次运行的 reduce 后更新。
+- **物种分组与连拍（同一 P1 的第二项）未改**：任务内分组从修订 4（S6）起不再生成物种组，物种卡片按主体的当前结论派生（修订 4 S4；修订 7A：连拍操作不碰识别与物种卡片），按连拍多数改卡片成员与之冲突，待 owner 决定。
+
+## 契约修订 10B：成为副本版本时标记随代表走（2026-11-12，#131）
+
+问题：双卡机身先扫 JPEG 卡并打了用途 / 星级，后加 RAW 卡时 RAW 成为代表版本、JPEG 成为隐藏版本，标记留在隐藏的 JPEG 上：代表显示待定、0 星，修图筛选、导入（不含待定）和交接都丢了这张照片。
+
+- **随代表走**：一张有人工标记（用途不是待定，或星级 > 0）的照片在 `versions.link` 中新成为某代表的版本，而该代表没有人工标记时，在同一事务里把用途与星级写到代表上（`apply_marks`，`flag`、`marks.version`、`updated_at` 照常派生）。每次链接的所有转移是一批 `mark_history`，`actor = system`，`reason = version:carry:<版本 asset id>`；`POST /marks/undo` 撤销这一批即恢复代表原状。版本自己的标记不变。代表不在本任务里时不转移：按修订 6，这张照片在本任务里仍算自己的照片，标记照常可见。
+- **多个版本都有标记**：取最近一次标记的那个（`marks.updated_at` 降序，再按 asset id）。
+- **代表已有人工标记**：从不覆盖，两边都不变。`GET /assets/{代表}` 的 `versions[]` 增加 `use`、`stars` 和 `marks_differ`（版本有标记且与代表不同），界面可据此提示。
+- **拆分**：`POST /assets/{id}/split-version` 不动代表的标记。
+- **已受影响的数据库（owner 选定补救）**：`meta.schema_version` 升为 `4`。启动迁移从 3 升到 4 时只跑一次 `versions.backfill_carry`：凡是没有人工标记、且与某个有人工标记的版本同在一个任务里的代表，按上面同一规则（最近标记的版本）转移；全部写成一批 `mark_history`，`actor = system`，`reason = version:carry:backfill:<版本 asset id>`，批号写入服务日志，也可从代表的 `mark_history` 查到；一次 `POST /marks/undo` 即全部撤销，撤销后不会再补。已有标记的代表从不改动。
+
+## 契约修订 11：所有照片视图只有 网格 / 单张 两种布局（2026-11-12，owner 反馈，优先于上文冲突处，含 §8、修订 4 S3 与修订 9 的布局描述）
+
+依据：owner 实际使用后认为“缩略图网格 + 右侧大图与详情”的左右布局不好用；要像 Lightroom 一样只有两种布局，任何集合或详情都用这两种打开，并且在一处统一管理。
+
+- **两种布局，一个实现**：任务 Preview、集合 Review、单个物种、所有照片这四个照片视图共用 `wsHTML`：
+  - **网格**：只有缩略图，占满宽度，没有右侧面板；
+  - **单张**：中间是一张大图（原像素查看器），下面是横向胶片带，可以逐张前后看。照片的信息与标记面板（用途、星级、理由、物种、人物、AI 建议、能力状态、元数据、版本）在大图旁边，窄屏时在下面。Tab 或 I 可以收起和展开这个面板，和 Lightroom 一样。Tab 只在单张视图里、焦点在页面、标题或缩略图上时才这样用；焦点在其他按钮或输入框里时，Tab 仍然移动焦点。代价是：焦点在缩略图上时，键盘用户只能用 Shift+Tab 移出。
+  - 各视图保留自己的筛选与工具条：任务 Preview 仍是修订 9 的旗标、星级、AI 初选和快捷视图，其他视图仍是原来的筛选条。只换照片区域。
+- **键位在四个视图里都一样**：G 网格，E 单张，空格或回车在两者之间切换，C 比较，F 全屏，Tab 或 I 收起或展开信息面板，双击格子进入单张。修订 9 的其他规则对四个视图都适用：单张视图里的键位只标当前这张，标记后自动下一张，轮询不换正在看的这张（拍摄段刷新时也不换），预取前后两张大图，格子 `content-visibility: auto`。
+- **记住布局**：每类视图分别记住上次用的布局（界面偏好 `mode.<视图>`，取值 `preview`、`review`、`species`、`library`）。面板是否收起是一个全局偏好 `panel`。两者都只存在 localStorage。
+- **其他页面打开照片**：下面这些页面保留自己的结构，点一张照片就进入对应照片视图的单张布局，并停在这张。这张在收起的拍摄段或连拍里时也会显示，直到换到别的照片。
+  - Collection 详情（规则、例外、按任务分段）：进入该集合的 Review。原来的单独查看对话框删除。“已排除”页的照片不是成员，所以不能点开。
+  - Review 总览（物种 → 拍摄段 → 代表候选）：进入该物种在本次拍摄里的照片。每个拍摄段标题旁有“比较这一段”，页脚的“比较当前拍摄段”也保留。
+  - 完成与导入页的核对格子：进入任务 Preview。
+  - 比较页（`#/task/…/compare/…`）保持原样，它就是拍摄段的比较模式（C）。扫描进度页的格子只用来显示进度，保持原样。物种总览的卡片代表物种而不是照片，点开进入单个物种视图。
+- **删除**：检视器里的大图、上一张 / 下一张 / 主体放大 / 放大按钮条（原像素查看器已有动物框与缩放）。“标出漏掉的动物”改为在单张视图的大图上画框：画框期间查看器暂时换成整张预览，画完或按 Esc 后恢复。
+
+## 契约修订 12：本地目录——只读浏览磁盘上的文件夹（2026-11-12，owner 决定；优先于上文冲突处）
+
+依据：owner 想先按自己的整理方式看到磁盘上已有的照片。导入、复制、移动以后再做；本版**只读**，不写数据库，也不在来源里写任何东西（ADR 0001）。
+
+- **可见位置**（每次请求重新计算，存储卡可随时插拔）：`~/Pictures`、`~/Documents`、`~/Desktop`、`~/Downloads`（kind `home`）；`/Volumes` 下每个已挂载的卷（`volume`，其中的符号链接不算卷，例如 `Macintosh HD -> /`）；服务的 `--allow-root` 目录（`allow-root`）。同一真实路径只列一次。没有 `--allow-root` 时仍只有前两类，不是“不限”。
+- **路径安全**（`browse.resolve`，三个接口共用）：不是绝对路径或含 `..` 段 → 400；按真实路径（跟随符号链接后）不在任何可见位置内，或在位置内的某段以 `.` 开头 → 403；不存在 → 404。先查位置、后查存在，位置以外的路径无法探测。列表里不出现隐藏项与符号链接（文件与文件夹都不列，与 `scan.discover` 不跟随链接文件夹一致）。macOS 隐私保护拒绝读取时：根为 `online: false`、子文件夹 `readable: false`，列出它 → 403 并说明原因。
+- **`GET /fs/roots`** → `[{name, path（真实路径）, kind: home | volume | allow-root, online}]`。`online` 以真正列出目录为准（`os.access` 对受隐私保护的卷也说可读）。
+- **`GET /fs/list?path=&offset=0&limit=300`**（`limit` ≤ 2000）→ `{path, name, root: {name, path, kind}, parent（到根时为 null）, tasks, dirs, photos, videos, skipped, total, offset, limit, items}`：
+  - `items`：这一层的媒体，规则与 RAW+JPEG 配对与扫描相同（`scan.folder`，从 `discover` 抽出的单层逻辑，不另立文件类型表），按文件名（不分大小写）排序后分页。每项 `{name, path（代表文件：配对时是 JPEG）, media: photo | video, kind: raw+jpeg | raw | jpeg | image | video, size（各文件之和）, mtime（ISO 8601 UTC）, files: [{name, role, size}]}`。`photos`、`videos`、`total` 是整层的数，`skipped` 是边车、不支持与隐藏文件数。
+  - `dirs`：子文件夹（不含隐藏与链接），每个 `{name, path, photos, videos, dirs, readable, tasks}`。计数只看直接子项的文件名（不 stat、不递归）；一次列表最多花 0.3 s 计数，之后的子文件夹计数为 `null`。
+  - `tasks` / `dirs[].tasks`：来源包含该文件夹的任务 `[{id, title}]`（任务递归扫描来源，所以来源的子文件夹也算）。
+- **`GET /fs/thumb?path=&size=thumb|large`** → JPEG（长边 360 / 1600），按需生成：`preview.make_preview`（RAW 用内嵌预览）；`size=thumb` 只写缩略图（RAW 内嵌预览 ≥ 360 即可，不为大图解码）。缓存在 `<cache>/fs/<key[:2]>/<key>.t|l.jpg`，`key = sha256(真实路径, 大小, mtime_ns)`：文件变了就是新键。上限 1 GiB，超出时按修改时间删最旧的到 90 %。`POST /storage/clear-cache` 一并删除。只能预览照片或视频扩展名的文件（否则 400）；生成失败 404 附原因。响应带 `Cache-Control: private, max-age=86400`，界面在 URL 里加 `v=<mtime>`。
+- **界面**：左侧导航“所有照片”之后加「本地目录」（`#/fs/<编码后的路径>`）。左侧文件夹树单独滚动、按需展开、显示计数与「任务」徽标（链到任务）；右侧沿用图库的网格 / 单张版式（网格只有缩略图与文件名，单张 = 大图 + 胶片带），G / E / F、←/→、空格切换；每页 300 张、滚动到底再取，缩略图 `loading="lazy"`。没有标记、比较与检查器（这些文件还不是 Gardener 的照片）。页头说明“只浏览：不导入、不复制、不移动文件，也不写入 AfterShooting 的记录”。
+- **测量**（2026-11-12，owner 的 Mac，测试服务 8796）：`~/Pictures/2026/2026-11-01`（1,264 张 ARW）列表 8–44 ms；2,000 个空 ARW 的合成文件夹 11–19 ms；浏览器从打开到第一格 42–48 ms，首屏只请求可见的 60 张缩略图；冷缩略图 60 张、6 路并发共 0.68 s，缓存命中中位 6 ms；大图（1600）约 95 ms。2,000 张真实 RAW 的缩略图未测。
+- CLI / MCP 本版不加命令。
+
+
+## 契约修订 13：一只鸟一组——连拍放宽、组内同名、可合并、整组改物种、按组审片（2026-11-12，#144，owner 反馈；优先于上文冲突处，含 §10 X3、修订 5B 的 Review 总览、修订 7A 的“连拍只能拆”与修订 11 的“比较页 = 拍摄段”）
+
+依据：owner 实际使用后的反馈是“同一只鸟会被分到好多个组，合并和移动很麻烦”。在 owner 的 Byxbee Park 卡（1,361 张）上量到三个来源：连拍被切碎（同一场景拆成 3/2/7/3 张；39 张的飞行追拍拆成 15 组）；物种名把同一只鸟打散（鹞的连拍里个别帧只到属，或多出的小框被叫成云雀、海鸥）；审片的单位是几百张的拍摄段。
+
+- **组（连拍）的规则**，只对 Gardener（`analyze.GROUP`；BioScan 的 album 默认值不变）：同一相机相邻两帧，间隔 ≤ 0.35 s（一次快门，不看画面相似度；`cull.burst` 的新选项 `shutter_gap_s`，默认 0 = 关），或间隔 ≤ 5 s 且整幅向量余弦 ≥ 0.94，接成一组。在这张卡上：264 组 → 194 组，39 张的飞行序列 15 组 → 2 组，“一组里有两个高置信物种”的组 3 → 2。阈值是在这一张卡上选的，没有连拍标注集：**unverified**。
+- **group 阶段把 `quality` 告诉 reducer**：此前只传 `burst`、`aesthetic`，修订“没有美学分时的连拍名次”在服务里实际没有生效（名次仍是拍摄顺序）。现在启用了 `quality` 的任务按 `cull.burst_order` 排。
+- **组内同名**（`identities.burst_consensus`，group 阶段在保存连拍之后、人工拆分 / 合并连拍之后各跑一次）：
+  - 只读模型自己的最新结论（`reason` 不是 `burst` 的最新 ai 行），写出的行是 `source=ai, reason=burst`，所以可以重复执行，也不会在自己的结果上再投票。
+  - 画面里只有一只动物的帧参与投票。某个种在 ≥ 2 帧上、占这些帧里种级结论的 ≥ 60%、帧数是第二名的 ≥ 3 倍，并且没有别的种也出现 ≥ 2 帧（那是第二只鸟，不是噪声）时：模型只给到属、科或未确认的投票帧取这个种；模型已给出别的种的帧，只有在胜出的种有 ≥ 3 帧、且那个别的种在这一组里没有第二帧时才改。
+  - ≥ 4 帧的组里，只在一帧上出现的种名，如果它在多只动物的画面里、框的面积不到该画面最大框的一半（多出的小框），而组里另有 ≥ 2 帧的种或有人工结论，就降为 `unconfirmed`（进待鉴定，不再单独成卡）。单独一只、只出现一次的鸟保留它的名字：它可能是真的第二个物种。
+  - 人工结论永不被改写，也不被投票覆盖；组变了（拆分、合并、重扫）而规则不再成立的帧，取回模型自己的结论。
+  - 在这张卡上：改写 26 个主体（9 个补成种、1 个换种、16 个小框降为未确认），物种卡 45 → 34，只有 1–2 张的卡 22 → 11。规则先松后紧：第一版（2 帧即可改种、任何只出现一次的种名都降级）改写 40 个主体，逐条看有三类不该改（2 比 1 改掉置信度 1.0 的种名、组里站得住的第二个物种被改名、鸭群里只出现一次但多半是真的鸟被降级），所以收紧。没有 ground truth：**unverified**。
+- **合并连拍**：`POST /bursts/merge {task_id, asset_ids}` → 201 `{burst_id, from, size, rep}`。给出的照片与它们所在连拍的全部帧并成一组（单张也可以并入），最佳帧按质量重排；全部成员写入 `burst_overrides`，以后的运行保持（`apply_burst_overrides` 现在也移动 reducer 判为单张的帧，合并出的组按质量排名）。照片少于两张、不在该任务、已在同一组 → 400。没有撤销：分错了用拆分。
+- **整批改物种**：`POST /identifications/move {claim, asset_ids? , task_id?, from_concept?}` → 与 `POST /identifications` 相同的 `{batch_id, changed, skipped}`，用 `POST /identifications/undo` 撤销。给 `from_concept` 时，改的是这些照片（或 `task_id` 的全部照片）上当前叫这个名字的主体，人工确认过的也一起改；不给时，改的是每张照片唯一的主体。没有可改的主体 → 400。
+- **重新分组**：`POST /tasks/{id}/regroup` → 201 `Run`（`kind: regroup`）。只用已存的结果重做连拍、组内同名、拍摄段与自动集合：不读原片、不跑模型，所以原片离线也能做。旧任务不会自动重分，由人点「重新分组」。
+- **Review 总览按组**：左栏仍是本次拍到的物种；只有 1–2 张且没人确认过的物种折成一行「零星识别」。中间是这个物种的组，一组一格：封面是这一组的最佳帧，标出张数与已留 / 已淘汰的张数；格子上可以「并入前一组」。标题旁有「认错了，全部改为…」。拍摄段这一层不再出现在 Review 里（`GET /encounters` 与拍摄段的拆分、合并接口不变，物种视图的“按拍摄段”也不变）。
+- **比较页按组**：`#/task/<id>/compare/<概念>/<组 id>[/<帧>]`，胶片条是这一组的帧；组 id 找不到而给了帧时，进入这一帧所在的组（合并、拆分后组 id 会变）。键位：← → 换帧，P / X / U / R 与 0–5 不变，Enter 留下当前这张（已选入修图的保持修图，否则记为保留记录）并把这一组其余的标为淘汰（`POST /marks/keep-best` 带 `within: [这一组显示的帧]`：只淘汰这些帧，同一连拍里属于别的物种、没显示出来的帧不动；不弹对话框，toast 里可撤销），然后到下一组；`]` 或 PageDown 下一组，`[` 或 PageUp 上一组，M 并入前一组。按钮：并入前一组、从这张起拆开、「不是 <物种>…」（整组改物种）。
+- **桶名与单张视图**：任务内的动物类型桶改名为「鸟类」「哺乳动物」（原来的“· 未识别到种”与事实不符：这些照片大多已识别到种，物种在物种卡片里）；已有的集合在下次运行分组时改名，人改过名的不动。单张视图里胶片带的格子不用 `content-visibility`（屏外格子的 200 px 占位把胶片带撑到 235 px 高），并且收起任务页头的来源、进度、操作与快捷视图、快捷键说明：1680×909 的窗口里，任务 Preview 单张视图的照片为 763×509 CSS px（只修胶片带时 586×391；#144 在 1512×860 的无头浏览器里量到的是 220×147）。
+- **多选**：网格里选中两张以上时，工具条多两个按钮：「并成一组」（`POST /bursts/merge`，同一任务的照片）与「改物种…」（`POST /identifications/move`；在单个物种视图里带 `from_concept`）。
+- **查看器**（优先于修订 5C 的“画面超过预览宽度就取原像素”）：适合窗口（缩放 ≤ 1.02）时不请求 `GET /assets/{id}/detail`，只有人放大之后才取，所以翻看照片不会逐张触发 RAW 全解码；原片离线时不请求，标签是中性的「原片离线 · 仅预览」，不再每张报红色的“原像素细节不可用”。Z 在单张视图与全屏里切换 适合窗口 ↔ 原像素 1:1。单张视图放大着换张时保留缩放与位置（全屏本来就保留）。
+- **同一对象**（owner 2026-11-12：“一组就是一个物体，连续多组也可以算相近”）：`GET /encounters` 的每个 `bursts[]` 多一个 `run`（给了 `task` 时；否则为 null）。`review.subject_runs` 按时间把任务的组排开，相邻两组在下面三条都成立时算同一个对象：各自 ≥ 60% 的帧的主要动物（最大的框）是同一个种（取当前结论，所以人改过会跟着变）；相隔 ≤ 30 s；主体在画面里的大小相差不到 3 倍。它每次现算、不入库，只是“这几组该在一起”的提示：Review 总览把连着的同一对象的组框在一起，标出组数与张数，并可以「并成一组」（`POST /bursts/merge`）；做决定的单位仍是组。在 owner 这张卡上，只用模型原始结论离线量：194 组连成 126 串，没有新增“一串里有两个高置信物种”的情况；直接并组会出现 155 张的组，所以不自动并。**unverified**。
+- **格子上的 AI 标签**：没有选片建议时（没启用「美学与选择建议」，或结论为 none 且没有分数）不显示标签；原来每格都写“AI 无明确建议”，被读成“没认出物种”。分析未完成而原片离线的照片显示「原片离线 · 分析未完成」，不再是永远的“等待分析”。
+- CLI / MCP 本版不加命令。
+
+## 契约修订 14：一个单位到底——所有照片与物种页也按组、框出同一对象（2026-11-12，#144 F1；优先于上文冲突处，含修订 5B 的“网格按拍摄段分组”、修订 7A 的拍摄段拆合按钮与修订 13 的“物种视图的按拍摄段也不变”）
+
+依据：修订 13 只把 Review 总览改成了组；owner 实际在用的「所有照片」与物种页仍是单张、连拍堆叠和拍摄段，同一只鸟在相邻的几堆里看不出是一起的。
+
+- **所有照片（只按一个任务筛选、按拍摄时间排）与物种页**：网格按组排（一组 = 一次连拍或一张单独的照片，连拍照旧可折叠成一格），连着的同一对象的组框在一起，框头与 Review 相同：「同一对象 · 连着的 N 组 · M 张」与「并成一组」（`POST /bursts/merge`，任务取自这一组）。组与同一对象来自 `GET /encounters`（`ws.encQuery`）经 `groupsOf`，由 `groupBlocksHTML` 画出，与 Review 是同一份代码；`GET /assets` 不加字段（它按变化增量轮询，同一对象是整组现算的，混用新旧值会把不相干的邻居框在一起）。
+- **只在不会框错时框**：查询正好是一个任务（物种页另加物种），排序是拍摄时间，没有任何筛选（网格的筛选、图库的旗标 / 星级 / AI 初选，或所有照片里除任务以外的任何条件）。否则照平铺显示，不框。任务 Preview 不变（修订 9：按发现顺序平铺，连拍不折叠）。
+- **拍摄段不再是任何页面上的审片单位**：网格里去掉「按拍摄段 / 不分段」、拍摄段标题、收起只露代表候选、「从这张起拆为新拍摄段」「与上一段合并」；物种卡片只写张数。`encounters` 表、`assign_encounters`、`GET /encounters` 与拍摄段的拆、合、撤销接口不变；识别范围「同一拍摄段」不变（它是改名的范围，不是审片单位）。
+- **同一对象的名字**：`review.subject_runs` 以这一串第一张照片的 id 命名（原来是任务内的序号 `runN`），所以跨任务不会重名；`GET /encounters` 不给 `task` 时也按每个任务算出 `run`（物种页跨任务列出一个物种）。
+- 在 owner 这张卡的副本上（1,361 张，194 组）：所有照片框出 29 串（91 组、866 张），与 Review 逐物种框出的不同串数相同（29；Review 里一共 35 个框，多出的 6 个是同一串在另一个物种的 Review 里又出现一次：组里有两个物种）；Northern Harrier 物种页 65 格、16 串，与它的 Review 相同。改前两页都是 0 串，物种页是 2 个拍摄段、只露 6 张代表候选。没有同一对象的标注集：**unverified**。
+- CLI / MCP 本版不加命令。
+
+## 契约修订 15：当前 AI 建议一个视图、组的代表帧一条规则（2026-11-12，#144 F2；只是整理，行为不变；优先于修订 14 的“`GET /assets` 不加字段”）
+
+依据：`ai_suggestions` 只追加，每张照片 id 最大的一行是当前的；这条“最新一行”的子查询在 `bioscan/gardener/*.py` 里手写了 18 处。组的代表帧（最好的一帧）在 `review.encounters`、`review.merge_bursts` 与网页（`ws.burstRep`）各算一次，规则不同，会显示不同的帧。
+
+- **`current_suggestions` 视图**（`schema.sql`）：每张照片当前的一行，按 `asset_id` 相关取最大 id（走索引 `ai_asset`），不用 `GROUP BY` 的全库列表（#131）。和 `current_ids` 一样每次启动先删后建，旧库打开即有。读“当前建议”的地方都改读它；要历史（`ai_history`）、某次运行的行（`apply_burst_overrides`）和写入的地方仍读表。
+- **代表帧一条规则** `review.representative(frames)`：人的决定在先（选入修图、保留记录、星级），再按连拍名次、美学分；相同时取拍摄顺序在前的一张。就是 Review 一直用的规则（原来 `max(g, key=_rank)`）。`GET /encounters` 每组的 `rep`、`POST /bursts/merge` 返回的 `rep`、`GET /assets` 每张的 `burst.rep` 都由它算出。
+- **`GET /assets`**：连拍照片的 `burst` 加 `rep`：这一连拍在本次查询条件（不含 `changed_after`）匹配的全部帧里的代表帧，与分页无关；与同一范围的 `GET /encounters` 的 `rep` 相同。`GET /assets/{id}` 不加。
+- **网页**：折叠连拍时显示服务端的 `burst.rep`，不再自己挑名次最小的已载入帧；增量轮询返回的帧带来新的 `rep` 时（人的决定换了代表帧）以它为准，重排网格。
+- 在 owner 这张卡的副本上（1,361 张，171 个连拍）：改前改后 `GET /tasks/{id}`、`/encounters`（任务、每个物种、物种跨任务）、`/assets`（四种排序与 AI 筛选、每个物种，全部分页）、`/species`、`/collections`、`/coverage`、`/tasks/{id}/shortlist` 与 55 张照片的详情逐值比较，0 处不同（新加的 `burst.rep` 除外，它与 `/encounters` 的 `rep` 逐组相同）；重新分组后每张照片的组与代表帧不变。原网页规则在两个连拍上与 Review 不同：最好的一帧落在下一页（第 201 张），已显示的第 2 名留着不换（所有照片 b0035，物种页 b0072）；现在与 Review 相同。这张卡没有人的标记，人的决定在先这一项由测试证实。
+- 耗时（同一副本，改前 / 改后交替，5 次中位）：`GET /encounters` 39 → 42 ms，任务全部照片分页 103 → 117 ms。视图对一张照片的每一行都比一次最大 id（这张卡每张 3 行），`GET /assets` 另多一次按连拍取帧的查询。
+
+## 契约修订 16：每个物种的审片进度——已决定 / 全部组（2026-11-12，#144 F4；只加字段，集合、`collection_reviews`、集合的覆盖与「鸟类 / 哺乳动物」桶不变）
+
+依据：owner 按物种一组一组审片，但页面上没有“过到哪了”：进度、覆盖与“完成”只有集合有（owner 的库里 `collection_reviews` 为 0 行，那条路没人走）；物种左栏与物种卡片只写张数；Review 标题旁的「已决定 N 组」是浏览器按已载入的帧算的，一组还有没载入的未决定帧时也会显示为已决定。
+
+- **组**：一个物种在一个任务里的组，就是 `GET /encounters?task=&concept=` 列出的组：一个拍摄段里一个连拍中有这个物种的帧，或一张单独的照片（没有拍摄段的照片也各算一组）。一个连拍里有两个物种时，两个物种各有一组，各自只含有自己的帧（与 Review 显示的、Enter 的 `within` 淘汰的范围相同），所以各物种的组数加起来可以多于任务的组数；没有种级结论的组不计入任何物种。
+- **已决定 / 已开始 / 完成**：一组的每一帧都有人的用途 record（保留记录）、edit（选入修图）或 reject（淘汰）时，这一组**已决定**；至少一帧有时**已开始**。只打星、用途仍是待定的帧不算决定。一个物种的组全部已决定时，这个物种在本任务里**完成**。由人的标记与当前的组现算，不入库；标记撤销或清除后随之回落。
+- **`GET /species?task=`**：每张物种卡片（`species` 与 `to_confirm`）多三个字段 `groups`、`decided`、`started`（组数，整数）。不给 `task` 时没有这三个字段（组是任务里的组）。由 `review.species_progress(c, task_id)` 一次查询算出全部物种，不按物种或按组逐个查询。MCP 的 `list_species` 走同一路由，带 `task` 时同样返回。
+- **`GET /encounters`**：每个 `bursts[]` 多 `kept`（record 或 edit 的帧数）与 `rejected`（reject 的帧数），按这一组的全部帧；响应多 `unassigned_use: {asset_id: use}`，给没有拍摄段的单张（`use` 为 record / edit / pending / reject）。
+- **网页**：Review 左栏的每个物种与任务的物种卡片显示「N / M 组」与一条进度条（样式同集合的进度），全部决定时为「✓ 已完成 · M / M 组」；组的格子（已留 / 已淘汰、已决定的暗显）、标题旁的「已决定 N 组」与「继续：第 N 组」都用服务端的数，不再数浏览器里载入的帧。在 Review 总览上，自己的标记之后、或 2 秒轮询看到这个物种有照片变化时，重取这一物种的组与 `GET /species?task=`，并刷新左栏（不在每次轮询都取）。
+- 在 owner 这张卡的副本上（1,361 张，194 组，34 个物种，0 个标记）：34 个物种的 `groups / decided / started` 与各自 `GET /encounters?task=&concept=` 的组数、按组算出的已决定 / 已开始逐个相同；各物种组数之和 201（194 组里 39 组没有种级结论，117 组一个物种，30 组两个，8 组三个：117 + 2×30 + 3×8 = 201）。`GET /species?task=` 5 次中位 327 → 344 ms。
+- CLI / MCP 本版不加命令。
+
+## 契约修订：#125 的界面验收修正并入（2026-11-12，#124 / #125；只补充，优先于上文冲突处）
+
+- **物种裁切用 3072 px 细节副本**：Gardener 的分析器与 `bioscan serve`、自有 RAW 基线一样传 `detail_edge = serve_config.DETAIL_EDGE`（3072）。此前没有传，远处的鸟只按 2048 px 的整幅来定名。只改识别输入的尺寸；对识别结果的影响没有在 Gardener 上用 `bioscan bench compare` 量过：**unverified**。
+- **清理移到废纸篓的照片**：`GET /encounters` 不再列出（同物种卡片，见上文 §`GET /encounters`）；修订 16 的 `groups / decided / started`（`review.species_progress`）同样不计，所以清理之后两者的组数仍逐个相同。
+- **扫描页的分析状态**：模型能力（`stages` 或 `local` 的能力）在运行到识别之前没有 `asset_caps` 行；任务有排队、运行、暂停或中断的运行时，这样的照片 `analysis` 为 `pending`，不再显示为已归类。`Task.scan` 取正在运行的那次运行，排在它后面的重试不会遮住进度。

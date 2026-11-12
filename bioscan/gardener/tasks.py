@@ -72,6 +72,8 @@ class Toolkit:
     export: Callable[..., dict[str, Any]]
     reveal: Callable[[str], None] = reveal
     faces: Callable[[], Any] | None = None       # FaceModel(): .version, .ensure(), .faces(image_path)
+    reduce: Callable[[list[dict[str, Any]], list[str]], dict[str, dict[str, Any]]] | None = None   # analyze.reduce:
+    # model-free, so a regroup run needs no engine and no originals
 
     @classmethod
     def default(cls) -> Toolkit:
@@ -80,7 +82,7 @@ class Toolkit:
 
         return cls(discover=scan.discover, quick_hash=scan.quick_hash, is_online=scan.is_online,
                    read_meta=preview.read_meta, make_preview=preview.make_preview, analyzer=analyze.Analyzer,
-                   suggest=grouping.suggest, export=exporting.export, faces=faces.FaceModel)
+                   suggest=grouping.suggest, export=exporting.export, faces=faces.FaceModel, reduce=analyze.reduce)
 
 
 def preview_paths(store: st.Store, asset_id: str) -> tuple[Path, Path]:
@@ -229,13 +231,14 @@ class RunExec:
         self.store.active.update(run_id=self.id, task_id=self.task_id, phase=None)
         error = None
         try:
+            regroup_only = self.run["kind"] == "regroup"     # stored results only: no files, no models
             if self.run["kind"] in ("scan", "append"):
                 await self.phase("discover", self.discover)
             else:
                 await asyncio.to_thread(self.seed_scope)
-            if not self.stopping():
+            if not self.stopping() and not regroup_only:
                 await self.phase("preview", self.preview)
-            if not self.stopping():
+            if not self.stopping() and not regroup_only:
                 self.set_phase("analyze")
                 await self.analyze()
             if not self.stopping():
@@ -567,11 +570,11 @@ class RunExec:
         for caps, ids in by_caps.items():
             items = []
             for part in st.chunks(ids):
-                items += [{"asset_id": r["id"], "path": r["primary_path"],
+                items += [{"asset_id": r["id"], "path": loads(r["meta"], {}).get("preview_source") or r["primary_path"],
                            "lat": r["lat"] if r["lat"] is not None else here.get("lat"),
                            "lon": r["lon"] if r["lat"] is not None else here.get("lon"),
                            "taken_at": r["taken_at"]} for r in self.store.all(
-                    f"SELECT id, primary_path, lat, lon, taken_at FROM assets WHERE id IN ({st.marks_in(part)}) "
+                    f"SELECT id, primary_path, meta, lat, lon, taken_at FROM assets WHERE id IN ({st.marks_in(part)}) "
                     "ORDER BY taken_at, primary_path", part)]
             n = 0
             async for res in analyzer.analyze(items, list(caps), self.stopping):
@@ -627,26 +630,34 @@ class RunExec:
         self.save_counts(force=True)
 
     def mark_pending(self, units: dict[str, list[str]]) -> None:
-        t = now()
-        with self.store.tx() as c:
-            # v0.1 manages a video as a whole clip (metadata, cover, playback, marks); its image capabilities read 不适用
-            for cap in (x for x in self.caps if x in MODEL_CAPS):
+        """Short transactions (one per statement or per 500 assets), so a person's write waits for one of them, not
+        for the whole run. Each is an idempotent upsert and `units()` re-derives what is left, so a crash between
+        them resumes cleanly. `now()` is taken per transaction: a poll between two of them must not move its
+        `changed_after` cursor past a later one's bump."""
+        # v0.1 manages a video as a whole clip (metadata, cover, playback, marks); its image capabilities read 不适用
+        for cap in (x for x in self.caps if x in MODEL_CAPS):
+            with self.store.tx() as c:
                 c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, error, updated_at) "
                           "SELECT ra.asset_id, ?, 'not_applicable', ?, ?, ? FROM run_assets ra JOIN assets a "
                           "ON a.id = ra.asset_id WHERE ra.run_id = ? AND a.media = 'video' "
                           "ON CONFLICT(asset_id, capability) DO UPDATE SET state = 'not_applicable', "
                           "run_id = excluded.run_id, error = excluded.error, updated_at = excluded.updated_at",
-                          (cap, self.id, VIDEO_NA, t, self.id))
-            for aid, caps in units.items():
-                for cap in caps:
-                    c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, updated_at) "
-                              "VALUES (?, ?, 'pending', ?, ?) ON CONFLICT(asset_id, capability) DO UPDATE SET "
-                              "state = 'pending', updated_at = excluded.updated_at", (aid, cap, self.id, t))
-                c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, aid))
-            for cap in capmod.BY_ID:                 # what this task never switched on reads 未启用
-                if cap not in self.enabled:
+                          (cap, self.id, VIDEO_NA, now(), self.id))
+        for cap in capmod.BY_ID:                     # what this task never switched on reads 未启用
+            if cap not in self.enabled:
+                with self.store.tx() as c:
                     c.execute("INSERT OR IGNORE INTO asset_caps (asset_id, capability, state, updated_at) "
-                              "SELECT asset_id, ?, 'not_enabled', ? FROM run_assets WHERE run_id = ?", (cap, t, self.id))
+                              "SELECT asset_id, ?, 'not_enabled', ? FROM run_assets WHERE run_id = ?",
+                              (cap, now(), self.id))
+        for part in st.chunks(list(units)):
+            with self.store.tx() as c:
+                t = now()
+                for aid in part:
+                    for cap in units[aid]:
+                        c.execute("INSERT INTO asset_caps (asset_id, capability, state, run_id, updated_at) "
+                                  "VALUES (?, ?, 'pending', ?, ?) ON CONFLICT(asset_id, capability) DO UPDATE SET "
+                                  "state = 'pending', updated_at = excluded.updated_at", (aid, cap, self.id, t))
+                    c.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (t, aid))
 
     def all_unavailable(self, units: dict[str, list[str]], reason: str) -> None:
         with self.store.tx() as c:
@@ -666,15 +677,22 @@ class RunExec:
     # ---- group ----
     def group(self) -> None:
         caps = [c for c in ("burst", "aesthetic") if c in self.caps]
-        if caps and self.ensure_analyzer() is not None:
+        reducer = None
+        if caps and self.run["kind"] == "regroup":
+            reducer = self.tk.reduce
+        elif caps and self.ensure_analyzer() is not None:
+            reducer = self.analyzer.reduce
+        if reducer is not None:
             unavailable = {r["capability"] for r in self.store.all(
                 "SELECT DISTINCT capability FROM results WHERE run_id = ? AND status = 'unavailable'", (self.id,))}
             caps = [c for c in caps if c not in unavailable]
             rows = self.raw_rows()
             if caps and rows:
-                self.save_suggestions(self.analyzer.reduce(rows, caps))
-        with self.store.tx() as c:          # encounters (contract revision 5B): only unplaced photos join
-            review.assign_encounters(c, self.task_id)
+                # quality is what ranks a burst without aesthetic (#131); the reducer only sees it when told
+                self.save_suggestions(reducer(rows, caps + [c for c in ("quality",) if c in self.enabled]))
+        with self.store.tx() as c:
+            identities.burst_consensus(c, self.task_id, self.id)       # one name per burst (修订 13)
+            review.assign_encounters(c, self.task_id)   # encounters (contract revision 5B): only unplaced photos join
         self.regroup(final=True)
 
     def raw_rows(self) -> list[dict[str, Any]]:
@@ -878,16 +896,30 @@ def mark_missing(store: st.Store, root: str, seen: set[str]) -> int:
     return len({r["asset_id"] for r in gone})
 
 
+def _try_preview(tk: Toolkit, path: str, media: str, thumb: Path, large: Path) -> tuple[bool, str | None, str | None]:
+    try:
+        p = tk.make_preview(path, media, thumb, large)
+        return p.ok, p.method, p.error
+    except Exception as exc:  # noqa: BLE001 - make_preview should not raise; a raise is a failed preview
+        return False, None, f"{type(exc).__name__}: {exc}"
+
+
 def build_preview(store: st.Store, tk: Toolkit, asset_id: str, primary: str, media: str,
                   run_id: str | None = None) -> bool:
-    """Make (or rebuild) the asset's previews in the cache and record the outcome."""
+    """Make (or rebuild) the asset's previews in the cache and record the outcome. When the primary
+    fails and the asset is a RAW+JPEG pair, the preview comes from the other file: meta.preview_source
+    names it (analysis reads it too) and meta.primary_error says why the primary failed."""
     thumb, large = preview_paths(store, asset_id)
     thumb.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        p = tk.make_preview(primary, media, thumb, large)
-        ok, method, err = p.ok, p.method, p.error
-    except Exception as exc:  # noqa: BLE001 - make_preview should not raise; a raise is a failed preview
-        ok, method, err = False, None, f"{type(exc).__name__}: {exc}"
+    ok, method, err = _try_preview(tk, primary, media, thumb, large)
+    source = None
+    if not ok and media == "photo" and tk.is_online(primary):
+        for f in store.all("SELECT path FROM asset_files WHERE asset_id = ? AND path != ? AND role IN ('raw', 'jpeg') "
+                           "AND online = 1 ORDER BY path", (asset_id, primary)):
+            got = _try_preview(tk, f["path"], media, thumb, large)
+            if got[0]:
+                primary_error, (ok, method, _), source = err, got, f["path"]
+                break
     online = ok or tk.is_online(primary)
     t = now()
     with store.tx() as c:
@@ -897,8 +929,13 @@ def build_preview(store: st.Store, tk: Toolkit, asset_id: str, primary: str, med
             c.execute("UPDATE assets SET online = 0, meta = ?, updated_at = ? WHERE id = ?",
                       (dumps(meta | {"missing": True}), t, asset_id))
             return False
-        c.execute("UPDATE assets SET preview_status = ?, preview_method = ?, preview_error = ?, updated_at = ? "
-                  "WHERE id = ?", ("ready" if ok else "failed", method, err, t, asset_id))
+        meta = {k: v for k, v in loads(c.execute("SELECT meta FROM assets WHERE id = ?", (asset_id,)).fetchone()[0],
+                                       {}).items() if k not in ("preview_source", "primary_error")}
+        if source:
+            meta |= {"preview_source": source, "primary_error": primary_error}
+            err = None
+        c.execute("UPDATE assets SET preview_status = ?, preview_method = ?, preview_error = ?, meta = ?, updated_at = ? "
+                  "WHERE id = ?", ("ready" if ok else "failed", method, err, dumps(meta), t, asset_id))
         if not ok and run_id:
             record(c, asset_id, run_id, "preview", "failed", None, err, None)
     return ok

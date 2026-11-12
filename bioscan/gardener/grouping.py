@@ -36,7 +36,7 @@ BIRD = {"bird_portrait", "bird_flight", "bird_habitat"}
 MAMMAL = {"mammal_portrait", "mammal_habitat"}
 OTHER_ANIMAL = {"herd_flock", "other_animal", "domestic", "insect_macro"}
 PEOPLE = {"portrait", "group", "street", "event", "sport"}
-ANIMAL_BUCKET = {"bird": ("animal:bird", "鸟类 · 未识别到种"), "mammal": ("animal:mammal", "哺乳动物 · 未识别到种"),
+ANIMAL_BUCKET = {"bird": ("animal:bird", "鸟类"), "mammal": ("animal:mammal", "哺乳动物"),
                  "other": ("animal:other", "其他动物")}
 LEVEL_ZH = {"genus": "属", "family": "科", "order": "目", "class": "纲"}
 PERSON_OTHER = ("person:other", "人物 · 其他")

@@ -32,8 +32,9 @@ LABEL_ZH = {
     "abstract": "抽象"}
 REASON_ZH = {"soft_subject": "主体不清晰", "motion": "运动模糊", "defocus": "失焦", "motion_or_defocus": "运动模糊或失焦",
              "overexposed": "过曝", "underexposed": "欠曝", "subject_cut": "主体被画面边缘裁切",
-             "subject_too_small": "主体过小", "no_subject": "像有动物但未找到主体"}
-FLAG_ZH = {"horizon_tilt": "提示：地平线倾斜", "tight_headroom": "提示：主体上方空间紧", "no_lead_room": "提示：主体朝向一侧空间不足"}
+             "no_subject": "像有动物但未找到主体"}
+FLAG_ZH = {"horizon_tilt": "提示：地平线倾斜", "tight_headroom": "提示：主体上方空间紧", "no_lead_room": "提示：主体朝向一侧空间不足",
+           "subject_too_small": "提示：主体在画面中很小"}
 
 
 @dataclass
@@ -262,40 +263,65 @@ class Analyzer:
                 yield r
 
     def reduce(self, rows: list[dict], caps: list[str]) -> dict[str, dict]:
-        """rows: {asset_id, path, taken_at, camera, products: {stage: raw product}}, a whole task's
-        photos. Returns {asset_id: {"burst": {id, rank, size} | None, "suggestion": {verdict, score,
-        rank, reasons} | None}}; burst ids are local to this call (contract §10 X3). burst runs with
-        the burst capability, select (the AI suggestion) with aesthetic."""
-        reducers = {}
-        res = _resolve(caps) if _model_caps(caps) else None
-        if res is None:
-            return {r["asset_id"]: {"burst": None, "suggestion": None} for r in rows}
-        if "burst" in caps:
-            reducers["burst"] = res.reducer_options["burst"]
-        if "aesthetic" in caps:
-            reducers["burst"] = res.reducer_options["burst"]
+        return reduce(rows, caps)
+
+
+# Gardener's bursts are "one moment of one subject", wider than the album profile's (#144): frames one shutter
+# press apart always chain (panning with a flying bird changes the frame vector), and a re-press within a few
+# seconds chains when the frame barely changed. On the owner's 1,361-photo card: 264 groups -> 194, a 39-frame
+# flight sequence 15 groups -> 2, groups holding two confident species 3 -> 2. BioScan's own defaults are unchanged.
+GROUP = {"shutter_gap_s": 0.35, "max_gap_s": 5.0, "min_cosine": 0.94}
+
+
+def burst_order(rows: list[dict]) -> list[str]:
+    """One burst's asset ids, best first: select's burst order (cull.burst_order) over the frames' stored
+    products. rows: {asset_id, products}."""
+    o = _resolve(["burst", "quality"]).reducer_options["select"]
+    frames = [cull.facts({"type": "result", "path": r["asset_id"], "products": r.get("products") or {}}, o) for r in rows]
+    return [f["path"] for f in cull.burst_order(frames, o)]
+
+
+def reduce(rows: list[dict], caps: list[str]) -> dict[str, dict]:
+    """rows: {asset_id, path, taken_at, camera, products: {stage: raw product}}, a whole task's
+    photos. Returns {asset_id: {"burst": {id, rank, size} | None, "suggestion": {verdict, score,
+    rank, reasons} | None}}; burst ids are local to this call (contract §10 X3). burst runs with
+    the burst capability, select (the AI suggestion) with aesthetic. A burst's rank is select's burst
+    order (cull.burst_order: not rejected, subject sharpness, not cut off, exposure, then aesthetic)
+    whenever quality ran, so the best frame is not just the first one without aesthetic (#131); with
+    neither it is capture order."""
+    reducers = {}
+    res = _resolve(caps) if _model_caps(caps) else None
+    if res is None:
+        return {r["asset_id"]: {"burst": None, "suggestion": None} for r in rows}
+    if "burst" in caps:
+        reducers["burst"] = res.reducer_options["burst"] | GROUP
+        if "quality" in caps:
             reducers["select"] = res.reducer_options["select"]
-        events = []
-        for r in rows:
-            p = dict(r.get("products") or {})
-            q = dict(p.get("quality") or {})
-            cap = dict(q.get("capture") or {})
-            cap["taken_at"] = cap.get("taken_at") or r.get("taken_at")
-            cap["camera"] = cap.get("camera") or r.get("camera")
-            q["capture"] = cap
-            p["quality"] = q            # burst reads time and camera here; without quality only these
-            events.append({"type": "result", "path": r["asset_id"], "products": p})
-        out_events = cull.apply(events, reducers) if reducers else events
-        per_category = (res.reducer_options.get("select") or {}).get("per_category")
-        out: dict[str, dict] = {}
-        for ev in out_events:
-            p = ev["products"]
-            b, s = p.get("burst") if "burst" in reducers else None, p.get("select")
-            burst = None
-            if b and b.get("id"):
-                burst = {"id": b["id"], "rank": s["burst_rank"] if s else b["index"] + 1, "size": b["size"]}
-            out[ev["path"]] = {"burst": burst, "suggestion": _suggestion(s, burst, per_category) if s else None}
-        return out
+    if "aesthetic" in caps:
+        reducers["burst"] = res.reducer_options["burst"] | GROUP
+        reducers["select"] = res.reducer_options["select"]
+    events = []
+    for r in rows:
+        p = dict(r.get("products") or {})
+        q = dict(p.get("quality") or {})
+        cap = dict(q.get("capture") or {})
+        cap["taken_at"] = cap.get("taken_at") or r.get("taken_at")
+        cap["camera"] = cap.get("camera") or r.get("camera")
+        q["capture"] = cap
+        p["quality"] = q            # burst reads time and camera here; without quality only these
+        events.append({"type": "result", "path": r["asset_id"], "products": p})
+    out_events = cull.apply(events, reducers) if reducers else events
+    per_category = (res.reducer_options.get("select") or {}).get("per_category")
+    out: dict[str, dict] = {}
+    for ev in out_events:
+        p = ev["products"]
+        b, s = p.get("burst") if "burst" in reducers else None, p.get("select") if "select" in reducers else None
+        burst = None
+        if b and b.get("id"):
+            burst = {"id": b["id"], "rank": s["burst_rank"] if s else b["index"] + 1, "size": b["size"]}
+        suggestion = _suggestion(s, burst, per_category) if s and "aesthetic" in caps else None
+        out[ev["path"]] = {"burst": burst, "suggestion": suggestion}
+    return out
 
 
 def _failures(aid: str, errs: list[tuple[str | None, str]], caps: list[str],

@@ -397,9 +397,15 @@ losing a keeper costs more than reviewing a reject.
 | Soft subjects and shaken frames rejected as soft | none published | **≥ 70%** | ≥ 90% | 86.1% [76.3, 92.3] (CI 2026-09-25) | subject focus is what wildlife cullers sell |
 | +2 EV rejected as overexposed; −2 EV as underexposed | none published | **≥ 80%** each | ≥ 95% | 95.8% / 95.8% [79.8, 99.3] (CI 2026-09-25; −2 EV was 33.3% before the no-highlights rule) | two stops is a clear miss |
 | Crops cutting 40% of the subject rejected as cut | none published | **≥ 60%** | ≥ 90% | 95.8% [79.8, 99.3] (CI 2026-09-25) | needs the detector to box a partial animal |
-| Subjects at 0.3% of the frame rejected as too small | none published | **≥ 50%** | ≥ 80% | 62.5% [42.7, 78.8] (CI 2026-09-25) | a subject the detector misses is not rejected |
 | Burst grouping, pairwise F1 | none published; cosine near-duplicate detection is the usual method (thresholds 0.93–0.95, unverified) | **≥ 80%** | ≥ 95% | 95.7% (CI 2026-09-25) | one pick per burst |
 | Scene correct: the label or its group is the truth (the smoke photos are all `wildlife`, a group) | none; SigLIP2 zero-shot is reported below its paper (unverified) | **≥ 80%** | ≥ 95% | 91.5% [87.1, 94.5] (CI 2026-09-25, 8 labels; the taxonomy's is unverified) | one group only until an album with scene labels exists |
+
+A small subject is no longer a reject (#131): `subject_too_small` is a flag, so its old bar ("subjects at 0.3% of the
+frame rejected as too small", 62.5% on CI 2026-09-25) is retired, and the synthetic set's shrunk photos are keepers
+(keep 1, no reason), counted in keepers lost and in no reject scope. The numbers above were measured before that
+change; on the owner's Mac (2026-11-11, the CI smoke photos, 24 sources) the new truth gives keepers lost 8.8% (7 of
+80; 10.7%, 6 of 56, before), all-reasons recall 93.5% and precision 95.7%. The CI figures stay until `models.yml`
+re-measures them.
 
 How measured: CI `models.yml` (tests/models, `models-report-album.json`), or on any photos with boxes:
 ```sh

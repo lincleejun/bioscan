@@ -58,6 +58,9 @@ def test_a_shoot_from_identification_to_import_handoff_and_cleanup(env, fakes, t
         owl = c.get(f"{API}/species").json()["species"][0]["concept"]
         enc = c.get(f"{API}/encounters", params={"task": t["id"], "concept": owl}).json()
         assert [a for e in enc["encounters"] for a in e["asset_ids"]] + enc["unassigned"] == [ids["IMG_0.jpg"]]  # and encounters
+        prog = next(x for x in c.get(f"{API}/species", params={"task": t["id"]}).json()["species"] if x["concept"] == owl)
+        groups = sum(len(e["bursts"]) for e in enc["encounters"]) + len(enc["unassigned"])
+        assert (prog["groups"], prog["decided"]) == (groups, 1) == (1, 1)    # progress agrees with encounters
 
 
 def test_an_offline_disk_never_changes_species_counts(env, fakes, tmp_path):

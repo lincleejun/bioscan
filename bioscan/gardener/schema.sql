@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS assets (
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS assets_taken ON assets (taken_at);
+CREATE INDEX IF NOT EXISTS assets_updated ON assets (updated_at);   -- changed_after polls (contract §10 X7)
 
 CREATE TABLE IF NOT EXISTS asset_files (
   path TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id), role TEXT NOT NULL,  -- raw | jpeg | image | video
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS run_assets (
 );
 
 CREATE INDEX IF NOT EXISTS results_asset ON results (asset_id, capability, id);
+CREATE INDEX IF NOT EXISTS results_run ON results (run_id, capability, status);   -- RunExec.save_counts, polled
 
 -- AI suggestion layer, separate from the human layer (marks). One row per asset per run.
 CREATE TABLE IF NOT EXISTS ai_suggestions (
@@ -101,6 +103,12 @@ CREATE TABLE IF NOT EXISTS ai_suggestions (
   version TEXT, created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_asset ON ai_suggestions (asset_id, id);
+-- Each asset's current suggestion: its latest row (修订 15). Correlated on asset_id (index ai_asset), never
+-- `id IN (SELECT max(id) ... GROUP BY asset_id)`: that builds a library-wide list under the write lock (#131).
+-- Derived, so recreated on every start, like current_ids.
+DROP VIEW IF EXISTS current_suggestions;
+CREATE VIEW current_suggestions AS
+SELECT s.* FROM ai_suggestions s WHERE s.id = (SELECT max(x.id) FROM ai_suggestions x WHERE x.asset_id = s.asset_id);
 
 -- Human layer: global per asset, shared by every collection.
 CREATE TABLE IF NOT EXISTS marks (
@@ -274,6 +282,7 @@ CREATE TABLE IF NOT EXISTS managed_files (
   PRIMARY KEY (asset_id, path)
 );
 CREATE INDEX IF NOT EXISTS managed_files_source ON managed_files (source_path);
+CREATE INDEX IF NOT EXISTS managed_files_path ON managed_files (path);   -- 10A: who else uses a file (cleanup)
 CREATE INDEX IF NOT EXISTS managed_files_hash ON managed_files (size, quick_hash);
 
 -- ---- 契约修订 5E: Lightroom handoff and cleanup plans (handoff.py, cleanup.py) ----

@@ -8,7 +8,8 @@ them into one cull record per image.
 
 burst: frames of one camera (EXIF Make/Model; frames without one count as one camera) whose capture
 times are at most `max_gap_s` apart and whose SigLIP2 frame vectors (products.embed) have cosine at
-least `min_cosine` are chained into a burst, in time order.
+least `min_cosine` are chained into a burst, in time order. Frames at most `shutter_gap_s` apart (0 = off, the
+default) are chained without looking at the vectors.
 
 select: per burst, the best frame by these criteria in order: not rejected, subject sharpness
 (within `sharp_tie` of the burst's sharpest counts as equal), not cut off, exposure within
@@ -26,7 +27,9 @@ scene stage's horizon (measured for landscapes only) tilts more than `horizon_fl
 `tight_headroom` when the subject's box starts less than `headroom_min` of the frame height below the
 frame top and is not a fill-the-frame portrait (box area under PORTRAIT_AREA of the frame);
 `no_lead_room` when the subject faces (the facing stage's side) the nearer side edge of the frame with
-less than `lead_room_min` of the frame width in front of its box, and is not a fill-the-frame portrait.
+less than `lead_room_min` of the frame width in front of its box, and is not a fill-the-frame portrait;
+`subject_too_small` when the quality stage's subject box covers under SMALL_SUBJECT of the frame (a distant
+animal on a long lens is a note, not a reason to throw the frame away: #131).
 
 Standard library only: the CLI imports it."""
 from __future__ import annotations
@@ -42,11 +45,12 @@ from typing import Any
 ONE_CAMERA = "(one camera)"
 UNCATEGORISED = "uncategorised"
 STATUSES = ("pick", "spare", "duplicate", "reject")
-FLAGS = ("horizon_tilt", "tight_headroom", "no_lead_room")
+FLAGS = ("horizon_tilt", "tight_headroom", "no_lead_room", "subject_too_small")
 HORIZON_FLAG_DEG = 3.0
 HEADROOM_MIN = 0.02     # a guess, unverified until #28's labelled trips
 LEAD_ROOM_MIN = 0.1     # a guess, unverified until #28's labelled trips
 PORTRAIT_AREA = 0.5     # a subject box at least this share of the frame fills it (quality's CUT_MAX_AREA): no headroom
+SMALL_SUBJECT = 0.005   # quality's subject box under this share of the frame area: the subject_too_small flag
 
 
 # ---- reading result events ------------------------------------------------------------------
@@ -97,8 +101,8 @@ def capture(ev: dict[str, Any]) -> tuple[str | None, str]:
 # ---- burst ------------------------------------------------------------------------------------
 
 def check_burst(o: dict[str, Any]) -> None:
-    for k in ("max_gap_s", "min_cosine"):
-        v = o[k]
+    for k in ("max_gap_s", "min_cosine", "shutter_gap_s"):
+        v = o.get(k, 0)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
             raise ValueError(f"burst.{k} must be a number >= 0")
     if o["min_cosine"] > 1:
@@ -127,7 +131,10 @@ def burst(events: list[dict[str, Any]], o: dict[str, Any]) -> dict[str, dict[str
             gap = None if prev is None else f["t"] - prev["t"]
             cos = None if prev is None else cosine(prev["vec"], f["vec"])
             links[f["path"]] = (None if gap is None else round(gap, 3), None if cos is None else round(cos, 4))
-            if prev is not None and gap <= o["max_gap_s"] and cos is not None and cos >= o["min_cosine"]:
+            # frames one shutter press apart are one burst whatever the frame vector says: panning with a flying
+            # bird changes the background, and the subject is ~1% of the frame (#144)
+            if prev is not None and (gap <= o.get("shutter_gap_s", 0) or (
+                    gap <= o["max_gap_s"] and cos is not None and cos >= o["min_cosine"])):
                 chains[-1].append(f)
             else:
                 chains.append([f])
@@ -201,7 +208,8 @@ def flags(ev: dict[str, Any], o: dict[str, Any] | None = None) -> list[str]:
     stage picks it) has its top edge less than headroom_min of the frame height from the frame top and
     covers under PORTRAIT_AREA of the frame; no_lead_room when products.facing says that box faces left
     or right, the side it faces has less frame in front of the box than behind it, under lead_room_min
-    of the frame width, and the box covers under PORTRAIT_AREA of the frame."""
+    of the frame width, and the box covers under PORTRAIT_AREA of the frame; subject_too_small when
+    products.quality's subject area is under SMALL_SUBJECT."""
     o, p, out = o or {}, products(ev), []
     h = (p.get("scene") or {}).get("horizon") or {}
     if abs(h.get("tilt_deg") or 0.0) > o.get("horizon_flag_deg", HORIZON_FLAG_DEG):
@@ -218,6 +226,9 @@ def flags(ev: dict[str, Any], o: dict[str, Any] | None = None) -> list[str]:
             front, back = (x0, 1 - x1) if f["side"] == "left" else (1 - x1, x0)
             if front < back and front < o.get("lead_room_min", LEAD_ROOM_MIN):
                 out.append("no_lead_room")
+    area = ((p.get("quality") or {}).get("subject") or {}).get("area")
+    if area is not None and area < SMALL_SUBJECT:
+        out.append("subject_too_small")
     return out
 
 
@@ -227,7 +238,7 @@ def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
     q = p.get("quality") or {}
     s = p.get("scene") or {}
     category = ((s.get("group") or s.get("label")) if o["by"] == "group" else s.get("label")) or UNCATEGORISED
-    raw = list(q.get("reject_reasons") or [])
+    raw = [r for r in q.get("reject_reasons") or [] if r not in FORMER_REASONS]
     keys = {s.get("group"), s.get("label")} | {f"{n}={a.get('label')}" for n, a in (s.get("attributes") or {}).items()}
     lifted = {x for k in keys if k for r in o["waive"].get(k, []) for x in (r, *ALIASES.get(r, ()))}
     aesthetic = (p.get("aesthetics") or {}).get("score")   # null when no head scored it (a note says why)
@@ -354,7 +365,9 @@ def records(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 # burst_id (blank = in no burst), scene (blank = unlabelled). A column the CSV lacks measures nothing.
 
 REJECT_REASONS = ("soft_subject", "motion", "defocus", "overexposed", "underexposed", "subject_cut",
-                  "subject_too_small", "no_subject")      # = bioscan.plugins.quality.REASONS
+                  "no_subject")      # = bioscan.plugins.quality.REASONS
+# Reasons older quality products may still list that are flags now (#131): never a reject, wherever they are read.
+FORMER_REASONS = ("subject_too_small",)
 # Older names still accepted in waivers and ground truth, and scored as a scope of their own: either reason.
 ALIASES = {"motion_or_defocus": ("motion", "defocus")}
 SOFT = ("soft_subject", "motion", "defocus", "motion_or_defocus")   # scope "soft": any (they differ only in the background)
@@ -383,7 +396,7 @@ def final_reasons(pred: dict[str, Any] | None) -> set[str] | None:
     if "select" in p:
         return set(p["select"].get("reasons") or [])
     if "quality" in p:
-        return set(p["quality"].get("reject_reasons") or [])
+        return set(p["quality"].get("reject_reasons") or []) - set(FORMER_REASONS)
     return None
 
 

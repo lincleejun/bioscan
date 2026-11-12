@@ -83,7 +83,8 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   it along the other, as a shake or a pan leaves it, `defocus` when it is soft both ways), `overexposed` (8% of the
   subject blown, or a bright subject with 4% blown), `underexposed` (nothing in the frame brighter than two stops under white,
   or the whole frame dark and the subject too; a dark bird alone is not a reject), `subject_cut` (the box touches the frame edge and is not frame-filling),
-  `subject_too_small` (under 0.5% of the frame) and `no_subject` (the gate sees an animal, the detector boxes none).
+  and `no_subject` (the gate sees an animal, the detector boxes none). A small subject is not a reject: it is the
+  `subject_too_small` flag (see Flags; #131).
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
   `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
   without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for the
@@ -141,7 +142,10 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   extra model call; a box within 1% of the top is also quality's `subject_cut` reject. `no_lead_room` when the
   subject faces (the `facing` stage's side) the nearer side edge with less than `lead_room_min` (default 0.1, a share
   of the frame width; 0 turns it off) in front of its box and is not a fill-the-frame portrait; it needs the `facing`
-  stage, which the album profile leaves out (see Facing above), so by default no photo gets it. All three thresholds are guesses,
+  stage, which the album profile leaves out (see Facing above), so by default no photo gets it. `subject_too_small` when
+  the subject's box covers under 0.5% of the frame (`SMALL_SUBJECT` in `bioscan/cull.py`, from quality's subject area): a
+  distant bird on a long lens is a note, so a sharp burst of one still gets a pick (#131; it was a reject until then).
+  The three thresholds before it are guesses,
   unverified until #28's labelled trips exist. `aesthetic score` runs the album profile's reducers too
   (`[profile.album.options.select] horizon_flag_deg = 5` applies to its CSV column and card badge); XMP gets nothing. A
   preds file from before flags reads as no flags.

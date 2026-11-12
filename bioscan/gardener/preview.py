@@ -246,42 +246,53 @@ def _upright_size(size: tuple[int, int], orientation: int) -> tuple[int, int]:
     return (size[1], size[0]) if orientation in (5, 6, 7, 8) else size
 
 
-def _raw_embedded(path: str) -> tuple[Image.Image, tuple[int, int]] | None:
-    """The RAW's embedded preview, upright: its own EXIF orientation when it has one, else the RAW's
-    (LibRaw sizes.flip), and its full upright size. None when there is none or it is smaller than a
-    thumbnail."""
+def _raw_size(raw: Any, orientation: int) -> tuple[int, int]:
+    """The RAW's upright size from LibRaw: its default crop (what the camera's JPEG and EXIF give)
+    when it has one, else the visible frame."""
+    s = raw.sizes
+    w, h = getattr(s, "crop_width", 0) or s.width, getattr(s, "crop_height", 0) or s.height
+    return _upright_size((w, h), orientation)
+
+
+def _raw_embedded(path: str) -> tuple[Image.Image, tuple[int, int], int]:
+    """The RAW's embedded preview, upright (its own EXIF orientation when it has one, else the RAW's,
+    LibRaw sizes.flip), the RAW's full upright size (LibRaw) and the embedded preview's own long edge
+    (before draft scales it down). Raises when there is none."""
     import rawpy
 
     with rawpy.imread(path) as raw:
         flip = FLIP_TO_ORIENTATION.get(raw.sizes.flip, 1)
+        size = _raw_size(raw, flip)
         thumb = raw.extract_thumb()
     if thumb.format == rawpy.ThumbFormat.JPEG:
         im = Image.open(io.BytesIO(thumb.data))
-        own = int(im.getexif().get(0x0112, 1) or 1)
-        size = _upright_size(im.size, own if own != 1 else flip)     # before draft scales it down
+        own, edge = int(im.getexif().get(0x0112, 1) or 1), max(im.size)
         im.draft("RGB", (LARGE_EDGE, LARGE_EDGE))
         image = ImageOps.exif_transpose(im) if own != 1 else _orient(im, flip)
     else:
         image = _orient(Image.fromarray(thumb.data), flip)
-        size = image.size
-    return (image.convert("RGB"), size) if max(size) >= THUMB_EDGE else None
+        edge = max(image.size)
+    return image.convert("RGB"), size, edge
 
 
-def _raw_decoded(path: str) -> Image.Image:
-    """A half-size demosaic (LibRaw turns it upright itself)."""
+def _raw_decoded(path: str) -> tuple[Image.Image, tuple[int, int]]:
+    """A half-size demosaic (LibRaw turns it upright itself) and the RAW's full upright size."""
     import rawpy
 
     with rawpy.imread(path) as raw:
+        size = _raw_size(raw, FLIP_TO_ORIENTATION.get(raw.sizes.flip, 1))
         pixels = raw.postprocess(use_camera_wb=True, half_size=True, output_bps=8)
-    return Image.fromarray(pixels).convert("RGB")
+    return Image.fromarray(pixels).convert("RGB"), size
 
 
 def _raster(path: str) -> tuple[Image.Image, tuple[int, int]]:
     """Upright image (decoded at a reduced scale when the format allows) and its full upright size."""
+    from bioscan.service import decode
+
     with Image.open(path) as im:
         size = _upright_size(im.size, int(im.getexif().get(0x0112, 1) or 1))
         im.draft("RGB", (LARGE_EDGE, LARGE_EDGE))      # JPEG: decode at a reduced scale, much faster
-        return ImageOps.exif_transpose(im).convert("RGB"), size
+        return decode.rgb8(ImageOps.exif_transpose(im)), size        # 16-bit: scaled, not clipped white
 
 
 def _video_frame(path: str, work: Path) -> tuple[Image.Image, tuple[int, int]]:
@@ -325,33 +336,51 @@ def _save(image: Image.Image, edge: int, dest: Path) -> None:
         raise
 
 
-def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path) -> Preview:
+def make_preview(primary: str, media: str, thumb_path: Path, large_path: Path | None) -> Preview:
     """Writes thumb_path (long edge 360) and large_path (long edge 1600; smaller when the source is),
-    JPEG. RAW: the embedded preview, else a half-size decode; JPEG / PNG / TIFF: Pillow, upright by
-    EXIF; video: an ffmpeg frame. Never raises: a failure is ok=False with the reason."""
-    thumb_path, large_path = Path(thumb_path), Path(large_path)
+    JPEG. RAW: the embedded preview when its long edge is at least 1600, else a half-size decode
+    (else a smaller embedded preview of at least 360); a truncated RAW fails (decode.raw_truncated);
+    the source size is LibRaw's. JPEG / PNG / TIFF: Pillow, upright by EXIF, 16-bit scaled to 8;
+    video: an ffmpeg frame. `large_path` None writes only the thumb (a RAW then needs an embedded
+    preview of only 360). Never raises: a failure is ok=False with the reason."""
+    paths = [Path(thumb_path)] + ([Path(large_path)] if large_path is not None else [])
+    need = LARGE_EDGE if large_path is not None else THUMB_EDGE
     src_dir = Path(primary).resolve().parent
-    if src_dir in (thumb_path.resolve().parent, large_path.resolve().parent):
+    if src_dir in [p.resolve().parent for p in paths]:
         return Preview(False, None, "预览路径位于原片目录：拒绝写入", {})
     try:
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        large_path.parent.mkdir(parents=True, exist_ok=True)
+        for p in paths:
+            p.parent.mkdir(parents=True, exist_ok=True)
         got, method, notes = None, None, {}
         if media == "video":
-            got, method = _video_frame(primary, large_path.parent), "video-frame"
+            got, method = _video_frame(primary, paths[-1].parent), "video-frame"
         elif is_raw(primary):
+            from bioscan.service import decode
+
+            with open(primary, "rb") as f:
+                why = decode.raw_truncated(f, os.fstat(f.fileno()).st_size)
+            if why:                     # LibRaw would show black rows, or another photo's pixels
+                return Preview(False, None, why, {})
+            image, size, edge = None, None, 0
             try:
-                got, method = _raw_embedded(primary), "raw-embedded"
+                image, size, edge = _raw_embedded(primary)
             except Exception as exc:  # noqa: BLE001 - fall back to decoding, say why
                 notes["embedded_error"] = f"{type(exc).__name__}: {exc}"
-            if got is None:
-                image = _raw_decoded(primary)
-                got, method = (image, image.size), "raw-decoded"
+            if edge >= need:
+                got, method = (image, size), "raw-embedded"
+            else:                       # none, or smaller than the large preview (Lightroom's 1024 px DNG)
+                try:
+                    got, method = _raw_decoded(primary), "raw-decoded"
+                except Exception:
+                    if edge < THUMB_EDGE:
+                        raise
+                    got, method = (image, size), "raw-embedded"   # LibRaw cannot demosaic it: the small one
         else:
             got, method = _raster(primary), "image"
         image, (w, h) = got
-        _save(image, LARGE_EDGE, large_path)
-        _save(image, THUMB_EDGE, thumb_path)
+        if large_path is not None:
+            _save(image, LARGE_EDGE, Path(large_path))
+        _save(image, THUMB_EDGE, Path(thumb_path))
         return Preview(True, method, None, {"source_width": w, "source_height": h, **notes})
     except Exception as exc:  # noqa: BLE001 - contract: never raise
         return Preview(False, None, f"{type(exc).__name__}: {exc}", {})
