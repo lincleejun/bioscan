@@ -237,3 +237,26 @@ def test_retry_after_stop_picks_up_never_analysed_items(env, fakes, tmp_path):
         t = wait_task(c, t["id"])
         items = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
         assert t["scan"]["status"] == "completed" and all(i["analysis"] == "done" for i in items)
+
+
+def test_photos_waiting_for_model_capabilities_read_pending_and_a_queued_retry_hides_no_progress(env, fakes, tmp_path,
+                                                                                               monkeypatch):
+    """Found on the owner's 1361-photo card: model capabilities get their rows only when a run reaches 识别, so
+    photos already read 已归类 while previews were made; and a retry queued behind the running scan made the
+    task show the queued run (0 / 0) instead of the one doing the work."""
+    monkeypatch.setattr(tasks.RunExec, "mark_pending", lambda self, units: None)   # stay in the window before 识别
+    src = tmp_path / "card"
+    photos(src, 2)
+    fakes.gate.clear()
+    with env.client() as c:
+        t = create_task(c, [str(src)], caps=CAPS)
+        wait_until(lambda: c.get(f"{API}/tasks/{t['id']}").json()["scan"]["phase"] == "analyze", what="analyze")
+        items = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
+        assert items and all(a["analysis"] in ("pending", "running") for a in items)
+        more = tmp_path / "more"
+        photos(more, 1, start=1_700_100_000)
+        assert c.post(f"{API}/tasks/{t['id']}/sources", json={"paths": [str(more)]}).status_code == 201
+        scan = c.get(f"{API}/tasks/{t['id']}").json()["scan"]
+        assert (scan["status"], scan["phase"]) == ("running", "analyze")
+        fakes.gate.set()
+        wait_task(c, t["id"])

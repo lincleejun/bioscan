@@ -340,6 +340,7 @@ def test_the_tasks_place_stands_in_for_missing_gps_and_a_photos_own_gps_wins(env
         t = wait_task(c, create_task(c, [str(src)], lat=37.457, lon=-122.104)["id"])
         assert t["location"] == {"lat": 37.457, "lon": -122.104}
         assert fakes.where == {"IMG_0000.jpg": (37.457, -122.104), "IMG_0001.jpg": (37.457, -122.104)}
+        assert fakes.detail_edge == 3072         # species crops from the larger copy, as `bioscan serve` does
         with st.Store(env.data).tx() as db:                                  # one photo has its own GPS
             db.execute("UPDATE assets SET lat = 1.5, lon = 2.5 WHERE primary_path LIKE '%IMG_0001.jpg'")
         assert c.patch(f"{API}/tasks/{t['id']}", json={"lat": 37.4, "lon": -122.1}).json()["location"]["lat"] == 37.4

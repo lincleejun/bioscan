@@ -171,7 +171,10 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     """The encounters of a task and/or of one species (only that species' photos), each with its bursts
     (a burst's representative is its best frame), up to `candidates` representative candidates and the
     species it shows; `unassigned` = photos in scope without one (no capture time, or not grouped yet)."""
+    from bioscan.gardener.identities import GONE  # photos a cleanup moved to the Trash left the library (same as cards)
+
     conds, ps = ([IN_TASK_REP, "em.task_id = ?"], [task_id, task_id]) if task_id else (["a.version_of IS NULL"], [])
+    conds.append(GONE.removeprefix("AND "))
     if concept:
         conds.append("EXISTS (SELECT 1 FROM current_ids ci WHERE ci.asset_id = a.id AND ci.concept = ?)")
         ps.append(concept)
@@ -226,6 +229,7 @@ def encounters(c: Any, *, task_id: str | None = None, concept: str | None = None
     result.sort(key=lambda e: (e["start"] or "", e["id"]))
     un_conds, un_ps = (([IN_TASK_REP, "a.id IN (SELECT asset_id FROM task_assets WHERE task_id = ?)"], [task_id, task_id])
                        if task_id else (["a.version_of IS NULL"], []))
+    un_conds.append(GONE.removeprefix("AND "))
     if concept:
         un_conds.append("EXISTS (SELECT 1 FROM current_ids ci WHERE ci.asset_id = a.id AND ci.concept = ?)")
         un_ps.append(concept)
@@ -249,14 +253,17 @@ def species_progress(c: Any, task_id: str) -> dict[str, dict[str, int]]:
     """concept -> {groups, decided, started} within a task (契约修订 16), in one query. The groups are the ones
     `encounters(task_id=, concept=)` lists: this species' frames of one burst within one encounter, or one frame
     (also each photo of the task without an encounter). A group is decided when every one of those frames is
-    marked record / edit / reject, started when at least one is; a species is complete when all its groups are."""
+    marked record / edit / reject, started when at least one is; a species is complete when all its groups are.
+    Photos a cleanup moved to the Trash are left out, as in `encounters` and the species cards."""
+    from bioscan.gardener.identities import GONE
+
     groups: dict[str, dict[Any, list[str | None]]] = {}
     for r in c.execute(
             "SELECT DISTINCT ci.concept, a.id, em.encounter_id, s.burst_id, m.use FROM task_assets ta "
             "JOIN assets a ON a.id = ta.asset_id JOIN current_ids ci ON ci.asset_id = a.id "
             "LEFT JOIN encounter_members em ON em.asset_id = a.id AND em.task_id = ta.task_id "
             "LEFT JOIN current_suggestions s ON s.asset_id = a.id LEFT JOIN marks m ON m.asset_id = a.id "
-            f"WHERE ta.task_id = ? AND {IN_TASK_REP} AND ci.level = 'species' AND ci.concept IS NOT NULL",
+            f"WHERE ta.task_id = ? AND {IN_TASK_REP} AND ci.level = 'species' AND ci.concept IS NOT NULL {GONE}",
             (task_id, task_id)):
         key = (r[2], r[3] or r[1]) if r[2] else (None, r[1])
         groups.setdefault(r[0], {}).setdefault(key, []).append(r[4])

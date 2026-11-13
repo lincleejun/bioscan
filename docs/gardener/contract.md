@@ -138,7 +138,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - `POST /tasks/{id}/sources {paths}` → `Run`(append)；`POST /tasks/{id}/pause|resume|stop|archive|unarchive|verify-sources`；`POST /tasks/{id}/rescan {capabilities?, asset_ids?}` → `Run`；`POST /tasks/{id}/retry {asset_ids?}` → `Run`
 - `GET /runs/{id}` → `Run`（含 `summary`）
 
-`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, location: {lat, lon}|null, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。
+`Task = {id, title, subtitle, description, preset, capabilities, run_mode, archived, created_at, location: {lat, lon}|null, sources: [{id, path, online}], scan: {status, run_id, phase, discovered, previewed, analyzed, failed, total_analysis, progress: 0..1}, taken: {from, to}, review: {judged, total, collections_done, collections_total}, counts: {assets, photos, videos, files, bytes}}`。`scan.status` 取最新运行状态；`review.judged` = 本任务素材中有 Flag 或星级的数量（分母为已发现素材）。`taken` = 本任务素材拍摄时间（EXIF）的最早与最晚，没有素材时两者为 null；流程页页头显示这个拍摄日期范围，没有时显示创建日。
 
 `Run = {id, task_id, seq, kind, status, phase, config, scope, counts, summary, error, queued_at, started_at, finished_at}`
 
@@ -277,7 +277,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - 只看代表版本，同一拍摄的其他版本不计。
     - 一个概念一张卡，没有最小张数。
     - 一张照片无论有几个主体是同一概念，都只算一张（AC03）。
-    - `species` 是至少有一张人工确认的卡，张数即“已拍到 N 种”（PRD §03）；`to_confirm` 是只有 AI 结论的卡，不计入 N。
+    - `species` 是至少有一张人工确认的卡，张数即“已拍到 N 种”（PRD §03）；`to_confirm` 是只有 AI 结论的卡，不计入 N。`confirmed_total` 即 N，隐藏的卡（`hidden`）也计入：隐藏只影响显示。
     - `unresolved` 是主体只到属/科或未确认的照片数。
     - Flag、星级、在线状态都不影响计数。
   - **`Card`** = `{concept, taxon, common, kind, confirmed, candidates, photos, only_one, first_taken_at, last_taken_at, cover_id, cover_pinned, hidden}`：
@@ -372,7 +372,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - 任务内一次连续观察；同一照片在每个任务里属于一个拍摄段；只收有拍摄时间的代表版本。
   - 建议规则（`review.assign_encounters`）：按拍摄时间（相机本地，不换算）排序。停顿超过 600 s 断开；停顿超过 120 s 且前后照片的物种（当前种级结论）没有交集也断开；同一连拍内永不断开。
   - 持久化：只有还没有拍摄段的照片会被机器放置（`group` 阶段与迁移时）。一段内已有放置的照片时，新照片并入时间上最近的那张的拍摄段；否则新建一段。已放置的照片机器永不移动，所以人的拆合在重扫、追加后保持，重扫不会静默恢复旧分组。
-  - `GET /encounters?task=&concept=`（至少一个）→ `{encounters: [Encounter], unassigned: [asset_id]}`。
+  - `GET /encounters?task=&concept=`（至少一个）→ `{encounters: [Encounter], unassigned: [asset_id]}`。已被清理计划移到废纸篓（全部文件不在线）的照片不计入，与物种卡片一致。
     - `Encounter = {id, task_id, origin: auto|user, start, end, photos, asset_ids, bursts: [{id|null, size, rep, asset_ids}], candidates: [≤3 asset_id], species: [{concept, taxon, common, zh}]}`。
     - 给 `concept` 时只列该物种的照片。
     - 连拍代表 `rep`：人工选入修图 > 保留记录 > 星级 > 连拍名次 > 美学分；`candidates` 是各连拍（与单张）代表中排名前三的。
@@ -387,7 +387,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - 每段有标题行：时间、张数、连拍数、物种。收起时只显示代表候选，可“展开全部”，也可“与上一段合并”。当前照片可“从这张起拆为新拍摄段”。
     - 段内仍按连拍折叠；在连拍中的照片可用“保留此张并淘汰相似帧…”，先看影响范围再确认。
     - 任务内“按物种看本次拍摄” → 物种卡片 → `#/species/task/<task>/<concept>`：本任务内的物种详情，即物种 → 拍摄段 → 连拍。
-- **Smart 规则预览**（PRD §04，AC13）：`POST /collections/{id}/preview-rule {rule}` → `{total, current, added_count, removed_count, added: [≤200 id], removed: [≤200 id]}`，不保存；非 Smart 集合 400；规则校验与保存时相同。Smart 集合目前没有人工加入或排除，所以成员 = 规则命中。界面编辑 Smart 集合时，规则改动先显示命中数与增减，再点一次“保存”才写入。
+- **Smart 规则预览**（PRD §04，AC13）：`POST /collections/{id}/preview-rule {rule}` → `{total, current, added_count, removed_count, added: [≤200 id], removed: [≤200 id]}`，不保存；非 Smart 集合 400；规则校验与保存时相同。`total` 与增减按新规则下的最终成员算：（规则命中 ∪ 手动固定）− 已排除（契约修订 8），手动固定的照片不算移出。界面编辑 Smart 集合时，规则改动先显示命中数与增减，再点一次“保存”才写入。
 - **CLI 与 MCP**：
   - CLI：`mark --use`、`assets --use`、`keep-best ID [--edit] [--dry-run]`、`encounters --task|--concept`、`encounter split ID --at|--assets`、`encounter merge IDS`、`collection preview-rule ID --rule JSON`、`identify --encounter`。
   - MCP：`set_marks` 增加 `use`；新工具 `keep_best`、`undo_marks`、`list_encounters`、`edit_encounters`、`preview_rule`；`identify_species` 的 `scope` 可为 `encounter`。
@@ -796,3 +796,9 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **按设计列出全部物种、不收窄的地方**：物种卡片的成员、张数、封面与进度（`identities.species`、`review.species_progress`）、`GET /encounters` 每段的 `species` 与 `concept=` 范围、拍摄段切分（`review._task_species`）、`species=` / `concept=` / `id_state=` 筛选（`query.py`）、导入计划的物种统计与唯一记录（`imports`）、清理的“最后一张”（`cleanup`）、保留最佳时的唯一记录保护（`review.keep_best`）、Lightroom 关键词（`handoff`，人确认的全部种）、整批改物种（`POST /identifications/move`，按主体）。组内同名与鸟群规则按主体写鉴定，不按照片取名，也不改。
 - **不改的地方**：分析时存下的 `species` 结果（`analyze._species`：按检测分第一个有名字的框）与由它写的 AI 物种标签（`tasks.ai_tags`）。改它只影响以后的扫描，已有照片读回的仍是旧结果，要统一就得重扫（原片离线）。格子只在照片**没有任何种级鉴定**时才退回这个结果，所以它和主物种从不同时出现。`bioscan bench` 的规则（检测分最高的框）是 BioScan 评测的口径，改它会让基线不可比，留给 owner。
 - 在 owner 这张卡的副本上（1,361 张，1,304 张有主体）：194 张有两个以上种级主体（其中 92 张是两个以上不同的种）；33 个格子换了名字，其中 17 个旧规则选的是不到最大框一半的小框；格子与同一对象用的种不一致的照片 36 → 0（两边都有名字但不同 34，格子有名字而同一对象没有 2；其中 33 张是格子换了名字，3 张是同一对象用的种换了：1 张最大的框只到属，2 张人确认的是较小的框）；132 串同一对象、每张照片所属的串前后相同；34 张物种卡片、每张的张数与组数前后相同；`current_ids` 3,510 行前后相同（没有写入）。另有 109 个格子显示分析时存下的名字而没有任何种级鉴定（83 张的主体由鸟群规则降为属、科或未确认，26 张是模型自己只到属、科或未确认），同一对象对它们没有名字，前后不变。**unverified**：没有物种的 ground truth，这些只是计数。
+
+## 契约修订：#125 的界面验收修正并入（2026-11-12，#124 / #125；只补充，优先于上文冲突处）
+
+- **物种裁切用 3072 px 细节副本**：Gardener 的分析器与 `bioscan serve`、自有 RAW 基线一样传 `detail_edge = serve_config.DETAIL_EDGE`（3072）。此前没有传，远处的鸟只按 2048 px 的整幅来定名。只改识别输入的尺寸；对识别结果的影响没有在 Gardener 上用 `bioscan bench compare` 量过：**unverified**。
+- **清理移到废纸篓的照片**：`GET /encounters` 不再列出（同物种卡片，见上文 §`GET /encounters`）；修订 16 的 `groups / decided / started`（`review.species_progress`）同样不计，所以清理之后两者的组数仍逐个相同。
+- **扫描页的分析状态**：模型能力（`stages` 或 `local` 的能力）在运行到识别之前没有 `asset_caps` 行；任务有排队、运行、暂停或中断的运行时，这样的照片 `analysis` 为 `pending`，不再显示为已归类。`Task.scan` 取正在运行的那次运行，排在它后面的重试不会遮住进度。

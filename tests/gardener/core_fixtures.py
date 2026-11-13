@@ -175,6 +175,7 @@ class Fakes:
         self.boxes: dict[str, list[dict[str, Any]]] = {}
 
     def analyzer(self, engine, *, decode_workers=2, chunk=16, detail_edge=None):
+        self.detail_edge = detail_edge
         return FakeAnalyzer(self, engine)
 
     def faces(self):

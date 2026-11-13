@@ -21,6 +21,7 @@ SCHEMA_VERSION = 4                 # 2: subjects + identifications (ADR 0002), b
                                    # 3: four uses replace Pick/Reject (marks.use) + encounters (contract revision 5B)
                                    # 4: marks hidden on versions carried to their representative (契约修订 10B)
 SCHEMA = Path(__file__).with_name("schema.sql")
+MODEL_CAP_IDS = frozenset(c.id for c in capmod.CAPABILITIES if c.stages or c.local)   # same set as tasks.MODEL_CAPS
 DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
                                     "capability_versions": {}, "cap_status": {}}
 TERMINAL = ("completed", "partial", "failed", "stopped", "cancelled")
@@ -210,10 +211,12 @@ class Store:
             return None
         sources = [{"id": s["id"], "path": s["path"], "online": bool(s["online"])} for s in
                    self.all("SELECT id, path, online FROM sources WHERE task_id = ? ORDER BY added_at, path", (task_id,))]
-        last = self.one("SELECT * FROM runs WHERE task_id = ? ORDER BY seq DESC LIMIT 1", (task_id,))
+        # the run doing the work first: a retry queued behind a running scan must not hide its progress
+        last = self.one("SELECT * FROM runs WHERE task_id = ? ORDER BY status = 'running' DESC, seq DESC LIMIT 1",
+                        (task_id,))
         n = self.one("SELECT count(*) assets, coalesce(sum(a.media = 'photo'), 0) photos, "
-                     f"coalesce(sum(a.media = 'video'), 0) videos, coalesce(sum(NOT {query.IN_TASK_REP}), 0) versions "
-                     "FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?", (task_id, task_id))
+                     f"coalesce(sum(a.media = 'video'), 0) videos, coalesce(sum(NOT {query.IN_TASK_REP}), 0) versions, "
+                     "min(a.taken_at) taken_from, max(a.taken_at) taken_to FROM task_assets ta JOIN assets a ON a.id = ta.asset_id WHERE ta.task_id = ?", (task_id, task_id))
         f = self.one("SELECT count(*) files, coalesce(sum(f.size), 0) bytes FROM task_assets ta "
                      "JOIN asset_files f ON f.asset_id = ta.asset_id WHERE ta.task_id = ?", (task_id,))
         judged = self.one("SELECT count(*) n FROM task_assets ta JOIN marks m ON m.asset_id = ta.asset_id "
@@ -234,7 +237,7 @@ class Store:
                "preset": t["preset"], "capabilities": loads(t["capabilities"]), "run_mode": t["run_mode"],
                "timezone": t["timezone"], "location": None if t["lat"] is None else {"lat": t["lat"], "lon": t["lon"]},
                "archived": t["archived_at"] is not None, "created_at": t["created_at"], "sources": sources,
-               "scan": scan,
+               "scan": scan, "taken": {"from": n["taken_from"], "to": n["taken_to"]},   # 拍摄日期范围（页头用）
                "review": {"judged": judged, "total": n["assets"] - n["versions"],
                           "collections_done": sum(a in ("complete", "zero") for a in acts),
                           "collections_total": len(acts)},
@@ -263,9 +266,14 @@ class Store:
                 f"asset_id IN ({q}) AND capability IN ('content', 'species') AND status = 'done' "
                 "GROUP BY asset_id, capability)", part)}
             states: dict[str, list[str]] = {}
-            for r in self.all(f"SELECT asset_id, state FROM asset_caps WHERE asset_id IN ({q}) "
+            modeled: set[str] = set()      # model capabilities get their rows only when a run reaches 识别
+            for r in self.all(f"SELECT asset_id, capability, state FROM asset_caps WHERE asset_id IN ({q}) "
                               "AND state != 'not_enabled'", part):
                 states.setdefault(r["asset_id"], []).append(r["state"])
+                if r["capability"] in MODEL_CAP_IDS:
+                    modeled.add(r["asset_id"])
+            busy = {r["task_id"] for r in self.all("SELECT DISTINCT task_id FROM runs WHERE status IN "
+                                                   "('queued', 'running', 'paused', 'interrupted')")}
             tasks: dict[str, list[str]] = {}
             for r in self.all(f"SELECT asset_id, task_id FROM task_assets WHERE asset_id IN ({q}) ORDER BY task_id", part):
                 tasks.setdefault(r["asset_id"], []).append(r["task_id"])
@@ -301,7 +309,8 @@ class Store:
                                                      "p": sp.get("p"), "confirmed": False}),
                     "burst": None if s is None or s["burst_id"] is None else
                     {"id": s["burst_id"], "rank": s["burst_rank"], "size": s["burst_size"]},
-                    "analysis": analysis_state(states.get(a["id"], []), in_run),
+                    "analysis": analysis_state(states.get(a["id"], []) + (
+                        ["pending"] if a["id"] not in modeled and busy & set(tasks.get(a["id"], [])) else []), in_run),
                     "version_of": a["version_of"], "versions": versions.get(a["id"], 0),
                     "task_ids": tasks.get(a["id"], []), "updated_at": a["updated_at"]}
         return [out[i] for i in ids if i in out]
