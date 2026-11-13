@@ -18,7 +18,7 @@ def test_snapshot_is_json_and_complete():
     assert set(snap) == {"rules", "gate_prompts", "vocab", "taxa", "geo", "switches", "prior_switch", "max_edge"}
     assert snap["rules"]["RESCUE"] == 0.25
     assert snap["geo"]["unlabelled"] == {"bird": "zero", "mammal": "genus"}
-    assert snap["switches"] == {"range_veto": True, "kind_check": True, "mammal_geo": True}
+    assert snap["switches"] == {"range_veto": True, "kind_check": True, "mammal_geo": True, "all_vocab_pass": True}
 
 
 def test_every_rules_threshold_is_in_the_fingerprint(monkeypatch):

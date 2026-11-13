@@ -64,3 +64,23 @@ def test_mammal_vocab_covers_golden_set_misses():
     for w in ("a black bear", "a grizzly bear", "a mountain lion", "a bobcat", "an opossum", "a raccoon"):
         assert w in words and VOCAB["mammal"][w] == 0.2
     assert all(w.startswith(("a ", "an ")) for w in words)
+
+
+def test_no_box_frame_is_asked_every_vocabulary_and_the_word_decides_the_kind():
+    """A bird the gate called a mammal: the mammal words find nothing in either pass, "a bird" does (#144 research)."""
+    class Words(Engine):
+        def __init__(self):
+            super().__init__([], gate(bird=0.9, none=0.1))
+            bird = Detection("a bird", 0.8, (100, 100, 400, 300))
+            find = self.owlv2.detect
+            self.owlv2 = SimpleNamespace(detect=lambda image, prompts, threshold: (
+                find(image, prompts, threshold=threshold), [bird] if "a bird" in prompts else [])[1])
+
+    eng = Words()
+    out = pipeline.identify(eng, Image.new("RGB", (800, 600)), gate(mammal=0.9), None, None, None, OPTS)
+    assert [b["kind"] for b in out["boxes"]] == ["bird"] and len(eng.detect_calls) == 3
+    assert set(eng.detect_calls[2][0]) == {w for v in VOCAB.values() for w in v}
+    eng = Words()
+    out = pipeline.identify(eng, Image.new("RGB", (800, 600)), gate(mammal=0.9), None, None, None,
+                            OPTS | {"all_vocab_pass": False})
+    assert out["boxes"] == [] and len(eng.detect_calls) == 2

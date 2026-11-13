@@ -202,7 +202,7 @@ def test_resolve_options():
     o = stages.resolve_options(None)
     # the three v1.5 accuracy switches are identify options, on by default; trials off; candidates empty = all taxa
     assert o["identify"] == {"top_k": 5, "geo": True, "species": True, "range_veto": True, "kind_check": True,
-                             "mammal_geo": True, "kind_size_correct": False, "candidates": []} and o["embed"]["format"] == "list"
+                             "mammal_geo": True, "all_vocab_pass": True, "kind_size_correct": False, "candidates": []} and o["embed"]["format"] == "list"
     assert stages.resolve_options({"identify": {"top_k": 3}})["identify"]["top_k"] == 3
     assert stages.resolve_options({"identify": {"kind_check": False}})["identify"]["kind_check"] is False
     assert set(stages.PRODUCTS["identify"]["options"]) == set(BY_NAME["identify"].defaults)

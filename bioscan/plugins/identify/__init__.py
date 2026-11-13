@@ -16,6 +16,7 @@ SWITCHES = {
     "range_veto": True,      # rules.range_veto at the species step
     "kind_check": True,      # species evidence may move a box between KIND_CHECK kinds
     "mammal_geo": True,      # the mammal list's location prior (MDD rows, genus back-off)
+    "all_vocab_pass": True,  # no box after both passes: every vocabulary's words at once (taxa.ALL_WORDS)
 }
 # Trials: fixes off by default until an eval on real photos says they help. Not in the settings
 # fingerprint while off by default (no default output changes); a trial that becomes a default
