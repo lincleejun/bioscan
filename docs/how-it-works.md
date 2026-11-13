@@ -90,7 +90,7 @@ After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the m
 
 ## Known limitations and roadmap
 
-- 45 mammal images in the golden set got no box (mostly bears, mountain lions, bobcats). The detector vocabulary was extended and a gate-miss rescue added; the effect awaits a `bioscan eval` rerun.
+- The golden set's no-box mammal images were mostly photos of tracks and scat (bears, mountain lions, bobcats); they left the truth on 2026-11-13 (#156). 9 of 525 mammal images and 15 of 1,046 bird images still get no box; with every detector vocabulary asked at once, 16 of the earlier 53 get one (docs/research/2026-11-12-model-usage.md, unverified in the pipeline).
 - Other animals have no location prior.
 - Other animals use TreeOfLife's own names and taxonomy; `data/names/synonyms.csv` only maps AviList/MDD names, so an iNaturalist truth label spelled differently from TreeOfLife (a genus move, say) scores as a miss. Their accuracy is measured on 18 photos in CI only (see Tests).
 - The mammal location prior, the range veto and the kind check are unverified on real photos until a `bioscan eval` on the Mac (CI's on/off table covers 95 photos only). ε, τ, the kind-check margin and the neutral constant are first guesses. With the all-taxa list loaded, the kind check also weighs it against birds and mammals; its effect on bird and mammal accuracy is measured only by CI's on/off table.

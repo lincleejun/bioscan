@@ -467,7 +467,7 @@ our community and stretch bars, the current status and the tier and command that
 _Avoid_: KPI, target (alone)
 
 **Tier**:
-One test folder a standard is judged on: `smoke` (CI, 95 photos: 42 birds, 35 mammals, 18 other animals; reduced lists), `golden` (1,625 iNat California),
+One test folder a standard is judged on: `smoke` (CI, 95 photos: 42 birds, 35 mammals, 18 other animals; reduced lists), `golden` (1,571 iNat California),
 `own` (the owner's RAW), `public` (future multi-region CC0/CC-BY set), `mac` (speed), `geotag` (synthetic GPX scenarios built from golden),
 `album` (synthetic reject set and bursts built from the smoke photos, profile `album`), `aesthetic-own` (the owner's
 rated album frames, profile `album`).

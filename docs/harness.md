@@ -409,7 +409,7 @@ scorecard instead, with standards on a `geotag` tier. The run is deterministic f
 and a seed, so a regression shows as a changed number, and the scorecard catches it.
 
 ```sh
-uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7   # ~1 min, ~750 MB
+uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7   # ~1 min, ~750 MB
 bioscan bench geotag runs/geotag-synth --md runs/geotag-synth/report.md --json runs/geotag-synth/report.json
 bioscan bench scorecard runs/geotag-synth/report.json          # the same scorecard, tier geotag
 ```
@@ -478,7 +478,7 @@ lat/lon replaced by the geotag fix (blank where there is none; the source CSV is
 GPX-derived positions:
 
 ```sh
-uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7
+uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7
 bioscan bench geotag runs/geotag-synth --gt-out runs/geotag-synth/gt --md runs/geotag-synth/report.md
 # service running (bioscan serve, or the launchd job)
 D=$(date +%F)

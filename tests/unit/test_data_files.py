@@ -62,7 +62,7 @@ def test_model_test_sample_is_covered_by_its_name_lists():
 
 def test_golden_set_rows():
     rows = read(ROOT / "data" / "inat" / "groundtruth-inat.csv")
-    assert len(rows) == 1625 and {r["kind"] for r in rows} == {"bird", "mammal"}
+    assert len(rows) == 1571 and {r["kind"] for r in rows} == {"bird", "mammal"}
 
 
 def test_committed_map_reflects_synonyms():

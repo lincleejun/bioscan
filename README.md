@@ -12,17 +12,17 @@ https://github.com/user-attachments/assets/19373e87-ed64-44d2-a2e5-7aa889ba4db7
 
 ## Results
 
-Measured on the owner's M-series Mac (MPS), 2026-09-24, v1.5 (`875dc7a`). Full tables, the v1.4 comparison, failure classes and the scorecard: [docs/results.md](docs/results.md). The bars these are held to: [docs/standards.md](docs/standards.md).
+Measured on the owner's M-series Mac (MPS). The golden table is the 2026-11-13 run (`20381aa`) on the cleaned golden set; the v1.4 comparison and the own-RAW numbers are v1.5 (`875dc7a`, 2026-09-24). Full tables, the v1.4 comparison, failure classes and the scorecard: [docs/results.md](docs/results.md). The bars these are held to: [docs/standards.md](docs/standards.md).
 
-**Species identification**, iNaturalist golden set (California, 65 species × 25 = 1,625 research-grade photos with GPS and dates):
+**Species identification**, iNaturalist golden set (California, 64 species, 1,571 research-grade photos with GPS and dates; 54 photos that showed no animal were removed on 2026-11-13, #156):
 
 | Group | Top-1 | Top-5 | Detected | Coverage | Precision | Confident errors |
 |---|---|---|---|---|---|---|
-| Birds (1050) | 91.2% | 95.7% | 97.9% | 92.5% | 97.1% | 2.7% |
-| Mammals (575) | 82.8% | 86.3% | 89.6% | 81.4% | 95.1% | 4.0% |
-| All (1625) | 88.2% | 92.4% | 95.0% | 88.6% | 96.5% | 3.1% |
+| Birds (1046) | 91.7% | 96.2% | 98.3% | 92.8% | 97.1% | 2.7% |
+| Mammals (525) | 91.0% | 94.9% | 97.9% | 87.8% | 96.5% | 3.0% |
+| All (1571) | 91.5% | 95.7% | 98.2% | 91.2% | 96.9% | 2.8% |
 
-Coverage = share of images graded to species; precision = Top-1 among those; confident errors = graded species-level and wrong. Against v1.4: Top-1 +3.6 points, confident errors 7.4% → 3.1%, coverage −2.9 points and throughput 4.7 → 2.2 img/s (both deliberate: stricter grading, and every box also scored against the 366k-species all-taxa list). Own telephoto RAW set (404 images, 3 owl species, no GPS): Top-1 79.0%, Top-5 98.0%; with one coordinate for the batch, 96.3%.
+Coverage = share of images graded to species; precision = Top-1 among those; confident errors = graded species-level and wrong. Against v1.4 (both on the earlier 1,625-photo set, where v1.5 scored 88.2%): Top-1 +3.6 points, confident errors 7.4% → 3.1%, coverage −2.9 points and throughput 4.7 → 2.2 img/s (both deliberate: stricter grading, and every box also scored against the 366k-species all-taxa list). Own telephoto RAW set (404 images, 3 owl species, no GPS): Top-1 79.0%, Top-5 98.0%; with one coordinate for the batch, 96.3%.
 
 **Aesthetic score**, 100 EVA photos the general head never saw (20 per star, crowd consensus): Spearman 0.877 [0.82, 0.92] against the crowd's stars, drop AUC 0.98, 0% keepers lost when the lowest 20% is dropped. **Album culling** rules are measured on a synthetic reject set only (224 frames made from the CI photos: reject recall 84%, precision 96%; underexposure recall 33%, below its 80% floor); unverified on real albums.
 

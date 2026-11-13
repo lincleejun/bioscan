@@ -17,7 +17,7 @@ truth.csv (`precision`: second, minute or date). One row without coordinates is 
 Scenarios (one folder each): see SCENARIOS. Every random draw comes from a generator seeded with
 (seed, scenario, outing), so a scenario or outing is the same whatever else changes.
 
-    uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7
+    uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7
     bioscan bench geotag runs/geotag-synth
 
 Layout: OUT/scenarios.json; OUT/<scenario>/photos.csv (the inputs: group, path, role, taken_at,

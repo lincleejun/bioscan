@@ -12,7 +12,7 @@ from bioscan.cli import bench, geobench
 from bioscan.cli import main as cli
 
 ROOT = Path(__file__).resolve().parents[2]
-GOLDEN = ROOT / "data" / "inat" / "groundtruth-inat.csv"
+GOLDEN = ROOT / "data" / "inat" / "groundtruth-inat-geotag.csv"   # the 1,625 rows the tier was measured on (#156)
 OUTINGS = 12
 
 

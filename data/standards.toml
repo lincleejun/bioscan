@@ -23,7 +23,7 @@
 #   how        tier and command that measures it
 #   source     where the industry number comes from (URL), or why there is none
 #
-# Tiers (id's second segment): smoke = CI 95 iNat photos on reduced lists; golden = 1,625 iNat California
+# Tiers (id's second segment): smoke = CI 95 iNat photos on reduced lists; golden = 1,571 iNat California
 # photos (+ an "other animals" slice still to be built); own = the owner's RAW set; public = the future
 # multi-region CC0/CC-BY set; mac = speed on Apple Silicon; scene = open CC0/CC BY photos per scene label
 # (bioscan gt scene, profile album). Variant "nogeo" = a run with --no-geo.
@@ -454,7 +454,7 @@ op = "<="
 community = 15
 stretch = 10
 unit = "m"
-how = "uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7; bioscan bench geotag runs/geotag-synth; row all"
+how = "uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7; bioscan bench geotag runs/geotag-synth; row all"
 source = "no published accuracy figure for track-based geotagging found; the synthetic GPS noise (sigma 3-10 m per axis) is the floor"
 
 [[standard]]
@@ -882,7 +882,7 @@ source = "regression guard, not an accuracy claim"
 [[standard]]
 id = "directory.golden.all.top1"
 dimension = "directory"
-title = "Golden folder (1,625 iNat, California): named correctly at species level"
+title = "Golden folder (1,571 iNat, California): named correctly at species level"
 scope = "all"
 metric = "top1"
 op = ">="

@@ -11,7 +11,7 @@ correctly at species level, at least Y% at genus or better, and at most Z% are c
 
 | Test folder | N | X: species correct | Y: genus or better | Z: confident errors | Today |
 |---|---|---|---|---|---|
-| Golden iNat, California | 1,625 | **≥ 88%** | **≥ 95%** | **≤ 3%** | v1.5 on the owner's Mac (2026-09-24): X 88.2%, Y 91.0%, Z 3.1%: **not met** (Y short; X and Z miss on the Wilson bound) |
+| Golden iNat, California | 1,571 | **≥ 88%** | **≥ 95%** | **≤ 3%** | owner's Mac (2026-11-13, cleaned set): X 91.5% (met), Y 94.1%, Z 2.8%: **not met** (Y short; Z misses on the Wilson bound) |
 | Owner's own RAW | 404 | **≥ 95%** | **≥ 98%** | **≤ 3%** | v1.5 (2026-09-24), no GPS in the files: X 79.0%, Y 98.0%, Z 12.9%: **not met**; with one batch coordinate an earlier run gave X 96.3% |
 | Public, multi-region (to build) | ≥ 5,000 | ≥ 85% | ≥ 93% | ≤ 3% | unmeasured (the set does not exist yet) |
 | CI smoke (regression guard only) | 95 (42 birds, 35 mammals, 18 other animals) | ≥ 85% | ≥ 90% | ≤ 7% | X 87.0%, Z 6.5% (on the earlier 77-photo set): guard holds |
@@ -19,11 +19,12 @@ correctly at species level, at least Y% at genus or better, and at most Z% are c
 These are the **community bars**: meet them and we invite people to try bioscan and help identify
 (release v0.x). The v1.0 "bundle and release" stage adds the bars for other animals, speed,
 onboarding and the public set. Today neither stage's gates are met; a few single bars are (bird
-coverage, list sizes, pinning, isolation). The largest gaps are mammals (86.3% top-5 against 93%,
-89.6% detected against 95%) and genus or better on the golden folder (91.0% against 95%).
+coverage, list sizes, pinning, isolation). The largest gaps are genus or better on the golden folder (94.1% against 95%) and
+precision at species level (mammals 96.5% against 97%).
 
-The golden numbers ("README golden" below) are v1.5 on the owner's Mac (2026-09-24, `875dc7a`), the
-same run as the README; its report is `baselines/golden-inat-v1.5.json`.
+The golden numbers ("clean golden 2026-11-13" below) are the owner's Mac run of 2026-11-13 (`20381aa`) on the cleaned
+golden set (54 photos without an animal removed, #156); its report is `baselines/golden-inat-2026-11-13.json`.
+The v1.5 report on the earlier 1,625 photos stays as `baselines/golden-inat-v1.5.json`; the two do not compare.
 
 ## How to read this document
 
@@ -45,7 +46,7 @@ must clear it, not just the observed rate.
 | Tier | What | N | Lists | Licence | Where it runs | Use |
 |---|---|---|---|---|---|---|
 | `smoke` | 95 iNat photos (42 birds, 35 mammals, 18 other animals; 83 species), `tests/models/sample.csv` | 95 | reduced: AviList rows of the sampled genera + 41 mammals | CC BY-NC / CC BY / CC0, fetched at test time | CI `models.yml`, CPU, every push | regression guard |
-| `golden` | iNat research-grade, California, 65 species × 25 (42 bird, 23 mammal), real GPS and dates, `data/inat/groundtruth-inat.csv` | 1,625 | full AviList (v2026 from 2026-10-26; v1.5 numbers were measured on v2025) + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
+| `golden` | iNat research-grade, California, 64 species × up to 25 (42 bird, 22 mammal), real GPS and dates, images 500 px on the long edge, `data/inat/groundtruth-inat.csv` | 1,571 | full AviList (v2026 from 2026-10-26; v1.5 numbers were measured on v2025) + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
 | `golden` other-animal slice | **to build**: iNat California, about 16 non-bird, non-mammal species × 25 (reptiles, amphibians, insects, spiders), with `bioscan gt inat` | ~400 | TreeOfLife-wide list (work package W4) | as golden | owner's Mac | all-taxa default |
 | `own` | owner's telephoto RAW, folder-name truth, `data/groundtruth-own.csv` (288 Western Screech-Owl, 85 Red-tailed Hawk, 31 Steller's Jay) | 404 | full lists | private | owner's Mac | the real use case |
 | `public` | **to build**: ≥ 5 regions, CC0/CC BY only, one observation per photo, ≤ 5 per observer, sequestered test split | ≥ 5,000 | full lists | CC0 / CC BY, redistributable | owner's Mac; published | claim we can show others |
@@ -88,9 +89,9 @@ judged on the observed value, because 95 images cannot prove any accuracy bar. (
 | n | to clear ≥ 85% | ≥ 88% | ≥ 90% | ≥ 95% | to clear ≤ 3% |
 |---|---|---|---|---|---|
 | 404 (own) | 88.6% | 91.3% | 93.1% | 97.3% | 1.2% |
-| 575 (golden mammals) | 88.0% | 90.8% | 92.5% | 96.9% | 1.6% |
-| 1,050 (golden birds) | 87.2% | 90.0% | 91.9% | 96.4% | 1.9% |
-| 1,625 (golden all) | 86.8% | 89.6% | 91.5% | 96.1% | 2.2% |
+| 525 (golden mammals) | 88.2% | 90.9% | 92.6% | 97.0% | 1.5% |
+| 1,046 (golden birds) | 87.2% | 90.1% | 91.9% | 96.4% | 1.9% |
+| 1,571 (golden all) | 86.8% | 89.6% | 91.5% | 96.1% | 2.1% |
 | 5,000 (public) | 86.0% | 88.9% | 90.8% | 95.6% | 2.5% |
 
 So the golden set is big enough for every bar, as long as the true rate beats the bar by 2–3 points.
@@ -149,12 +150,12 @@ RAW files have no GPS, so to score them with one batch coordinate, fill those tw
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
-| Birds top-1 | 95%, Merlin average (vendor claim) [^merlin]; ~92% academic closed-set SOTA (TransFG: CUB 91.7%, NABirds 90.8%) [^transfg] | **90%** | 95% | 91.2% (README golden); smoke 88.1% | the academic level, reached on an open 11,131-species list instead of 200–555 classes |
-| Birds top-5 | 96%, Dongniao (vendor claim) [^dongniao] | **95%** | 98% | 95.7% (README golden); smoke 92.9% | at the vendor claim's level; top-5 is what a person picks from during review |
-| Birds genus | none published | **95%** | 98% | 93.9% (golden v1.5 scorecard) | a genus answer must be nearly always right to be worth keeping |
-| Mammals top-1 | 88.7%, iNat CV 2.20 average over all taxa (vendor claim) [^inat220] | **85%** | 92% | 82.8% (README golden); smoke 85.7% | phase-1 gate of the strategy doc; mammals still have no location prior, so we sit just under iNat's all-taxa average |
-| Mammals top-5 | none | **93%** | 97% | 86.3% (README golden); smoke 91.4% | top-5 misses are mostly no-box, which detection fixes |
-| Mammals genus | none | **92%** | 97% | 85.6% (golden v1.5 scorecard) | bear and cat confusions stay within a genus, so genus should run 5–7 points above top-1 |
+| Birds top-1 | 95%, Merlin average (vendor claim) [^merlin]; ~92% academic closed-set SOTA (TransFG: CUB 91.7%, NABirds 90.8%) [^transfg] | **90%** | 95% | 91.7% (clean golden 2026-11-13); smoke 88.1% | the academic level, reached on an open 11,131-species list instead of 200–555 classes |
+| Birds top-5 | 96%, Dongniao (vendor claim) [^dongniao] | **95%** | 98% | 96.2% (clean golden 2026-11-13); smoke 92.9% | at the vendor claim's level; top-5 is what a person picks from during review |
+| Birds genus | none published | **95%** | 98% | 94.3% (clean golden 2026-11-13) | a genus answer must be nearly always right to be worth keeping |
+| Mammals top-1 | 88.7%, iNat CV 2.20 average over all taxa (vendor claim) [^inat220] | **85%** | 92% | 91.0% (clean golden 2026-11-13); smoke 85.7% | phase-1 gate of the strategy doc; mammals still have no location prior, so we sit just under iNat's all-taxa average |
+| Mammals top-5 | none | **93%** | 97% | 94.9% (clean golden 2026-11-13); smoke 91.4% | top-5 misses are mostly no-box, which detection fixes |
+| Mammals genus | none | **92%** | 97% | 93.7% (clean golden 2026-11-13) | bear and cat confusions stay within a genus, so genus should run 5–7 points above top-1 |
 | Other animals top-1 | 88.7%, iNat (all taxa, vendor claim) [^inat220] | **60%** | 80% | unmeasured (W4 built the list; CI smoke ranks 18 photos against it, golden slice still to build) | zero-shot over about 10⁵ names with no location prior; below 60%, the default output would mislead more often than help |
 | Other animals top-5 | none | **80%** | 92% | unmeasured | enough for "help identify": the right answer is usually on the short list |
 | Other animals genus | none | **75%** | 90% | unmeasured | the level most other-animal answers should stop at |
@@ -170,13 +171,13 @@ They show the level people expect, not a result on our folders.
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
-| Birds confident-error rate (species-level and wrong ÷ n) | none published | **≤ 3%** | ≤ 1% | 2.7% (README golden, = 92.5% × (1 − 97.1%)); smoke 7.1% (3/42) | 30k photos at 6% means about 1,900 wrong species keywords to find by hand; at 3% the review is manageable |
-| Mammals confident-error rate | none | **≤ 3%** | ≤ 1% | 4.0% (README golden); smoke 5.7% (2/35) | same promise for every kind |
+| Birds confident-error rate (species-level and wrong ÷ n) | none published | **≤ 3%** | ≤ 1% | 2.7% (clean golden 2026-11-13); smoke 7.1% (3/42) | 30k photos at 6% means about 1,900 wrong species keywords to find by hand; at 3% the review is manageable |
+| Mammals confident-error rate | none | **≤ 3%** | ≤ 1% | 3.0% (clean golden 2026-11-13); smoke 5.7% (2/35) | same promise for every kind |
 | Other animals confident-error rate | none | **≤ 5%** | ≤ 2% | unmeasured | all taxa is the default, so other animals must not undo the trust built on birds; allows a little more without a prior |
-| Birds precision at species level | 94.5%, SpeciesNet when it makes a species-level call, camera traps (vendor claim) [^speciesnet] | **97%** | 99% | 97.1% (README golden); smoke 92.5% | a species-level grade must mean "safe to keep"; with coverage ≥ 85% this keeps Z under 3% |
-| Birds coverage (graded species-level) | not published (SpeciesNet rolls up to genus/family when unsure [^speciesnet-pypi]) | **≥ 85%** | ≥ 92% | 92.5% (README golden); smoke 95.2% | stops us buying precision by refusing to answer; the strategy doc's "≥ 85% coverage" |
-| Mammals precision at species level | 94.5%, SpeciesNet (vendor claim) [^speciesnet] | **97%** | 99% | 95.1% (README golden); smoke 93.8% | as for birds |
-| Mammals coverage | not published | **≥ 80%** | ≥ 90% | 81.4% (README golden); smoke 91.4% | 5 points below birds until mammals have a location prior |
+| Birds precision at species level | 94.5%, SpeciesNet when it makes a species-level call, camera traps (vendor claim) [^speciesnet] | **97%** | 99% | 97.1% (clean golden 2026-11-13); smoke 92.5% | a species-level grade must mean "safe to keep"; with coverage ≥ 85% this keeps Z under 3% |
+| Birds coverage (graded species-level) | not published (SpeciesNet rolls up to genus/family when unsure [^speciesnet-pypi]) | **≥ 85%** | ≥ 92% | 92.8% (clean golden 2026-11-13); smoke 95.2% | stops us buying precision by refusing to answer; the strategy doc's "≥ 85% coverage" |
+| Mammals precision at species level | 94.5%, SpeciesNet (vendor claim) [^speciesnet] | **97%** | 99% | 96.5% (clean golden 2026-11-13); smoke 93.8% | as for birds |
+| Mammals coverage | not published | **≥ 80%** | ≥ 90% | 87.8% (clean golden 2026-11-13); smoke 91.4% | 5 points below birds until mammals have a location prior |
 | Other animals precision | none | **95%** | 98% | unmeasured | species-level other-animal answers must be rare and right |
 | Other animals coverage | none | **≥ 40%** | ≥ 70% | unmeasured | most other-animal answers should stop at genus or family |
 | Calibration (ECE, all kinds) | none published | **≤ 0.05** | ≤ 0.02 | unmeasured (no calibrated `p_correct` yet) | a "90%" answer should be right 85–95% of the time; this gates v1.0 only |
@@ -192,12 +193,12 @@ trust bars are where a specialised local tool can lead.
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
-| Birds gate accuracy | none published for a bird/mammal gate | **97%** | 99% | 97.0% (README golden); smoke 97.6% | the gate picks the vocabulary and list, so its errors spread downstream |
-| Birds detect rate | 99.4%, SpeciesNet animal vs blank (vendor claim) [^speciesnet] | **97%** | 99% | 97.9% (README golden); smoke 95.2% | our photos are framed by a photographer, so few should be missed |
-| Birds no-box rate | none | **≤ 2%** | ≤ 1% | 1.8% (19/1,050, golden v1.5) | every no-box image is a certain miss |
-| Mammals gate accuracy | none | **93%** | 97% | 89.7% (README golden); smoke 91.4% | 4 points under birds, because owl/mammal and seal/bird confusions are known |
-| Mammals detect rate | 99.4%, SpeciesNet (vendor claim) [^speciesnet] | **95%** | 98% | 89.6% (README golden); smoke 91.4% | closes the known no-box gap (bears, mountain lions, bobcats) |
-| Mammals no-box rate | none | **≤ 3%** | ≤ 1% | 6.3% (36/575, golden v1.5) | the largest known weakness |
+| Birds gate accuracy | none published for a bird/mammal gate | **97%** | 99% | 97.1% (clean golden 2026-11-13); smoke 97.6% | the gate picks the vocabulary and list, so its errors spread downstream |
+| Birds detect rate | 99.4%, SpeciesNet animal vs blank (vendor claim) [^speciesnet] | **97%** | 99% | 98.3% (clean golden 2026-11-13); smoke 95.2% | our photos are framed by a photographer, so few should be missed |
+| Birds no-box rate | none | **≤ 2%** | ≤ 1% | 1.4% (15/1,046, clean golden 2026-11-13) | every no-box image is a certain miss |
+| Mammals gate accuracy | none | **93%** | 97% | 94.9% (clean golden 2026-11-13); smoke 91.4% | 4 points under birds, because owl/mammal and seal/bird confusions are known |
+| Mammals detect rate | 99.4%, SpeciesNet (vendor claim) [^speciesnet] | **95%** | 98% | 97.9% (clean golden 2026-11-13); smoke 91.4% | closes the known no-box gap (bears, mountain lions, bobcats) |
+| Mammals no-box rate | none | **≤ 3%** | ≤ 1% | 1.7% (9/525, clean golden 2026-11-13) | was 6.3% before the sign-only photos (tracks, scat) left the truth |
 | Other animals detect rate | 99.4%, SpeciesNet (vendor claim) [^speciesnet] | **85%** | 95% | unmeasured | small insects and spiders are hard for an open-vocabulary detector |
 
 How measured: golden tier, as above.
@@ -221,7 +222,7 @@ The owner's test, per tier (see [the short version](#the-short-version)):
 | Tier | Id prefix | X top-1 (community / stretch) | Y genus (c / s) | Z confident errors (c / s) | Now |
 |---|---|---|---|---|---|
 | smoke, 95 | `directory.smoke.all.*` | 85% / 90% | 90% / 95% | ≤ 7% / ≤ 3% | X 87.0% (67/77), Z 6.5% (5/77) on bbd6377, the earlier 77-photo set (CI, CPU) |
-| golden, 1,625 | `directory.golden.all.*` | 88% / 93% (industry 88.7% iNat [^inat220]) | 95% / 98% | ≤ 3% / ≤ 1% | X 88.2% (Wilson 86.6–89.7), Y 91.0% (89.5–92.3), Z 3.1% (2.4–4.1) (golden v1.5 scorecard) |
+| golden, 1,571 | `directory.golden.all.*` | 88% / 93% (industry 88.7% iNat [^inat220]) | 95% / 98% | ≤ 3% / ≤ 1% | X 91.5% (Wilson 90.0–92.8), Y 94.1% (92.8–95.1), Z 2.8% (2.1–3.7) (clean golden 2026-11-13) |
 | own RAW, 404 | `directory.own.all.*` | 95% / 98% (WildlifeAI claims 97.3% on its own set [^wildlifeai]) | 98% / 99% | ≤ 3% / ≤ 1% | X 96.3% (Wilson 94.0–97.7), Z 2.2% (1.2–4.2), with an assumed batch coordinate, 3 species only |
 | public, ≥ 5,000 | `directory.public.all.*` | 85% / 92% (industry 88.7% iNat [^inat220]) | 93% / 97% | ≤ 3% / ≤ 1% | unmeasured: set to build |
 
@@ -316,7 +317,7 @@ whose true time is inside the track; a photo there without a fix is a miss.
 
 How measured:
 ```sh
-uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7
+uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7
 bioscan bench geotag runs/geotag-synth        # prints the tier's scorecard; exit 1 when a bar is missed
 ```
 The numbers are synthetic: they show that the method works under the modelled noise, gaps and clock errors, not

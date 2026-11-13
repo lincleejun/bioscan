@@ -205,6 +205,9 @@ def gt_inat(taxa: list[tuple[str, str]], place_id: int | None, per_species: int,
         d.mkdir(parents=True, exist_ok=True)
         n = 0
         for obs in results[:per_species]:
+            name = (obs.get("taxon") or {}).get("name")
+            if name and not name.startswith(sci):       # the search also returns other taxa: 25 Elk Kelp
+                continue                                # photos came back for "Alces alces" (#156)
             photo = next((p for p in obs.get("photos") or [] if (p.get("license_code") or "") in LICENSES), None)
             if not photo or not photo.get("url"):
                 continue

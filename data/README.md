@@ -121,7 +121,7 @@
 - 带时间的行里，722 行秒数是 `:00`（其中 1 行没有坐标，合成时用到 721 行），即 iNaturalist 只记到分钟；
 - 另有 1 行没有坐标。
 
-**合成 GPX**：`scripts/geotag_synth.py` 用这个文件合成 GPX 轨迹，供 `bioscan bench geotag` 使用。缺的时间这样补：
+**合成 GPX**：`scripts/geotag_synth.py` 用 `groundtruth-inat-geotag.csv` 合成 GPX 轨迹，供 `bioscan bench geotag` 使用。它是 2026-11-13 清理前的 1,625 行原样副本：geotag 只用坐标和时间，照片里是不是动物无关，保留它可以让合成层的数字和分组编号不变（#156）。物种评测用清理后的 `groundtruth-inat.csv`（1,571 行）。缺的时间这样补：
 - 只到分钟的，在该分钟内随机补秒；
 - 只有日期的，补一个 07:00–17:00 之间的时间，时区取 round(lon/15) 小时。
 
