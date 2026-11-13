@@ -24,10 +24,15 @@ ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user' AND ci.co
 # 好片: 选入修图 or a star, or the AI's pick unless a person rejected the photo: 完成 keeps what is left undecided
 # (use record), and that is not a person saying the photo is ordinary.
 TOUCHED = "EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id)"
+GOOD_SHARE = 0.10    # owner 2026-11-13: about a tenth of a scan's photos are 好片
+# the AI's good photos: its picks, then the best frames of the other bursts in rank order, up to GOOD_SHARE of the run
+AI_GOOD = ("EXISTS (SELECT 1 FROM current_suggestions s WHERE s.asset_id = a.id AND s.verdict != 'reject' AND "
+           "(s.verdict = 'pick' OR (s.rank IS NOT NULL AND s.rank <= ? * (SELECT count(*) FROM current_suggestions n "
+           "WHERE n.run_id = s.run_id))))")
 PILES = {"bin": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject') OR "
                 f"(NOT {TOUCHED} AND {LATEST_AI} = 'reject'))",
          "good": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND (m.use = 'edit' OR m.stars > 0)) OR "
-                 f"({LATEST_AI} = 'pick' AND NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject')))"}
+                 f"({AI_GOOD} AND NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject')))"}
 BASENAME = "replace(a.primary_path, rtrim(a.primary_path, replace(a.primary_path, '/', '')), '')"
 # within one task (param: task id) an asset stands for its capture unless its representative is in that task too;
 # a version whose representative only another task holds (a wider folder) is that task's business
@@ -121,7 +126,7 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
         else:
             add("EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = ?)", f["use"])
     if "pile" in f:
-        add(PILES[f["pile"]])
+        add(PILES[f["pile"]], *([GOOD_SHARE] if f["pile"] == "good" else []))
     if "stars_min" in f:
         add("coalesce((SELECT m.stars FROM marks m WHERE m.asset_id = a.id), 0) >= ?", int(f["stars_min"]))
     if "stars" in f:

@@ -55,7 +55,7 @@ def test_nav_order():
         "library", "lib-good", "lib-bin", "fs", "species", "sp-bird", "sp-mammal", "sp-other_animal",
         "collections", "col-trip", "col-featured", "col-edit", "inbox", "settings"]
     labels = re.findall(r'data-nav="[\w-]+"[^>]*>.*?</svg>([^<]+)<', text("index.html"))
-    assert labels == ["图库", "好片", "不好", "文件夹", "野生动物", "鸟类", "哺乳类", "其他", "集合", "旅行", "精选", "待修图", "待整理", "管理"]
+    assert labels == ["图库", "好片", "垃圾箱", "文件夹", "野生动物", "鸟类", "哺乳类", "其他", "集合", "旅行", "精选", "待修图", "待整理", "管理"]
     assert "prefs.get('route', '#/library')" in text("app.js")
     assert 'href="#/tasks">扫描任务' in text("app.js") and 'href="#/new" class="nav-add"' in text("index.html")   # both still reachable
     assert '.nav a[data-nav="inbox"]:not([aria-current="page"]):not(:has(.nav-has, .nav-n)) { display: none; }' in text("styles.css")
