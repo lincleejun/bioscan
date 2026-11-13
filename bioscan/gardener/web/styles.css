@@ -1366,4 +1366,6 @@ select.input { padding-right: 28px; }
   .cd-title h1 { font-size: 24px; }
   .fl-foot { margin: 0 -16px; padding: 12px 16px; }
   .dv-tools { margin-left: 0; }
+  .tabs { overflow-x: auto; gap: 18px; }       /* 任务页的标签：横滑，不把字竖排 */
+  .tabs a { flex: none; white-space: nowrap; }
 }
