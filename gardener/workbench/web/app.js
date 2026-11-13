@@ -126,7 +126,7 @@
   function burstBtn(ws, a) {
     if (!ws || !ws.collapse || !a.burst || ws.burstRep.get(a.burst.id) !== a.id) return '';
     const open = ws.expanded.has(a.burst.id);
-    return `<button type="button" class="burst-btn" data-action="burst" data-id="${esc(a.burst.id)}" aria-expanded="${open}">连拍 ${a.burst.size}${open ? ' · 收起' : ' · 展开'}</button>`;
+    return `<button type="button" class="burst-btn" data-action="burst" data-id="${esc(a.burst.id)}" aria-expanded="${open}" title="连拍 ${a.burst.size} 张，点击${open ? '收起' : '展开'}">${a.burst.size} 张</button>`;
   }
   const shortBadge = (ws, a) => (ws && ws.lib && ws.short && ws.short.has(a.id) ? `<span class="tile-short" title="AI 初选：本次拍摄排名第 ${ws.short.get(a.id)}">AI ${ws.short.get(a.id)}</span>` : '');
   function tile(a, ws) {
@@ -153,7 +153,7 @@
     if (key) { const n = el.querySelector(`[data-key="${CSS.escape(key)}"]`); if (n) n.focus({ preventScroll: true }); }
   }
   const BIND = {
-    'nav-inbox': () => { const n = inboxTasks().reduce((m, t) => m + ((t.review || {}).total || 0) - ((t.review || {}).judged || 0), 0); return n ? `<span class="nav-n" title="待判断的照片">${n.toLocaleString()}</span>` : ''; },
+    'nav-inbox': () => { const n = inboxTasks().reduce((m, t) => m + ((t.review || {}).total || 0) - ((t.review || {}).judged || 0), 0); return (inboxTasks().length ? '<i class="nav-has"></i>' : '') + (n ? `<span class="nav-n" title="待判断的照片">${n.toLocaleString()}</span>` : ''); },
     disk: () => { const d = S.storage; if (!d || !d.disk_total) return ''; const used = d.disk_total - d.disk_free; return `<span>本地存储</span>${bar(pct(used, d.disk_total))}<span><b>${fmtBytes(used)}</b> / ${fmtBytes(d.disk_total)}</span>`; },
     'nav-tasks': () => (S.tasks.some(t => t.scan && t.scan.status === 'running') ? '<span class="nav-dot" title="有任务正在扫描"></span>' : ''),
     svc: () => svcHTML(),
@@ -211,7 +211,7 @@
     const ts = S.tasks.filter(t => !t.archived);
     const run = ts.find(t => t.scan && t.scan.status === 'running');
     const n = s => ts.filter(t => t.scan && t.scan.status === s).length;
-    return `<span class="q-label">扫描队列</span><span class="q-run">${run ? `<i class="pulse"></i>正在扫描：<b>${esc(run.title)}</b>` : '当前没有运行中的扫描'}</span><span class="q-meta">排队 ${n('queued')} · 已暂停 ${n('paused')} · 一次只运行一个重型扫描，Review 不占扫描名额</span>`;
+    return `<span class="q-label">扫描队列</span><span class="q-run">${run ? `<i class="pulse"></i>正在扫描：<b>${esc(run.title)}</b>` : '当前没有运行中的扫描'}</span><span class="q-meta">排队 ${n('queued')} · 已暂停 ${n('paused')} · 一次只运行一个重型扫描，审片不占扫描名额</span>`;
   }
 
   // ---------- 任务 ----------
@@ -225,7 +225,7 @@
         if (s.phase === 'preview') return `生成预览 ${s.previewed}/${s.discovered}${fail}`;
         if (s.phase === 'group') return '整理分组';
         return `AI 分析 ${s.analyzed}/${s.total_analysis}${fail}`;
-      case 'paused': return `暂停于 ${pct(s.progress, 1)}% · 可继续 Review`;
+      case 'paused': return `暂停于 ${pct(s.progress, 1)}% · 可继续审片`;
       case 'completed': return `${s.discovered} 项素材 · 分析完成`;
       case 'partial': return `${s.analyzed} 项完成${fail} · 有失败、不可用能力或离线来源，详见运行历史`;
       case 'failed': return '扫描失败，详见运行历史';
@@ -241,15 +241,15 @@
   }
   function taskReviewHTML(t) {
     const r = t.review || {};
-    if (!r.total) return `<div class="tc-label">人工 Review</div><div class="tc-line"><span class="tc-muted">尚无可审素材</span></div>${bar(0, 'bar-review')}<div class="tc-note">扫描出预览后即可浏览标记</div>`;
-    return `<div class="tc-label">人工 Review · ${esc(reviewLabel(t))}</div><div class="tc-line"><span class="tc-num"><b>${r.judged}</b> / ${r.total} 张已判断</span><span class="tc-pct">${pct(r.judged, r.total)}%</span></div>${bar(pct(r.judged, r.total), 'bar-review')}<div class="tc-note">${r.collections_done}/${r.collections_total} 个集合完成</div>`;
+    if (!r.total) return `<div class="tc-label">人工审片</div><div class="tc-line"><span class="tc-muted">尚无可审素材</span></div>${bar(0, 'bar-review')}<div class="tc-note">扫描出预览后即可浏览标记</div>`;
+    return `<div class="tc-label">人工审片 · ${esc(reviewLabel(t))}</div><div class="tc-line"><span class="tc-num"><b>${r.judged}</b> / ${r.total} 张已判断</span><span class="tc-pct">${pct(r.judged, r.total)}%</span></div>${bar(pct(r.judged, r.total), 'bar-review')}<div class="tc-note">${r.collections_done}/${r.collections_total} 个集合完成</div>`;
   }
   function taskActionsHTML(t) {
     const b = (act, label, icon, kind) => `<button type="button" class="btn sm ${kind || ''}" data-action="${act}" data-id="${esc(t.id)}" data-key="${act}-${esc(t.id)}">${ic(icon)}${label}</button>`;
     const st = (t.scan || {}).status;
     if (st === 'running' || st === 'queued') return b('task-pause', '暂停', 'pause') + b('task-stop', st === 'queued' ? '取消' : '停止', 'stop', 'ghost');
     if (st === 'paused') return b('task-resume', '继续', 'play', 'accent') + b('task-stop', '停止', 'stop', 'ghost');
-    return `<a class="btn sm ghost" href="#/task/${esc(t.id)}/collections" data-key="cols-${esc(t.id)}">继续 Review${ic('right')}</a>`;
+    return `<a class="btn sm ghost" href="#/task/${esc(t.id)}/collections" data-key="cols-${esc(t.id)}">继续审片${ic('right')}</a>`;
   }
   function mosaicHTML(t) {
     const all = S.cols.find(c => c.task_id === t.id && c.group_kind === 'all');
@@ -263,7 +263,7 @@
     const tasks = S.tasks.filter(t => !!t.archived === !!showArch).slice().reverse();
     return `<div class="page">
       <header class="page-head">
-        <div><h1 tabindex="-1">任务${showArch ? ' · 已归档' : ''}</h1><p class="lede">每个任务是一次独立扫描：扫描结束即完成，人工 Review 进度单独计算，可随时回来继续。</p></div>
+        <div><h1 tabindex="-1">任务${showArch ? ' · 已归档' : ''}</h1><p class="lede">每个任务是一次独立扫描：扫描结束即完成，人工审片进度单独计算，可随时回来继续。</p></div>
         <div class="head-actions"><a class="btn ghost" href="${showArch ? '#/tasks' : '#/tasks/archived'}">${showArch ? '返回任务' : '已归档'}</a><a class="btn primary" href="#/new">${ic('plus')}新建扫描任务</a></div>
       </header>
       <div class="queue-strip" data-bind="queue">${queueHTML()}</div>
@@ -291,7 +291,7 @@
     const scanDone = ['completed', 'partial', 'stopped', 'failed', 'cancelled'].includes(s.status);
     const st = [
       ['scan', '扫描', scanDone ? 'done' : 'run', scanDone ? '' : `${pct(s.progress || 0, 1)}%`],
-      ['review', 'Review', r.total && r.judged >= r.total ? 'done' : r.judged ? 'run' : 'todo', r.total ? `${r.judged}/${r.total}` : ''],
+      ['review', '审片', r.total && r.judged >= r.total ? 'done' : r.judged ? 'run' : 'todo', r.total ? `${r.judged}/${r.total}` : ''],
       ['import', '导入', im && im.status === 'completed' ? 'done' : im ? 'run' : 'todo', im ? (IMPORT_ST[im.status] || '') : ''],
     ];
     return `<ol class="steps" aria-label="整理步骤">${st.map(([k, l, state, note], i) => `<li class="step is-${state}${k === here ? ' is-here' : ''}"><a href="${esc(flowHref(t, k))}"${k === here ? ' aria-current="step"' : ''}><span class="step-n">${state === 'done' ? ic('check') : i + 1}</span><span class="step-l">${l}${note ? `<small>${esc(note)}</small>` : ''}</span></a></li>`).join('<li class="step-line" aria-hidden="true"></li>')}</ol>`;
@@ -299,7 +299,7 @@
   function inboxCardHTML(t) {
     const s = t.scan || {}, r = t.review || {}, n = t.counts || {};
     const scanning = ['running', 'queued', 'paused'].includes(s.status);
-    const go = scanning && !s.previewed ? ['scan', '查看扫描'] : [r.judged ? 'review' : 'review', r.judged ? '继续 Review' : '开始 Review'];
+    const go = scanning && !s.previewed ? ['scan', '查看扫描'] : [r.judged ? 'review' : 'review', r.judged ? '继续审片' : '开始审片'];
     return `<article class="ib-card">
       <a class="ib-mosaic task-mosaic" href="${esc(flowHref(t, go[0]))}" tabindex="-1" aria-hidden="true">${mosaicHTML(t)}</a>
       <div class="ib-info"><h2><a href="${esc(flowHref(t, go[0]))}">${esc(t.title)}</a></h2>
@@ -311,7 +311,7 @@
   function vInbox() {
     const list = inboxTasks().slice().reverse();
     return `<div class="page ib">
-      <header class="page-head"><div><h1 tabindex="-1">待整理</h1><p class="lede">每个批次三步：扫描出预览就能开始 Review，不必等识别全部完成；Review 后再确认导入。</p></div>
+      <header class="page-head"><div><h1 tabindex="-1">待整理</h1><p class="lede">每个批次三步：扫描出预览就能开始审片，不必等识别全部完成；审片后再确认导入。</p></div>
         <div class="head-actions"><a class="btn primary" href="#/new">${ic('plus')}新建扫描</a></div></header>
       <div class="ib-list">${list.map(inboxCardHTML).join('') || `<div class="empty big"><h2>没有待整理的批次</h2><p class="hint">连接已有图库或插入存储卡，新建一次扫描。</p><a class="btn primary" href="#/new">${ic('plus')}新建扫描</a></div>`}</div>
     </div>`;
@@ -379,9 +379,9 @@
         ${page.total > SCAN_N ? `<p class="hint sc-more">显示最先发现的 ${SCAN_N} 张，共 ${page.total.toLocaleString()} 张 · <a href="#/task/${esc(t.id)}/preview">浏览全部</a></p>` : ''}
       </div>
       <aside class="fl-panel"><h2>${run ? '正在建立分组' : '本次分组'}</h2><div id="sc-groups">${groupsHTML(t, sp)}</div></aside></div>
-      <footer class="fl-foot"><div class="fl-note">${ic('warn')}<div><b>${s.previewed ? '预览就绪即可开始筛选' : '等待第一批预览'}</b><p class="hint">${run ? '后台仍在生成预览和识别归类，您可以随时开始 Review。' : paused ? '扫描已暂停；已有的预览和识别结果都可以先 Review。' : '扫描已结束。识别归类只是建议，Review 时可以纠正。'}</p></div></div>
+      <footer class="fl-foot"><div class="fl-note">${ic('warn')}<div><b>${s.previewed ? '预览就绪即可开始筛选' : '等待第一批预览'}</b><p class="hint">${run ? '后台仍在生成预览和识别归类，您可以随时开始审片。' : paused ? '扫描已暂停；已有的预览和识别结果都可以先审片。' : '扫描已结束。识别归类只是建议，审片时可以纠正。'}</p></div></div>
         ${run ? `<button type="button" class="btn lg" data-action="task-pause" data-id="${esc(t.id)}">${ic('pause')}暂停扫描</button>` : paused ? `<button type="button" class="btn lg" data-action="task-resume" data-id="${esc(t.id)}">${ic('play')}继续扫描</button>` : ''}
-        <a class="btn primary lg${s.previewed ? '' : ' is-disabled'}" href="#/task/${esc(t.id)}/review" ${s.previewed ? '' : 'aria-disabled="true" tabindex="-1"'}>${ic('play')}开始 Review</a></footer>
+        <a class="btn primary lg${s.previewed ? '' : ' is-disabled'}" href="#/task/${esc(t.id)}/review" ${s.previewed ? '' : 'aria-disabled="true" tabindex="-1"'}>${ic('play')}开始审片</a></footer>
     </div>`;
   }
   async function pollScan() {
@@ -510,7 +510,7 @@
     Object.assign(fl, { task: t.id, concept: k && k.concept });
     const un = sp.unresolved.genus_family + sp.unresolved.unconfirmed;
     const first = fr.groups.find(g => !groupState(g).done) || fr.groups[0];
-    return `<div class="page fl fr">${flowHead(t, 'review', 'Review', `${taskDate(t)} · ${esc(t.title)} <span class="fl-dot">|</span> ${((t.review || {}).total || 0).toLocaleString()} 张 · ${sp.confirmed_total} 种已确认 · ${un} 张待鉴定`)}
+    return `<div class="page fl fr">${flowHead(t, 'review', '审片', `${taskDate(t)} · ${esc(t.title)} <span class="fl-dot">|</span> ${((t.review || {}).total || 0).toLocaleString()} 张 · ${sp.confirmed_total} 种已确认 · ${un} 张待鉴定`)}
       <div class="fr-body"><nav class="fr-rail" aria-label="本次拍到"><h2>本次拍到</h2>${railHTML(t, sp, k && k.concept)}</nav>
         <div class="fr-center" id="fr-center">${frCenterHTML()}</div>
         <aside class="fl-panel fr-rules" id="fr-rules">${frRulesHTML()}</aside></div>
@@ -635,7 +635,7 @@
     Object.assign(fl, { task: t.id, concept: p.concept });
     const sync = prefs.get('cmpsync', '1') === '1';
     return `<div class="page fl cp">
-      <header class="cp-head"><div><nav class="cp-crumbs" aria-label="位置"><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">Review</a><span>/</span><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">${esc(spName(k))}</a><span>/</span><h1 tabindex="-1">第 ${e.n} / ${list.length} 组</h1><span id="cp-badge">${cpBadge()}</span></nav>
+      <header class="cp-head"><div><nav class="cp-crumbs" aria-label="位置"><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">审片</a><span>/</span><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">${esc(spName(k))}</a><span>/</span><h1 tabindex="-1">第 ${e.n} / ${list.length} 组</h1><span id="cp-badge">${cpBadge()}</span></nav>
         <p class="hint">${esc((fmtTime((A(e.asset_ids[0]) || {}).taken_at) || '').slice(11))} · ${e.photos} 张 · ← → 换帧 · 1–5 打星即留 · Enter 完成这一组 · [ ] 上一组 / 下一组 · ${PREVIEW_NOTE}</p></div>
         <div class="cp-ctl"><div class="seg" role="group" aria-label="比较方式"><button type="button" class="seg-btn" data-action="cp-mode" data-v="2" aria-pressed="${cp.shown.length === 2}" ${other ? '' : 'disabled'}>${ic('compare')}双图比较</button><button type="button" class="seg-btn" data-action="cp-mode" data-v="1" aria-pressed="${cp.shown.length === 1}">${ic('lib')}单图</button></div>
           <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-sync ${sync ? 'checked' : ''}><span>同步缩放</span></label>
@@ -757,7 +757,7 @@
       after();
     } catch (e) { toast(errMsg(e)); }
   }
-  async function pollFlow() {                // Review 总览与比较：只取变化过的素材
+  async function pollFlow() {                // 审片总览与比较：只取变化过的素材
     if (!fl.task || !fl.concept) return;
     const items = await apiAll({ task: fl.task, concept: fl.concept, changed_after: fl.cursor });
     if (!items.length) return;
@@ -884,7 +884,7 @@
     const cell = (label, v, n, extra, active) => `<div class="phase${run && active ? ' is-active' : ''}${n && v >= n ? ' is-done' : ''}"><div class="phase-top"><span>${label}</span><b>${v}<small> / ${n}</small></b></div>${bar(pct(v, n))}${extra || ''}</div>`;
     return cell('发现素材', s.discovered || 0, s.discovered || 0, '', s.phase === 'discover') + cell('生成预览', s.previewed || 0, s.discovered || 0, '', s.phase === 'preview') +
       cell('AI 分析', s.analyzed || 0, s.total_analysis || 0, s.failed ? `<span class="phase-fail">${ic('warn')}${s.failed} 项失败</span>` : '', s.phase === 'analyze') +
-      `<div class="phase-note">${run ? '分析进行中也可以浏览和标记；新素材追加在末尾，不会打乱当前选择。' : '分析完成不等于 Review 完成。'}</div>`;
+      `<div class="phase-note">${run ? '分析进行中也可以浏览和标记；新素材追加在末尾，不会打乱当前选择。' : '分析完成不等于审片完成。'}</div>`;
   }
   function taskMoreHTML(t) {
     const b = (act, label, icon) => `<button type="button" class="btn sm ghost" data-action="${act}" data-id="${esc(t.id)}">${icon ? ic(icon) : ''}${label}</button>`;
@@ -905,7 +905,7 @@
         </div>
         <nav class="tabs" aria-label="任务视图">
           <a href="#/task/${esc(t.id)}/preview" ${tab === 'preview' ? 'aria-current="page"' : ''}>Preview <span class="count">${(t.scan || {}).discovered || 0}</span></a>
-          <a href="#/task/${esc(t.id)}/collections" ${tab === 'collections' ? 'aria-current="page"' : ''}>Collections <span class="count">${(t.review || {}).collections_total || 0}</span></a>
+          <a href="#/task/${esc(t.id)}/collections" ${tab === 'collections' ? 'aria-current="page"' : ''}>集合 <span class="count">${(t.review || {}).collections_total || 0}</span></a>
           <a href="#/task/${esc(t.id)}/runs" ${tab === 'runs' ? 'aria-current="page"' : ''}>运行历史 <span class="count">${(t.runs || []).length}</span></a>
           <a href="#/species/task/${esc(t.id)}">按物种看本次拍摄 →</a>
           <a href="#/import/${esc(t.id)}">完成与导入 →</a>
@@ -1049,14 +1049,15 @@
   function wsCountHTML() {
     const ws = ui.ws;
     if (!ws) return '';
-    return `<span class="hint">已载入 ${ws.all.length}${ws.loadedAll ? '' : ` / ${ws.total}`} 张${ws.ids.length !== ws.all.length ? ` · 显示 ${ws.ids.length} 张` : ''}</span>`;
+    const n = ws.loadedAll ? ws.all.length : ws.total;
+    return `<span class="hint" title="已载入 ${ws.all.length} 张${ws.ids.length !== ws.all.length ? `，连拍折叠后显示 ${ws.ids.length} 张` : ''}">${Number(n || 0).toLocaleString()} 张</span>`;
   }
   function batchHTML() {
     const ws = ui.ws;
     if (!ws) return '';
     const n = ws.sel.size;
     const manual = ws.kind === 'review' && ui.col && ui.col.kind === 'manual';
-    if (n < 2) return `<span class="hint">单击选择 · ⌘/Ctrl 或 Shift 多选 · 双击或空格看单张 · P 选入修图 / X 淘汰 / U 待定 / R 保留记录，1–5 星级 · G 网格 / E 单张 / C 比较 / F 全屏 / Z 原像素 · Tab 或 I 信息面板</span>${singleToolsHTML(ws)}`;
+    if (n < 2) return singleToolsHTML(ws);
     return `<span class="batch-n">已选 <b>${n}</b> 张 · ${ws.mode === 'loupe' ? '单张视图里快捷键只作用于当前这张' : '快捷键作用于全部已选'}</span>
       <button type="button" class="btn sm pick" data-action="batch" data-v="record" data-key="b-record">${ic('check')}保留记录</button>
       <button type="button" class="btn sm pick" data-action="batch" data-v="edit" data-key="b-edit">${ic('edit')}选入修图</button>
@@ -1639,7 +1640,7 @@
     if (c.review.changed_since) w.push(`<span class="note warn">${c.review.changed_since} 张内容已变化，旧判断见历史</span>`);
     return w.join('');
   }
-  const colKindText = c => `${c.group_kind ? GROUP[c.group_kind] || c.group_kind : '自建'} · ${c.kind === 'smart' ? 'Smart' : 'Manual'}${c.origin === 'auto' ? ' · 自动建议' : ''}`;
+  const colKindText = c => `${c.group_kind ? GROUP[c.group_kind] || c.group_kind : '自建'} · ${c.kind === 'smart' ? '智能' : '手动'}${c.origin === 'auto' ? ' · 自动建议' : ''}`;
   function montageHTML(c) {
     const ids = c.cover_ids.slice(0, 4);
     if (!ids.length) return '<div class="montage n1"><div class="ph ph-wait"><span class="ph-note">暂无成员</span></div></div>';
@@ -1734,7 +1735,7 @@
     const fresh = c.review.new_since;
     return `<article class="gc-card${c.uncertain ? ' is-warn' : ''}">
       <a class="gc-link" href="#/review/${esc(c.id)}" aria-label="打开「${esc(colTitle(c))}」">${gMontageHTML(c)}</a>
-      <div class="gc-body"><div class="gc-top"><h3><a href="#/review/${esc(c.id)}">${esc(colTitle(c))}</a></h3><span class="gc-kind">${c.kind === 'smart' ? 'Smart' : '手动'}</span>
+      <div class="gc-body"><div class="gc-top"><h3><a href="#/review/${esc(c.id)}">${esc(colTitle(c))}</a></h3><span class="gc-kind">${c.kind === 'smart' ? '智能' : '手动'}</span>
         <button type="button" class="icon-btn" data-action="edit-col" data-id="${esc(c.id)}" aria-label="编辑「${esc(colTitle(c))}」" title="改名与描述">${ic('edit')}</button></div>
         <p class="gc-n">${c.size.toLocaleString()} 张</p>
         <p class="gc-line">${esc(colLine(c))}</p>${fresh ? `<span class="gc-new">新增 ${fresh} 张</span>` : ''}</div></article>`;
@@ -1746,28 +1747,29 @@
     const by = { recent: c => c.updated_at || '', size: c => String(c.size).padStart(9, '0'), name: null }[ui.gcol.sort || 'recent'];
     const list = all.filter(c => (!cat || colCat(c) === cat) && (!kind || c.kind === kind) && (!q || colTitle(c).toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q)))
       .sort((x, y) => (by ? (by(y) > by(x) ? 1 : by(y) < by(x) ? -1 : 0) : colTitle(x).localeCompare(colTitle(y), 'zh')));
-    if (!list.length) return `<div class="empty">${all.length ? '没有符合条件的集合。' : cat === 'edit' ? '还没有待修图集合。在「所有照片」筛选「选入修图」，保存为 Smart Collection。' : '还没有集合。扫描后每次外拍会出现在「旅行」；也可以新建自己的集合。'}</div>`;
+    if (!list.length) return `<div class="empty">${all.length ? '没有符合条件的集合。' : cat === 'edit' ? '还没有待修图集合。在「图库」筛选「选入修图」，保存为智能集合。' : '还没有集合。扫描后每次外拍会出现在「旅行」；也可以新建自己的集合。'}</div>`;
     return `<div class="gc-grid">${list.map(gColCardHTML).join('')}</div>`;
   }
   async function vCollections(p) {
     await refreshCols();
     ui.gcol = Object.assign({ q: '', kind: '', sort: 'recent' }, ui.gcol || {});
-    const [title, sub] = p.cat ? CAT[p.cat] : ['Collections', '按旅行、主题和用途整理；同一张照片可以属于多个集合'];
+    const [title, sub] = p.cat ? CAT[p.cat] : ['集合', '按旅行、主题和用途整理；同一张照片可以属于多个集合'];
     return `<div class="page gc">
       <header class="gc-head"><div><h1 tabindex="-1">${esc(title)}</h1><p class="lede">${esc(sub)}</p></div>
-        <div class="head-actions"><a class="btn ghost sm" href="#/collections/deleted">${ic('trash')}已删除</a><button type="button" class="btn primary" data-action="new-col" data-id="">${ic('plus')}新建 Collection</button></div></header>
+        <div class="head-actions"><a class="btn ghost sm" href="#/collections/deleted">${ic('trash')}已删除</a><button type="button" class="btn primary" data-action="new-col" data-id="">${ic('plus')}新建集合</button></div></header>
+      <nav class="seg pillseg gc-cats" aria-label="集合分类">${[['', '全部']].concat(Object.entries(CAT).map(([k, v]) => [k, v[0]])).map(([k, l]) => `<a class="seg-btn" href="#/collections${k ? '/' + k : ''}" ${(p.cat || '') === k ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav>
       <form class="gc-tools" id="gc-tools" aria-label="筛选与排序" onsubmit="return false">
         <label class="wl-search">${ic('zoom')}<input class="input" type="search" name="q" value="${esc(ui.gcol.q)}" placeholder="搜索集合…" aria-label="搜索集合"></label>
-        <div class="seg pillseg" role="group" aria-label="集合类型">${[['', '全部'], ['smart', 'Smart'], ['manual', '手动']].map(([v, l]) => `<button type="button" class="seg-btn" data-action="gc-kind" data-v="${v}" aria-pressed="${ui.gcol.kind === v}">${l}</button>`).join('')}</div>
+        <div class="seg pillseg" role="group" aria-label="集合类型">${[['', '全部'], ['smart', '智能'], ['manual', '手动']].map(([v, l]) => `<button type="button" class="seg-btn" data-action="gc-kind" data-v="${v}" aria-pressed="${ui.gcol.kind === v}">${l}</button>`).join('')}</div>
         <select class="input" name="sort" aria-label="排序">${[['recent', '最近使用'], ['size', '照片最多'], ['name', '名称']].map(([k, l]) => `<option value="${k}" ${ui.gcol.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       </form>
       <div id="col-area">${colAreaHTML()}</div>
-      <footer class="gc-foot"><span><span class="gc-kind">Smart</span>按规则自动更新</span><span><span class="gc-kind">手动</span>自己选择成员</span><span class="gc-foot-r">同一张照片可以属于多个集合；删除集合不删除照片</span></footer>
+      <footer class="gc-foot"><span><span class="gc-kind">智能</span>按规则自动更新</span><span><span class="gc-kind">手动</span>自己选择成员</span><span class="gc-foot-r">同一张照片可以属于多个集合；删除集合不删除照片</span></footer>
     </div>`;
   }
   async function vDeleted() {
     const cols = await api('GET', '/collections', null, { deleted: '1' });
-    return `<div class="page"><a class="back" href="#/collections">${ic('left')}Collections</a>
+    return `<div class="page"><a class="back" href="#/collections">${ic('left')}集合</a>
       <header class="page-head"><div><h1 tabindex="-1">已删除的集合</h1><p class="lede">删除只去掉集合及成员关系；素材和全局 Flag/Star 不变，可随时恢复。</p></div></header>
       <div class="del-list">${cols.map(c => `<div class="del-row card"><div><b>${esc(c.name)}</b><p class="hint">${c.size} 张 · ${esc(colKindText(c))} · 删除于 ${esc(fmtTime(c.deleted_at))}</p></div><button type="button" class="btn sm" data-action="restore-col" data-id="${esc(c.id)}">恢复</button></div>`).join('') || '<div class="empty">没有已删除的集合。</div>'}</div></div>`;
   }
@@ -1785,7 +1787,7 @@
       <button type="button" class="btn sm ghost" data-action="export" data-key="export">${ic('download')}导出…</button>
       <button type="button" class="btn sm ghost" data-action="lr-handoff" data-key="lr-handoff">在 Lightroom 打开…</button>
       <button type="button" class="btn sm ghost" data-action="cleanup-col" data-key="cleanup-col">清理淘汰…</button>
-      ${c.kind === 'smart' ? '<button type="button" class="btn sm ghost" data-action="save-manual" data-key="save-manual">另存为 Manual…</button>' : ''}
+      ${c.kind === 'smart' ? '<button type="button" class="btn sm ghost" data-action="save-manual" data-key="save-manual">另存为手动…</button>' : ''}
       <button type="button" class="btn sm ghost" data-action="delete-col" data-key="delete-col">${ic('trash')}删除</button>
       <button type="button" class="btn sm" data-action="next-col" data-key="next-col">下一组${ic('right')}</button>`;
   }
@@ -1798,13 +1800,13 @@
     makeWs('review', { collection: c.id }, 'discovered', { colId: c.id, taskId: null, start: prefs.get('last.' + c.id, null) });
     return `<div class="wpage">
       <header class="rv-head">
-        <nav class="crumbs" aria-label="位置"><a href="#/collections">Collections</a>${t ? `<span aria-hidden="true">/</span><a href="#/task/${esc(t.id)}/collections">${esc(t.title)}</a>` : ''}<span aria-hidden="true">/</span><span>Review</span></nav>
+        <nav class="crumbs" aria-label="位置"><a href="#/collections">集合</a>${t ? `<span aria-hidden="true">/</span><a href="#/task/${esc(t.id)}/collections">${esc(t.title)}</a>` : ''}<span aria-hidden="true">/</span><span>审片</span></nav>
         <div class="rh-row">
           <div class="rh-title"><h1 tabindex="-1">${esc(c.name)}</h1><button type="button" class="icon-btn" data-action="edit-col" data-id="${esc(c.id)}" aria-label="编辑集合" title="改名与描述">${ic('edit')}</button><span class="hint">${esc(colKindText(c))}</span></div>
           <div class="rh-actions" data-bind="col-actions">${colActionsHTML(c)}</div>
         </div>
         ${c.description ? `<p class="col-desc">${esc(c.description)}</p>` : ''}
-        ${c.kind === 'smart' ? `<p class="hint">Smart 规则：<span class="mono">${esc(JSON.stringify(c.rule))}</span> · 成员按规则实时求值</p>` : ''}
+        ${c.kind === 'smart' ? `<p class="hint">智能规则：<span class="mono">${esc(JSON.stringify(c.rule))}</span> · 成员按规则实时求值</p>` : ''}
         <div class="rh-stats" data-bind="col-head">${colHeadHTML(c)}</div>
       </header>
       ${wsHTML()}
@@ -1823,7 +1825,7 @@
     const tasks = new Set(items.flatMap(a => (a.task_ids || []).slice(0, 1)));
     const tab = (k, l, n) => `<button type="button" class="seg-btn" data-action="cd-tab" data-v="${k}" aria-pressed="${cd.tab === k}">${l}（${n}）</button>`;
     return `<div class="page cdp">
-      <header class="cd-head"><div><div class="cd-title"><h1 tabindex="-1">${esc(colTitle(c))}</h1><span class="cd-kind">${smart ? 'Smart Collection' : c.batch ? '导入批次' : c.origin === 'auto' ? '拍摄批次' : '手动 Collection'}</span></div>
+      <header class="cd-head"><div><div class="cd-title"><h1 tabindex="-1">${esc(colTitle(c))}</h1><span class="cd-kind">${smart ? '智能集合' : c.batch ? '导入批次' : c.origin === 'auto' ? '拍摄批次' : '手动集合'}</span></div>
           <p class="fl-sub">${c.size.toLocaleString()} 张 · ${tasks.size} 次拍摄</p></div>
         <div class="cd-acts"><button type="button" class="btn lg" data-action="edit-col" data-id="${esc(c.id)}">${smart ? '编辑规则' : '编辑'}</button><a class="btn lg" href="#/review/${esc(c.id)}/grid">选择照片</a><button type="button" class="btn primary lg" data-action="lr-handoff">送到 Lightroom${ic('expand')}</button></div></header>
       <div class="cd-sub">${smart ? `<div class="cd-chips">${ruleParts(c.rule).map(([k, v]) => `<span class="cd-chip">${esc(k)}：${esc(v)}</span>`).join('') || '<span class="cd-chip">全部照片</span>'}</div><span class="hint">新增照片符合条件时，自动加入</span>` : `<span class="hint">${esc(colLine(c))}</span>`}
@@ -1905,9 +1907,9 @@
     return !!(last && k.confirmed && (k.task_ids || []).length === 1 && k.task_ids[0] === last.id && S.tasks.length > 1);
   }
   function spPanelHTML(k, task) {
-    if (!k) return '<div class="wl-panel-empty hint">选择一个物种查看它的 Collection。</div>';
+    if (!k) return '<div class="wl-panel-empty hint">选择一个物种查看它的集合。</div>';
     const tasks = (k.task_ids || []).map(id => taskById(id)).filter(Boolean);
-    return `<div class="wl-ph"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i></p><p class="hint">物种 Collection</p></div>${k.confirmed ? '<span class="tag ok">已确认</span>' : '<span class="tag warn">待确认</span>'}</div>
+    return `<div class="wl-ph"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i></p><p class="hint">物种集合</p></div>${k.confirmed ? '<span class="tag ok">已确认</span>' : '<span class="tag warn">待确认</span>'}</div>
       <div class="wl-pcover"><img src="${esc(mediaUrl(k.cover_id, 'large'))}" alt="" decoding="async"></div>
       <dl class="wl-facts">
         <dt>${ic('lib')}照片</dt><dd>${esc(spCount(k))}</dd>
@@ -1917,7 +1919,7 @@
         <dt>${ic('folder')}拍摄任务</dt><dd>${tasks.length ? tasks.map(t => esc(t.title)).join('、') : '—'}</dd>
       </dl>
       <p class="hint">${k.only_one ? '只有 1 张也单独成组；画质低也不会让卡片消失。' : '同一物种的新照片会自动加入。'}</p>
-      <a class="btn primary wide" href="${esc(speciesHref(k.concept, task))}">${ic('folder')}打开 Collection</a>`;
+      <a class="btn primary wide" href="${esc(speciesHref(k.concept, task))}">${ic('folder')}打开集合</a>`;
   }
   const SP_KINDS = [['', '全部'], ['bird', '鸟类'], ['mammal', '哺乳类'], ['other_animal', '其他']];
   const SP_SORT = [['new', '最近新增物种'], ['recent', '最近拍摄'], ['photos', '照片最多'], ['name', '名称']];
@@ -1933,7 +1935,7 @@
     const { lib, task } = ui.spv, sel = ui.spf.sel;
     const conf = spFiltered(lib.species), cand = spFiltered(lib.to_confirm);
     const grid = list => `<div class="wl-grid${ui.spf.view === 'list' ? ' as-list' : ''}">${list.map(k => speciesCardHTML(k, task, k.concept === sel)).join('')}</div>`;
-    return (conf.length ? grid(conf) : `<div class="empty">${lib.species.length ? '没有符合条件的已确认物种。' : lib.to_confirm.length ? '还没有经你确认的物种；下面是模型候选，确认后计入已拍到的种数。' : '还没有拍到野生动物的照片。先在「任务与导入」新建扫描，连接已有图库或存储卡。'}</div>`)
+    return (conf.length ? grid(conf) : `<div class="empty">${lib.species.length ? '没有符合条件的已确认物种。' : lib.to_confirm.length ? '还没有经你确认的物种；下面是模型候选，确认后计入已拍到的种数。' : '还没有拍到野生动物的照片。先点侧栏的「添加照片」，选一个文件夹或存储卡。'}</div>`)
       + (cand.length ? `<h2 class="wl-sec">待确认<span class="hint"> · ${lib.to_confirm.length} 种只有模型候选，不计入已拍到的种数</span></h2>${grid(cand)}` : '');
   }
   async function vSpecies(p) {
@@ -1969,7 +1971,7 @@
       </form>
       <div class="wl-body"><div class="wl-main" id="sp-grid">${spGridHTML()}</div>
         <aside class="wl-panel" id="sp-panel" aria-label="物种详情">${spPanelHTML(all.find(k => k.concept === ui.spf.sel), p.task)}</aside></div>
-      <p class="wl-foot">${ic('warn')}每个物种，一个 Collection；只有 1 张也单独展示。只有模型候选的物种标为「待确认」，不计入已拍到的种数。</p>
+      <p class="wl-foot">${ic('warn')}每个物种，一个集合；只有 1 张也单独展示。只有模型候选的物种标为「待确认」，不计入已拍到的种数。</p>
     </div>`;
   }
   function spRefresh() {
@@ -2039,10 +2041,10 @@
       return `<button type="button" class="fchip" data-action="lib-unset" data-k="${esc(k)}" aria-label="移除筛选 ${esc(t)}">${esc(t)}${ic('x')}</button>`;
     };
     makeWs('query', rule, f.order || 'time', Object.keys(rule).join() === 'task' ? { view: 'library', encQuery: { task: rule.task } } : { view: 'library' });
-    return `<div class="wpage">
+    return `<div class="wpage calm">
       <header class="rv-head">
-        <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">全部素材</h1><span class="hint">跨任务组合筛选；结果可直接 Review、保存为 Smart Collection 或导出。</span></div>
-          <div class="rh-actions"><button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button><button type="button" class="btn sm ghost" data-action="save-smart">保存为 Smart Collection…</button><button type="button" class="btn sm ghost" data-action="export">${ic('download')}导出…</button><button type="button" class="btn sm ghost" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></div>
+        <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">图库</h1></div>
+          <div class="rh-actions">${Object.keys(rule).length ? '<button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button>' : ''}<details class="more"><summary class="btn sm ghost" aria-label="更多操作">更多</summary><div class="more-menu"><button type="button" data-action="save-smart">把当前筛选存为智能集合…</button><button type="button" data-action="export">导出…</button><button type="button" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></details></div></div>
         <form class="filters" id="lib-filters" aria-label="组合筛选">
           <div class="lf-row">
             <div class="lf-search">${ic('zoom')}<select class="input sm" data-lib-sfield aria-label="搜索范围"><option value="species" ${sf === 'species' ? 'selected' : ''}>物种</option><option value="q" ${sf === 'q' ? 'selected' : ''}>文件名</option></select><input class="input sm" type="search" name="${sf}" value="${esc(f[sf] || '')}" placeholder="${sf === 'q' ? '文件名包含…' : '学名或俗名'}" aria-label="搜索${sf === 'q' ? '文件名' : '物种'}"></div>
@@ -2067,7 +2069,7 @@
     const tagName = id => { const t = tags.find(x => x.id === id); return t ? t.name : id; };
     const versions = settings.capability_versions || {};
     return `<div class="page"><div class="narrow wide">
-      <header class="page-head"><div><h1 tabindex="-1">管理</h1><p class="lede">能力与版本、扫描预设、默认运行模式、标签，以及数据与缓存位置。</p></div></header>
+      <header class="page-head"><div><h1 tabindex="-1">管理</h1><p class="lede">能力与版本、扫描预设、默认运行模式、标签，以及数据与缓存位置。</p></div><div class="head-actions"><a class="btn" href="#/tasks">扫描任务${S.tasks.some(t => t.scan && t.scan.status === 'running') ? ' · 正在扫描' : ''}</a></div></header>
       <section class="set-sec"><div class="sec-head"><h2>分析能力</h2><button type="button" class="btn sm" data-action="caps-check" id="caps-check">${ic('retry')}检查模型</button></div>
         <p class="hint">能力不直接绑定某个模型；每次运行记录所用版本。「检查模型」会试加载模型，可能需要一段时间。</p>
         <table class="tbl"><thead><tr><th>能力</th><th>版本</th><th>状态</th><th>说明</th></tr></thead><tbody>${caps.map(c => `<tr><td><b>${esc(c.name)}</b><small class="mono">${esc(c.id)}</small></td><td class="mono">${esc(c.version || versions[c.id] || '—')}</td><td>${pill({ available: '可用', unavailable: '不可用', unknown: '未检查' }[c.state] || c.state, c.state === 'available' ? 'ok' : c.state === 'unavailable' ? 'fail' : 'wait')}</td><td>${esc(c.reason || c.description)}</td></tr>`).join('')}</tbody></table></section>
@@ -2451,7 +2453,7 @@
       title: person ? '给人物命名' : '编辑集合', focus: '#ec-name',
       body: `${nameField}
         <div class="field"><label for="ec-desc">描述</label><textarea id="ec-desc" class="input" rows="3" maxlength="1000">${esc(c.description)}</textarea></div>
-        ${c.kind === 'smart' ? `${ruleFormHTML(c.rule || {})}<details class="ec-adv"><summary>高级：规则 JSON（键同所有照片的筛选）</summary><textarea id="ec-rule" class="input mono" rows="3" aria-label="规则 JSON">${esc(JSON.stringify(c.rule || {}))}</textarea></details><p id="ec-preview" class="note info block" aria-live="polite" hidden></p>` : ''}
+        ${c.kind === 'smart' ? `${ruleFormHTML(c.rule || {})}<details class="ec-adv"><summary>高级：规则 JSON（键同图库的筛选）</summary><textarea id="ec-rule" class="input mono" rows="3" aria-label="规则 JSON">${esc(JSON.stringify(c.rule || {}))}</textarea></details><p id="ec-preview" class="note info block" aria-live="polite" hidden></p>` : ''}
         <p class="hint">${person ? '命名后，这一组的脸成为此人的参考：所有任务里认出是此人的照片都归入这个名字的分组，以后的扫描也会直接加进来。名字与已有的人相同，就合并为同一个人。' : '改名不影响成员和人工标记；之后重新分组也不会覆盖人工命名。'}</p>`,
       actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, dd) => {
@@ -2598,7 +2600,7 @@
     const manual = S.cols.filter(c => (c.kind === 'manual' || c.origin === 'user') && (!ui.col || c.id !== ui.col.id));   // Smart：加入即手动固定（PRD §04）
     dialog({
       title: `把 ${ids.length} 张加入集合`,
-      body: `<div class="field"><label for="ac-col">已有集合</label><select id="ac-col" class="input"><option value="">新建 Manual 集合…</option>${manual.map(c => `<option value="${esc(c.id)}">${esc(c.name)}${c.kind === 'smart' ? '（Smart · 手动固定）' : ''}</option>`).join('')}</select></div>
+      body: `<div class="field"><label for="ac-col">已有集合</label><select id="ac-col" class="input"><option value="">新建手动集合…</option>${manual.map(c => `<option value="${esc(c.id)}">${esc(c.name)}${c.kind === 'smart' ? '（智能 · 手动固定）' : ''}</option>`).join('')}</select></div>
         <div class="field"><label for="ac-name">新集合名称</label><input id="ac-name" class="input" maxlength="80"></div><p class="hint">加入集合不改变 Flag/Star，不移动原片。</p>`,
       actions: [{ label: '加入', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => {
@@ -2676,8 +2678,8 @@
 
   // ---------- 路由 ----------
   const VIEWS = { inbox: vInbox, scan: vScan, 'flow-review': vFlowReview, compare: vCompare, tasks: vTasks, create: vCreate, task: vTask, review: vReview, collections: vCollections, deleted: vDeleted, library: vLibrary, settings: vSettings, species: vSpecies, 'species-one': vSpeciesOne };
-  const NAV_OF = { inbox: 'inbox', scan: 'inbox', 'flow-review': 'inbox', compare: 'inbox', tasks: 'tasks', create: 'tasks', task: 'tasks', review: 'collections', collections: 'collections', deleted: 'collections', library: 'library', settings: 'settings', species: 'species', 'species-one': 'species' };
-  const TITLES = { inbox: '待整理', scan: '扫描与归类', 'flow-review': 'Review', compare: '比较', tasks: '任务与导入', create: '新建扫描任务', task: '任务', review: 'Review', collections: 'Collections', deleted: '已删除的集合', library: '全部素材', settings: '管理', species: '物种', 'species-one': '物种' };
+  const NAV_OF = { inbox: 'inbox', scan: 'inbox', 'flow-review': 'inbox', compare: 'inbox', tasks: 'settings', create: 'settings', task: 'settings', review: 'collections', collections: 'collections', deleted: 'collections', library: 'library', settings: 'settings', species: 'species', 'species-one': 'species' };
+  const TITLES = { inbox: '待整理', scan: '扫描与归类', 'flow-review': '审片', compare: '比较', tasks: '扫描任务', create: '添加照片', task: '任务', review: '审片', collections: '集合', deleted: '已删除的集合', library: '图库', settings: '管理', species: '物种', 'species-one': '物种' };
   function parse() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
     switch (parts[0]) {
@@ -2702,7 +2704,7 @@
   }
   async function route(keepPos) {
     const p = parse();
-    if (!p) { location.replace(prefs.get('route', '#/inbox')); return; }
+    if (!p) { location.replace(prefs.get('route', '#/library')); return; }
     const [view, params] = p;
     const token = ++ui.token;
     $$('dialog[open]').forEach(d => d.close());
@@ -2721,7 +2723,7 @@
     const here = view === 'flow-review' && $('.fr-rail .is-here');   // 左栏各自滚动：换物种后当前这一行仍在视野里
     if (here) here.scrollIntoView({ block: 'nearest' });
     prefs.set('route', location.hash);
-    const navKey = view === 'collections' && params.cat ? 'col-' + params.cat : NAV_OF[view];
+    const navKey = NAV_OF[view];
     $$('.nav a').forEach(a => { if (a.dataset.nav === navKey) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     document.title = `${view === 'collections' && params.cat ? CAT[params.cat][0] : TITLES[view]} · Gardener`;
     const h = $('h1', main);
@@ -3032,14 +3034,14 @@
     'delete-col': () => { const c = ui.col; confirmDialog('删除集合？', `<p>删除「${esc(c.name)}」。只去掉集合和成员关系；素材与全局 Flag/Star 不变，可在「已删除」中恢复。</p>`, '删除集合', 'danger', async () => { await api('DELETE', `/collections/${encodeURIComponent(c.id)}`); toast(`已删除「${c.name}」`, { action: { label: '恢复', run: () => api('POST', `/collections/${encodeURIComponent(c.id)}/restore`).then(() => { location.hash = '#/review/' + c.id; }) } }); location.hash = c.task_id ? `#/task/${c.task_id}/collections` : '#/collections'; }); },
     'restore-col': async el => { try { await api('POST', `/collections/${encodeURIComponent(el.dataset.id)}/restore`); toast('已恢复'); route(true); } catch (e) { toast(errMsg(e)); } },
     'save-manual': () => dialog({
-      title: '另存为 Manual 集合', focus: '#sm-name',
+      title: '另存为手动集合', focus: '#sm-name',
       body: `<div class="field"><label for="sm-name">名称</label><input id="sm-name" class="input" maxlength="80" value="${esc(ui.col.name)}（固定）"></div><p class="hint">按当前规则结果固定成员；之后规则变化不影响新集合。</p>`,
       actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => { const c = await api('POST', `/collections/${encodeURIComponent(ui.col.id)}/save-as-manual`, { name: val(d, '#sm-name') }); toast('已另存'); location.hash = '#/review/' + c.id; },
     }),
     'split-col': () => { const ids = Array.from(ui.ws.sel); dialog({
       title: `把 ${ids.length} 张拆分为新集合`, focus: '#sp-name',
-      body: '<div class="field"><label for="sp-name">新集合名称</label><input id="sp-name" class="input" maxlength="80"></div><p class="hint">这些素材移出本组、进入新的 Manual 集合；标记不变。</p>',
+      body: '<div class="field"><label for="sp-name">新集合名称</label><input id="sp-name" class="input" maxlength="80"></div><p class="hint">这些素材移出本组、进入新的手动集合；标记不变。</p>',
       actions: [{ label: '拆分', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => { const name = val(d, '#sp-name'); if (!name) throw new Error('请填写名称'); const c = await api('POST', `/collections/${encodeURIComponent(ui.col.id)}/split`, { asset_ids: ids, name }); toast(`已拆分为「${c.name}」`, { action: { label: '打开', run: () => { location.hash = '#/review/' + c.id; } } }); await rerender(); },
     }); },
@@ -3051,14 +3053,14 @@
     'col-kind': el => { ui.colKind = el.dataset.f; route(true); },
     'gc-kind': el => { ui.gcol.kind = el.dataset.v; $$('[data-action="gc-kind"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === ui.gcol.kind))); setHTML($('#col-area'), colAreaHTML()); },
     'new-col': el => dialog({
-      title: '新建 Manual 集合', focus: '#nc-name',
-      body: '<div class="field"><label for="nc-name">名称</label><input id="nc-name" class="input" maxlength="80"></div><div class="field"><label for="nc-desc">描述</label><textarea id="nc-desc" class="input" rows="2"></textarea></div><p class="hint">之后在 Review 或全部素材中多选，用「加入集合…」添加成员。Smart Collection 从全部素材的筛选保存。</p>',
+      title: '新建手动集合', focus: '#nc-name',
+      body: '<div class="field"><label for="nc-name">名称</label><input id="nc-name" class="input" maxlength="80"></div><div class="field"><label for="nc-desc">描述</label><textarea id="nc-desc" class="input" rows="2"></textarea></div><p class="hint">之后在审片或全部素材中多选，用「加入集合…」添加成员。智能集合从全部素材的筛选保存。</p>',
       actions: [{ label: '创建', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => { const name = val(d, '#nc-name'); if (!name) throw new Error('请填写名称'); await api('POST', '/collections', { name, description: val(d, '#nc-desc'), kind: 'manual', task_id: el.dataset.id || undefined }); toast(`已创建「${name}」`); await rerender(); },
     }),
     'merge-cols': () => { const cols = scopeCols(); dialog({
       title: '合并集合',
-      body: `<fieldset class="fs merge-list"><legend>选择至少 2 个集合</legend>${cols.map(c => `<label class="radio-row"><input type="checkbox" name="mg" value="${esc(c.id)}"><span>${esc(c.name)}<small>${c.size} 张 · ${esc(colKindText(c))}</small></span></label>`).join('')}</fieldset><div class="field"><label for="mg-name">新集合名称</label><input id="mg-name" class="input" maxlength="80"></div><p class="hint">合并生成新的 Manual 集合，原集合软删除（可恢复）；标记不变。</p>`,
+      body: `<fieldset class="fs merge-list"><legend>选择至少 2 个集合</legend>${cols.map(c => `<label class="radio-row"><input type="checkbox" name="mg" value="${esc(c.id)}"><span>${esc(c.name)}<small>${c.size} 张 · ${esc(colKindText(c))}</small></span></label>`).join('')}</fieldset><div class="field"><label for="mg-name">新集合名称</label><input id="mg-name" class="input" maxlength="80"></div><p class="hint">合并生成新的手动集合，原集合软删除（可恢复）；标记不变。</p>`,
       actions: [{ label: '合并', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => { const ids = $$('input[name=mg]:checked', d).map(i => i.value); if (ids.length < 2) throw new Error('至少选择 2 个集合'); const c = await api('POST', `/collections/${encodeURIComponent(ids[0])}/merge`, { ids: ids.slice(1), name: val(d, '#mg-name') || undefined }); toast(`已合并为「${c.name}」`); await rerender(); },
     }); },
@@ -3074,7 +3076,7 @@
     'lib-unset': el => { delete ui.lib[el.dataset.k]; route(true); },
     'lib-more': el => { const m = $('#lib-more'); m.hidden = !m.hidden; el.setAttribute('aria-expanded', String(!m.hidden)); prefs.set('libmore', m.hidden ? '0' : '1'); },
     'save-smart': () => { const rule = libRule(); dialog({
-      title: '保存为 Smart Collection', focus: '#ss-name',
+      title: '保存为智能集合', focus: '#ss-name',
       body: `<div class="field"><label for="ss-name">名称</label><input id="ss-name" class="input" maxlength="80"></div><p class="hint">规则：<span class="mono">${esc(JSON.stringify(rule))}</span>。成员按规则实时求值；完成审阅时记录快照，之后新增显示「新增待审」。</p>`,
       actions: [{ label: '保存', value: 'ok', kind: 'primary' }],
       onSubmit: async (v, d) => { const name = val(d, '#ss-name'); if (!name) throw new Error('请填写名称'); const c = await api('POST', '/collections', { name, kind: 'smart', rule }); await refreshCols(); toast(`已保存「${c.name}」`, { action: { label: '打开', run: () => { location.hash = '#/review/' + c.id; } } }); },
@@ -3139,7 +3141,7 @@
       <figcaption><span class="im-ck u-${esc(a.use)}">${ic(a.use === 'reject' ? 'x' : a.use === 'pending' ? 'warn' : 'check')}</span><span><small>${esc(useZh(a.use))}</small><b>${esc(a.species ? a.species.zh || a.species.common || a.species.taxon : a.name)}</b></span><span class="sc-fmt">${esc(fmtOf(a))}</span></figcaption></figure>`; };
     return `<header class="im-head"><div><h2>${tab[3]}</h2><p class="hint">${imp.tab === 'pending' && imp.plan && !imp.plan.include_pending ? '本次计划不复制待定照片；之后继续判断' : tab[4]}</p></div><span class="hint">共 ${n.toLocaleString()} 张</span></header>
       <div class="im-grid">${imp.items.map(card).join('') || `<div class="empty">没有${esc(tab[1])}的照片。</div>`}</div>
-      ${n > imp.items.length ? `<p class="hint sc-more">显示前 ${imp.items.length} 张 · <a href="#/library" data-action="lib-preset" data-filter="use" data-value="${esc(imp.tab)}" data-task="${esc(imp.task.id)}">在所有照片中查看全部 ${n.toLocaleString()} 张</a></p>` : ''}`;
+      ${n > imp.items.length ? `<p class="hint sc-more">显示前 ${imp.items.length} 张 · <a href="#/library" data-action="lib-preset" data-filter="use" data-value="${esc(imp.tab)}" data-task="${esc(imp.task.id)}">在图库中查看全部 ${n.toLocaleString()} 张</a></p>` : ''}`;
   }
   function importFormHTML(last) {
     return `<h2>确认导入</h2><div class="im-form">
@@ -3170,7 +3172,7 @@
       ${p.status === 'planned' || !runnable ? '' : ''}
       ${busy || p.status !== 'planned' ? importProgressHTML(p) : ''}
       ${runnable && !p.stale ? `<button type="button" class="btn primary wide" data-action="import-run" data-id="${esc(p.id)}" ${p.enough_space ? '' : 'disabled'}>${p.status === 'planned' ? `确认导入 ${(p.assets || 0).toLocaleString()} 张` : '继续导入未完成项'}</button>` : ''}
-      <a class="btn wide" href="#/task/${esc(p.task_id)}/review">继续 Review</a>`;
+      <a class="btn wide" href="#/task/${esc(p.task_id)}/review">继续审片</a>`;
   }
   // 已在库中或之前导入过的文件沿用原路径：说清这次实际复制多少，不让新目标看起来会收到全部副本
   function impCopyLine(p) {
@@ -3215,8 +3217,8 @@
         <dt>未复制</dt><dd>淘汰 ${nc.reject || 0} 张${nc.pending ? ` · 待定 ${nc.pending} 张` : ''}；来源未做任何改动</dd>
         ${p.interruptions ? `<dt>中断</dt><dd>${p.interruptions} 次，已从未完成项继续</dd>` : ''}</dl>
       ${fails.length ? `<p class="ai-fail">${ic('warn')}${g.files_failed} 个文件失败（部分完成，不是成功）：</p><ul class="hist">${fails.map(f => `<li class="mono">${esc(f.path)} · ${esc(f.error)}</li>`).join('')}</ul>` : ''}
-      ${p.status === 'completed' ? '<p class="hint">下一步：继续 Review；待定照片改为选入修图时只更新用途，不移动已导入的文件。</p>' : ''}
-      ${p.collection_id ? `<p><a href="#/review/${esc(encodeURIComponent(p.collection_id))}">${ic('check')}本批次已存为 Collection「${esc(p.folder)}」→</a></p>` : g.assets_done && !busyImport(p) ? `<button type="button" class="btn sm" data-action="import-collection" data-id="${esc(p.id)}">存为 Collection</button>` : ''}</section>`;
+      ${p.status === 'completed' ? '<p class="hint">下一步：继续审片；待定照片改为选入修图时只更新用途，不移动已导入的文件。</p>' : ''}
+      ${p.collection_id ? `<p><a href="#/review/${esc(encodeURIComponent(p.collection_id))}">${ic('check')}本批次已存为集合「${esc(p.folder)}」→</a></p>` : g.assets_done && !busyImport(p) ? `<button type="button" class="btn sm" data-action="import-collection" data-id="${esc(p.id)}">存为集合</button>` : ''}</section>`;
   }
   // 契约修订 7B：完成页的物种统计（新增物种、已有物种补充、待确认候选、唯一记录影响），每项链到本次拍摄的该物种照片。
   const busyImport = p => ['queued', 'running'].includes(p.status);
@@ -3250,7 +3252,7 @@
     },
     'import-collection': async el => {
       el.disabled = true;
-      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/collection`); impPaint(); toast('已存为 Collection'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
+      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/collection`); impPaint(); toast('已存为集合'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
     },
     'imp-tab': async el => {
       imp.tab = el.dataset.v;
@@ -3261,7 +3263,7 @@
     'imp-dest': () => { imp.plan = null; impPaint(); const p = $('#imp-dest'); if (p) p.focus(); },
     'import-run': async el => {
       el.disabled = true;
-      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/run`); impPaint(); toast('已开始导入；可以继续 Review'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
+      try { imp.plan = await api('POST', `/imports/${encodeURIComponent(el.dataset.id)}/run`); impPaint(); toast('已开始导入；可以继续审片'); } catch (e) { toast(errMsg(e)); el.disabled = false; }
     },
   });
   document.addEventListener('change', async e => {
@@ -3631,7 +3633,7 @@
       : !l ? '<div class="grid-empty">选择左侧的文件夹，浏览里面的照片与视频。</div>'
         : fsv.items.length ? fsv.items.map(fsTile).join('') : `<div class="grid-empty">这个文件夹里没有照片或视频${l.dirs.length ? '，看看子文件夹' : ''}。</div>`;
     return `<div class="wpage"><div class="ws lib fs mode-${esc(fsv.mode)} grid-${esc(prefs.get('grid', 'm'))}">
-      <div class="lib-bar"><h1 tabindex="-1">本地目录</h1>${head}<div class="ws-tools"><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button></div></div>
+      <div class="lib-bar"><h1 tabindex="-1">文件夹</h1>${head}<div class="ws-tools"><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button></div></div>
       <p class="fs-note">${ic('warn')}只浏览：不导入、不复制、不移动文件，也不写入 Gardener 的记录。要整理这些照片，请新建扫描任务。</p>
       <div class="lib-body"><nav class="lib-side fs-tree" id="fs-tree" aria-label="文件夹">${fsTreeHTML()}</nav>
         <section class="ws-pane" aria-label="照片"><div class="lib-loupe" id="fs-loupe"></div>
@@ -3693,7 +3695,7 @@
   }
   Object.assign(VIEWS, { fs: vFs });
   Object.assign(NAV_OF, { fs: 'fs' });
-  Object.assign(TITLES, { fs: '本地目录' });
+  Object.assign(TITLES, { fs: '文件夹' });
   Object.assign(ACTIONS, {
     'fs-mode': el => fsMode(el.dataset.v),
     'fs-toggle': async el => {

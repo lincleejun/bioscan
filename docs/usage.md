@@ -271,9 +271,9 @@ Gardener marks a photo exported only from that result. A photo whose develop set
 Gardener applied a preset is skipped and reported, never overwritten. Export takes a Hard Drive export preset (a preset of
 another plug-in's export service is refused). Checked in Lightroom Classic 14.2 (契约修订 7B). Rules: `docs/gardener/contract.md`, 契约修订 5E.
 
-### Gardener: 本地目录 (browse folders on disk)
+### Gardener: 文件夹 (browse folders on disk)
 
-「本地目录」 in the left nav of the Gardener UI (`gardener serve`) browses what is already on disk without importing it. It shows
+「文件夹」 in the left nav of the Gardener UI (`gardener serve`) browses what is already on disk without importing it. It shows
 `~/Pictures`, `~/Documents`, `~/Desktop`, `~/Downloads`, every volume mounted under `/Volumes` (memory cards, external
 disks; a symlink there such as `Macintosh HD -> /` is not a volume) and the service's `--allow-root` folders, nothing else.
 Pick a folder in the tree on the left; the right side shows its photos and videos (same file types and RAW+JPEG pairing

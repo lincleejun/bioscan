@@ -50,11 +50,16 @@ def test_localstorage_only_holds_ui_preferences():
 
 
 def test_nav_order():
-    # PRD §05: 待整理 · 所有照片 · (本地目录, 契约修订 12) · Collections (Wildlife · 旅行 · 精选 · 待修图) · 任务与导入
-    assert re.findall(r'data-nav="([\w-]+)"', text("index.html")) == [
-        "inbox", "library", "fs", "collections", "species", "col-trip", "col-featured", "col-edit", "tasks", "settings"]
+    # ADR 0004: the library first, nouns only; 待整理 shows only while a batch is there; tasks live under 管理
+    assert re.findall(r'data-nav="([\w-]+)"', text("index.html")) == ["library", "fs", "species", "collections", "inbox", "settings"]
     labels = re.findall(r'data-nav="[\w-]+"[^>]*>.*?</svg>([^<]+)<', text("index.html"))
-    assert labels == ["待整理", "所有照片", "本地目录", "Collections", "Wildlife", "旅行", "精选", "待修图", "任务与导入", "管理"]
+    assert labels == ["图库", "文件夹", "物种", "集合", "待整理", "管理"]
+    assert "prefs.get('route', '#/library')" in text("app.js")
+    assert 'href="#/tasks">扫描任务' in text("app.js") and 'href="#/new" class="nav-add"' in text("index.html")   # both still reachable
+    assert '.nav a[data-nav="inbox"]:not([aria-current="page"]):not(:has(.nav-has, .nav-n)) { display: none; }' in text("styles.css")
+    # one language: no English product nouns in what a user reads (comments aside)
+    code = "\n".join(line.partition("   // ")[0] for line in text("app.js").split("\n") if not line.lstrip().startswith("//"))
+    assert not re.findall(r"(?<![A-Za-z])(?:Review|Collections?|Smart|Manual)(?![A-Za-z])", code)
 
 
 @pytest.mark.parametrize("phrase", [

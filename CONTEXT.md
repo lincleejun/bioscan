@@ -380,7 +380,7 @@ _Avoid_: smoothing, consensus model
 **Subject run** (同一对象):
 Adjacent bursts of one task that show the same subject (same **main species**, close in time, similar size;
 `review.subject_runs`), named by the run's first photo. Computed on read, never stored: a hint drawn as a frame
-around those bursts in Review, 所有照片 and the species page, with a one-step merge; the burst stays the unit decided on.
+around those bursts in 审片 (review), 图库 (the library) and the species page, with a one-step merge; the burst stays the unit decided on.
 _Avoid_: sequence, encounter (an encounter is wider and stored)
 
 **Main species** (照片的物种):
