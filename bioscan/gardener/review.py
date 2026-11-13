@@ -10,6 +10,7 @@ import math
 from datetime import datetime
 from typing import Any
 
+from bioscan.gardener import identities
 from bioscan.gardener import store as st
 from bioscan.gardener.query import IN_TASK_REP
 from bioscan.gardener.store import now
@@ -109,21 +110,16 @@ RUN_SHARE = 0.6        # a group's subject: the species this share of its frames
 
 def subject_runs(c: Any, task_id: str) -> dict[str, str]:
     """asset id -> subject run (修订 13): the task's groups (bursts and single photos) in time order, where
-    adjacent groups join into one run when they show the same subject: the same species on the main animal
-    (the largest box) of RUN_SHARE of each group's frames, at most RUN_GAP_S apart, the subject's size within a
-    factor of RUN_SIZE. Computed from the current identifications (so a person's correction moves it), never
+    adjacent groups join into one run when they show the same subject: the same main species (修订 17,
+    identities.main_subjects) on RUN_SHARE of each group's frames, at most RUN_GAP_S apart, the main subject's size
+    within a factor of RUN_SIZE. Computed from the current identifications (so a person's correction moves it), never
     stored: a run is a hint that groups belong together, the group stays the unit a person decides on."""
     rows = [dict(r) for r in c.execute(
         "SELECT a.id, a.taken_at, s.burst_id FROM task_assets ta JOIN assets a ON a.id = ta.asset_id LEFT JOIN "
         "current_suggestions s ON s.asset_id = a.id WHERE ta.task_id = ? "
         f"AND {IN_TASK_REP} AND a.taken_at IS NOT NULL ORDER BY a.taken_at, a.id", (task_id, task_id))]
-    main: dict[str, tuple[float, str | None]] = {}          # asset -> (area, species concept) of its largest subject
-    for r in c.execute("SELECT ci.asset_id, s.xyxy, ci.level, ci.concept FROM current_ids ci JOIN subjects s ON s.id = "
-                       "ci.subject_id JOIN task_assets ta ON ta.asset_id = ci.asset_id WHERE ta.task_id = ?", (task_id,)):
-        x0, y0, x1, y1 = st.loads(r[1])
-        area = max(0.0, x1 - x0) * max(0.0, y1 - y0)
-        if area > main.get(r[0], (-1.0, None))[0]:
-            main[r[0]] = (area, r[3] if r[2] == "species" else None)
+    main = {a: (r["area"], r["concept"] if r["level"] == "species" else None)    # asset -> its main subject's
+            for a, r in identities.main_subjects(c, [r["id"] for r in rows]).items()}    # (area, species concept)
     groups: list[list[dict[str, Any]]] = []
     at: dict[str, int] = {}
     for r in rows:                                  # a burst's frames are one group even with another photo between
