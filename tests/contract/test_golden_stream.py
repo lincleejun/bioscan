@@ -1,4 +1,4 @@
-"""Golden streams: what /run, /products, the settings fingerprint and `bioscan eval` produce on the
+"""Golden streams: what /run, /products, the settings fingerprint and `gardener-engine eval` produce on the
 fake-adapter Engine, recorded once and compared byte for byte, so a refactor of the service (the
 plugin migration, docs/research/2026-09-24-plugin-architecture.md) cannot change a byte of output
 unnoticed.
@@ -9,7 +9,7 @@ test's tmp folder becomes `<tmp>`, and a Python object address in an error messa
 The cases run in order on ONE engine and one client (chunk 2): the engine's loaded state is part of
 what a stream reports (`engine.models.names`), so the order is part of the recording.
 
-Re-record only on purpose (a reviewed output change): BIOSCAN_REGOLDEN=1 uv run pytest tests/contract/test_golden_stream.py
+Re-record only on purpose (a reviewed output change): GARDENER_ENGINE_REGOLDEN=1 uv run pytest tests/contract/test_golden_stream.py
 """
 import json
 import os
@@ -19,11 +19,11 @@ from pathlib import Path
 import pytest
 from conftest import FAIL_SIZE, Fakes, client_for, make_jpg
 
-from bioscan import naming
+from gardener import naming
 
 GOLDEN = Path(__file__).parent / "golden"
 REPO = str(Path(__file__).resolve().parents[2])
-REGOLDEN = os.environ.get("BIOSCAN_REGOLDEN") == "1"
+REGOLDEN = os.environ.get("GARDENER_ENGINE_REGOLDEN") == "1"
 TMP = "<tmp>"
 
 
@@ -48,7 +48,7 @@ def check(name: str, got: str) -> None:
     if REGOLDEN:
         path.parent.mkdir(exist_ok=True)
         path.write_text(got, encoding="utf-8")
-    assert path.is_file(), f"no golden {path}; record with BIOSCAN_REGOLDEN=1"
+    assert path.is_file(), f"no golden {path}; record with GARDENER_ENGINE_REGOLDEN=1"
     want = path.read_text(encoding="utf-8")
     assert got == want, f"{name} differs from its golden (diff the two; re-record only on purpose)"
 
@@ -165,15 +165,15 @@ def test_products_json_matches_golden(recorded):
 
 
 def test_settings_fingerprint_matches_golden():
-    from bioscan.service import settings
+    from gardener.service import settings
 
     check("fingerprint.txt", settings.fingerprint() + "\n")
 
 
 def test_eval_on_a_preds_file_matches_golden(recorded, tmp_path):
-    """`bioscan eval --preds` and `bench report` over a preds file made from the defaults stream."""
-    from bioscan.cli import bench
-    from bioscan.cli import eval as ev
+    """`gardener-engine eval --preds` and `bench report` over a preds file made from the defaults stream."""
+    from gardener.cli import bench
+    from gardener.cli import eval as ev
 
     stream = recorded["identify-defaults"].replace(TMP, recorded["_tmp"])
     events = [json.loads(line) for line in stream.splitlines()]

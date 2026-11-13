@@ -1,4 +1,4 @@
-"""Sort bird photos into one folder per species, by bioscan's own models only (no human, no LLM).
+"""Sort bird photos into one folder per species, by gardener's own models only (no human, no LLM).
 
     uv run python scripts/sort_birds.py run   --places places.csv --out OUT [--url URL]
     uv run python scripts/sort_birds.py plan  --out OUT --dest /Volumes/Media/bird
@@ -100,12 +100,12 @@ def cmd_run(a: argparse.Namespace) -> None:
         part = out.with_suffix(".part")
         print(f"run: {r['folder']}", flush=True)
         # main() returns its exit code; SystemExit passes it on (2 service down, 3 stream cut short)
-        cmd = [sys.executable, "-c", "from bioscan.cli.main import main; raise SystemExit(main())", "--url", a.url,
+        cmd = [sys.executable, "-c", "from gardener.cli.main import main; raise SystemExit(main())", "--url", a.url,
                "run", r["folder"], "-r",
                "--want", "identify,quality", "--lat", r["lat"], "--lon", r["lon"], "--json", "--out", str(part)]
         code = subprocess.run(cmd).returncode
         if code not in (0, 1):   # 1 = some images failed (e.g. a broken file): their error events are kept
-            sys.exit(f"bioscan run failed ({code}) on {r['folder']}; rerun to resume")
+            sys.exit(f"gardener-engine run failed ({code}) on {r['folder']}; rerun to resume")
         part.rename(out)
 
 

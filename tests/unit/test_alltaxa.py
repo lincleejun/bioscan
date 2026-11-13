@@ -11,9 +11,9 @@ from test_accuracy import Engine3, species, unit
 from test_batch import OPTS, SWITCHES_OFF, Models, frame, g
 from test_names import FakeModel, FakeTokenizer, setup
 
-from bioscan import plugin
-from bioscan.service import candidates, pipeline, stages
-from bioscan.service import names as names_mod
+from gardener import plugin
+from gardener.service import candidates, pipeline, stages
+from gardener.service import names as names_mod
 
 ANIMAL = ["Animalia", "Chordata"]
 TOL = [
@@ -147,7 +147,7 @@ def test_load_lists_adds_it_and_survives_without_it(tmp_path, caplog):
 
 
 def test_engine_info_names_the_taxonomy():
-    from bioscan.service.engine import Engine
+    from gardener.service.engine import Engine
 
     e = Engine("cpu")
     e.names = {"other_animal": dataclasses.replace(Models12().names["other_animal"], source="TreeOfLife-200M @ x")}
@@ -255,7 +255,7 @@ def test_a_huge_all_taxa_list_never_takes_a_bird_box():
         common=other.common + [""] * 20000, tol_how=other.tol_how + ["exact"] * 20000,
         taxonomy=other.taxonomy + [["Animalia", "Arthropoda", "Insecta", "O", "F", "Padus", f"Padus s{i}"]
                                    for i in range(20000)])
-    from bioscan.service import rules
+    from gardener.service import rules
 
     z = {k: m.bioclip.logits([(204, 150, 1)], nl.matrix)[0] for k, nl in m.names.items()}
     assert rules.kind_of(rules.kind_evidence_logits(z)) == ("other_animal", True)   # two-way, it would win
@@ -265,7 +265,7 @@ def test_a_huge_all_taxa_list_never_takes_a_bird_box():
 
 
 def test_chance_top_is_the_expected_best_of_n_normals():
-    from bioscan.service import rules
+    from gardener.service import rules
 
     assert rules.chance_top(5) == pytest.approx((-1.16, -0.50, 0.0, 0.50, 1.16), abs=0.03)   # exact: +-1.163, +-0.495
     assert rules.chance_top(11131)[-1] == pytest.approx(3.86, abs=0.02)        # AviList
@@ -278,7 +278,7 @@ def test_size_corrected_kind_evidence_takes_the_list_size_out():
     list of pure noise. Uncorrected, the longer list wins nearly every draw by size alone; corrected,
     about half, rarely sure. With one real bird match 4.2 sd up, correction turns most such boxes back
     to bird."""
-    from bioscan.service import rules
+    from gardener.service import rules
 
     rng = np.random.default_rng(0)
     draws = [{"bird": rng.normal(size=1000) * 3, "other_animal": rng.normal(size=20000) * 3} for _ in range(200)]
@@ -300,7 +300,7 @@ def test_size_corrected_kind_check_against_a_padded_20k_all_taxa_list():
     """The padded case on synthetic logits: a bird box's logits over an 11-row bird list with a clear
     match and a 20,000-row all-taxa list of noise at the same spread. Uncorrected it goes to the
     all-taxa list, sure of it; corrected it stays a bird, sure of it. Off by default."""
-    from bioscan.service import rules
+    from gardener.service import rules
 
     rng = np.random.default_rng(7)
     bird = rng.normal(size=11) * 3
@@ -312,7 +312,7 @@ def test_size_corrected_kind_check_against_a_padded_20k_all_taxa_list():
 
 
 def test_the_size_correct_trial_is_an_identify_option_off_by_default():
-    from bioscan.plugins.identify import MANIFEST, TRIALS
+    from gardener.plugins.identify import MANIFEST, TRIALS
 
     assert TRIALS == {"kind_size_correct": False}
     assert MANIFEST.options["kind_size_correct"] == {"type": "boolean", "default": False}
@@ -322,7 +322,7 @@ def test_the_size_correct_trial_is_an_identify_option_off_by_default():
 
 
 def test_kind_check_evidence_per_list_equals_the_stacked_lists():
-    from bioscan.service import rules
+    from gardener.service import rules
 
     rng = np.random.default_rng(5)
     lists = {"bird": rng.normal(size=40) * 3, "mammal": rng.normal(size=7) * 3, "other_animal": rng.normal(size=900) * 3}
@@ -416,7 +416,7 @@ def test_candidates_keep_the_range_veto_and_the_mammal_prior():
     assert [c["scientific"] for c in top["species"]["top"]] == ["Corvus sierramadrensis"]  # Raven not allowed
     hare = Engine3(lambda c: unit([0, 0, 0, 0.2, 0.1, 1.0]))            # an unlabelled Lepus: genus back-off
     top = species(hare, "mammal", candidates=["Lepus", "Phoca"])["species"]["top"]
-    from bioscan.service.adapters import geo
+    from gardener.service.adapters import geo
 
     assert top[0]["scientific"] == "Lepus californicus" and top[0]["p_geo"] == geo.UNLABELLED_NEUTRAL
     top = species(hare, "mammal", candidates=["Lepus", "Phoca"], mammal_geo=False)["species"]["top"]
@@ -466,8 +466,8 @@ def test_products_describes_the_option():
 def test_run_and_eval_pass_candidates(tmp_path, monkeypatch):
     from test_cli_eval import PREDS, _fake_service, _gt
 
-    from bioscan.cli import eval as ev
-    from bioscan.cli import main as cli
+    from gardener.cli import eval as ev
+    from gardener.cli import main as cli
 
     (tmp_path / "a.jpg").write_bytes(b"")
     a = cli.parser().parse_args(["run", str(tmp_path), "--candidates", " Megascops kennicottii, Strigidae,,Bubo "])
@@ -492,7 +492,7 @@ def test_run_and_eval_pass_candidates(tmp_path, monkeypatch):
 
 
 def test_all_taxa_list_that_does_not_fit_on_the_device_is_dropped(caplog):
-    from bioscan.service import engine
+    from gardener.service import engine
 
     lists = Models12().names
 

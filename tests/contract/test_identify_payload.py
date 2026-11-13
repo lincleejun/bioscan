@@ -1,9 +1,9 @@
-"""Every identify payload /run emits conforms to bioscan/contract.py (as every event does to
+"""Every identify payload /run emits conforms to gardener/contract.py (as every event does to
 contract.missing_fields), with species on and off."""
 import pytest
 from conftest import events, make_jpg
 
-from bioscan import contract
+from gardener import contract
 
 
 @pytest.mark.parametrize("identify_opts", [{}, {"species": False}, {"top_k": 1, "geo": False},

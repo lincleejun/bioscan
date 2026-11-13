@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from bioscan.service import pipeline, rules
-from bioscan.service.adapters import geo
-from bioscan.service.engine import Engine, Loaders
-from bioscan.service.names import NameList
+from gardener.service import pipeline, rules
+from gardener.service.adapters import geo
+from gardener.service.engine import Engine, Loaders
+from gardener.service.names import NameList
 
 OFF = {"range_veto": False, "kind_check": False, "mammal_geo": False}
 

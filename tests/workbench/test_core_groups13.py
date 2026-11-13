@@ -1,0 +1,329 @@
+"""Contract revision 13: one name per burst (the burst vote), merging bursts, and grouping a task again from its
+stored results without files or models."""
+from __future__ import annotations
+
+import sqlite3
+
+from core_fixtures import *  # noqa: F403 - fixtures (env, fakes)
+from core_fixtures import create_task, owl_box, photos, wait_task, wait_until
+
+from gardener.workbench import analyze
+
+API = "/api/v1"
+OWL = "avibase:test-asio"
+WREN = dict(scientific="Nannus pacificus", common="Pacific Wren", concept="avibase:avibase-CF5B7A9D")
+TIT = dict(scientific="Parus major", common="Great Tit", concept="avibase:test-tit")
+
+
+def ids(c, **q):
+    return [i["id"] for i in c.get(f"{API}/assets", params=q | {"limit": 1000, "order": "time"}).json()["items"]]
+
+
+def scanned(c, src):
+    return wait_task(c, create_task(c, [str(src)])["id"])
+
+
+def names(c, aid):
+    return [(s["current"]["level"], s["current"]["concept"]) for s in c.get(f"{API}/assets/{aid}").json()["subjects"]]
+
+
+def run(c, t, what):
+    r = c.post(f"{API}/tasks/{t['id']}/{what}", json={})
+    assert r.status_code == 201, r.text
+    wait_until(lambda: c.get(f"{API}/runs/{r.json()['id']}").json()["status"] in ("completed", "partial"))
+    return c.get(f"{API}/runs/{r.json()['id']}").json()
+
+
+def burst(c, aid):
+    return c.get(f"{API}/assets/{aid}").json()["burst"] or {}
+
+
+def test_a_burst_takes_its_majority_name_and_a_person_or_a_second_bird_is_never_outvoted(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 6)                                                    # the fake cull: one burst
+    fakes.boxes["IMG_0001.jpg"] = [owl_box(level="genus")]            # the model stopped at the genus here
+    fakes.boxes["IMG_0003.jpg"] = [owl_box(**WREN)]                   # and called this frame something else
+    fakes.boxes["IMG_0004.jpg"] = [owl_box(), owl_box((0.6, 0.6, 0.7, 0.7), **TIT)]   # a small extra box, named once
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        assert [names(c, i) for i in a[:4]] == [[("species", OWL)]] * 4          # genus and the odd name: the owl
+        assert names(c, a[4]) == [("species", OWL), ("unconfirmed", None)]       # an extra box named once: 待鉴定
+        cards = c.get(f"{API}/species").json()["to_confirm"]
+        assert [(k["common"], k["photos"]) for k in cards] == [("Eastern Screech-Owl", 6)]
+        def rows():
+            with sqlite3.connect(env.data / "gardener.sqlite") as db:
+                return db.execute("SELECT count(*) FROM identifications").fetchone()[0]
+        written = rows()
+        run(c, t, "regroup")                                                     # idempotent: nothing new is written
+        assert rows() == written
+        # a person says the fourth frame is a wren: it stays a wren through every later vote
+        sid = c.get(f"{API}/assets/{a[3]}").json()["subjects"][0]["id"]
+        c.post(f"{API}/identifications", json={"subject_ids": [sid], "claim": {
+            "level": "species", "concept": WREN["concept"], "taxon": WREN["scientific"], "common": WREN["common"]}})
+        run(c, t, "rescan")
+        assert names(c, a[3]) == [("species", WREN["concept"])] and names(c, a[0]) == [("species", OWL)]
+
+
+def test_a_species_named_twice_in_a_burst_is_a_second_bird_and_a_split_gives_each_part_its_own_vote(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 5)
+    for n in ("IMG_0003.jpg", "IMG_0004.jpg"):
+        fakes.boxes[n] = [owl_box(**WREN)]
+    fakes.boxes["IMG_0002.jpg"] = [owl_box(level="genus")]
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        assert names(c, a[2]) == [("genus", None)] and names(c, a[3]) == [("species", WREN["concept"])]   # no vote
+        assert c.post(f"{API}/bursts/split", json={"at": a[3]}).status_code == 201
+        assert names(c, a[2]) == [("species", OWL)]                              # three frames, two owls: the owl
+        assert names(c, a[3]) == names(c, a[4]) == [("species", WREN["concept"])]
+
+
+def test_bursts_merge_into_one_that_survives_rescans_and_single_photos_can_join(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 5)
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[2]})                          # [a0 a1] [a2 a3 a4]
+        c.post(f"{API}/bursts/split", json={"asset_ids": [a[4]]})                 # [a0 a1] [a2 a3] a4 alone
+        assert burst(c, a[4]) == {} and burst(c, a[0])["id"] != burst(c, a[2])["id"]
+        before = c.get(f"{API}/assets/{a[0]}").json()["updated_at"]
+        r = c.post(f"{API}/bursts/merge", json={"task_id": t["id"], "asset_ids": [a[0], a[4]]})
+        assert r.status_code == 201, r.text
+        m = r.json()
+        assert m["size"] == 3 and m["rep"] in (a[0], a[1], a[4])                  # a0's whole burst and the single
+
+        def check():
+            assert [burst(c, i)["id"] for i in (a[0], a[1], a[4])] == [m["burst_id"]] * 3
+            assert sorted(burst(c, i)["rank"] for i in (a[0], a[1], a[4])) == [1, 2, 3]
+            assert [(burst(c, i)["size"]) for i in (a[2], a[3])] == [2, 2] and burst(c, a[2])["id"] != m["burst_id"]
+
+        check()
+        assert a[1] in ids(c, task=t["id"], changed_after=before)                 # pollers see every moved frame
+        run(c, t, "rescan")
+        check()
+        run(c, t, "regroup")
+        check()
+        assert c.post(f"{API}/bursts/merge", json={"task_id": t["id"], "asset_ids": [a[0], a[1]]}).status_code == 400
+        assert c.post(f"{API}/bursts/merge", json={"task_id": t["id"], "asset_ids": [a[0]]}).status_code == 400
+        assert c.post(f"{API}/bursts/merge", json={"task_id": "t_none", "asset_ids": [a[0], a[2]]}).status_code == 404
+
+
+def test_regroup_reads_stored_results_only(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 3)
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        seen = len(fakes.analyzed)
+        for f in src.iterdir():
+            f.unlink()                                                            # the card is gone
+        r = run(c, t, "regroup")
+        assert r["kind"] == "regroup" and r["status"] in ("completed", "partial")
+        assert len(fakes.analyzed) == seen                                        # nothing was analysed again
+        assert burst(c, a[0])["size"] == 3 and len(c.get(f"{API}/assets/{a[0]}").json()["ai_history"]) == 2
+
+
+def test_the_reducer_is_told_about_quality_and_gardener_groups_wider_than_the_album_profile(monkeypatch):
+    def rows(times):
+        return [{"asset_id": f"a{i}", "path": f"a{i}", "taken_at": f"2026-01-01T00:00:{t:06.3f}", "camera": "X",
+                 "products": {"embed": {"vector": v}, "quality": {"subject": {"blur": 0.9 - 0.2 * i}}}}
+                for i, (t, v) in enumerate(times)]
+    like, unlike = [1.0, 0.0], [0.0, 1.0]
+    # a0-a1 one shutter press apart with unlike frames; a2 a re-press 3 s later, alike; a3 alike but 9 s later
+    out = analyze.reduce(rows([(0.0, like), (0.2, unlike), (3.2, unlike), (12.2, unlike)]), ["burst", "quality"])
+    assert [out[f"a{i}"]["burst"] and out[f"a{i}"]["burst"]["size"] for i in range(4)] == [3, 3, 3, None]
+    assert out["a2"]["burst"]["rank"] == 1                                        # the sharpest frame, not the first
+    assert analyze.burst_order(rows([(0.0, like), (0.2, like)])) == ["a1", "a0"]
+
+
+def test_photos_move_to_another_species_in_one_undoable_step(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 4)
+    fakes.boxes["IMG_0003.jpg"] = [owl_box(), owl_box((0.6, 0.6, 0.9, 0.9), **TIT)]
+    wren = {"level": "species", "concept": WREN["concept"], "taxon": WREN["scientific"], "common": WREN["common"]}
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        r = c.post(f"{API}/identifications/move", json={"asset_ids": a[:2], "from_concept": OWL, "claim": wren})
+        assert r.status_code == 200, r.text
+        assert len(r.json()["changed"]) == 2 and r.json()["batch_id"]
+        assert names(c, a[0]) == names(c, a[1]) == [("species", WREN["concept"])] and names(c, a[2]) == [("species", OWL)]
+        run(c, t, "regroup")                                          # a person's move is never outvoted by the burst
+        assert names(c, a[0]) == [("species", WREN["concept"])]
+        assert c.post(f"{API}/identifications/undo", json={"batch_id": r.json()["batch_id"]}).status_code == 200
+        assert names(c, a[0]) == [("species", OWL)]
+        # the whole card of a task: every subject called the owl, the second animal of the last photo stays
+        r = c.post(f"{API}/identifications/move", json={"task_id": t["id"], "from_concept": OWL, "claim": wren}).json()
+        assert len(r["changed"]) == 4 and names(c, a[3])[0] == ("species", WREN["concept"])
+        assert [k["common"] for k in c.get(f"{API}/species").json()["species"]] == ["Pacific Wren"]
+        # without from_concept only photos with a single animal move; nothing to move is an error, not a silent no-op
+        r = c.post(f"{API}/identifications/move", json={"asset_ids": [a[3]], "claim": {"level": "unconfirmed"}})
+        assert r.status_code == 400
+        assert c.post(f"{API}/identifications/move", json={"claim": wren}).status_code == 400
+        assert c.post(f"{API}/identifications/move", json={"asset_ids": a, "claim": {"level": "species"}}).status_code == 400
+
+
+def test_keep_best_within_only_rejects_the_frames_on_screen(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 5)                                                    # one burst
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        shown = a[:3]                                                 # the group on screen: three of the five frames
+        r = c.post(f"{API}/marks/keep-best", json={"asset_id": a[0], "dry_run": True, "within": shown}).json()
+        assert sorted(r["reject"]) == sorted(a[1:3]) and set(r["expect"]) == set(shown)
+        c.post(f"{API}/marks/keep-best", json={"asset_id": a[0], "keep_use": "record", "expect": r["expect"], "within": shown})
+        uses = [c.get(f"{API}/assets/{i}").json()["use"] for i in a]
+        assert uses == ["record", "reject", "reject", "pending", "pending"]
+        assert c.post(f"{API}/marks/keep-best", json={"asset_id": a[0], "within": "x"}).status_code == 400
+
+
+def test_a_thin_vote_fills_in_a_genus_but_never_replaces_a_species_and_a_lone_bird_named_once_keeps_its_name(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 4)
+    fakes.boxes["IMG_0002.jpg"] = [owl_box(level="genus")]
+    fakes.boxes["IMG_0003.jpg"] = [owl_box(**WREN)]                   # a lone bird, named once
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        # two owls against one wren: no majority (the runner-up has a third of the named frames), nothing changes
+        assert names(c, a[2]) == [("genus", None)] and names(c, a[3]) == [("species", WREN["concept"])]
+        # split the wren off: two owls and a genus are left, so the genus is filled in; the wren keeps its name
+        c.post(f"{API}/bursts/split", json={"asset_ids": [a[3]]})
+        assert names(c, a[2]) == [("species", OWL)] and names(c, a[3]) == [("species", WREN["concept"])]
+
+
+def test_adjacent_groups_of_the_same_subject_are_one_run_until_the_subject_or_the_time_changes(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 6)                                                    # a minute apart: the fake cull's one burst
+    for n in ("IMG_0004.jpg", "IMG_0005.jpg"):
+        fakes.boxes[n] = [owl_box(**WREN)]
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[4]})              # [owl x4] [wren x2]
+        c.post(f"{API}/bursts/split", json={"at": a[2]})              # [owl x2] [owl x2] [wren x2]
+
+        def runs(concept):
+            enc = c.get(f"{API}/encounters", params={"task": t["id"], "concept": concept}).json()["encounters"]
+            return {b["rep"]: b["run"] for e in enc for b in e["bursts"]}
+
+        owl = runs(OWL)
+        assert len(owl) == 2 and all(owl.values())
+        assert len(set(owl.values())) == 2                            # same owl, but a minute apart: two runs
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:     # the same frames, shot within seconds
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+        owl, wren = runs(OWL), runs(WREN["concept"])
+        assert len(set(owl.values())) == 1                            # two owl groups 5 s apart: one run
+        assert set(wren.values()).isdisjoint(owl.values())            # the wren group right after is another subject
+
+
+def test_a_species_page_without_a_task_gets_the_same_runs_named_by_their_first_photo(env, fakes, tmp_path):
+    """Revision 14: the species page lists a species over every task, so /encounters without `task` carries runs
+    too; a run is named by its first photo, so two tasks' runs never share a name."""
+    src = tmp_path / "card"
+    photos(src, 4)
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[2]})              # [owl x2] [owl x2]
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:     # shot within seconds: one run
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+
+        def runs(**q):
+            enc = c.get(f"{API}/encounters", params={"concept": OWL, **q}).json()["encounters"]
+            return [b["run"] for e in enc for b in e["bursts"]]
+
+        assert runs(task=t["id"]) == runs() == [a[0], a[0]]
+
+
+def test_a_photo_is_known_by_its_main_animal_on_its_tile_and_in_its_run(env, fakes, tmp_path):
+    """Revision 17: one rule for the photo's main species. The largest box's species wins over a small extra box's
+    higher probability; a species a person confirmed wins over the model's; the tile and 同一对象 read the same."""
+    src = tmp_path / "card"
+    photos(src, 2)
+    fakes.boxes["IMG_0000.jpg"] = [owl_box((0.1, 0.1, 0.6, 0.6), p=0.6), owl_box((0.7, 0.7, 0.8, 0.8), p=0.9, **WREN)]
+    fakes.boxes["IMG_0001.jpg"] = [owl_box((0.1, 0.1, 0.6, 0.6))]
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[1]})              # two groups, shot 5 s apart
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+
+        def tile(aid):
+            sp = next(i for i in c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"] if i["id"] == aid)
+            return sp["species"]["common"], sp["species"]["confirmed"]
+
+        def runs():
+            enc = c.get(f"{API}/encounters", params={"task": t["id"]}).json()["encounters"]
+            return {i: b["run"] for e in enc for b in e["bursts"] for i in b["asset_ids"]}
+
+        assert tile(a[0]) == ("Eastern Screech-Owl", False)          # the big owl (p 0.6), not the small wren (p 0.9)
+        assert runs()[a[0]] == runs()[a[1]]                            # owl, then owl: one run
+        small = c.get(f"{API}/assets/{a[0]}").json()["subjects"][1]["id"]
+        c.post(f"{API}/identifications", json={"subject_ids": [small], "claim": {
+            "level": "species", "concept": WREN["concept"], "taxon": WREN["scientific"], "common": WREN["common"]}})
+        assert tile(a[0]) == ("Pacific Wren", True)                    # a person's species wins, on any box
+        assert runs()[a[0]] != runs()[a[1]]                            # ... and 同一对象 follows it: wren, then owl
+
+
+def test_a_largest_box_at_genus_falls_back_to_the_largest_box_with_a_species(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 2)
+    for n in ("IMG_0000.jpg", "IMG_0001.jpg"):                       # the big bird stopped at the genus
+        fakes.boxes[n] = [owl_box((0.1, 0.1, 0.6, 0.6), level="genus"), owl_box((0.7, 0.7, 0.8, 0.8), **WREN)]
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        c.post(f"{API}/bursts/split", json={"at": a[1]})
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:
+            for i, aid in enumerate(a):
+                db.execute("UPDATE assets SET taken_at = ? WHERE id = ?", (f"2026-01-01T08:00:{i * 5:02d}", aid))
+        items = c.get(f"{API}/assets", params={"task": t["id"]}).json()["items"]
+        assert [i["species"]["common"] for i in items] == ["Pacific Wren"] * 2
+        enc = c.get(f"{API}/encounters", params={"task": t["id"]}).json()["encounters"]
+        assert len({b["run"] for e in enc for b in e["bursts"]}) == 1     # wren, then wren: one run
+
+
+def test_a_species_card_is_confirmed_in_one_undoable_step(env, fakes, tmp_path):
+    """「认对了，全部确认」: moving a species to itself turns every model candidate into a person's claim."""
+    src = tmp_path / "card"
+    photos(src, 3)
+    with env.client() as c:
+        t = scanned(c, src)
+        k = c.get(f"{API}/species", params={"task": t["id"]}).json()["to_confirm"][0]
+        claim = {"level": "species", "concept": k["concept"], "taxon": k["taxon"], "common": k["common"]}
+        r = c.post(f"{API}/identifications/move", json={"task_id": t["id"], "from_concept": k["concept"], "claim": claim})
+        assert r.status_code == 200 and len(r.json()["changed"]) == 3, r.text
+        sp = c.get(f"{API}/species", params={"task": t["id"]}).json()
+        assert sp["to_confirm"] == [] and [(x["concept"], x["candidates"]) for x in sp["species"]] == [(k["concept"], 0)]
+        assert c.post(f"{API}/identifications/undo", json={"batch_id": r.json()["batch_id"]}).status_code == 200
+        assert [x["concept"] for x in c.get(f"{API}/species", params={"task": t["id"]}).json()["to_confirm"]] == [k["concept"]]
+
+
+def test_done_keeps_what_is_undecided_and_leaves_a_persons_marks(env, fakes, tmp_path):
+    """完成 (#163): `only: "pending"` gives the use to photos without one; for a whole task with `task_id`."""
+    src = tmp_path / "card"
+    photos(src, 4)
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        use = lambda: [c.get(f"{API}/assets/{i}").json()["use"] for i in a]          # noqa: E731
+        assert c.post(f"{API}/marks", json={"asset_ids": [a[0]], "use": "reject"}).status_code == 200
+        assert c.post(f"{API}/marks", json={"asset_ids": [a[1]], "stars": 4}).status_code == 200
+        assert use() == ["reject", "record", "pending", "pending"]                   # a star keeps: 有星就留下
+        r = c.post(f"{API}/marks", json={"asset_ids": a[:3], "use": "record", "only": "pending"})
+        assert r.status_code == 200 and use() == ["reject", "record", "record", "pending"]
+        r = c.post(f"{API}/marks", json={"task_id": t["id"], "use": "record", "only": "pending"}).json()
+        assert use() == ["reject", "record", "record", "record"]
+        assert c.post(f"{API}/marks/undo", json={"batch_id": r["batch_id"]}).status_code == 200
+        assert use() == ["reject", "record", "record", "pending"]
+        assert c.post(f"{API}/marks", json={"task_id": "t_none", "use": "record"}).status_code == 404
+        assert c.post(f"{API}/marks", json={"asset_ids": a, "use": "record", "only": "all"}).status_code == 400

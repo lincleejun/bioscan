@@ -1,4 +1,4 @@
-"""`bioscan bench`: report.json, baselines, compare with budgets, failure analysis, scorecard.
+"""`gardener-engine bench`: report.json, baselines, compare with budgets, failure analysis, scorecard.
 Everything runs on fake preds files and ground truth; no service, no models."""
 import copy
 import json
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from bioscan.cli import bench
-from bioscan.cli import main as cli
+from gardener.cli import bench
+from gardener.cli import main as cli
 
 HERE = Path(__file__).resolve().parent
 STANDARDS = HERE / "fixtures" / "standards-example.toml"
@@ -245,9 +245,9 @@ def test_analyze_cli(tmp_path, capsys):
     assert cli.main(["bench", "report", preds, gt, "--out", str(tmp_path / "r.json"), *names_args(tmp_path)]) == 0
     assert cli.main(["bench", "analyze", str(tmp_path / "r.json"), "--md", str(tmp_path / "a.md"),
                      "--json", str(tmp_path / "a.json")]) == 0
-    assert "# bioscan bench analyze" in capsys.readouterr().out
+    assert "# gardener-engine bench analyze" in capsys.readouterr().out
     assert json.loads((tmp_path / "a.json").read_text())["schema"] == "bioscan-analysis"
-    assert (tmp_path / "a.md").read_text().startswith("# bioscan bench analyze")
+    assert (tmp_path / "a.md").read_text().startswith("# gardener-engine bench analyze")
 
 
 # ---- report / run / baseline CLI -------------------------------------------------------------
@@ -263,13 +263,13 @@ def test_bench_run_from_preds_writes_eval_outputs_and_report(tmp_path, capsys):
     preds, gt = write_case(tmp_path)
     assert cli.main(["bench", "run", gt, "--out", str(tmp_path / "run"), "--preds", preds, *names_args(tmp_path)]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("# bioscan eval report") and "report.json ->" in out
+    assert out.startswith("# gardener-engine eval report") and "report.json ->" in out
     assert (tmp_path / "run" / "report.md").is_file()
     assert bench.load_report(tmp_path / "run" / "report.json")["meta"]["preds"] == preds
 
 
 def test_bench_run_calls_the_service(tmp_path, monkeypatch):
-    from bioscan.cli import eval as ev
+    from gardener.cli import eval as ev
     _, gt = write_case(tmp_path)
     monkeypatch.setattr(ev.client, "health", lambda url: {"status": "ok"})
     monkeypatch.setattr(ev.client, "run", lambda payload, url: (json.dumps(e).encode() for e in events()[1:]))

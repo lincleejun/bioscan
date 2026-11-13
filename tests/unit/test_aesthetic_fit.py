@@ -1,11 +1,11 @@
-"""bioscan/aesthetic_fit.py on synthetic embeddings: a planted linear signal is recovered, the fit is
+"""gardener/aesthetic_fit.py on synthetic embeddings: a planted linear signal is recovered, the fit is
 seeded, the pull toward a prior head works, CV and the learning curve split by trip."""
 import numpy as np
 import pytest
 from aesthetic_helpers import random_head
 
-from bioscan import aesthetic as aes
-from bioscan import aesthetic_fit as fit
+from gardener import aesthetic as aes
+from gardener import aesthetic_fit as fit
 
 
 def synthetic(n=600, seed=0, noise=0.3, trips=12):

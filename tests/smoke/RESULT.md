@@ -1,6 +1,6 @@
 # 冒烟结果（2026-09-22）
 
-服务：`uv run bioscan-serve --port 8775`（8765 被本机正在运行的 PhotoOS 服务占用），MPS，fp32。
+服务：`uv run gardener-engine-serve --port 8775`（8765 被本机正在运行的 PhotoOS 服务占用），MPS，fp32。
 请求：`want=[identify,embed,jpg]`，5 张 ARW 一批，未给经纬度（照片无 GPS，所以无地理先验，`p_geo=null`）。
 脚本：`uv run python tests/smoke/run_smoke.py --url http://127.0.0.1:8775`。只看 JSON，未查看图片。
 

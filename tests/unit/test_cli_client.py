@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from bioscan.cli import client
+from gardener.cli import client
 
 EVENTS = [{"type": "progress", "product": "identify", "done": 1, "total": 1},
           {"type": "result", "path": "/a.jpg"},
@@ -59,7 +59,7 @@ def test_http_400_is_service_error(url):
 
 
 def test_unreachable_is_clear_error():
-    with pytest.raises(client.ServiceError, match="bioscan serve"):
+    with pytest.raises(client.ServiceError, match="gardener-engine serve"):
         client.health("http://127.0.0.1:1")
 
 

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from bioscan.service import pipeline, rules
-from bioscan.service.adapters.owlv2 import Detection
+from gardener.service import pipeline, rules
+from gardener.service.adapters.owlv2 import Detection
 
 
 def frame(size=(3000, 2000)) -> Image.Image:
@@ -52,7 +52,7 @@ class Engine:
 
 
 def test_identify_detail_changes_only_the_species_crop():
-    from bioscan.service.names import NameList
+    from gardener.service.names import NameList
 
     tax = [["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", f"Megascops {s}"]
            for s in ("kennicottii", "asio")]

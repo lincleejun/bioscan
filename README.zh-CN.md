@@ -1,4 +1,4 @@
-# bioscan
+# gardener
 
 [English](README.md) | **简体中文**
 
@@ -26,20 +26,20 @@ https://github.com/user-attachments/assets/19373e87-ed64-44d2-a2e5-7aa889ba4db7
 
 **美学评分**，通用头从未见过的 100 张 EVA 照片（每星 20 张，评分人意见一致）：与人群星级的 Spearman 0.877 [0.82, 0.92]，drop AUC 0.98，砍掉最低 20% 时 keeper 损失 0%。**相册挑片**规则只在合成废片集上测过（CI 照片做的 224 帧：拒绝召回 84%，精度 96%；欠曝召回 33%，低于 80% 的门槛）；真实相册上未验证。
 
-**场景类别**（album profile），Open Images V7 的 1,861 张 CC BY 照片，分 8 组（`data/scene/scene-v1.csv`）：用 album profile 的 40 个细标签（归入 8 组）加光线、环境和构图属性，组别总体正确率 75.0%（[#34](https://github.com/lincleejun/bioscan/issues/34)）：野生动物 93%，人物 89%，美食 80%（短提示词，[#45](https://github.com/lincleejun/bioscan/issues/45)），夜景 76%，建筑 74%，其他 72%，风景 68%，微距 47%（真菌和植物被当成动物，[#46](https://github.com/lincleejun/bioscan/issues/46)）。旧的 8 个标签为 70.6%。
+**场景类别**（album profile），Open Images V7 的 1,861 张 CC BY 照片，分 8 组（`data/scene/scene-v1.csv`）：用 album profile 的 40 个细标签（归入 8 组）加光线、环境和构图属性，组别总体正确率 75.0%（[#34](https://github.com/lincleejun/gardener/issues/34)）：野生动物 93%，人物 89%，美食 80%（短提示词，[#45](https://github.com/lincleejun/gardener/issues/45)），夜景 76%，建筑 74%，其他 72%，风景 68%，微距 47%（真菌和植物被当成动物，[#46](https://github.com/lincleejun/gardener/issues/46)）。旧的 8 个标签为 70.6%。
 
 **用 GPX 轨迹补 GPS**，由 golden 集生成的合成轨迹：中位误差 7 m，97% 在 100 m 内，无假定位。喂给物种识别后，GPX 位置和真 GPS 的答案完全一致（1625 张无一不同），比无坐标 Top-1 高 5.2 个百分点。
 
 ## 快速开始
 
 ```sh
-git clone https://github.com/lincleejun/bioscan && cd bioscan
+git clone https://github.com/lincleejun/gardener && cd gardener
 uv sync                                       # Python 3.12
 uv run python tests/models/download.py        # 固定版本的权重（约 7 GB）+ BirdNET 地理模型，一次
 # 名单：按 data/README.md 下载 AviList 和 MDD 的 CSV
-uv run bioscan names stats                    # 一次，需联网：把 3.26 GB 的 TreeOfLife 向量下载到 ~/.cache/huggingface 并建名单缓存
-uv run bioscan serve                          # 127.0.0.1:8765；模型常驻
-uv run bioscan run ~/Pictures/trip -r         # 每张一行，最后一个汇总
+uv run gardener-engine names stats                    # 一次，需联网：把 3.26 GB 的 TreeOfLife 向量下载到 ~/.cache/huggingface 并建名单缓存
+uv run gardener-engine serve                          # 127.0.0.1:8765；模型常驻
+uv run gardener-engine run ~/Pictures/trip -r         # 每张一行，最后一个汇总
 ```
 
 ```
@@ -54,14 +54,14 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 
 | | 命令 | 文档 |
 |---|---|---|
-| **识别**框和物种，定级为种 / 属 / 科 / unconfirmed；地理先验来自 EXIF GPS 或 `--lat/--lon`；`--candidates` 缩到候选类群 | `bioscan run DIR` | [usage.md](docs/usage.md)、[how-it-works.md](docs/how-it-works.md) |
-| **补 GPS**：用手表或手机的 GPX 轨迹；时钟偏差按相机（EXIF 品牌 + 型号）分别定，来自表盘照片或带 GPS 的照片；写 XMP sidecar | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
-| **挑片**：带理由的废片、连拍及其最佳一帧、每个场景类别的最佳照片、美学排序；HTML 审阅页、CSV、符号链接，可选把星级和颜色标签写进新的 XMP sidecar；从不删除 | `bioscan cull DIR -r --html review.html` | [album.md](docs/album.md) |
-| **汇总一次运行**：类别、物种和带规则理由的待审队列写成 `summary.json`，再渲染为 HTML 报告 | `bioscan summarize preds.ndjson --out run`, `bioscan report run` | [usage.md](docs/usage.md#run-summary-and-report) |
-| **给文件夹打分**：美学排序导出为 NDJSON、CSV 和/或 HTML 审片页（分类树可合并名称、保留/丢弃标记、大图灯箱）；`--species` 给动物命名（照片无 GPS 时用 `--lat/--lon` 给出位置）；状态、拒绝原因与豁免取自 album 配置的 `select`，与 `bioscan cull` 一致；可从 NDJSON 离线重新导出；`aesthetic apply` 把保留的原片拷出、丢弃的移到 `--drop-to DIR`（从不删除） | `bioscan aesthetic score DIR -r --species --export json,csv,html --out aes` | [album.md](docs/album.md) |
-| **个人美学**：用你的 Lightroom 星级拟合一个头，与通用头混合 | `bioscan aesthetic train --ratings DIR` | [album.md](docs/album.md) |
-| **Profile** `full`、`wildlife`、`album`，以及 `bioscan.toml` 里你自己的 | `bioscan run DIR --profile album` | [usage.md](docs/usage.md#profiles-and-bioscantoml) |
-| **评测**：从文件夹或 iNaturalist 建真值，带 Wilson 区间的报告，基线与回归预算，失败分类，对照标准的记分卡 | `bioscan eval`、`bioscan bench` | [development.md](docs/development.md)、[harness.md](docs/harness.md) |
+| **识别**框和物种，定级为种 / 属 / 科 / unconfirmed；地理先验来自 EXIF GPS 或 `--lat/--lon`；`--candidates` 缩到候选类群 | `gardener-engine run DIR` | [usage.md](docs/usage.md)、[how-it-works.md](docs/how-it-works.md) |
+| **补 GPS**：用手表或手机的 GPX 轨迹；时钟偏差按相机（EXIF 品牌 + 型号）分别定，来自表盘照片或带 GPS 的照片；写 XMP sidecar | `gardener-engine geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
+| **挑片**：带理由的废片、连拍及其最佳一帧、每个场景类别的最佳照片、美学排序；HTML 审阅页、CSV、符号链接，可选把星级和颜色标签写进新的 XMP sidecar；从不删除 | `gardener-engine cull DIR -r --html review.html` | [album.md](docs/album.md) |
+| **汇总一次运行**：类别、物种和带规则理由的待审队列写成 `summary.json`，再渲染为 HTML 报告 | `gardener-engine summarize preds.ndjson --out run`, `gardener-engine report run` | [usage.md](docs/usage.md#run-summary-and-report) |
+| **给文件夹打分**：美学排序导出为 NDJSON、CSV 和/或 HTML 审片页（分类树可合并名称、保留/丢弃标记、大图灯箱）；`--species` 给动物命名（照片无 GPS 时用 `--lat/--lon` 给出位置）；状态、拒绝原因与豁免取自 album 配置的 `select`，与 `gardener-engine cull` 一致；可从 NDJSON 离线重新导出；`aesthetic apply` 把保留的原片拷出、丢弃的移到 `--drop-to DIR`（从不删除） | `gardener-engine aesthetic score DIR -r --species --export json,csv,html --out aes` | [album.md](docs/album.md) |
+| **个人美学**：用你的 Lightroom 星级拟合一个头，与通用头混合 | `gardener-engine aesthetic train --ratings DIR` | [album.md](docs/album.md) |
+| **Profile** `full`、`wildlife`、`album`，以及 `gardener.toml` 里你自己的 | `gardener-engine run DIR --profile album` | [usage.md](docs/usage.md#profiles-and-gardenertoml) |
+| **评测**：从文件夹或 iNaturalist 建真值，带 Wilson 区间的报告，基线与回归预算，失败分类，对照标准的记分卡 | `gardener-engine eval`、`gardener-engine bench` | [development.md](docs/development.md)、[harness.md](docs/harness.md) |
 | **HTTP API**：`/run` 流式返回 NDJSON；`/health`、`/products`、`/apply`（审片页的拷出 / 删除） | `curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}]}'` | [usage.md](docs/usage.md#http-api) |
 
 模型：SigLIP2（门控、embed）、OWLv2（检测）、BioCLIP 2.5 Huge（物种）、BirdNET geo（地理先验）、AviList v2026 与 MDD v2.5 名单、TreeOfLife-200M 全类群名单。来源和许可：[docs/how-it-works.md](docs/how-it-works.md#pipeline)。
@@ -70,7 +70,7 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 
 - 物种准确率在上面的 golden 集上实测；`docs/standards.md` 的 v0.x 发布门槛还没达到（哺乳类的检出和 Top-5 不够）。
 - 其他动物（爬行类、鱼类、昆虫……）用 TreeOfLife 的名单命名，它缺很多爬行类和辐鳍鱼；它们没有地理先验。准确率只在 CI 的 18 张照片上测过。
-- 挑片规则、连拍分组和美学头在真实相册上未验证；`bioscan aesthetic eval` 可以量它和你自己星级的一致程度。
+- 挑片规则、连拍分组和美学头在真实相册上未验证；`gardener-engine aesthetic eval` 可以量它和你自己星级的一致程度。
 - 只在 macOS + MPS 和 CPU 上跑过；没有 CUDA 配置和 Dockerfile。
 - 完整清单：[docs/how-it-works.md#known-limitations-and-roadmap](docs/how-it-works.md#known-limitations-and-roadmap)。
 
@@ -80,14 +80,14 @@ DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
 
 | 文档 | 内容 |
 |---|---|
-| [docs/usage.md](docs/usage.md) | 安装、CLI、支持的 RAW 格式、端口与环境变量、候选类群、profile 与 `bioscan.toml`、运行汇总与报告、Lightroom Classic、HTTP API、退出码 |
+| [docs/usage.md](docs/usage.md) | 安装、CLI、支持的 RAW 格式、端口与环境变量、候选类群、profile 与 `gardener.toml`、运行汇总与报告、Lightroom Classic、HTTP API、退出码 |
 | [docs/how-it-works.md](docs/how-it-works.md) | 范围、流程、定级与准确率规则、模型与数据及许可、名字映射、已知局限 |
 | [docs/geotag.md](docs/geotag.md) | GPX 补 GPS：来源、时区、时钟偏差、定位规则、XMP、精度 |
-| [docs/album.md](docs/album.md) | 美学（通用头与个人头、评测、golden 集）和 `bioscan cull` |
+| [docs/album.md](docs/album.md) | 美学（通用头与个人头、评测、golden 集）和 `gardener-engine cull` |
 | [docs/results.md](docs/results.md) | 实测数字：v1.4 对 v1.5、自有照片、RAW 元数据、美学与挑片 |
 | [docs/standards.md](docs/standards.md) | 15 个维度的标准及其出处，发布阶段 |
 | [docs/development.md](docs/development.md) | 评测命令、评测框架简介、测试、CI、源码布局 |
-| [docs/harness.md](docs/harness.md) | `bioscan bench` 全貌：report.json 结构、compare、预算、analyze、scorecard、album 与美学 tier |
+| [docs/harness.md](docs/harness.md) | `gardener-engine bench` 全貌：report.json 结构、compare、预算、analyze、scorecard、album 与美学 tier |
 | [data/README.md](data/README.md) | 名单、全类群名单、golden 真值、美学头 |
 | [CONTEXT.md](CONTEXT.md) | 代码、测试和文档共用的领域术语 |
 

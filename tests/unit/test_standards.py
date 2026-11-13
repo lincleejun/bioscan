@@ -1,4 +1,4 @@
-"""data/standards.toml follows the schema `bioscan bench scorecard` reads (docs/standards.md). Stdlib only."""
+"""data/standards.toml follows the schema `gardener-engine bench scorecard` reads (docs/standards.md). Stdlib only."""
 import math
 import re
 import tomllib
@@ -29,7 +29,7 @@ PROFILES = {"wildlife", "album"}            # no profile = wildlife; full is hel
 
 def plugin_metrics() -> dict:
     """plugin -> {metric name: Metric} of the built-in plugins (stages and reducers)."""
-    from bioscan.plugins import BUILTIN, REDUCERS
+    from gardener.plugins import BUILTIN, REDUCERS
 
     return {m.name: {x.name: x for x in m.metrics} for m in (*BUILTIN, *REDUCERS) if m.metrics}
 VARIANTS = {"nogeo"}
@@ -124,7 +124,7 @@ def test_rates_are_fractions(s):
 
 
 def test_the_harness_reads_the_file():
-    from bioscan.cli import bench
+    from gardener.cli import bench
 
     assert len(bench.read_standards(PATH)) == len(standards())
 

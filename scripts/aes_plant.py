@@ -15,7 +15,7 @@ skipped), deterministically from the seed, and writes one copy of each kind to G
 | jpeg10 | JPEG quality 10 | lower score |
 
 "Same" means within 5 percentile points of the album's score distribution; "lower" means strictly
-below the original (`bioscan bench aesthetic score`). Rows are appended to images.csv with
+below the original (`gardener-engine bench aesthetic score`). Rows are appended to images.csv with
 `variant_of` and `variant`, copying split, trip and category; planted rows carry no stars, keep or
 group, so they never enter the ranking, pair, group or cull metrics. Refuses to run twice: the
 golden set is frozen once built.

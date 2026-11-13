@@ -1,4 +1,4 @@
-"""Gardener browse timings (AfterShooting PRD §14, contract revision 5C): hot-cache preview switches
+"""Gardener browse timings (Gardener PRD §14, contract revision 5C): hot-cache preview switches
 (GET /assets/{id}/large, target P95 <= 150 ms) and original-pixel detail crops (GET /assets/{id}/detail).
 
     uv run python scripts/gardener_detail_bench.py                 # synthetic 24 MP JPEGs
@@ -22,7 +22,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from bioscan.gardener.api import create_gardener_app
+from gardener.workbench.api import create_gardener_app
 
 API = "/api/v1"
 

@@ -1,4 +1,4 @@
-# Minimal example of the data/standards.toml schema (read by `bioscan bench scorecard`; docs/harness.md).
+# Minimal example of the data/standards.toml schema (read by `gardener-engine bench scorecard`; docs/harness.md).
 # Numbers are made up for the tests; the real bars live in data/standards.toml.
 # id = <dimension>.<tier>.<scope>.<metric>[.nogeo]; `tier` may also be given explicitly.
 # Rate metrics take unit "fraction" (0-1, as in the report); a missing industry/stretch means none.
@@ -14,7 +14,7 @@ industry = 0.90
 community = 0.10
 stretch = 0.95
 unit = "fraction"
-how = "bioscan bench run on the golden set; metrics.bird.top1"
+how = "gardener-engine bench run on the golden set; metrics.bird.top1"
 source = "example"
 
 [[standard]]
@@ -63,7 +63,7 @@ metric = "top1"
 op = ">="
 community = 0.05
 unit = "fraction"
-how = "bioscan bench run ... --no-geo"
+how = "gardener-engine bench run ... --no-geo"
 source = "example"
 
 [[standard]]
@@ -88,5 +88,5 @@ metric = "manual"
 op = ">="
 community = 11131
 unit = "species"
-how = "uv run bioscan names stats"
+how = "uv run gardener-engine names stats"
 source = "example"

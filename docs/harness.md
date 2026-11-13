@@ -1,6 +1,6 @@
-# Evaluation harness (`bioscan bench`)
+# Evaluation harness (`gardener-engine bench`)
 
-`bioscan eval` scores one run. The harness turns that run into data (`report.json`), keeps
+`gardener-engine eval` scores one run. The harness turns that run into data (`report.json`), keeps
 **baselines**, compares every new run with one under a **budget**, sorts what went wrong into
 **failure classes** with a pointer to the code to fix, and checks a report against the standards
 (`data/standards.toml`). It is standard library only, like the rest of the CLI, and reuses eval's
@@ -8,13 +8,13 @@ per-image scoring (`eval.outcome`), so eval's report.md and a report.json of the
 
 | Command | Does |
 |---|---|
-| `bench run GT.csv [--out DIR] [--no-geo] [--preds F] [--no-synonyms] [--tier T] [--names KIND=CSV]` | `bioscan eval` (writes `preds.ndjson` and `report.md`), then `report.json` in the same folder. Exit 3 when the stream was cut short, like eval |
+| `bench run GT.csv [--out DIR] [--no-geo] [--preds F] [--no-synonyms] [--tier T] [--names KIND=CSV]` | `gardener-engine eval` (writes `preds.ndjson` and `report.md`), then `report.json` in the same folder. Exit 3 when the stream was cut short, like eval |
 | `bench report PREDS GT.csv [--out FILE] [--tier T] [--no-synonyms] [--names KIND=CSV]` | Rebuilds `report.json` offline from an existing preds file (default: next to it) |
 | `bench baseline REPORT --name NAME [--dir D] [--force]` | Copies a report to `baselines/NAME.json`; refuses to replace one without `--force` |
 | `bench compare BASE NEW [--budget FILE] [--md OUT] [--json OUT]` | Deltas, paired images, McNemar, species changes, broken images, budget check. Exit 0 within budget, 1 over budget, 2 not comparable |
 | `bench analyze REPORT [--md OUT] [--json OUT] [--examples N]` | Failure classes with counts, shares, examples and fix pointers; top confusion pairs |
 | `bench scorecard REPORT [--standards FILE] [--tier T] [--md OUT]` | Each standard of the tier: bar, our value, pass/fail, gap. Exit 1 when a bar is missed, 2 when the file is invalid or the tier unknown |
-| `aesthetic eval RATINGS --out DIR [--head H] [--personal P] [--blend B] [--k K] [--curve SIZES]` | Agreement of the aesthetic score with the owner's stars and picks, per trip, plus the learning curve; report.json read by `scorecard` (tier `aesthetic-own`) ([below](#aesthetic-agreement-with-the-owner-bioscan-aesthetic-eval)) |
+| `aesthetic eval RATINGS --out DIR [--head H] [--personal P] [--blend B] [--k K] [--curve SIZES]` | Agreement of the aesthetic score with the owner's stars and picks, per trip, plus the learning curve; report.json read by `scorecard` (tier `aesthetic-own`) ([below](#aesthetic-agreement-with-the-owner-gardener-aesthetic-eval)) |
 | `bench aesthetic init\|score\|compare\|table` | Any aesthetic scorer (a scores file) against the frozen aesthetic golden set: shot-group winners, pairwise accuracy, keepers lost when culling, planted checks, slice residuals; paired compare under baselines/budget-aesthetic.toml; report.json read by `scorecard` (tier `aesthetic-golden`); `table` is the arena: N scorers ranked with their deviation from the labels ([below](#aesthetic-golden-set-bench-aesthetic)) |
 | `bench geotag DIR [--scenario S] [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--md OUT] [--json OUT] [--gt-out DIR]` | GPX geotagging scored on scenario folders (`scripts/geotag_synth.py`), with the `geotag` tier's scorecard; `--gt-out` writes the ground truth with GPX-derived lat/lon. Exit 1 when a bar is missed ([below](#geotag-gpx-geotagging-bench-geotag)) |
 
@@ -28,36 +28,36 @@ when present. A kind with no list leaves `in_list` null. The CSV may be avilist_
 **Baseline today.** Run the set once and keep the report:
 
 ```sh
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/2026-09-24-golden --tier golden
-bioscan bench baseline runs/2026-09-24-golden/report.json --name golden-inat-v1.5
+gardener-engine bench run data/inat/groundtruth-inat.csv --out runs/2026-09-24-golden --tier golden
+gardener-engine bench baseline runs/2026-09-24-golden/report.json --name golden-inat-v1.5
 git add baselines/golden-inat-v1.5.json && git commit -m "baseline: golden set at v1.5.0"
 ```
 
 **Compare tomorrow.** After a model swap or a code change, run again and compare:
 
 ```sh
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/2026-09-25-golden --tier golden
-bioscan bench compare baselines/golden-inat-v1.5.json runs/2026-09-25-golden/report.json \
+gardener-engine bench run data/inat/groundtruth-inat.csv --out runs/2026-09-25-golden --tier golden
+gardener-engine bench compare baselines/golden-inat-v1.5.json runs/2026-09-25-golden/report.json \
   --md runs/2026-09-25-golden/compare.md
-bioscan bench analyze runs/2026-09-25-golden/report.json --md runs/2026-09-25-golden/analyze.md
+gardener-engine bench analyze runs/2026-09-25-golden/report.json --md runs/2026-09-25-golden/analyze.md
 ```
 
 A regression past the budget exits 1. Per CLAUDE.md, a change over budget needs the owner's acceptance;
 when it is accepted, the new report becomes the baseline in its own commit (`bench baseline ... --force`).
 
-**Profiles.** `bench run` and `eval` take `--profile NAME` (see usage.md "Profiles and bioscan.toml"). The
+**Profiles.** `bench run` and `eval` take `--profile NAME` (see usage.md "Profiles and gardener.toml"). The
 profile's stages must include identify, which is what the harness scores; eval still asks for `top_k` 5, and
 `--no-geo` / `--identify-opt` override the profile. The preds meta line records `"profile"` and the expanded
-`options`, so report.json's `meta.options` shows what ran. Without `--profile`, `BIOSCAN_PROFILE` or a
+`options`, so report.json's `meta.options` shows what ran. Without `--profile`, `GARDENER_ENGINE_PROFILE` or a
 `default_profile`, the request is byte for byte the one eval sent before profiles, so existing baselines stay
 comparable. Compare runs of different profiles only when you mean to: `album` switches species off, and
 `compare` warns when `meta.profile` differs. `meta.profile` records the profile, and each plugin's own
 metrics (`quality`, `burst`, `scene`, ...) go to [`plugin_metrics`](#plugin_metrics-and-plugin_images). A
 profile with reducers (album: burst, select) also records them in the preds meta line, and the report runs
-them over the results before scoring, as `bioscan cull` does.
+them over the results before scoring, as `gardener-engine cull` does.
 
 **Rescore without the service.** A preds file carries everything:
-`bioscan bench report runs/x/preds.ndjson data/inat/groundtruth-inat.csv --tier golden`. Rescoring after a
+`gardener-engine bench report runs/x/preds.ndjson data/inat/groundtruth-inat.csv --tier golden`. Rescoring after a
 synonyms.csv edit changes truth labels; `compare` warns when the synonyms sha differs.
 
 **Tag → report.** Pushing a `v*` tag runs `models.yml`. It runs the real-model smoke, writes
@@ -79,14 +79,14 @@ yet, the step prints the new report between `===== BEGIN bioscan-report ci-smoke
 ### Mac commands (owner)
 
 ```sh
-# service running (bioscan serve, or the launchd job)
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/$(date +%F)-golden --tier golden
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/$(date +%F)-golden-nogeo --tier golden --no-geo
-bioscan bench run data/groundtruth-own.csv --out runs/$(date +%F)-own --tier own
-bioscan bench scorecard runs/$(date +%F)-golden/report.json
-bioscan bench scorecard runs/$(date +%F)-golden-nogeo/report.json      # held to the .nogeo standards
-bioscan bench analyze runs/$(date +%F)-golden/report.json --md runs/$(date +%F)-golden/analyze.md
-bioscan bench baseline runs/$(date +%F)-own/report.json --name own-raw-$(date +%F)
+# service running (gardener-engine serve, or the launchd job)
+gardener-engine bench run data/inat/groundtruth-inat.csv --out runs/$(date +%F)-golden --tier golden
+gardener-engine bench run data/inat/groundtruth-inat.csv --out runs/$(date +%F)-golden-nogeo --tier golden --no-geo
+gardener-engine bench run data/groundtruth-own.csv --out runs/$(date +%F)-own --tier own
+gardener-engine bench scorecard runs/$(date +%F)-golden/report.json
+gardener-engine bench scorecard runs/$(date +%F)-golden-nogeo/report.json      # held to the .nogeo standards
+gardener-engine bench analyze runs/$(date +%F)-golden/report.json --md runs/$(date +%F)-golden/analyze.md
+gardener-engine bench baseline runs/$(date +%F)-own/report.json --name own-raw-$(date +%F)
 # GPX geotagging and its effect on species ID: see "Downstream" under geotag below
 ```
 
@@ -282,7 +282,7 @@ order, and the first that matches wins:
 | `wrong_kind` | Best box's kind (bird/mammal/other) differs from the truth's | Kind check: `rules.kind_of` / `rules.kind_evidence_logits` in `pipeline._species_many` |
 | `not_in_list` | Truth not in the kind's name list (or a box with no species where no list is known) | Name list, synonyms.csv |
 | `out_of_range` | Top-1 has p_geo < 0.01 where the place is known | Range veto in rules.py; prior labels, geo gaps |
-| `prior_suppressed` | The truth is first by p_visual among the candidates, but ranked below top-1 because its p_geo is lower than the top-1's | Geo gaps (`bioscan names geo-gaps` → a `birdnet` row in synonyms.csv), label map, prior floor |
+| `prior_suppressed` | The truth is first by p_visual among the candidates, but ranked below top-1 because its p_geo is lower than the top-1's | Geo gaps (`gardener-engine names geo-gaps` → a `birdnet` row in synonyms.csv), label map, prior floor |
 | `within_genus` | Right genus, wrong species | Detail copy, crop quality, prior between congeners |
 | `within_family` | Right family, wrong genus | Prior floor; grade to family when the genus is unsure |
 | `far_miss` | Anything else | The crop (wrong object boxed?), image quality |
@@ -365,10 +365,10 @@ burst of 4 frames shifted by up to 2%, 0.2 s apart (keep 1, one `burst_id`). Eve
 next. The script is deterministic from its seed (docstring: every variant and parameter).
 
 ```sh
-bioscan run photos/ --json > runs/src.ndjson                        # any run with identify boxes
+gardener-engine run photos/ --json > runs/src.ndjson                        # any run with identify boxes
 uv run python scripts/cull_synth.py --preds runs/src.ndjson --out runs/album-synth --seed 7
-bioscan bench run runs/album-synth/groundtruth-album.csv --profile album --tier album --out runs/album
-bioscan bench scorecard runs/album/report.json                       # tier album, profile album
+gardener-engine bench run runs/album-synth/groundtruth-album.csv --profile album --tier album --out runs/album
+gardener-engine bench scorecard runs/album/report.json                       # tier album, profile album
 ```
 
 CI does the same in `tests/models` on 24 smoke photos (scene truth `wildlife`), writes `models-report-album.json`
@@ -392,14 +392,14 @@ scores, and it stays comparable with a baseline made before the split. Synthetic
 than real ones, so these numbers are floors for the rules, not a claim about real albums; that needs the owner's
 labelled trips (issue #29).
 
-**Scene tier.** The same album-profile scoring over `bioscan gt scene`'s CSV (Open Images V7 photos per scene label,
+**Scene tier.** The same album-profile scoring over `gardener-engine gt scene`'s CSV (Open Images V7 photos per scene label,
 `data/scene/oid-labels.toml`): `bench run GT.csv --profile album --tier scene`, judged on `scene.group_acc`
 (docs/standards.md section 15). The identify, quality and burst metrics mean nothing there (no boxes or bursts in the
 truth), only the scene ones are read.
 
 ## geotag: GPX geotagging (`bench geotag`)
 
-`bioscan geotag` places photos on a GPX track (geotag.md). The owner has no GPX
+`gardener-engine geotag` places photos on a GPX track (geotag.md). The owner has no GPX
 to share, so `scripts/geotag_synth.py` builds tracks from the golden set's true positions and times.
 `bench geotag` then scores geotagging against the truth. This is a separate subcommand with its own
 report, and it does not feed `bench compare`, because compare is built around species answers: it
@@ -410,8 +410,8 @@ and a seed, so a regression shows as a changed number, and the scorecard catches
 
 ```sh
 uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7   # ~1 min, ~750 MB
-bioscan bench geotag runs/geotag-synth --md runs/geotag-synth/report.md --json runs/geotag-synth/report.json
-bioscan bench scorecard runs/geotag-synth/report.json          # the same scorecard, tier geotag
+gardener-engine bench geotag runs/geotag-synth --md runs/geotag-synth/report.md --json runs/geotag-synth/report.json
+gardener-engine bench scorecard runs/geotag-synth/report.json          # the same scorecard, tier geotag
 ```
 
 `bench geotag DIR [--scenario NAME]... [--max-gap S] [--max-span M] [--max-still S] [--extrapolate S] [--standards F]
@@ -479,35 +479,35 @@ GPX-derived positions:
 
 ```sh
 uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7
-bioscan bench geotag runs/geotag-synth --gt-out runs/geotag-synth/gt --md runs/geotag-synth/report.md
-# service running (bioscan serve, or the launchd job)
+gardener-engine bench geotag runs/geotag-synth --gt-out runs/geotag-synth/gt --md runs/geotag-synth/report.md
+# service running (gardener-engine serve, or the launchd job)
 D=$(date +%F)
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/$D-golden --tier golden                  # true GPS
-bioscan bench run data/inat/groundtruth-inat.csv --out runs/$D-golden-nogeo --tier golden --no-geo   # no location
-bioscan bench run runs/geotag-synth/gt/perfect.csv --out runs/$D-golden-gpx --tier golden            # GPX positions
-bioscan bench run runs/geotag-synth/gt/gaps.csv --out runs/$D-golden-gpx-gaps --tier golden          # dropouts: some none
-bioscan bench compare runs/$D-golden-nogeo/report.json runs/$D-golden-gpx/report.json --md runs/$D-golden-gpx/vs-nogeo.md
-bioscan bench compare runs/$D-golden/report.json runs/$D-golden-gpx/report.json --md runs/$D-golden-gpx/vs-truth.md
+gardener-engine bench run data/inat/groundtruth-inat.csv --out runs/$D-golden --tier golden                  # true GPS
+gardener-engine bench run data/inat/groundtruth-inat.csv --out runs/$D-golden-nogeo --tier golden --no-geo   # no location
+gardener-engine bench run runs/geotag-synth/gt/perfect.csv --out runs/$D-golden-gpx --tier golden            # GPX positions
+gardener-engine bench run runs/geotag-synth/gt/gaps.csv --out runs/$D-golden-gpx-gaps --tier golden          # dropouts: some none
+gardener-engine bench compare runs/$D-golden-nogeo/report.json runs/$D-golden-gpx/report.json --md runs/$D-golden-gpx/vs-nogeo.md
+gardener-engine bench compare runs/$D-golden/report.json runs/$D-golden-gpx/report.json --md runs/$D-golden-gpx/vs-truth.md
 ```
 
 `vs-nogeo` is what a GPX track buys a folder without GPS. `vs-truth` should show almost no change, because 99% of
 the fixes share the truth's prior cell. Compare warns that the ground-truth sha and the options differ, which is
 expected. Measured 2026-09-25 on the Mac (perfect scenario, v1.5 build): vs-truth 0 fixed, 0 broken, every metric identical; vs-nogeo top-1 +5.2 pts (85 fixed, 1 broken, McNemar p ≈ 0). See results.md.
 
-## aesthetic: agreement with the owner (`bioscan aesthetic eval`)
+## aesthetic: agreement with the owner (`gardener-engine aesthetic eval`)
 
 The `aesthetics` stage (album.md "Aesthetics") ranks frames by a linear head on the SigLIP2 frame
-vector. `bioscan aesthetic eval` measures how its ranking agrees with the owner's own ratings. Like
+vector. `gardener-engine aesthetic eval` measures how its ranking agrees with the owner's own ratings. Like
 `bench geotag`, it has its own report (schema `bioscan-aesthetic-report`, version 1) and feeds the shared
 scorecard, not `bench compare`: compare is built around species answers per image. It lives in
-`bioscan/cli/aesbench.py`, so it does not touch the species report's code.
+`gardener/cli/aesbench.py`, so it does not touch the species report's code.
 
 ```sh
-# service running (bioscan serve): vectors come from its embed product, cached in --embeddings
-bioscan aesthetic ratings ~/Pictures/Album                               # what the XMP holds, per trip
-bioscan aesthetic eval ~/Pictures/Album --out runs/$D-aesthetic --embeddings runs/aes-vec.ndjson \
+# service running (gardener-engine serve): vectors come from its embed product, cached in --embeddings
+gardener-engine aesthetic ratings ~/Pictures/Album                               # what the XMP holds, per trip
+gardener-engine aesthetic eval ~/Pictures/Album --out runs/$D-aesthetic --embeddings runs/aes-vec.ndjson \
     [--head builtin|PATH|none] [--personal PATH] [--blend 0.5] [--k 10] [--curve 50,100,200,500,1000] [--no-curve]
-bioscan bench scorecard runs/$D-aesthetic/report.json                    # tier aesthetic-own (docs/standards.md §13)
+gardener-engine bench scorecard runs/$D-aesthetic/report.json                    # tier aesthetic-own (docs/standards.md §13)
 ```
 
 **Ground truth.** A folder of rated images (`xmp:Rating` in `<stem>.xmp`, `<name>.<ext>.xmp` or embedded) or a
@@ -543,32 +543,32 @@ held-out Spearman over folds and draws.
 equals the evaluated set's, `meta.personal_in_sample` is true and report.md says the personal rows are optimistic.
 Fit on some trips, evaluate on others, or read the learning curve, which always holds trips out.
 
-**Training** (`bioscan aesthetic train`) shares the code: `--ratings SRC` fits a personal head (ridge on centred
+**Training** (`gardener-engine aesthetic train`) shares the code: `--ratings SRC` fits a personal head (ridge on centred
 vectors, alpha by 5-fold CV over trips, pulled toward `--prior builtin|PATH|none`; default output
-`~/.config/bioscan/aesthetic-personal.json`), `--eva DIR` the general head from an EVA checkout. The EVA head is
+`~/.config/gardener/aesthetic-personal.json`), `--eva DIR` the general head from an EVA checkout. The EVA head is
 normally made by `scripts/train_aesthetic_head.py` in CI or on the Mac (data/aesthetic/README.md). Every fit is
 deterministic from its inputs and `--seed`. The CV score in a head's provenance is the best alpha's mean over the
 same folds that chose it (not nested CV), so it reads slightly optimistic.
 
 ## aesthetic golden set (`bench aesthetic`)
 
-`bioscan aesthetic eval` scores bioscan's own heads against stars. `bench aesthetic` is the model-agnostic
+`gardener-engine aesthetic eval` scores gardener's own heads against stars. `bench aesthetic` is the model-agnostic
 counterpart: it reads a **scores file** from any scorer and holds it to a frozen **aesthetic golden set**. The design,
 the research behind it and the target sizes are in docs/research/2026-09-24-aesthetic-golden-set.md. Standard library
-only (bioscan/cli/aesgolden.py); no service, no model.
+only (gardener/cli/aesgolden.py); no service, no model.
 
 ```sh
-bioscan bench aesthetic init ~/Pictures/Album/golden-trips --out ~/aes-golden [--cull runs/cull/cull.csv]
+gardener-engine bench aesthetic init ~/Pictures/Album/golden-trips --out ~/aes-golden [--cull runs/cull/cull.csv]
 # fill images.csv: group, best, keep, reasons, category, slices, split, stars2; optional pairs.csv (a,b,winner)
 uv run python scripts/aes_plant.py ~/aes-golden --n 60          # planted copies; refuses to run twice
-bioscan run ~/aes-golden -r --profile album --json --out runs/aes/eva.ndjson
-bioscan bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva [--repeat runs/aes/eva-2.ndjson]
-bioscan bench aesthetic score ~/aes-golden runs/aes/qrealign-4b.ndjson --out runs/aes/qrealign-4b
-bioscan bench aesthetic table runs/aes/*/report.json --ref data/aesthetic/eva-golden-v1.csv --csv runs/aes/arena-residuals.csv
-bioscan bench aesthetic compare runs/aes/eva/report.json runs/aes/qrealign-4b/report.json --md runs/aes/compare.md
+gardener-engine run ~/aes-golden -r --profile album --json --out runs/aes/eva.ndjson
+gardener-engine bench aesthetic score ~/aes-golden runs/aes/eva.ndjson --out runs/aes/eva [--repeat runs/aes/eva-2.ndjson]
+gardener-engine bench aesthetic score ~/aes-golden runs/aes/qrealign-4b.ndjson --out runs/aes/qrealign-4b
+gardener-engine bench aesthetic table runs/aes/*/report.json --ref data/aesthetic/eva-golden-v1.csv --csv runs/aes/arena-residuals.csv
+gardener-engine bench aesthetic compare runs/aes/eva/report.json runs/aes/qrealign-4b/report.json --md runs/aes/compare.md
 ```
 
-**Scores file.** NDJSON: bioscan events (a `result` gives `products.aesthetics.score`, an `error` a failed frame;
+**Scores file.** NDJSON: gardener events (a `result` gives `products.aesthetics.score`, an `error` a failed frame;
 `meta`, `progress`, `done` are skipped), or one line per frame `{"path", "score", "model"?, "dims"?: {name: value},
 "reasons"?: [drop reason], "ms"?}`. Or CSV `path,score`. Relative paths are taken from the golden folder. A frame
 without a finite score counts as the lowest score everywhere.
@@ -603,7 +603,7 @@ when present) takes `[[rule]]` tables as in budget.toml, with any numeric key of
 
 **aes-golden-v1 = EVA-100, baseline = eva-head-v1.** The frozen golden set v1 is the 100 held-out EVA images
 (`data/aesthetic/eva-golden-v1.csv`, built with `scripts/eva_golden.py build`); its first baseline is the general
-head's report, `baselines/aes-golden-v1-eva-head-v1.json`. To re-score: `bioscan run ~/aes-golden-eva -r --profile
+head's report, `baselines/aes-golden-v1-eva-head-v1.json`. To re-score: `gardener-engine run ~/aes-golden-eva -r --profile
 album --json --out runs/aes/<model>.ndjson` (or any scorer's scores file), `bench aesthetic score ~/aes-golden-eva
 runs/aes/<model>.ndjson --out runs/aes/<model>`, then `bench scorecard runs/aes/<model>/report.json` (tier
 `aesthetic-golden`, docs/standards.md §13) and `bench aesthetic compare baselines/aes-golden-v1-eva-head-v1.json

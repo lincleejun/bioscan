@@ -1,6 +1,6 @@
 import json
 
-from bioscan.cli.render import Renderer
+from gardener.cli.render import Renderer
 
 OWL = {"scientific": "Megascops kennicottii", "common": "Western Screech-Owl",
        "taxonomy": ["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", "Megascops kennicottii"],

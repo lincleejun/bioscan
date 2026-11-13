@@ -4,8 +4,8 @@ a run without such a stage keeps the engine block it always had."""
 from conftest import events, make_jpg
 from PIL import Image
 
-from bioscan import plugin
-from bioscan.plugins.quality import stage as quality_stage
+from gardener import plugin
+from gardener.plugins.quality import stage as quality_stage
 
 
 def result(evs):
@@ -52,19 +52,19 @@ def test_scene_labels_from_the_frame_vector_and_the_gate(client, engine, tmp_pat
 
 
 def scene_defaults():
-    from bioscan.plugins.scene import MANIFEST
+    from gardener.plugins.scene import MANIFEST
 
     return MANIFEST.defaults
 
 
 def test_album_profile_end_to_end_then_the_reducers(client, engine, tmp_path, monkeypatch):
     """/run with "profile": "album" on the fake Engine (chunks of 32: every stage for real but the
-    models), then burst and select over the stream as `bioscan cull` runs them. A general head is
+    models), then burst and select over the stream as `gardener-engine cull` runs them. A general head is
     installed, so select reads the aesthetics stage's score."""
     from aesthetic_helpers import random_head
 
-    from bioscan import aesthetic as aes
-    from bioscan import cull, profile
+    from gardener import aesthetic as aes
+    from gardener import cull, profile
 
     head = aes.load_head(aes.write_head(random_head(1, name="eva-head-v1"), tmp_path / "eva-head-v1.json"))
     monkeypatch.setattr(aes, "BUILTIN_HEAD", tmp_path / "eva-head-v1.json")
@@ -117,7 +117,7 @@ def test_album_scene_taxonomy_groups_attributes_and_horizon_by_group(client, eng
     """The album profile's taxonomy on the fake Engine: the gate (bird 0.93 + mammal 0.02 +
     other_animal 0.01) and one bird box at 13% of the frame make the wildlife group, its main label
     by the rules; the horizon is measured for the landscape group, not for a label named landscape."""
-    from bioscan.plugins.scene import stage as scene_stage
+    from gardener.plugins.scene import stage as scene_stage
 
     monkeypatch.setattr(scene_stage, "horizon", lambda image: {"tilt_deg": 0.0, "strength": 1.0})
     p = make_jpg(tmp_path / "a.jpg")
@@ -147,7 +147,7 @@ def test_a_soft_frame_reports_motion_or_defocus_as_its_own_reason(client, tmp_pa
     from PIL import ImageFilter
     from unit.cull_fixtures import photo
 
-    from bioscan.plugins.quality import MANIFEST
+    from gardener.plugins.quality import MANIFEST
 
     im, _ = photo(8)
     a = np.asarray(im, np.float32)
@@ -165,9 +165,9 @@ def test_a_soft_frame_reports_motion_or_defocus_as_its_own_reason(client, tmp_pa
 def test_a_tilted_landscape_horizon_is_a_flag_not_a_reject(client, engine, tmp_path, monkeypatch):
     """#26 end to end on the fakes: the scene stage measures a landscape's horizon, select turns a tilt
     past horizon_flag_deg into a flag, and the photo keeps its selection, keep and stars."""
-    from bioscan import cull, profile
-    from bioscan.cli import aesscore
-    from bioscan.plugins.scene import stage as scene_stage
+    from gardener import cull, profile
+    from gardener.cli import aesscore
+    from gardener.plugins.scene import stage as scene_stage
 
     d = tmp_path / "album"
     d.mkdir()
@@ -201,8 +201,8 @@ def test_a_bird_at_the_frame_top_is_a_tight_headroom_flag_not_a_reject(client, e
     the cull records and aesthetic score's rows; status, keep, reasons and stars stay as they were."""
     from conftest import FakeOWLv2
 
-    from bioscan import cull, profile
-    from bioscan.cli import aesscore
+    from gardener import cull, profile
+    from gardener.cli import aesscore
 
     d = tmp_path / "album"
     d.mkdir()
@@ -232,8 +232,8 @@ def test_facing_asks_owlv2_for_the_subjects_head_and_reports_its_fingerprint(cli
     detector for the kind's head and eye; the fake's head sits right of the box centre."""
     from conftest import BOX
 
-    from bioscan.plugins.facing import MANIFEST
-    from bioscan.plugins.facing import stage as facing_stage
+    from gardener.plugins.facing import MANIFEST
+    from gardener.plugins.facing import stage as facing_stage
 
     p = make_jpg(tmp_path / "a.jpg")
     res = result(events(client.post("/run", json={"inputs": [{"path": p}], "want": ["facing", "identify"],
@@ -258,8 +258,8 @@ def test_a_bird_facing_the_near_edge_is_a_no_lead_room_flag_not_a_reject(client,
     reasons and stars stay as they were."""
     from conftest import FakeOWLv2
 
-    from bioscan import cull, profile
-    from bioscan.cli import aesscore
+    from gardener import cull, profile
+    from gardener.cli import aesscore
 
     d = tmp_path / "album"
     d.mkdir()

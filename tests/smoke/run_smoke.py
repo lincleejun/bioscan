@@ -1,7 +1,7 @@
 """Manual smoke: POST every ARW in tests/smoke/ to a running service with want=[identify,embed,jpg],
 check the acceptance fields and print a markdown table. Not collected by pytest.
 
-    uv run bioscan-serve &   # then:
+    uv run gardener-engine-serve &   # then:
     uv run python tests/smoke/run_smoke.py [--url http://127.0.0.1:8765]
 """
 import argparse
@@ -18,7 +18,7 @@ ap.add_argument("--url", default="http://127.0.0.1:8765")
 args = ap.parse_args()
 
 paths = sorted(str(p) for p in here.iterdir() if p.suffix.lower() == ".arw")
-out_dir = tempfile.mkdtemp(prefix="bioscan-smoke-")
+out_dir = tempfile.mkdtemp(prefix="gardener-smoke-")
 body = {"inputs": [{"path": p} for p in paths], "want": ["identify", "embed", "jpg"], "options": {"jpg": {"out_dir": out_dir}}}
 req = urllib.request.Request(args.url + "/run", json.dumps(body).encode(), {"Content-Type": "application/json"})
 t0 = time.perf_counter()

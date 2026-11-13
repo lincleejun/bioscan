@@ -1,0 +1,248 @@
+"""Gardener MCP stdio server: JSON-RPC framing and every tool against the §6 fake."""
+import io
+import json
+import subprocess
+import sys
+
+import pytest
+from fake_api import Fake, start
+
+from gardener.workbench import mcp
+
+
+@pytest.fixture
+def svc():
+    url, fake, server = start(Fake())
+    yield url, fake
+    server.should_exit = True
+
+
+def converse(url, *msgs):
+    out = io.StringIO()
+    mcp.serve(io.StringIO("".join(json.dumps(m) + "\n" for m in msgs)), out, url)
+    return [json.loads(line) for line in out.getvalue().splitlines()]
+
+
+def tool(url, name, **args):
+    [r] = converse(url, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}})
+    res = r["result"]
+    return json.loads(res["content"][0]["text"]), res["isError"]
+
+
+def test_handshake_list_and_errors(svc):
+    url, _ = svc
+    replies = converse(url,
+                       {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t"}}},
+                       {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                       {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                       {"jsonrpc": "2.0", "id": 3, "method": "ping"},
+                       {"jsonrpc": "2.0", "id": 4, "method": "nope"},
+                       {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "nope"}})
+    assert [r["id"] for r in replies] == [1, 2, 3, 4, 5]        # the notification gets no reply
+    init = replies[0]["result"]
+    assert init["protocolVersion"] == "2025-06-18" and "tools" in init["capabilities"]
+    names = [t["name"] for t in replies[1]["result"]["tools"]]
+    assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
+                     "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
+                     "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
+                     "list_encounters", "edit_encounters", "split_burst", "preview_rule", "plan_import", "run_import",
+                     "get_import", "lightroom_handoff", "get_handoff", "cleanup_plan", "get_cleanup_plan", "run_cleanup_plan",
+                     "import_collection", "retry_handoff", "lightroom_presets", "preview_handoff"]
+    assert all(t["inputSchema"]["type"] == "object" for t in replies[1]["result"]["tools"])
+    assert replies[2]["result"] == {}
+    assert replies[3]["error"]["code"] == -32601 and replies[4]["error"]["code"] == -32602
+
+
+def test_parse_error(svc):
+    out = io.StringIO()
+    mcp.serve(io.StringIO("{not json\n"), out, svc[0])
+    assert json.loads(out.getvalue())["error"]["code"] == -32700
+
+
+def test_tools_call_the_api(svc, tmp_path):
+    url, fake = svc
+    t, err = tool(url, "create_task", title="MCP 任务", sources=[str(tmp_path)], preset="quick")
+    assert not err and t["title"] == "MCP 任务" and fake.actors[-1] == "mcp"
+    assert t["id"] in [x["id"] for x in tool(url, "list_tasks")[0]]
+    assert tool(url, "control_task", id=t["id"], action="pause")[0]["scan"]["status"] == "paused"
+    assert tool(url, "control_task", id=t["id"], action="append", paths=[str(tmp_path / "b")])[0]["kind"] == "append"
+    assert tool(url, "control_task", id=t["id"], action="rescan", capabilities=["species"])[0]["kind"] == "rescan"
+    assert tool(url, "control_task", id=t["id"], action="verify_sources")[0]["id"] == t["id"]
+    assert len(tool(url, "get_task", id=t["id"])[0]["runs"]) == 3
+    q, _ = tool(url, "query_assets", ai="reject", limit=1)
+    assert q["total"] == 2 and len(q["items"]) == 1
+    d, _ = tool(url, "get_asset", id="a_0005")
+    assert d["caps"]["subject"]["data"]["boxes"] and d["collections"]
+    m, _ = tool(url, "set_marks", asset_ids=["a_0006"], flag="pick", stars=3)
+    assert m["assets"][0] == {"id": "a_0006", "use": "record", "flag": "pick", "stars": 3, "version": 3}
+    cols, _ = tool(url, "list_collections", task="t_0001")
+    birds = next(c for c in cols if c["group_kind"] == "species")
+    conflict, err = tool(url, "review_collection", id=birds["id"], action="zero")
+    assert err and conflict["status"] == 409 and {p["id"] for p in conflict["picks"]} == {"a_0005", "a_0006"}
+    z, err = tool(url, "review_collection", id=birds["id"], action="zero", resolution="clear_picks")
+    assert not err and z["review"]["state"] == "zeroed" and z["picks"] == 0
+    assert fake.assets["a_0005"]["flag"] is None                         # X6: cleared to null, not reject
+    assert fake.assets["a_0005"]["mark_history"][-1]["reason"] == f"zero:{birds['id']}"
+    m2, _ = tool(url, "set_marks", asset_ids=["a_0007"], stars=2)
+    assert fake.mark_bodies[-1] == {"asset_ids": ["a_0007"], "stars": 2}
+    [r] = converse(url, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_tasks"}})
+    assert not r["result"]["isError"]
+    assert z["batch_id"] and fake.undo(z["batch_id"]) == {"undone": 2}
+    assert tool(url, "review_collection", id=birds["id"], action="reopen")[0]["review"]["state"] == "open"
+    rep, _ = tool(url, "export", collection_id=birds["id"], scope="all", copy=False)
+    assert rep["assets"] == 3 and rep["copied"] == 0
+    caps, _ = tool(url, "capabilities", check=True)
+    assert any(c["state"] == "unavailable" and c["reason"] for c in caps)
+
+
+def test_missing_argument_is_invalid_params(svc):
+    [r] = converse(svc[0], {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                            "params": {"name": "get_task", "arguments": {}}})
+    assert r["error"]["code"] == -32602
+
+
+def test_gardener_mcp_subprocess(svc):
+    """`gardener mcp` over real stdio pipes: one JSON object per line in, one per line out."""
+    url, _ = svc
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_tasks", "arguments": {}}}]
+    p = subprocess.run([sys.executable, "-m", "gardener.workbench.cli", "--url", url, "mcp"],
+                       input="".join(json.dumps(m) + "\n" for m in msgs), capture_output=True, text=True, timeout=30)
+    replies = [json.loads(line) for line in p.stdout.splitlines()]
+    assert p.returncode == 0 and [r["id"] for r in replies] == [1, 2]
+    assert len(json.loads(replies[1]["result"]["content"][0]["text"])) == 2
+
+
+def test_non_ascii_id_is_encoded_and_a_failing_request_does_not_end_the_server(svc, monkeypatch):
+    url, _ = svc
+    assert mcp.route("get_task", {"id": "测试任务/x"})[1] == "/tasks/%E6%B5%8B%E8%AF%95%E4%BB%BB%E5%8A%A1%2Fx"
+    out, _ = tool(url, "get_task", id="测试任务")
+    assert "status" in out or out
+    monkeypatch.setattr(mcp, "call", lambda *a, **k: 1 / 0)
+    replies = converse(url, {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                             "params": {"name": "get_task", "arguments": {"id": "t"}}},
+                       {"jsonrpc": "2.0", "id": 2, "method": "ping"})
+    assert replies[0]["error"]["code"] == -32603 and replies[1] == {"jsonrpc": "2.0", "id": 2, "result": {}}
+
+
+def test_species_tools_map_to_the_revision_4_endpoints():
+    from gardener.workbench.mcp import route
+
+    claim = {"level": "species", "concept": "avibase:x", "taxon": "Nannus pacificus"}
+    assert route("identify_species", {"subject_ids": ["s_1"], "claim": claim, "scope": "burst", "dry_run": True}) == \
+        ("POST", "/identifications", {"subject_ids": ["s_1"], "claim": claim, "scope": "burst", "dry_run": True}, None)
+    assert route("undo_identification", {"batch_id": "b_1"}) == ("POST", "/identifications/undo", {"batch_id": "b_1"}, None)
+    assert route("list_species", {"task": "t_1"}) == ("GET", "/species", None, {"task": "t_1", "hidden": "0"})
+    assert route("search_names", {"q": "金雕"}) == ("GET", "/names", None, {"q": "金雕"})
+    assert route("set_species_card", {"concept": "name:Corvus corax", "hidden": True}) == \
+        ("PATCH", "/species/name:Corvus%20corax", {"hidden": True}, None)
+
+
+def test_review_flow_tools_map_to_the_revision_5b_endpoints(svc):
+    from gardener.workbench.mcp import route
+
+    assert route("set_marks", {"asset_ids": ["a_1"], "use": "edit"}) == ("POST", "/marks", {"asset_ids": ["a_1"], "use": "edit"}, None)
+    assert route("keep_best", {"asset_id": "a_1", "dry_run": True}) == \
+        ("POST", "/marks/keep-best", {"asset_id": "a_1", "dry_run": True}, None)
+    assert route("undo_marks", {"batch_id": "b_1"}) == ("POST", "/marks/undo", {"batch_id": "b_1"}, None)
+    assert route("list_encounters", {"concept": "avibase:x"}) == ("GET", "/encounters", None, {"concept": "avibase:x"})
+    assert route("edit_encounters", {"action": "split", "id": "e_1", "at": "a_2"}) == \
+        ("POST", "/encounters/e_1/split", {"at": "a_2"}, None)
+    assert route("edit_encounters", {"action": "merge", "ids": ["e_1", "e_2"]}) == \
+        ("POST", "/encounters/merge", {"ids": ["e_1", "e_2"]}, None)
+    assert route("preview_rule", {"id": "c_1", "rule": {"use": "edit"}}) == \
+        ("POST", "/collections/c_1/preview-rule", {"rule": {"use": "edit"}}, None)
+    url, fake = svc
+    m, err = tool(url, "set_marks", asset_ids=["a_0006"], use="edit")
+    assert not err and m["assets"][0]["use"] == "edit" and m["assets"][0]["flag"] == "pick"
+    kb, err = tool(url, "keep_best", asset_id="a_0006", dry_run=True)
+    assert not err and kb["dry_run"] and kb["reject"] == ["a_0005", "a_0007"]
+    es, err = tool(url, "list_encounters", task="t_0001")
+    assert not err and es["encounters"][0]["photos"] == 5
+
+
+def test_import_tools_map_to_the_revision_5d_endpoints(svc):
+    from gardener.workbench.mcp import route
+
+    assert route("plan_import", {"task_id": "t_1", "dest_root": "/lib", "include_pending": False}) == \
+        ("POST", "/tasks/t_1/import-plan", {"dest_root": "/lib", "include_pending": False}, None)
+    assert route("run_import", {"plan_id": "ip_1"}) == ("POST", "/imports/ip_1/run", {}, None)
+    assert route("get_import", {"plan_id": "ip_1"}) == ("GET", "/imports/ip_1", None, None)
+    url, fake = svc
+    p, err = tool(url, "plan_import", task_id=next(iter(fake.tasks)), dest_root="/lib", place="东滩")
+    assert not err and p["folder"].endswith("_东滩")
+    done, err = tool(url, "run_import", plan_id=p["id"])
+    assert not err and done["status"] in ("completed", "partial")
+
+
+def test_handoff_and_cleanup_tools_round_trip(svc):
+    """契约修订 5E: the MCP tools reach the same endpoints as the UI; a cleanup runs only with confirm=true."""
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    h, err = tool(url, "lightroom_handoff", asset_ids=[pick["id"]])
+    assert not err and h["status"] == "written"
+    got, _ = tool(url, "get_handoff", id=h["id"])
+    assert got["items"][0]["asset_id"] == pick["id"]
+    fake.assets[pick["id"]]["flag"] = "reject"
+    plan, _ = tool(url, "cleanup_plan")
+    assert [i["asset_id"] for i in plan["items"]] == [pick["id"]]
+    refused, err = tool(url, "run_cleanup_plan", id=plan["id"], confirm=False)
+    assert err and refused["status"] == 400
+    done, err = tool(url, "run_cleanup_plan", id=plan["id"], confirm=True)
+    assert not err and done["report"]["freed_bytes"] == 0 and done["report"]["recoverable"] is True
+
+
+def test_import_collection_tool(svc):
+    """契约修订 7B: the batch collection over MCP; get_import carries the species stats."""
+    from gardener.workbench.mcp import route
+
+    assert route("import_collection", {"plan_id": "ip_1"}) == ("POST", "/imports/ip_1/collection", {}, None)
+    url, fake = svc
+    p, _ = tool(url, "plan_import", task_id=next(iter(fake.tasks)), dest_root="/lib")
+    assert p["species"]["counts"]["sole_left"] == 1
+    tool(url, "run_import", plan_id=p["id"])
+    done, err = tool(url, "import_collection", plan_id=p["id"])
+    assert not err and done["collection_id"] in fake.cols
+
+
+def test_retry_handoff_tool(svc):
+    from gardener.workbench.mcp import route
+
+    assert route("retry_handoff", {"id": "h_1"}) == ("POST", "/handoffs/h_1/retry", {}, None)
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    h, _ = tool(url, "lightroom_handoff", asset_ids=[pick["id"]])
+    fake.handoffs[h["id"]].update(result_at=fake.now())
+    fake.handoffs[h["id"]]["items"][0].update(status="failed", reason="no write access")
+    again, err = tool(url, "retry_handoff", id=h["id"])
+    assert not err and again["scope"]["retry_of"] == h["id"]
+
+
+def test_preset_and_export_tools(svc):
+    """契约修订 7B: presets, preview, and develop/export passed through lightroom_handoff."""
+    from gardener.workbench.mcp import route
+
+    assert route("lightroom_presets", {}) == ("GET", "/lightroom/presets", None, None)
+    assert route("preview_handoff", {"concept": "k"}) == ("POST", "/handoffs/preview", {"concept": "k"}, None)
+    ex = {"preset_path": "/p/J.lrtemplate", "dest_dir": "/out", "overwrite": "rename"}
+    assert route("lightroom_handoff", {"concept": "k", "develop": {"uuid": "P"}, "export": ex})[2] == \
+        {"concept": "k", "develop": {"uuid": "P"}, "export": ex}
+    url, fake = svc
+    pick = next(a for a in fake.assets.values() if a["flag"] == "pick")
+    pv, err = tool(url, "preview_handoff", asset_ids=[pick["id"]])
+    assert not err and pv["representatives"] == [pick["id"]]
+    h, err = tool(url, "lightroom_handoff", asset_ids=[pick["id"]], develop={"uuid": "P-WARM", "name": "Bird warm"})
+    assert not err and h["options"]["develop"]["uuid"] == "P-WARM"
+
+
+def test_revision_7a_tools_route_to_burst_split_and_encounter_undo(svc):
+    from gardener.workbench.mcp import route
+
+    assert route("split_burst", {"at": "a_2"}) == ("POST", "/bursts/split", {"at": "a_2"}, None)
+    assert route("edit_encounters", {"action": "undo", "batch_id": "b_1"}) == \
+        ("POST", "/encounters/undo", {"batch_id": "b_1"}, None)
+    url, _ = svc
+    r, err = tool(url, "split_burst", asset_ids=["a_0007"])
+    assert not err and r["moved"] == ["a_0007"]

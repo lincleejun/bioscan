@@ -1,7 +1,7 @@
 # ADR 0002：物种身份用概念 ID，按主体保存识别，物种 Collection 跨任务由识别结果派生
 
-日期：2026-10-26 · 状态：已采纳（owner 2026-10-26 要求按 AfterShooting PRD v1 与调研意见落地） ·
-依据：AfterShooting PRD v1（2026-10-26）§03、§04、§10、§15、§17；调研 `docs/research/2026-10-26-wildlife-workflow.md` §3–4
+日期：2026-10-26 · 状态：已采纳（owner 2026-10-26 要求按 Gardener PRD v1 与调研意见落地） ·
+依据：Gardener PRD v1（2026-10-26）§03、§04、§10、§15、§17；调研 `docs/research/2026-10-26-wildlife-workflow.md` §3–4
 
 ## 背景
 - Gardener v0.1 的物种身份是标签 `species:<学名>`。学名会变：AviList v2026 一次就有 43 个同一 Avibase ID 的改学名，
@@ -12,7 +12,7 @@
 - 竞品逐帧识别，用户反馈相邻帧结果打架、不信任 AI（调研 §2）。
 
 ## 决定
-1. **概念 ID**：BioScan 每个候选物种增加 `concept` 字段（可选，增量字段，不改已有字段）：
+1. **概念 ID**：Gardener Engine 每个候选物种增加 `concept` 字段（可选，增量字段，不改已有字段）：
    鸟 `avibase:<AVIBASE ID>`（AviList），哺乳 `mdd:<id>`（MDD）；没有稳定 ID 的行（TreeOfLife 的其他动物）为
    `name:<学名>`，前缀即说明它随改名而变。学名、英文名、中文名都只是概念的显示属性。
 2. **按主体识别**：Gardener 新表 `identifications`，一行 = 一张照片的一个框（主体）在一次运行或一次人工动作中的结论：
@@ -32,7 +32,7 @@
    不强行替用户选（eBird 做法，调研 §3）。实现放在阶段 A 的最后一片。
 
 ## 后果
-- BioScan `/run` 输出的每个候选多一个 `concept` 键；名单缓存版本加一（重建约 30 s）。旧的 preds 文件没有这个键，
+- Gardener Engine `/run` 输出的每个候选多一个 `concept` 键；名单缓存版本加一（重建约 30 s）。旧的 preds 文件没有这个键，
   读取方按缺失处理。
 - Gardener `schema_version` 1 → 2：新表 `identifications`；旧库启动时建表并回填。`asset_tags` 的 `species:` 标签
   保留为派生物（筛选兼容），不再是事实来源。

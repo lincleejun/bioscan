@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from bioscan.service import engine, names  # noqa: E402
-from bioscan.service.adapters.bioclip import BioCLIP  # noqa: E402
+from gardener.service import engine, names  # noqa: E402
+from gardener.service.adapters.bioclip import BioCLIP  # noqa: E402
 
 
 def main():

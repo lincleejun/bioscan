@@ -1,7 +1,7 @@
 # ADR 0003：清理计划经人确认后把文件移到废纸篓（ADR 0001 “原片只读”的唯一例外）
 
 日期：2026-10-26 · 状态：已采纳（owner 2026-10-26 决定） ·
-依据：AfterShooting PRD v1（2026-10-26）§11、§13、AC15；契约修订 5E（`docs/gardener/contract.md`）
+依据：Gardener PRD v1（2026-10-26）§11、§13、AC15；契约修订 5E（`docs/gardener/contract.md`）
 
 ## 背景
 - ADR 0001 规定 Gardener 永不在来源目录写入、移动、改名或删除。PRD §11 要求“清理以计划为单位”：用户先标记淘汰，

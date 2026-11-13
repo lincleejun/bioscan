@@ -4,9 +4,9 @@ import plistlib
 
 import pytest
 
-from bioscan import formats
-from bioscan.cli import gt
-from bioscan.cli.main import build_payload, launchd_plist, parser
+from gardener import formats
+from gardener.cli import gt
+from gardener.cli.main import build_payload, launchd_plist, parser
 
 
 def test_norm_and_builtin_match():
@@ -60,8 +60,8 @@ def test_exif_time():
 
 
 def test_every_supported_extension_is_scanned_in_any_case(tmp_path):
-    """One list (bioscan.formats) for the decoder and both folder scans: nothing it decodes is skipped."""
-    from bioscan.service import decode
+    """One list (gardener.formats) for the decoder and both folder scans: nothing it decodes is skipped."""
+    from gardener.service import decode
 
     (tmp_path / "Red-Tailed-Hawk").mkdir()
     want = []
@@ -157,7 +157,7 @@ def test_inat_download_with_fallback_license_filter_and_throttle(tmp_path):
 
 
 def test_taxa_csv():
-    from bioscan.cli.main import PROJECT_ROOT
+    from gardener.cli.main import PROJECT_ROOT
     taxa = gt.read_taxa(str(PROJECT_ROOT / "data" / "taxa.csv"))
     sci = [s for s, _ in taxa]
     assert len(sci) == len(set(sci)) >= 60
@@ -169,7 +169,7 @@ def test_launchd_plist():
     p = plistlib.loads(launchd_plist(8765, 4, 32, uv="/opt/uv"))
     assert p["Label"] == "cc.outman.bioscan"
     assert p["ProgramArguments"][:3] == ["/opt/uv", "run", "--project"]
-    assert p["ProgramArguments"][4:6] == ["bioscan", "serve"]
+    assert p["ProgramArguments"][4:6] == ["gardener-engine", "serve"]
     assert "--allow-root" not in p["ProgramArguments"] and "--detail-edge" not in p["ProgramArguments"]
 
 
@@ -302,7 +302,7 @@ def test_read_scene_map_rejects_bad_labels(tmp_path):
 
 
 def test_builtin_scene_map_is_valid():
-    from bioscan.cli.main import PROJECT_ROOT
+    from gardener.cli.main import PROJECT_ROOT
     d = gt.read_scene_map(str(PROJECT_ROOT / "data" / "scene" / "oid-labels.toml"))
     groups = {e["group"] for e in d["label"].values()}
     assert groups == {"wildlife", "landscape", "night", "people", "macro", "architecture", "food", "other"}
@@ -358,7 +358,7 @@ def test_gt_scene_from_manifest_keeps_matching_files_and_checks_md5(tmp_path):
 @pytest.mark.parametrize("extra", [["--dry-run"], ["--per-label", "5"], ["--subset", "test"], ["--seed", "0"],
                                    ["--map", "m.toml"], ["--cache", "c"]])
 def test_gt_scene_from_rejects_sampling_flags(tmp_path, monkeypatch, extra):
-    from bioscan.cli import main as cli
+    from gardener.cli import main as cli
     monkeypatch.setattr(gt, "gt_scene_from", lambda *a, **k: pytest.fail("no fetch with a flag --from ignores"))
     with pytest.raises(SystemExit) as e:
         cli.main(["gt", "scene", "--from", "m.csv", "--out", str(tmp_path), *extra])
@@ -366,7 +366,7 @@ def test_gt_scene_from_rejects_sampling_flags(tmp_path, monkeypatch, extra):
 
 
 def test_gt_scene_subsets_are_stripped_and_checked_before_download(tmp_path, monkeypatch):
-    from bioscan.cli import main as cli
+    from gardener.cli import main as cli
     got = {}
     monkeypatch.setattr(gt, "gt_scene", lambda *a, subsets, **k: got.setdefault("subsets", subsets) and [])
     assert cli.main(["gt", "scene", "--out", str(tmp_path), "--subset", "validation, test"]) == 0

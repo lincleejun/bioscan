@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from bioscan.service import pipeline, rules
-from bioscan.service.adapters.owlv2 import VOCAB, Detection
+from gardener.service import pipeline, rules
+from gardener.service.adapters.owlv2 import VOCAB, Detection
 
 OPTS = {"top_k": 5, "geo": False, "species": False}
 

@@ -1,9 +1,9 @@
-# bioscan for Lightroom Classic (experimental, macOS)
+# gardener for Lightroom Classic (experimental, macOS)
 
-A Lightroom Classic plug-in that takes a bioscan run and puts it into your catalog: it adds the photos,
+A Lightroom Classic plug-in that takes a gardener-engine run and puts it into your catalog: it adds the photos,
 gives them 1-5 stars, adds hierarchical keywords (`bioscan > bird > Western Screech-Owl`), files them
 into collections under a `bioscan` collection set, and stores the score, species and level in plug-in
-metadata fields. All the rules live in Python (`bioscan lr open`); the plug-in only applies
+metadata fields. All the rules live in Python (`gardener-engine lr open`); the plug-in only applies
 `latest.json`. Design: `docs/superpowers/specs/2026-09-24-lightroom-plugin-design.md`.
 
 Status: **run once in Lightroom Classic on the owner's Mac (2026-09-24, 14.x):** symlinked plug-in loaded from
@@ -13,20 +13,20 @@ photos added nothing. Checklist steps 5 (a hand-changed star is kept) and the ca
 ## Install
 
 ```
-bioscan lr install
+gardener-engine lr install
 ```
 
 This symlinks `extensions/lightroom/bioscan.lrplugin` into
 `~/Library/Application Support/Adobe/Lightroom/Modules/`. Restart Lightroom Classic once. Plug-ins in
 the Modules folder are loaded automatically, so there is no Plug-in Manager "Add" step; the plug-in
 shows up in File > Plug-in Manager, where you can disable it. If Lightroom does not list it (it may not
-follow a symlinked `.lrplugin`), run `bioscan lr install --copy` and restart again; a copy does not
+follow a symlinked `.lrplugin`), run `gardener-engine lr install --copy` and restart again; a copy does not
 follow plug-in updates, so delete it from Modules and rerun `--copy` after pulling changes.
 
 ## Daily flow
 
 ```
-bioscan run DIR --profile wildlife --json --out preds.ndjson && bioscan lr open preds.ndjson
+gardener-engine run DIR --profile wildlife --json --out preds.ndjson && gardener-engine lr open preds.ndjson
 ```
 
 `lr open` writes `~/Library/Application Support/bioscan/lightroom/latest.json` and brings Lightroom to
@@ -43,15 +43,15 @@ What it does to each photo:
 
 - **Import.** A path not in the catalog is added in place ("Add", no copy, no presets) if the file
   exists; otherwise it is counted as missing on disk.
-- **Stars.** `stars` 1-5 is written only if the photo has no stars, or still has the stars bioscan
-  wrote last time (kept in the `bioscan stars` field). Stars you set by hand are not overwritten (unless you happen to set exactly the value bioscan wrote).
+- **Stars.** `stars` 1-5 is written only if the photo has no stars, or still has the stars gardener
+  wrote last time (kept in the `gardener stars` field). Stars you set by hand are not overwritten (unless you happen to set exactly the value gardener wrote).
   `stars = 0` (no animal) leaves the rating alone.
   A rating you cleared to 0 by hand counts as unrated, so the next `lr open` stars that photo again.
 - **Keywords.** Each `keywords` entry is a path, root first; missing levels are created, the photo gets
   the last one. Keywords are only added, never removed.
-- **Collections.** The photo is added to the collection named `group` inside the `bioscan` set.
+- **Collections.** The photo is added to the collection named `group` inside the `gardener-engine` set.
   Photos are never removed from collections, so a photo whose group changed between runs is in both.
-- **Fields.** `bioscan species`, `bioscan level`, `bioscan score`, `bioscan stars`, `bioscan run` in
+- **Fields.** `gardener species`, `gardener level`, `gardener score`, `gardener stars`, `gardener-engine run` in
   the Metadata panel (read-only; species and level are searchable, e.g. for smart collections).
 
 ## Gardener handoffs (unverified in Lightroom)
@@ -61,7 +61,7 @@ schema 2; `latest.json` above is schema 1 and unchanged). The watcher applies ev
 yet; Library > Plug-in Extras > **bioscan: Apply Gardener handoffs** does it now. Per photo: find it by each path, then
 by the `uuid` an earlier handoff recorded; otherwise add the first existing path in place. Add it to the collection
 named after the handoff inside the `Gardener` set. Stars and keywords follow `Decide.lua` (the same rules as
-`bioscan/gardener/handoff.py`, tested against each other with a plain `lua`): a field Lightroom changed since the
+`gardener/workbench/handoff.py`, tested against each other with a plain `lua`): a field Lightroom changed since the
 baseline Gardener sends is skipped and reported as a conflict; only keywords a handoff wrote are ever removed. The
 result file lists ok / skipped / failed with a reason, the Lightroom `photo_id` and `uuid`, and each field's action.
 
@@ -109,21 +109,21 @@ and `LR_collisionHandling` values (`rename`, `skip`, `overwrite`). `LrDate.curre
 
 1. Pick a folder with about 10 photos, some with animals and one without, and one already rated by hand.
    Run the daily-flow command.
-2. Within a few seconds: the Library shows the `bioscan` set; every photo is in the catalog; photos
+2. Within a few seconds: the Library shows the `gardener-engine` set; every photo is in the catalog; photos
    with animals have 1-5 stars; the hand-rated one kept its stars; the no-animal photo has no new stars
    and is in the `无动物` collection.
 3. Keywords panel: `bioscan > <kind> > <species>` (`<English> (<Latin>)` at genus or family, `bioscan > <kind>` for unconfirmed). Species
-   collections contain the right photos. The Metadata panel shows the five `bioscan` fields.
-4. Run `bioscan lr open preds.ndjson` again: no duplicate photos, keywords or collections; star counts
+   collections contain the right photos. The Metadata panel shows the five `gardener-engine` fields.
+4. Run `gardener-engine lr open preds.ndjson` again: no duplicate photos, keywords or collections; star counts
    unchanged.
-5. Change the stars of one bioscan-starred photo by hand, run `lr open` again (or the menu item): that
+5. Change the stars of one gardener-starred photo by hand, run `lr open` again (or the menu item): that
    photo keeps your stars and the message counts it under "skipped".
 
 ## Log
 
-Errors and one line per apply go to the `bioscan` logger with the `logfile` action:
-`~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bioscan.log` (Lightroom Classic 14 on macOS; the SDK guide's
-`~/Documents/bioscan.log` is where older versions put it). The watcher never shows a
+Errors and one line per apply go to the `gardener-engine` logger with the `logfile` action:
+`~/Library/Logs/Adobe/Lightroom/LrClassicLogs/gardener.log` (Lightroom Classic 14 on macOS; the SDK guide's
+`~/Documents/gardener.log` is where older versions put it). The watcher never shows a
 dialog; only the menu item reports a missing or unreadable `latest.json` in a dialog.
 
 ## Lua constraints

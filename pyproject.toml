@@ -1,5 +1,5 @@
 [project]
-name = "bioscan"
+name = "gardener"
 version = "0.1.0"
 description = "Animal detection and species identification service for wildlife photos."
 requires-python = ">=3.12,<3.13"
@@ -21,9 +21,9 @@ dependencies = [
 ]
 
 [project.scripts]
-bioscan-serve = "bioscan.service.app:main"
-bioscan = "bioscan.cli.main:main"
-gardener = "bioscan.gardener.cli:main"
+gardener-engine-serve = "gardener.service.app:main"
+gardener-engine = "gardener.cli.main:main"
+gardener = "gardener.workbench.cli:main"
 
 [dependency-groups]
 dev = [
@@ -37,10 +37,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["bioscan"]
+packages = ["gardener"]
 
 [tool.pytest.ini_options]
-addopts = "-q -p no:cacheprovider -p bioscan_test_env"
+addopts = "-q -p no:cacheprovider -p gardener_test_env"
 pythonpath = ["tests"]
 
 [tool.ruff]

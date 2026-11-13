@@ -1,6 +1,6 @@
 """Settings fingerprint: stable, and moves when any output-changing constant moves."""
-from bioscan.service import names, pipeline, rules, settings, taxa
-from bioscan.service.adapters import geo
+from gardener.service import names, pipeline, rules, settings, taxa
+from gardener.service.adapters import geo
 
 
 def test_fingerprint_stable_and_sensitive(monkeypatch):
@@ -35,7 +35,7 @@ def test_label_map_contents_move_the_fingerprint(monkeypatch, tmp_path):
     carries each committed label map's sha."""
     import shutil
 
-    from bioscan import naming
+    from gardener import naming
 
     snap = settings.snapshot()["geo"]["label_maps"]
     assert set(snap) == {"bird", "mammal"} and all(len(v) == 12 for v in snap.values())

@@ -1,4 +1,4 @@
-"""English names in `bioscan aesthetic score --species` exports: the real identify pipeline on fake adapters
+"""English names in `gardener-engine aesthetic score --species` exports: the real identify pipeline on fake adapters
 names one photo to species, one to genus and one to family, and the CSV and page carry an English name
 beside each Latin one (#36)."""
 import csv
@@ -8,9 +8,9 @@ import numpy as np
 from conftest import FakeOWLv2, Fakes, FakeSigLIP2, client_for, events
 from PIL import Image
 
-from bioscan.cli import aesscore as sc
-from bioscan.service.engine import Engine, Loaders
-from bioscan.service.names import NameList
+from gardener.cli import aesscore as sc
+from gardener.service.engine import Engine, Loaders
+from gardener.service.names import NameList
 
 BIRDS = [("Spinus psaltria", "Lesser Goldfinch", "Fringillidae"), ("Vireo gilvus", "Warbling Vireo", "Vireonidae"),
          ("Vireo olivaceus", "Red-eyed Vireo", "Vireonidae"), ("Buteo jamaicensis", "Red-tailed Hawk", "Accipitridae"),
@@ -79,9 +79,9 @@ class Split(ByColour):
 def test_a_family_box_is_named_by_the_family_that_rolled_up(tmp_path):
     """#57: the box is Accipitridae (the family that reached the rollup), not the first candidate's Fringillidae,
     in the species payload and in every CLI reader: the aesthetic export, the summary, the terminal line, the keyword."""
-    from bioscan import contract
-    from bioscan.cli import lr, render
-    from bioscan.cli import report as rp
+    from gardener import contract
+    from gardener.cli import lr, render
+    from gardener.cli import report as rp
     ev = run(tmp_path, Split(), (("hawk", (20, 20, 200)),))
     [row] = sc.rows_of(ev)
     assert (row["species"], row["common"], row["level"]) == ("Accipitridae", "a hawk or eagle", "family")

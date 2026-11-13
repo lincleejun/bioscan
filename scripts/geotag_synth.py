@@ -1,4 +1,4 @@
-"""Synthetic GPX scenarios from the golden set, for `bioscan bench geotag`.
+"""Synthetic GPX scenarios from the golden set, for `gardener-engine bench geotag`.
 
 The owner has no GPX to share, so the tracks are built from the iNaturalist ground truth: each
 photo's true position and capture time. Photos are grouped into outings (same observer and local
@@ -18,7 +18,7 @@ Scenarios (one folder each): see SCENARIOS. Every random draw comes from a gener
 (seed, scenario, outing), so a scenario or outing is the same whatever else changes.
 
     uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7
-    bioscan bench geotag runs/geotag-synth
+    gardener-engine bench geotag runs/geotag-synth
 
 Layout: OUT/scenarios.json; OUT/<scenario>/photos.csv (the inputs: group, path, role, taken_at,
 tz, lat, lon, clock), truth.csv (group, path, lat, lon, utc, expect_fix, offset_s, precision) and
@@ -252,7 +252,7 @@ def sample(path: Path_, rng: random.Random) -> list[list[float]]:
 def gpx_xml(segments: list[list[list[float]]], ns: str = GPX11, name: str = "track") -> str:
     version = "1.0" if ns == GPX10 else "1.1"
     lines = ['<?xml version="1.0" encoding="UTF-8"?>',
-             f'<gpx version="{version}" creator="bioscan geotag_synth" xmlns="{ns}">',
+             f'<gpx version="{version}" creator="gardener geotag_synth" xmlns="{ns}">',
              f"<trk><name>{name}</name>"]
     for seg in segments:
         lines.append("<trkseg>")

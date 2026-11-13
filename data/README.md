@@ -1,6 +1,6 @@
 # data/
 
-名单原始文件。CSV/XLSX 体积大，已 gitignore，按下面步骤重新获取。`bioscan/service/names.py` 读取 `avilist/*.csv` 与 `mdd/*.csv`（每个目录恰好一个 CSV）。
+名单原始文件。CSV/XLSX 体积大，已 gitignore，按下面步骤重新获取。`gardener/service/names.py` 读取 `avilist/*.csv` 与 `mdd/*.csv`（每个目录恰好一个 CSV）。
 
 ## avilist/ — 鸟类（list_id `avilist-2026`）
 
@@ -76,7 +76,7 @@
   - `Circus hudsonius` ← `Circus cyaneus`（inat；美洲观测）
   - `Circus hudsonius` ← TreeOfLife `Circus cyaneus`（tol；TreeOfLife 没有 hudsonius 行，与 AviList C. cyaneus 共用官方向量，由地理先验按地点区分）
   - `Cervus canadensis` ← `Cervus elaphus`（inat；北美观测）
-  - `Icterus bullockiorum` ← BirdNET `Icterus bullockii`（birdnet；BirdNET 用旧拼写。2026-09-23 由 `bioscan names geo-gaps` 在加州查出；映射表该行按脚本规则手工同步：birdnet_label `Icterus bullockii_Bullock's Oriole`、birdnet_how `synonym`）
+  - `Icterus bullockiorum` ← BirdNET `Icterus bullockii`（birdnet；BirdNET 用旧拼写。2026-09-23 由 `gardener-engine names geo-gaps` 在加州查出；映射表该行按脚本规则手工同步：birdnet_label `Icterus bullockii_Bullock's Oriole`、birdnet_how `synonym`）
   - v2026 升级生成的 122 条（note 以 "From the v2026 changes tab." 结尾）：v2026 中 BirdNET 或 TreeOfLife 对不上、但它在 v2025 的祖先名（AviList 变更页 SPLITS 与 SPECIES SCIENTIFIC NAME CHANGES 两节，同一 Avibase ID）对得上的种，别名指向祖先名。改学名 36 条 birdnet + 41 条 tol（同一分类单元）；拆分 45 条只加 birdnet（子种共用亲本的先验，同 *Tyto furcata*）。拆分子种不加 tol 别名：对不上的子种按自己的名字用文本塔编码，加别名会让两个子种共用同一个向量。不加这些行时，没有 BirdNET 标签的鸟按 `zero` 策略在有坐标时被压掉。
   - 未收：`Alces alces → Alces americanus`。MDD v2.5 只有 `Alces alces`，没有 americanus，真值 `Alces alces` 已直接对上。
 - `avilist_map.csv`（`uv run python scripts/build_name_map.py --force` 生成，不加 `--force` 拒绝覆盖已提交的文件；需要 HF 缓存里的 TreeOfLife json 和 birdnet 包）：每个 AviList 种一行，`scientific, common, order, family, tol_name, tol_how, birdnet_label, birdnet_how`，`*_how` 取 `exact | synonym | none`。`birdnet_label` 是 BirdNET 原样的 `学名_俗名`，服务加载时建好"名单行号 → BirdNET 输出位置"索引，请求时一次数组查表得每行 `p_geo`（无标签的行为 0）。
@@ -88,7 +88,7 @@
   - 一行多个标签（MDD 并了 BirdNET 分开的种）用 `|` 连接，先验取其中最大值：*Cebus albifrons*（4 个）、*Cebus capucinus*、*Plecturocebus cupreus*、*Plecturocebus toppini*（各 2 个）。
   - 结果：1042 行有标签（exact 1028、synonym 14），1048 个哺乳标签全部用上；golden 集 23 种哺乳里 21 种有标签，*Lepus californicus*、*Sylvilagus audubonii* 按属回退。
   - 没有标签的行按名单的 unlabelled policy 处理：哺乳为 `genus`（取同属有标签种的最大 p_geo，同属都没有时取 `geo.UNLABELLED_NEUTRAL` 0.05），鸟为 `zero`（按 0，行为不变）。属回退得到的 p_geo 不触发分布否决。
-- `avilist_splits.csv`（`uv run --no-project --with openpyxl python scripts/build_splits.py --xlsx AviList-v2026-20Oct2026-extended-version.xlsx --previous AviList-v2025-11Jun-extended.csv --force` 生成，不加 `--force` 拒绝覆盖；下一版名录用 `--version avilist-2027 --append` 追加，保留旧版本的行；2026-10-26）：AviList 某个版本拆分的种，每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。Gardener 用它把旧的人工确认改成“待重新确认”（`docs/gardener/contract.md` 契约修订 4，S7 第二部分）；BioScan 识别不读它。
+- `avilist_splits.csv`（`uv run --no-project --with openpyxl python scripts/build_splits.py --xlsx AviList-v2026-20Oct2026-extended-version.xlsx --previous AviList-v2025-11Jun-extended.csv --force` 生成，不加 `--force` 拒绝覆盖；下一版名录用 `--version avilist-2027 --append` 追加，保留旧版本的行；2026-10-26）：AviList 某个版本拆分的种，每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。Gardener 用它把旧的人工确认改成“待重新确认”（`docs/gardener/contract.md` 契约修订 4，S7 第二部分）；Gardener Engine 识别不读它。
 - `split_ranges.csv`：拆分出的子种在哪里出现，用 1° 网格表示。生成命令：`uv run --no-project python scripts/build_split_ranges.py --avilist data/avilist/AviList-v2026-20Oct2026-extended-version.csv --cache <原始计数 JSON> --force`；不加 `--force` 拒绝覆盖。2026-10-27 生成。
   - 列：`list_version, concept, scientific, cells`（`lat,lon` 为 1° 格左下角，以 `;` 分隔）`, records, names, gbif_keys`。
   - 来源：GBIF 观测记录。用 GBIF Occurrence Search API（免费、无需 key）取有坐标、无地理问题、`occurrenceStatus=PRESENT` 的记录，每个名字最多 10,000 条，只汇总成网格，不保存单条记录。引用：GBIF.org (2026) GBIF Occurrence Search, https://www.gbif.org 。
@@ -97,7 +97,7 @@
     - 子种总记录 ≥ 200 时，一格至少要有 2 条记录；
     - 同一组拆分里，一格只算给记录数至少达到该格领先兄弟子种一半的子种（`SIBLING_SHARE = 0.5`）。
   - 结果：80 个子种中 71 个有范围，35 组拆分中 29 组所有子种都有。没有范围的子种沿用亲本的位置分数。
-  - 用途：BioScan 的位置先验（`bioscan/service/adapters/geo.py`，范围外记 0，±1 格容差），以及 Gardener 的拆分按位置选定（契约修订 7D）。文件的哈希在 `settings.fingerprint()` 里。
+  - 用途：Gardener Engine 的位置先验（`gardener/service/adapters/geo.py`，范围外记 0，±1 格容差），以及 Gardener 的拆分按位置选定（契约修订 7D）。文件的哈希在 `settings.fingerprint()` 里。
   - 来源：xlsx 的 `Changes from previous version` 页 “SPLITS (including descriptions of taxa that alter existing taxa)” 一节（表头 `#, AVIBASE ID, FAMILY, SCIENTIFIC NAME: AVILIST v2026, ENGLISH NAME: AVILIST v2026, AVILIST v2025 SCIENTIFIC NAME, AVILIST v2025 ENGLISH NAME`），到下一节 “LUMPS” 为止。`concept` 取该行的 Avibase ID；`parent_concept` 取 v2025 CSV 里亲本学名那一行种级的 `AvibaseID`（亲本不是 v2025 的种就报错）。
   - 结果：80 个子种、35 个亲本，80 个子种的 ID 都在 v2026 CSV 里。35 个亲本的种级 ID 在 v2026 里全部不再使用，没有子种沿用亲本 ID；留下原学名的子种用的是原来指名亚种的 ID（如 Willet `avibase-E7A14E91` → Saltmarsh Willet `avibase-6D372C9F`，后者在 v2025 是 *Tringa semipalmata semipalmata*）。
   - *Mixornis bornensis* 只有一行：变更页把从 *M. gularis* 分出的 *M. woodi* 记在 *M. gularis* 名下，*M. bornensis* 自己换了新 ID，所以它的旧人工确认会变成只有一个候选的“待重新确认”。这是原表的样子，没有手工补行。
@@ -112,7 +112,7 @@
 
 旧版 BirdNET 匹配另外用俗名兜底（多 15 种），新版只按学名 + 别名，暂未把俗名匹配搬进映射表。`candidates.csv` 当前 48 条（distance 1：11 条）。
 
-## inat/groundtruth-inat.csv — golden 真值（`bioscan gt inat` 生成）
+## inat/groundtruth-inat.csv — golden 真值（`gardener-engine gt inat` 生成）
 
 **列**：`path, scientific, tier, lat, lon, taken_at, source, kind, license, attribution`。没有单独的观察者列：`attribution` 里 `(c) 名字, …` 的名字就是观察者，CC0 行只写 `no rights reserved`。
 
@@ -121,28 +121,28 @@
 - 带时间的行里，722 行秒数是 `:00`（其中 1 行没有坐标，合成时用到 721 行），即 iNaturalist 只记到分钟；
 - 另有 1 行没有坐标。
 
-**合成 GPX**：`scripts/geotag_synth.py` 用 `groundtruth-inat-geotag.csv` 合成 GPX 轨迹，供 `bioscan bench geotag` 使用。它是 2026-11-13 清理前的 1,625 行原样副本：geotag 只用坐标和时间，照片里是不是动物无关，保留它可以让合成层的数字和分组编号不变（#156）。物种评测用清理后的 `groundtruth-inat.csv`（1,571 行）。缺的时间这样补：
+**合成 GPX**：`scripts/geotag_synth.py` 用 `groundtruth-inat-geotag.csv` 合成 GPX 轨迹，供 `gardener-engine bench geotag` 使用。它是 2026-11-13 清理前的 1,625 行原样副本：geotag 只用坐标和时间，照片里是不是动物无关，保留它可以让合成层的数字和分组编号不变（#156）。物种评测用清理后的 `groundtruth-inat.csv`（1,571 行）。缺的时间这样补：
 - 只到分钟的，在该分钟内随机补秒；
 - 只有日期的，补一个 07:00–17:00 之间的时间，时区取 round(lon/15) 小时。
 
 轨迹按补好的时间生成，所以评测是自洽的。每行的精度记在合成结果的 `truth.csv`（`precision` 列）。这个文件本身不改。
 
-## scene/oid-labels.toml — scene tier 的标签映射（`bioscan gt scene` 读）
+## scene/oid-labels.toml — scene tier 的标签映射（`gardener-engine gt scene` 读）
 
 把 Open Images V7 的类名（`oidv7-class-descriptions.csv` 的 DisplayName）映射到 scene 标签：每个 `[label.<名>]` 有
 `group`（8 个粗组之一）、`scene`（细标签，Open Images 分不出来的写空串，如 `bird`、`mammal`）和 `any` / `all` / `not`
 三种类集合；一张照片同时符合两个标签就两边都不要。`[attribute.light|setting|framing]` 给 CSV 的属性列。
-`bioscan gt scene --out DIR --per-label N` 把 val + test 的标签 CSV（约 180 MB）缓存到 `~/.cache/bioscan/openimages/`，
+`gardener-engine gt scene --out DIR --per-label N` 把 val + test 的标签 CSV（约 180 MB）缓存到 `~/.cache/bioscan/openimages/`，
 按 seed 抽样后从 CVDF 的 S3 镜像下载照片到 `DIR/<scene 或 group>/`（与 `--from` 同一规则），写 `DIR/groundtruth-scene.csv`
 （列 `path, tier, scene, scene_group, light, setting, framing, license, attribution, source`）。
 照片全部 CC BY 2.0，逐张记作者与出处，只用来评测，不进仓库。分类法与来源调研见 `docs/research/2026-09-24-scene-*.md`。
 
-## scene/scene-v1.csv — scene tier 的清单（`bioscan gt scene --from` 读）
+## scene/scene-v1.csv — scene tier 的清单（`gardener-engine gt scene --from` 读）
 
 抽样结果的 `groundtruth-scene.csv` 去掉本机路径后提交：每行 `url`（CVDF 的 S3 镜像）+ `md5` + 标签、许可、署名。
-`bioscan gt scene --from data/scene/scene-v1.csv --out DIR` 逐行检查 `DIR/<scene 或 group>/<subset>_<id>.jpg`：
+`gardener-engine gt scene --from data/scene/scene-v1.csv --out DIR` 逐行检查 `DIR/<scene 或 group>/<subset>_<id>.jpg`：
 md5 一致就跳过，否则下载；下载结果 md5 不符直接报错。这样任何机器跑 bench 用的都是同一批文件，仓库只多约 200 KB。
 
 ## aesthetic/ — 通用美学头（`eva-head-v1.json`）
 
-`aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。头文件 `eva-head-v1.json` 已提交（在 CI（`aesthetic.yml`）或 Mac 上训练）；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`bioscan aesthetic train --ratings`）只留在本机，不进仓库。
+`aesthetics` stage 的通用头：SigLIP2 整帧向量上的岭回归，在 EVA（github.com/kang-gnak/eva-dataset，固定到提交 `fb40a9f`）的平均分上拟合。EVA 标注是 CC0 1.0；图片是 AVA 照片，版权属于原摄影师，只用来算向量、不再分发；不使用 AVA 评分，也不分发 AVA 训练的权重。头文件 `eva-head-v1.json` 已提交（在 CI（`aesthetic.yml`）或 Mac 上训练）；格式、来源和命令见 `data/aesthetic/README.md`。个人头（`gardener-engine aesthetic train --ratings`）只留在本机，不进仓库。

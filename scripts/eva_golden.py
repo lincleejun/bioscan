@@ -2,10 +2,10 @@
 
     uv run python scripts/eva_golden.py select --votes EVA/data/votes_filtered.csv   # once; writes the frozen list
     uv run python scripts/eva_golden.py build --eva ~/.cache/bioscan/eva --out ~/aes-golden-eva
-    bioscan run ~/aes-golden-eva/images -r --profile album --json --out runs/aes/eva-public.ndjson
-    bioscan bench aesthetic score ~/aes-golden-eva runs/aes/eva-public.ndjson --out runs/aes/eva-public
+    gardener-engine run ~/aes-golden-eva/images -r --profile album --json --out runs/aes/eva-public.ndjson
+    gardener-engine bench aesthetic score ~/aes-golden-eva runs/aes/eva-public.ndjson --out runs/aes/eva-public
 
-`select` reads EVA's filtered votes (bioscan.aesthetic.EVA_COMMIT) and writes data/aesthetic/eva-golden-v1.csv:
+`select` reads EVA's filtered votes (gardener.aesthetic.EVA_COMMIT) and writes data/aesthetic/eva-golden-v1.csv:
 
 1. Per image: mean and standard deviation of the 0-10 general score, number of votes, and the means of the
    four attribute ratings (visual = light and colour, composition, quality, semantic).
@@ -16,10 +16,10 @@
    draw more disagreement, so one global sd limit would empty the low bands.
 4. 20 per band, drawn with seed 7. The list is frozen: `select` refuses to overwrite it.
 
-`bioscan.aesthetic.read_eva` leaves these images out of every general-head fit (train_aesthetic_head.py and
-`bioscan aesthetic train --eva`), and the head's provenance records the held-out list's sha256.
+`gardener.aesthetic.read_eva` leaves these images out of every general-head fit (train_aesthetic_head.py and
+`gardener-engine aesthetic train --eva`), and the head's provenance records the held-out list's sha256.
 
-`build` writes a golden folder for `bioscan bench aesthetic`: symlinks under `images/` to the EVA checkout's
+`build` writes a golden folder for `gardener-engine bench aesthetic`: symlinks under `images/` to the EVA checkout's
 JPEGs (never copied into the repository: the photos' copyright stays with their photographers) and
 images.csv with stars, keep (4-5 stars = 1, 1-2 = 0, 3 = blank) and trip `eva`.
 """
@@ -35,7 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from bioscan import aesthetic as aes  # noqa: E402
+from gardener import aesthetic as aes  # noqa: E402
 
 BANDS = {1: (0.0, 4.5), 2: (5.0, 5.5), 3: (5.9, 6.3), 4: (6.7, 7.1), 5: (7.5, 10.01)}   # [lo, hi) of the mean
 PER_STAR = 20

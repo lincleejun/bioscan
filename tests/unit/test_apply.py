@@ -1,7 +1,7 @@
-"""bioscan.apply: copy the keeps, move or delete the drops, sidecars along; the service token file."""
+"""gardener.apply: copy the keeps, move or delete the drops, sidecars along; the service token file."""
 import os
 
-from bioscan import apply as ap
+from gardener import apply as ap
 
 
 def album(tmp_path):

@@ -49,6 +49,6 @@ def result(path, t=None, camera="Cam A", v=(1.0,), reasons=(), blur=0.2, cut=Fal
     if v is not None:
         prods["embed"] = {"vector": list(v) + [0.0] * (4 - len(v))}
     if aesthetic is not None:
-        # the aesthetics stage's output shape (bioscan.plugins.aesthetics MANIFEST.output)
+        # the aesthetics stage's output shape (gardener.plugins.aesthetics MANIFEST.output)
         prods["aesthetics"] = {"score": aesthetic, "general": aesthetic, "personal": None, "head_id": "eva-head-v1:0123456789ab"}
     return {"type": "result", "path": path, "products": prods}

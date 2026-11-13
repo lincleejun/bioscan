@@ -1,10 +1,10 @@
-"""bioscan.plugin.plan: run order from reads/provides (ties by name), the models a plan needs, and
+"""gardener.plugin.plan: run order from reads/provides (ties by name), the models a plan needs, and
 the errors a bad plan is (cycle, missing provider, unknown stage or option). Stdlib only."""
 import pytest
 
-from bioscan import plugin
-from bioscan.plugin import Manifest
-from bioscan.plugins import BUILTIN
+from gardener import plugin
+from gardener.plugin import Manifest
+from gardener.plugins import BUILTIN
 
 
 def m(name, reads=(), provides=(), models=(), options=None):

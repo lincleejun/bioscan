@@ -66,8 +66,8 @@ def test_golden_set_rows():
 
 
 def test_committed_map_reflects_synonyms():
-    from bioscan import naming
-    from bioscan.service import names
+    from gardener import naming
+    from gardener.service import names
 
     assert naming.map_problems(names.read_map(naming.AVILIST_MAP_CSV), naming.read_synonyms()) == []
 

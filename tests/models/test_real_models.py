@@ -2,32 +2,32 @@
 real /run pipeline on 95 iNaturalist photos (tests/models/sample.csv): 77 birds and mammals from the
 golden set and 18 other animals (reptiles, amphibians, insects, a spider, a fish; CC0 / CC BY).
 
-Only runs with BIOSCAN_MODEL_TESTS=1 and the weights in the HF cache (tests/models/download.py);
+Only runs with GARDENER_ENGINE_MODEL_TESTS=1 and the weights in the HF cache (tests/models/download.py);
 CI's models.yml does both. Birds and mammals are ranked against a small in-memory name list encoded
 with the BioCLIP text tower (every AviList species of the sampled bird genera, tests/models/mammals.csv
 for mammals), because the full AviList/MDD CSVs are not in the repo. Other animals are ranked
 against the real all-taxa list (every species-level TreeOfLife animal row outside birds and
 mammals), which download.py builds into ~/.cache/bioscan/names; without it their floors are skipped,
-unless BIOSCAN_REQUIRE_ALLTAXA=1 (CI), where that is a failure.
+unless GARDENER_ENGINE_REQUIRE_ALLTAXA=1 (CI), where that is a failure.
 Thresholds sit below what the first CI run measured: they catch a broken model, adapter or
-dependency upgrade, not a point of accuracy. The report (BIOSCAN_REPORT) has the real numbers.
+dependency upgrade, not a point of accuracy. The report (GARDENER_ENGINE_REPORT) has the real numbers.
 
 The v1.5 accuracy switches (range veto, kind check, mammal prior) are measured here too: the same
 photos are identified again with all three off, replaying the model outputs of the main run (so the
 second pass costs only the species matmuls), and the report gets an on/off table with every image
 whose answer changed. Switched on they may lose at most one Top-1 hit, and add at most one confident
-error, per kind (a tripwire; `bioscan bench compare` with its budgets is the gate). With the all-taxa
+error, per kind (a tripwire; `gardener-engine bench compare` with its budgets is the gate). With the all-taxa
 list loaded the kind check also weighs it, so this table is where its effect on birds and mammals
 shows. models-report.json (the harness report) is written from the main, switches-on run.
 
-The album profile is measured last: scripts/cull_synth.py degrades the first BIOSCAN_ALBUM_SOURCES
+The album profile is measured last: scripts/cull_synth.py degrades the first GARDENER_ENGINE_ALBUM_SOURCES
 (24) bird and mammal photos into labelled rejects (subject blur and smear, frame shake, cut-off
 crop, +-2 EV, shrunk subject) and bursts, the same engine runs them with "profile": "album", and
 the burst and select reducers and the harness score them (models-report-album.json, tier album:
 reject precision / recall per reason, keepers lost, burst pairwise F1, scene accuracy). Its floors
 are loose until the first CI run measures them.
 
-Inference cache (BIOSCAN_INFER_CACHE, a file; models.yml keeps it between runs): every model answer
+Inference cache (GARDENER_ENGINE_INFER_CACHE, a file; models.yml keeps it between runs): every model answer
 this module computes is stored by the exact pixels (and prompts) handed to the model, and the next
 run replays what it finds there. A change to decoding, crops or prompts misses and runs the model;
 models.yml keys the cache on the adapters (model revisions) and uv.lock, so a model or dependency
@@ -47,14 +47,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from bioscan import contract
+from gardener import contract
 
-pytestmark = pytest.mark.skipif(os.environ.get("BIOSCAN_MODEL_TESTS") != "1",
-                                reason="real-model smoke: set BIOSCAN_MODEL_TESTS=1 (see tests/models/download.py)")
+pytestmark = pytest.mark.skipif(os.environ.get("GARDENER_ENGINE_MODEL_TESTS") != "1",
+                                reason="real-model smoke: set GARDENER_ENGINE_MODEL_TESTS=1 (see tests/models/download.py)")
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-PHOTOS = Path(os.environ.get("BIOSCAN_PHOTO_CACHE", "~/.cache/bioscan/model-test-photos")).expanduser()
+PHOTOS = Path(os.environ.get("GARDENER_ENGINE_PHOTO_CACHE", "~/.cache/bioscan/model-test-photos")).expanduser()
 PHOTO_URL = "https://inaturalist-open-data.s3.amazonaws.com/photos/{pid}/medium.{ext}"
 
 # kind -> metric -> floor. Measured on CPU, 2026-09-23 (models runs 3 and 5, identical):
@@ -78,7 +78,7 @@ def fetch(row: dict) -> Path | None:
         return path
     for ext in ("jpg", "jpeg", "png", "JPG", "JPEG"):          # the bucket's keys are case-sensitive
         req = urllib.request.Request(PHOTO_URL.format(pid=row["photo_id"], ext=ext),
-                                     headers={"User-Agent": "bioscan-model-tests"})
+                                     headers={"User-Agent": "gardener-model-tests"})
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 data = r.read()
@@ -90,7 +90,7 @@ def fetch(row: dict) -> Path | None:
     return None
 
 
-INFER_CACHE = os.environ.get("BIOSCAN_INFER_CACHE") or None
+INFER_CACHE = os.environ.get("GARDENER_ENGINE_INFER_CACHE") or None
 CACHE_VERSION = 1                     # bump when a key or a stored row changes shape
 MEMORY: dict[str, dict] = {}          # proxy -> key -> answer (what the inference cache holds)
 USED: dict[str, set] = {}             # proxy -> keys this session read or wrote (all the cache keeps)
@@ -167,7 +167,7 @@ class ReplayBioCLIP(Replay):
 
 def encode_names(texts: list[str], bioclip) -> np.ndarray:
     """names.encode with the BioCLIP text tower, through the inference cache when it is on."""
-    from bioscan.service import names
+    from gardener.service import names
 
     key = hashlib.sha1("\0".join(texts).encode()).hexdigest()
     memory, used = MEMORY.setdefault("text", {}), USED.setdefault("text", set())
@@ -201,7 +201,7 @@ def infer_cache():
         with open(path.with_suffix(".tmp"), "wb") as f:
             pickle.dump({"version": CACHE_VERSION, "memory": keep}, f, protocol=pickle.HIGHEST_PROTOCOL)
         path.with_suffix(".tmp").replace(path)
-    report = os.environ.get("BIOSCAN_REPORT")
+    report = os.environ.get("GARDENER_ENGINE_REPORT")
     if report and Path(report).is_file():
         rows = ["", "## Model time", "",
                 f"Inference cache: {'on (' + str(path.name) + ')' if path else 'off'}. Computed = the model ran; "
@@ -217,7 +217,7 @@ STATE: dict = {}      # the main run's inputs, for the switches-off pass
 
 
 def small_lists(bioclip) -> dict:
-    from bioscan.service import names
+    from gardener.service import names
 
     rows = sample()
     genera = {r["scientific"].split(" ")[0] for r in rows if r["kind"] == "bird"}
@@ -243,7 +243,7 @@ def small_lists(bioclip) -> dict:
     if names.all_taxa_path().is_file():
         other = names.load_all_taxa(tol_files=(Path("/nonexistent"),) * 2)     # from the cache, never built here
         lists[other.kind] = other
-    elif os.environ.get("BIOSCAN_REQUIRE_ALLTAXA") == "1":
+    elif os.environ.get("GARDENER_ENGINE_REQUIRE_ALLTAXA") == "1":
         raise AssertionError(f"all-taxa list missing at {names.all_taxa_path()} (run tests/models/download.py)")
     return lists
 
@@ -253,11 +253,11 @@ def run():
     """Photos -> real Engine -> real /run -> (ground-truth rows, events, engine)."""
     from fastapi.testclient import TestClient
 
-    from bioscan.cli import eval as ev
-    from bioscan.service import engine as engine_mod
-    from bioscan.service import names
-    from bioscan.service.adapters.bioclip import BioCLIP
-    from bioscan.service.app import create_app
+    from gardener.cli import eval as ev
+    from gardener.service import engine as engine_mod
+    from gardener.service import names
+    from gardener.service.adapters.bioclip import BioCLIP
+    from gardener.service.app import create_app
 
     rows = sample()
     with ThreadPoolExecutor(8) as pool:
@@ -273,8 +273,8 @@ def run():
         owlv2=lambda d: ReplayOWLv2(engine_mod._load_owlv2(d)),
         species=lambda device: (ReplayBioCLIP(bioclip), lists)))
     engine.ensure(engine_mod.MODELS)                 # all three: the run below wants identify + embed
-    if os.environ.get("BIOSCAN_REQUIRE_GEO") == "1":
-        assert engine.geo is not None, "BirdNET geo prior failed to load (BIOSCAN_REQUIRE_GEO=1)"
+    if os.environ.get("GARDENER_ENGINE_REQUIRE_GEO") == "1":
+        assert engine.geo is not None, "BirdNET geo prior failed to load (GARDENER_ENGINE_REQUIRE_GEO=1)"
         assert set(engine.priors) == {"bird", "mammal"}, engine.priors
 
     inputs = [{"path": str(p), "lat": float(r["lat"]), "lon": float(r["lon"]), "taken_at": r["taken_at"]}
@@ -295,11 +295,11 @@ def run():
 
 
 def write_bench_report(path: Path, gt: list[dict], preds: dict, events: list[dict], engine) -> None:
-    """report.json (`bioscan bench`) of this run, which models.yml compares with baselines/ci-smoke.json.
+    """report.json (`gardener-engine bench`) of this run, which models.yml compares with baselines/ci-smoke.json.
     Name-list membership and families come from the small in-memory lists this test built."""
-    from bioscan import naming
-    from bioscan.cli import bench
-    from bioscan.cli import eval as ev
+    from gardener import naming
+    from gardener.cli import bench
+    from gardener.cli import eval as ev
 
     lists = {kind: {naming.norm_binomial(s): t[4] for s, t in zip(nl.scientific, nl.taxonomy)}
              for kind, nl in engine.names.items()}
@@ -314,7 +314,7 @@ def write_bench_report(path: Path, gt: list[dict], preds: dict, events: list[dic
 
 @pytest.fixture(scope="module")
 def metrics(run):
-    from bioscan.cli import eval as ev
+    from gardener.cli import eval as ev
 
     gt, events, engine = run
     preds = ev.load_preds(json.dumps(e) for e in events)
@@ -336,7 +336,7 @@ def metrics(run):
         top1 = (sp.get("top") or [{}])[0].get("scientific", "–")
         per_image.append(f"| {r['scientific']} | {(ident.get('gate') or {}).get('class', 'error')} | {len(boxes)} | "
                          f"{top1} | {sp.get('level', '–')} |")
-    out = os.environ.get("BIOSCAN_REPORT")
+    out = os.environ.get("GARDENER_ENGINE_REPORT")
     if out:
         Path(out).write_text(report + "\n".join(per_image) + "\n")
         Path(out).with_suffix(".ndjson").write_text("".join(json.dumps(e) + "\n" for e in events))
@@ -373,7 +373,7 @@ def test_boxes_are_well_formed(run):
                 post = [c["posterior"] for c in sp["top"]]
                 assert post[1:] == sorted(post[1:], reverse=True) and sp["level"] in ("species", "genus", "family", "unconfirmed")
                 if post[0] < max(post):           # range veto: an in-range congener ahead of an out-of-range top
-                    from bioscan.service import rules
+                    from gardener.service import rules
 
                     vetoed = max(sp["top"], key=lambda c: c["posterior"])
                     first = sp["top"][0]
@@ -391,8 +391,8 @@ def test_accuracy_floors(run, metrics, kind):
 
 
 def test_geo_gaps_on_real_birdnet(run, capsys):
-    """`bioscan names geo-gaps` against the real BirdNET model (skipped when it cannot load)."""
-    from bioscan.cli import main as cli
+    """`gardener-engine names geo-gaps` against the real BirdNET model (skipped when it cannot load)."""
+    from gardener.cli import main as cli
 
     _, _, engine = run
     if engine.geo is None:
@@ -404,7 +404,7 @@ def test_geo_gaps_on_real_birdnet(run, capsys):
     with open(ROOT / "data" / "names" / "avilist_map.csv", newline="", encoding="utf-8") as f:
         labelled = {r["scientific"] for r in csv.DictReader(f) if r["birdnet_label"]}
     assert listed and not set(listed) & labelled          # only unlabelled species are ever listed
-    report = os.environ.get("BIOSCAN_REPORT")
+    report = os.environ.get("GARDENER_ENGINE_REPORT")
     if report and Path(report).is_file():
         with open(report, "a") as f:
             f.write("\n## geo-gaps at 37.4,-122.1 (2026-05-01)\n\n```\n" + out + "```\n")
@@ -417,8 +417,8 @@ def test_detail_path_with_real_models(run, tmp_path):
     from fastapi.testclient import TestClient
     from PIL import Image
 
-    from bioscan.service import pipeline
-    from bioscan.service.app import create_app
+    from gardener.service import pipeline
+    from gardener.service.app import create_app
 
     gt, events, engine = run
     base = {e["path"]: e for e in events if e["type"] == "result"}
@@ -447,7 +447,7 @@ def test_detail_path_with_real_models(run, tmp_path):
     same = sum(base[p]["products"]["identify"]["boxes"][0]["species"]["top"][0]["scientific"]
                == next(e for e in evs if e.get("path") == q)["products"]["identify"]["boxes"][0]["species"]["top"][0]["scientific"]
                for p, q in zip(birds, big) if next(e for e in evs if e.get("path") == q)["products"]["identify"]["boxes"])
-    report = os.environ.get("BIOSCAN_REPORT")
+    report = os.environ.get("GARDENER_ENGINE_REPORT")
     if report and Path(report).is_file():
         with open(report, "a") as f:
             f.write(f"\n## Detail path\n\n{len(big)} bird photos upscaled to 4000 px, detail copies {seen}; "
@@ -476,7 +476,7 @@ def switched_off(run):
     """The main run's photos again with the three accuracy switches off, the models' outputs replayed."""
     from fastapi.testclient import TestClient
 
-    from bioscan.service.app import create_app
+    from gardener.service.app import create_app
 
     _, _, engine = run
     Replay.mode = "replay"
@@ -503,9 +503,9 @@ SWITCH_SLACK = 1    # images per kind and measure: ~38 photos a kind, one flip i
 def test_accuracy_switches_do_not_regress(run, switched_off):
     """On (the main run) vs off: per kind, at most SWITCH_SLACK Top-1 hits lost and SWITCH_SLACK
     confident errors (species-level wrong answers) added; a coarse tripwire only. The real gate is
-    `bioscan bench compare` against the committed baseline with its regression budgets. Every
+    `gardener-engine bench compare` against the committed baseline with its regression budgets. Every
     changed image goes to the report with its before/after."""
-    from bioscan.cli import eval as ev
+    from gardener.cli import eval as ev
 
     gt, events, engine = run
     on, off = ev.load_preds(json.dumps(e) for e in events), ev.load_preds(json.dumps(e) for e in switched_off)
@@ -528,13 +528,13 @@ def test_accuracy_switches_do_not_regress(run, switched_off):
             worse.append(f"{kind}: Top-1 {hits['off']} -> {hits['on']}, confident errors {wrong['off']} -> {wrong['on']}")
     rows += ["", f"This test fails only past {SWITCH_SLACK} image per kind and measure (Top-1 lost, confident "
              "error added); with ~38 photos a kind that is a tripwire, not a verdict. The gate is the harness: "
-             "`bioscan bench compare` against the committed baseline, within its regression budgets.",
+             "`gardener-engine bench compare` against the committed baseline, within its regression budgets.",
              "", "| truth | off: kind, top-1, level | on: kind, top-1, level |", "|---|---|---|"]
     for r in gt:
         a, b = _best(off.get(r["path"])), _best(on.get(r["path"]))
         if a != b:
             rows.append(f"| {r['scientific']} | {', '.join(a)} | {', '.join(b)} |")
-    report = os.environ.get("BIOSCAN_REPORT")
+    report = os.environ.get("GARDENER_ENGINE_REPORT")
     if report and Path(report).is_file():
         with open(report, "a") as f:
             f.write("\n".join(rows) + "\n")
@@ -544,7 +544,7 @@ def test_accuracy_switches_do_not_regress(run, switched_off):
 
 # ---- album profile: the synthetic reject set (scripts/cull_synth.py) from these photos ---------------
 
-ALBUM_SOURCES = int(os.environ.get("BIOSCAN_ALBUM_SOURCES", "24"))
+ALBUM_SOURCES = int(os.environ.get("GARDENER_ENGINE_ALBUM_SOURCES", "24"))
 # (plugin, scope, metric) -> (op, floor) on the album report's plugin_metrics. Set from the first green
 # run (36099637018, 2026-09-25: keepers_lost 10.7 %, recall 92.9 %, precision 96.3 %, soft 86.1 %, over/under
 # 95.8 %, burst F1 95.7 %, scene 91.5 %) minus about 4 images of the 24 per variant: they catch a broken stage,
@@ -563,15 +563,15 @@ ALBUM_FLOORS = {("quality", "all", "keepers_lost"): ("<=", 0.20),
 def album(run, tmp_path_factory):
     """The first ALBUM_SOURCES bird and mammal photos whose best box is clear of the edges, degraded
     into labelled rejects and bursts (scene: wildlife), run through the album profile on the same
-    engine, then burst + select and the harness (models-report-album.json next to BIOSCAN_REPORT)."""
+    engine, then burst + select and the harness (models-report-album.json next to GARDENER_ENGINE_REPORT)."""
     import importlib.util
 
     from fastapi.testclient import TestClient
 
-    from bioscan import profile
-    from bioscan.cli import bench
-    from bioscan.cli import eval as ev
-    from bioscan.service.app import create_app
+    from gardener import profile
+    from gardener.cli import bench
+    from gardener.cli import eval as ev
+    from gardener.service.app import create_app
 
     gt, events, engine = run
     spec = importlib.util.spec_from_file_location("cull_synth", ROOT / "scripts" / "cull_synth.py")
@@ -594,7 +594,7 @@ def album(run, tmp_path_factory):
                              complete=done is not None, tier="album", profile="album", reducers=res.reducer_run(),
                              options={"want": list(res.want), "profile": "album", "device": engine.device,
                                       "sources": len(sources), "seed": 7})
-    report = os.environ.get("BIOSCAN_REPORT")
+    report = os.environ.get("GARDENER_ENGINE_REPORT")
     if report:
         bench.write_json(rep, Path(report).with_name(Path(report).stem + "-album.json"))
         if Path(report).is_file():
@@ -633,7 +633,7 @@ def test_album_floors(album):
 def test_album_report_compares_and_scores(album):
     """bench compare and scorecard work on a real album report (models.yml then compares it with
     baselines/ci-album.json once that exists)."""
-    from bioscan.cli import bench
+    from gardener.cli import bench
 
     rep = album[2]
     c = bench.compare(rep, rep, bench.read_budget(ROOT / "baselines" / "budget-album.toml"))
@@ -649,8 +649,8 @@ def test_facing_on_the_album_photos(run, album):
     records equal the album run's but for flags (a flag changes no status, rank or keep)."""
     from fastapi.testclient import TestClient
 
-    from bioscan import cull, profile
-    from bioscan.service.app import create_app
+    from gardener import cull, profile
+    from gardener.service.app import create_app
 
     _gt, _events, engine = run
     rows, album_evs, _ = album

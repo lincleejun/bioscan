@@ -5,7 +5,7 @@ identify over 300 seeded random frames through the v1.5-base test_batch stand-in
     git archive 0a66f72 | tar -x -C /tmp/base && cd /tmp/base
     PYTHONPATH=/tmp/base:/tmp/base/tests/unit <repo>/.venv/bin/python <repo>/tests/unit/test_golden_alltaxa.py OUT.json.gz
 
-(run from /tmp/base so that `bioscan` resolves to the base tree, not the working tree).
+(run from /tmp/base so that `gardener-engine` resolves to the base tree, not the working tree).
 
 Conditions: the v1.5 accuracy switches off (`SWITCHES_OFF`; the base tree ignores the keys) and no
 candidates. Then today's code gives the same bytes without an other_animal list, and with one only
@@ -22,10 +22,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from bioscan.service import pipeline
-from bioscan.service.adapters import geo
-from bioscan.service.adapters.owlv2 import Detection
-from bioscan.service.names import NameList
+from gardener.service import pipeline
+from gardener.service.adapters import geo
+from gardener.service.adapters.owlv2 import Detection
+from gardener.service.names import NameList
 
 GOLDEN = Path(__file__).parent / "golden" / "identify-0a66f72.json.gz"
 GATE = ("bird", "mammal", "other_animal", "person", "none")

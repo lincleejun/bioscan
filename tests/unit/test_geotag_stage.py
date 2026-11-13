@@ -1,4 +1,4 @@
-"""The geotag stage (bioscan/plugins/geotag): its manifest and checks, what `run` does per item, and
+"""The geotag stage (gardener/plugins/geotag): its manifest and checks, what `run` does per item, and
 end to end through /run on the fake Engine: the service-side path (a profile with the stage) places
 photos exactly as the CLI-side path (`run --gpx` without it) does, allow-roots covers the track,
 and a run without a track is unchanged."""
@@ -11,12 +11,12 @@ from types import SimpleNamespace
 import pytest
 from test_geotag import M_LAT, WALK0, folder, gpx, north_walk  # noqa: F401 - folder is a fixture
 
-from bioscan import geotag as gt
-from bioscan import plugin, profile
-from bioscan.cli import main as cli
-from bioscan.plugins import BY_NAME
-from bioscan.plugins.geotag import MANIFEST
-from bioscan.plugins.geotag.stage import STAGE
+from gardener import geotag as gt
+from gardener import plugin, profile
+from gardener.cli import main as cli
+from gardener.plugins import BY_NAME
+from gardener.plugins.geotag import MANIFEST
+from gardener.plugins.geotag.stage import STAGE
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "contract"))
 from conftest import Fakes, events  # noqa: E402
@@ -105,7 +105,7 @@ def test_unreadable_tracks_are_request_errors(tmp_path):
 def post(body, allow_roots=None, fakes=None):
     from fastapi.testclient import TestClient
 
-    from bioscan.service.app import create_app
+    from gardener.service.app import create_app
 
     fakes = fakes or Fakes()
     app = create_app(fakes.engine(), decode_pool=ThreadPoolExecutor(2), allow_roots=allow_roots)

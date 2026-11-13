@@ -1,4 +1,4 @@
-"""`bioscan aesthetic score`: the request it sends, the ranking it derives, and the three exports (NDJSON that
+"""`gardener-engine aesthetic score`: the request it sends, the ranking it derives, and the three exports (NDJSON that
 `--preds` reads back, CSV best first, an HTML gallery), online (client.run faked) and offline."""
 import csv
 import json
@@ -6,10 +6,10 @@ import json
 import pytest
 from cull_fixtures import result
 
-from bioscan import profile
-from bioscan.cli import aesscore as sc
-from bioscan.cli import client
-from bioscan.cli.main import main
+from gardener import profile
+from gardener.cli import aesscore as sc
+from gardener.cli import client
+from gardener.cli.main import main
 
 
 def photos(tmp_path, names=("a.jpg", "b.jpg", "c.ARW", "d.jpg", "e.jpg", "f.jpg")):
@@ -193,10 +193,10 @@ def test_species_names_the_surest_box_and_reaches_csv_and_page(tmp_path, monkeyp
 
 
 def test_score_takes_reasons_waivers_and_status_from_select(tmp_path, monkeypatch):
-    """#72: the album profile waives underexposed at night, as `bioscan cull` does; the CSV and the page
+    """#72: the album profile waives underexposed at night, as `gardener-engine cull` does; the CSV and the page
     carry select's status."""
-    from bioscan import cull
-    from bioscan.cli import cull as cc
+    from gardener import cull
+    from gardener.cli import cull as cc
 
     monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
     d = photos(tmp_path, ("night.jpg", "day.jpg"))
@@ -220,7 +220,7 @@ def test_score_lat_lon_fill_photos_without_gps(tmp_path, monkeypatch):
     """#84: --lat/--lon reach the /run inputs as in `run`: only photos whose EXIF has no GPS get them."""
     from types import SimpleNamespace
 
-    from bioscan.cli import geotag_cli
+    from gardener.cli import geotag_cli
 
     monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
     d = photos(tmp_path, ("gps.jpg", "bare.jpg"))
@@ -245,16 +245,16 @@ def test_score_lat_lon_fill_photos_without_gps(tmp_path, monkeypatch):
 def test_a_rerun_does_not_score_the_pages_own_copies(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "load_config", lambda: profile.builtin())
     d = photos(tmp_path, ("a.jpg",))
-    (d / "bioscan-files").mkdir()
-    (d / "bioscan-files" / "a-0.jpg").write_bytes(b"x")
-    (d / "bioscan-files" / "a-0-t.jpg").write_bytes(b"x")
+    (d / "gardener-files").mkdir()
+    (d / "gardener-files" / "a-0.jpg").write_bytes(b"x")
+    (d / "gardener-files" / "a-0-t.jpg").write_bytes(b"x")
     sent = {}
 
     def fake_run(payload, url):
         sent["payload"] = payload
         return [json.dumps({"type": "done", "schema": 1, "ok": 0, "failed": 0, "elapsed_ms": 1.0}).encode()]
     monkeypatch.setattr(client, "run", fake_run)
-    assert main(["aesthetic", "score", str(d), "-r", "--export", "html", "--out", str(d / "bioscan")]) == 0
+    assert main(["aesthetic", "score", str(d), "-r", "--export", "html", "--out", str(d / "gardener")]) == 0
     assert [i["path"] for i in sent["payload"]["inputs"]] == [str(d / "a.jpg")]
 
 

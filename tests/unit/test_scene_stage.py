@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from bioscan.plugins.scene import DEFAULT_LABELS, GATE_CLASSES, MANIFEST, check
-from bioscan.plugins.scene import stage as sc
+from gardener.plugins.scene import DEFAULT_LABELS, GATE_CLASSES, MANIFEST, check
+from gardener.plugins.scene import stage as sc
 
 
 def test_gate_classes_are_the_services():
-    from bioscan.service.taxa import GATE_CLASSES as SERVICE
+    from gardener.service.taxa import GATE_CLASSES as SERVICE
 
     assert GATE_CLASSES == SERVICE
 
@@ -131,7 +131,7 @@ def test_bad_taxonomy_options(o, message):
 
 
 def test_the_album_taxonomy_passes_and_a_prompt_less_gate_label_may_stand_alone():
-    from bioscan import profile
+    from gardener import profile
 
     check(profile.resolve(profile.builtin(), "album").options["scene"])
     check(taxonomy(labels={**{k: v for k, v in TAX.items() if not k.startswith("bird")}, "wildlife": []},

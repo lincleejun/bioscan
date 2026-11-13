@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from bioscan.cli import bench
-from bioscan.plugin import Metric
+from gardener.cli import bench
+from gardener.plugin import Metric
 
 
 def hit_row(truth, pred):
