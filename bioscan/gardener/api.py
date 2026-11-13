@@ -972,6 +972,14 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         task_or_404(tid)
         return rv.shortlist(store.conn(), tid)
 
+    @r.get("/tasks/{tid}/picks")
+    def get_picks(tid: str, per_species: int = 2) -> dict[str, Any]:
+        """AI 选鸟 (契约修订 19): a few photos of each species of the task, from different groups. Read-only."""
+        task_or_404(tid)
+        if not 1 <= per_species <= 8:
+            raise Error("per_species must be 1..8")
+        return rv.species_picks(store.conn(), tid, per_species)
+
     @r.post("/encounters/{eid}/split", status_code=201)
     def split_encounter(eid: str, body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         """{at: asset_id} moves that photo and the later ones, {asset_ids} exactly those, to a new encounter."""

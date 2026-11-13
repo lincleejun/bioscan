@@ -399,6 +399,12 @@ whose frames has a use of record, edit or reject; a **started** group has at lea
 (`review.species_progress`, `GET /species?task=`), never from what a page has loaded; stars alone decide nothing.
 _Avoid_: reviewed, judged (judged also counts stars), coverage (that is a collection's)
 
+**AI 选鸟** (species picks):
+For each species of a task, among the photos whose main species it is, the best frame of up to N different groups (`review.species_picks`,
+`GET /tasks/{id}/picks`), different encounters first; the page puts them in a manual collection. No mark is written.
+Not the **AI 初选** shortlist, which is the top share of a whole shoot whatever the species.
+_Avoid_: per-group picks, candidates (those are an encounter's representative frames)
+
 **Regroup run**:
 A task run of kind `regroup` (`POST /tasks/{id}/regroup`): bursts, the burst vote, encounters and auto collections
 again from stored results; no file is read and no model runs.

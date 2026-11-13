@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 const app = require(path.join(__dirname, '../../../bioscan/gardener/web/app.js'));
-const { store, aiPill, groupsOf, groupState, spProgHTML, groupBlocksHTML, encOn, encOrder } = app;
+const { store, aiPill, selIds, groupsOf, groupState, spProgHTML, groupBlocksHTML, encOn, encOrder } = app;
 
 // ---------- groupsOf ----------
 test('groupsOf: bursts and unassigned singles become groups ordered by capture time and numbered', () => {
@@ -174,4 +174,11 @@ test('encOrder: frames of a group sit together at the place of its first frame; 
   const all = ['a1', 'x', 'b1', 'a2', 'y', 'b2', 'a3'];
   assert.deepEqual(encOrder({ all, enc: { by } }), ['a1', 'a2', 'a3', 'x', 'b1', 'b2', 'y']);
   assert.deepEqual(all, ['a1', 'x', 'b1', 'a2', 'y', 'b2', 'a3']);   // input untouched
+});
+
+// ---------- selIds (契约修订 19: several groups, one POST /marks) ----------
+test('selIds: every frame of the selected groups, in list order; a group no longer listed is ignored', () => {
+  const groups = [{ id: 'b1', asset_ids: ['a', 'b'] }, { id: 'one:c', asset_ids: ['c'] }, { id: 'b2', asset_ids: ['d', 'e'] }];
+  assert.deepEqual(selIds(groups, new Set(['b2', 'b1', 'gone'])), ['a', 'b', 'd', 'e']);
+  assert.deepEqual(selIds(groups, new Set()), []);
 });

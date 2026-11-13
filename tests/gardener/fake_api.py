@@ -748,6 +748,12 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
         size = min(len(ms), max(-(-len(ms) // 10), 20))
         return {"scored": len(ms), "size": size, "asset_ids": [a["id"] for a in ms[:size]]}
 
+    @app.get(P + "/tasks/{tid}/picks")
+    def picks(tid: str, per_species: int = 2):      # contract revision 19: the shape only; the rule is review.species_picks
+        fk.task(tid)
+        ids = [a["id"] for a in fk.assets.values() if tid in a["task_ids"] and a["media"] == "photo"][:per_species]
+        return {"species": 1 if ids else 0, "per_species": per_species, "asset_ids": ids}
+
     @app.get(P + "/encounters")
     def encounters(task: str = "", concept: str = ""):
         if not task and not concept:
