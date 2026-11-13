@@ -471,7 +471,7 @@
     if (!k) return '<div class="empty">本次还没有识别出物种。可以在「其他分组」里浏览全部照片，或等扫描继续。</div>';
     const done = groups.filter(g => groupState(g).done).length;
     return `<div class="fr-top"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i> · ${groups.length} 组 · ${fr.ids.length} 张 · 已决定 ${done} 组${k.confirmed ? '' : ' · <span class="txt-warn">只有模型候选</span>'}</p></div>
-      <div class="fr-acts"><button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
+      <div class="fr-acts">${k.candidates ? `<button type="button" class="btn sm" data-action="sp-confirm" data-concept="${esc(k.concept)}" data-taxon="${esc(k.taxon)}" data-common="${esc(k.common || '')}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认对了：本次拍摄里模型叫这个名字的照片全部记为你确认过（可撤销）">认对了，全部确认</button>` : ''}<button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
       <a class="btn sm ghost" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div>
       ${groupBlocksHTML(groups, g => groupTileHTML(t, k.concept, g, groups[g.n - 2]))}
       ${!groups.length ? '<div class="empty">这个物种在本次拍摄中还没有照片。</div>' : ''}`;
@@ -522,7 +522,7 @@
     if (rail && safeForStructure()) { swap(rail, `<h2>本次拍到</h2>${railHTML(t, sp, k.concept)}`); const m = $('.rl-more', rail); if (m && more && more.open) m.open = true; }
   }
 
-  // 原像素比较（PRD §08、图 3）：两张同尺度，大图保留全图上下文，左下角是眼部（找不到则头部、动物）原像素细节；
+  // 原像素比较（PRD §08、图 3）：两张同尺度，大图保留全图上下文；“细节小窗”开着时（偏好 cploupe，默认关）左下角是眼部（找不到则头部、动物）原像素细节；
   // 胶片条是本拍摄段的全部帧；四种用途作用于“当前选择”这一格。
   const cp = { panes: [], loupes: [] };
   function cpPaneHTML(i) {
@@ -568,7 +568,9 @@
     const sync = prefs.get('cmpsync', '1') === '1', o = sync && cp.panes.find((p, j) => p && j !== i && dvLive.has(p));
     const v = cp.panes[i] = dvMount($('.cp-view', host), a, o ? { z: o.z, cx: o.cx, cy: o.cy } : null, cpOnView);
     v.pane = i;
-    if (a.media !== 'photo' || a.preview !== 'ready') return;
+    const lp = prefs.get('cploupe', '0') === '1';      // 细节小窗默认关：它挡住画面，还要多取一次原像素和部位
+    $('.cp-loupe', host).hidden = !lp;
+    if (!lp || a.media !== 'photo' || a.preview !== 'ready') return;
     const lv = cp.loupes[i] = dvMount($('.cp-lv', host), a, null, () => cpMark(v));
     lv.pane = i;
     ensureDetail(a.id).then(() => setTimeout(() => cpLoupeFocus(lv, v), 0));
@@ -623,6 +625,7 @@
         <p class="hint">${esc((fmtTime((A(e.asset_ids[0]) || {}).taken_at) || '').slice(11))} · ${e.photos} 张 · ← → 换帧 · Enter 留这张、其余淘汰 · [ ] 上一组 / 下一组 · ${PREVIEW_NOTE}</p></div>
         <div class="cp-ctl"><div class="seg" role="group" aria-label="比较方式"><button type="button" class="seg-btn" data-action="cp-mode" data-v="2" aria-pressed="${cp.shown.length === 2}" ${other ? '' : 'disabled'}>${ic('compare')}双图比较</button><button type="button" class="seg-btn" data-action="cp-mode" data-v="1" aria-pressed="${cp.shown.length === 1}">${ic('lib')}单图</button></div>
           <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-sync ${sync ? 'checked' : ''}><span>同步缩放</span></label>
+          <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-loupe ${prefs.get('cploupe', '0') === '1' ? 'checked' : ''}><span>细节小窗</span></label>
           <button type="button" class="icon-btn" data-action="cp-full" aria-label="全屏" title="全屏">${ic('expand')}</button></div></header>
       <div class="cp-panes n${cp.shown.length}" id="cp-panes"></div>
       <div class="cp-film" id="cp-strip">${cpStripHTML()}</div>
@@ -2809,6 +2812,10 @@
       const nx = cp.list[cp.list.indexOf(cp.enc) + 1], back = `#/task/${encodeURIComponent(cp.t.id)}/review/${encodeURIComponent(fl.concept)}`;
       moveSpecies({ asset_ids: cp.enc.asset_ids, from_concept: fl.concept, claim }, `已改为 ${claim.common || claim.taxon || '不确定'}`, () => { if (nx) cpGo(nx); else location.hash = back; });
     }),
+    // 整个物种一键确认：对自己这个物种做一次「全部改为」，写成人工结论，可撤销
+    'sp-confirm': el => moveSpecies({ task_id: el.dataset.task, from_concept: el.dataset.concept,
+      claim: { level: 'species', concept: el.dataset.concept, taxon: el.dataset.taxon, common: el.dataset.common || null } },
+      `「${el.dataset.name}」已全部确认`, () => route(true)),
     'sp-move': el => chooseSpecies(`「${el.dataset.name}」全部改为`, '本次拍摄里现在叫这个名字的照片都会改过去（你确认过的也一起改），可撤销。', claim => {
       moveSpecies({ task_id: el.dataset.task, from_concept: el.dataset.concept, claim }, `「${el.dataset.name}」已全部改为 ${claim.common || claim.taxon || '不确定'}`, () => {
         const to = `#/task/${encodeURIComponent(el.dataset.task)}/review${claim.concept ? '/' + encodeURIComponent(claim.concept) : ''}`;
@@ -3353,6 +3360,9 @@
       route(true);
     } else if (t.matches('[data-cp-sync]')) {
       prefs.set('cmpsync', t.checked ? '1' : '0');
+    } else if (t.matches('[data-cp-loupe]')) {
+      prefs.set('cploupe', t.checked ? '1' : '0');
+      cpRender();
     } else if (t.dataset.actionChange === 'batch-stars' && t.value !== '') {
       const n = Number(t.value);
       doMark(Array.from(ui.ws.sel), { stars: n }, n ? `批量 ${n} 星` : '批量清除星级');
