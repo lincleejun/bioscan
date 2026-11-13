@@ -2679,7 +2679,7 @@
   // ---------- 路由 ----------
   const VIEWS = { inbox: vInbox, scan: vScan, 'flow-review': vFlowReview, compare: vCompare, tasks: vTasks, create: vCreate, task: vTask, review: vReview, collections: vCollections, deleted: vDeleted, library: vLibrary, settings: vSettings, species: vSpecies, 'species-one': vSpeciesOne };
   const NAV_OF = { inbox: 'inbox', scan: 'inbox', 'flow-review': 'inbox', compare: 'inbox', tasks: 'settings', create: 'settings', task: 'settings', review: 'collections', collections: 'collections', deleted: 'collections', library: 'library', settings: 'settings', species: 'species', 'species-one': 'species' };
-  const TITLES = { inbox: '待整理', scan: '扫描与归类', 'flow-review': '审片', compare: '比较', tasks: '扫描任务', create: '添加照片', task: '任务', review: '审片', collections: '集合', deleted: '已删除的集合', library: '图库', settings: '管理', species: '物种', 'species-one': '物种' };
+  const TITLES = { inbox: '待整理', scan: '扫描与归类', 'flow-review': '审片', compare: '比较', tasks: '扫描任务', create: '添加照片', task: '任务', review: '审片', collections: '集合', deleted: '已删除的集合', library: '图库', settings: '管理', species: '野生动物', 'species-one': '物种' };
   function parse() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
     switch (parts[0]) {
@@ -2723,7 +2723,7 @@
     const here = view === 'flow-review' && $('.fr-rail .is-here');   // 左栏各自滚动：换物种后当前这一行仍在视野里
     if (here) here.scrollIntoView({ block: 'nearest' });
     prefs.set('route', location.hash);
-    const navKey = view === 'library' && params.pile ? 'lib-' + params.pile : NAV_OF[view];
+    const navKey = view === 'library' && params.pile ? 'lib-' + params.pile : view === 'collections' && params.cat ? 'col-' + params.cat : view === 'species' && ui.spf && ui.spf.kind ? 'sp-' + ui.spf.kind : NAV_OF[view];
     $$('.nav a').forEach(a => { if (a.dataset.nav === navKey) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     document.title = `${view === 'collections' && params.cat ? CAT[params.cat][0] : view === 'library' && params.pile ? PILE[params.pile][0] : TITLES[view]} · Gardener`;
     const h = $('h1', main);
@@ -2829,6 +2829,7 @@
     },
     'id-draw': el => startDraw(el.dataset.id),
     'sp-kind': el => { ui.spf.kind = el.dataset.kind; spRefresh(); },
+    'sp-nav': el => { ui.spf = Object.assign(ui.spf || {}, { kind: el.dataset.kind }); if (ui.view === 'species') route(); else location.hash = '#/species'; },
     'sp-select': el => { ui.spf.sel = el.dataset.id; spRefresh(); const b = $(`.wl-card[data-concept="${CSS.escape(el.dataset.id)}"] .wl-pick`); if (b) b.focus({ preventScroll: true }); },
     'sp-view': el => { ui.spf.view = el.dataset.v; prefs.set('spview', el.dataset.v); spRefresh(); },
     'lib-preset': el => { ui.lib = Object.assign({ [el.dataset.filter]: el.dataset.value }, el.dataset.task ? { task: el.dataset.task } : {}); location.hash = '#/library'; },

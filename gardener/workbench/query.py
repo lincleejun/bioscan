@@ -20,12 +20,14 @@ ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user' AND ci.co
              "candidate": "ci.level = 'species' AND ci.source = 'ai'",
              "unresolved": "ci.level IN ('genus', 'family', 'unconfirmed')",
              "reconfirm": "ci.qualifier = 'slash'", "any": "1"}      # a person's claim a list split reopened
-# 好片 / 不好 (ADR 0004 修订 21): a person's mark decides; where no person has marked the photo, the AI suggestion does
+# 好片 / 不好 (ADR 0004 修订 21). 不好: a person's reject, or the AI's where no person has marked the photo.
+# 好片: 选入修图 or a star, or the AI's pick unless a person rejected the photo: 完成 keeps what is left undecided
+# (use record), and that is not a person saying the photo is ordinary.
 TOUCHED = "EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id)"
 PILES = {"bin": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject') OR "
                 f"(NOT {TOUCHED} AND {LATEST_AI} = 'reject'))",
          "good": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND (m.use = 'edit' OR m.stars > 0)) OR "
-                 f"(NOT {TOUCHED} AND {LATEST_AI} = 'pick'))"}
+                 f"({LATEST_AI} = 'pick' AND NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject')))"}
 BASENAME = "replace(a.primary_path, rtrim(a.primary_path, replace(a.primary_path, '/', '')), '')"
 # within one task (param: task id) an asset stands for its capture unless its representative is in that task too;
 # a version whose representative only another task holds (a wider folder) is that task's business

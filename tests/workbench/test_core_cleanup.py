@@ -311,6 +311,8 @@ def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_em
         c.post(f"{API}/marks", json={"asset_ids": [aids[0]], "use": "record"})       # 放回: a person keeps it, an ordinary photo again
         c.post(f"{API}/marks", json={"asset_ids": [aids[2]], "use": "reject"})       # X on a photo the AI liked
         assert pile("bin") == sorted([aids[1], aids[2]]) and pile("good") == [aids[3]]
+        c.post(f"{API}/marks", json={"asset_ids": [aids[3]], "use": "record"})       # 完成 keeps it: still the AI's pick
+        assert pile("good") == [aids[3]]
         p = c.post(f"{API}/cleanup-plans", json={"pile": "bin"}).json()
         assert p["scope"] == {"pile": "bin"} and sorted(i["asset_id"] for i in p["items"]) == sorted([aids[1], aids[2]])
         assert sorted(i["id"] for i in c.get(f"{API}/assets", params={"use": "reject"}).json()["items"]) == sorted([aids[1], aids[2]])
