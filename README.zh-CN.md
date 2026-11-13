@@ -6,7 +6,7 @@
 
 ## 视频
 
-90 秒，中文：[assets/gardener-promo.mp4](assets/gardener-promo.mp4)。
+52 秒，中文配音和字幕：[assets/gardener-promo.mp4](assets/gardener-promo.mp4)。画面全部是真实界面，素材是一次 1,361 张的真实拍摄。
 
 ## 能做什么
 

@@ -6,7 +6,7 @@
 
 ## Video
 
-90 seconds, Chinese: [assets/gardener-promo.mp4](assets/gardener-promo.mp4).
+52 seconds, Chinese narration and captions: [assets/gardener-promo.mp4](assets/gardener-promo.mp4). Every screen in it is the real UI on a real shoot of 1,361 photos.
 
 ## What you get
 
