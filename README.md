@@ -6,9 +6,9 @@
 
 Hand Gardener the card. On your own Mac it previews every RAW and JPG, finds the animals, names the species and groups the bursts, then lays the shoot out by species for you to keep, star and reject. **No photo leaves the machine, and no file is touched unless you confirm it.**
 
-https://github.com/user-attachments/assets/3201085d-e7ae-46b4-be80-db524a5c1cc2
+https://github.com/user-attachments/assets/18bfad8b-6864-4edf-bb72-e1d05f7c075f
 
-52 seconds, silent, Chinese captions. Every screen is the real UI on a real shoot.
+50 seconds, silent, Chinese captions. Every screen is the real UI on a real library of 3,554 photos.
 
 ## How a shoot goes
 
