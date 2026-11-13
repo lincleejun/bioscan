@@ -5,12 +5,12 @@ import numpy as np
 import pytest
 from PIL import Image, ImageFilter
 
-from bioscan.plugins import BY_NAME
-from bioscan.plugins.embed.stage import embed
-from bioscan.service import pipeline, rules, stages
-from bioscan.service.adapters import geo, siglip2
-from bioscan.service.adapters.owlv2 import Detection, clip_to_frame
-from bioscan.service.app import parse_run
+from gardener.plugins import BY_NAME
+from gardener.plugins.embed.stage import embed
+from gardener.service import pipeline, rules, stages
+from gardener.service.adapters import geo, siglip2
+from gardener.service.adapters.owlv2 import Detection, clip_to_frame
+from gardener.service.app import parse_run
 
 TAX = lambda g, f, s: ["Animalia", "Chordata", "Aves", "O", f, g, f"{g} {s}"]  # noqa: E731
 
@@ -155,7 +155,7 @@ def test_geo_prior_applies_to_whole_list_before_top_k():
     """The species the eye ranks 6th (outside top_k=5) is where it lives and must come out first."""
     from types import SimpleNamespace
 
-    from bioscan.service.names import NameList
+    from gardener.service.names import NameList
 
     sci = [f"Circus s{i}" for i in range(8)]
     tax = [["Animalia", "Chordata", "Aves", "Accipitriformes", "Accipitridae", "Circus", s] for s in sci]
@@ -239,7 +239,7 @@ def test_parse_run():
 def test_mammal_species_uses_mdd_without_geo():
     from types import SimpleNamespace
 
-    from bioscan.service.names import NameList
+    from gardener.service.names import NameList
 
     tax = ["Animalia", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Rangifer", "Rangifer tarandus"]
     tax2 = ["Animalia", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Alces", "Alces alces"]

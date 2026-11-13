@@ -2,7 +2,7 @@
 vectors /run's `embed` serves and the aesthetics stage scores, and the stage runs on real vectors
 (with the committed general head when it exists, else score null and a note).
 
-Only with BIOSCAN_MODEL_TESTS=1 and SigLIP2 in the HF cache (CI models.yml). Uses 4 photos of
+Only with GARDENER_ENGINE_MODEL_TESTS=1 and SigLIP2 in the HF cache (CI models.yml). Uses 4 photos of
 tests/models/sample.csv (fetched like test_real_models.py)."""
 import json
 import os
@@ -13,8 +13,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("BIOSCAN_MODEL_TESTS") != "1",
-                                reason="real-model check: set BIOSCAN_MODEL_TESTS=1 (see tests/models/download.py)")
+pytestmark = pytest.mark.skipif(os.environ.get("GARDENER_ENGINE_MODEL_TESTS") != "1",
+                                reason="real-model check: set GARDENER_ENGINE_MODEL_TESTS=1 (see tests/models/download.py)")
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,9 +24,9 @@ def test_training_vectors_are_the_served_vectors_and_the_stage_scores_them(tmp_p
     from fastapi.testclient import TestClient
     from test_real_models import fetch, sample
 
-    from bioscan import aesthetic as aes
-    from bioscan.service.app import create_app
-    from bioscan.service.engine import Engine
+    from gardener import aesthetic as aes
+    from gardener.service.app import create_app
+    from gardener.service.engine import Engine
 
     paths = [str(p) for p in (fetch(r) for r in sample()[:4]) if p is not None]
     assert len(paths) >= 2, "could not fetch the sample photos"

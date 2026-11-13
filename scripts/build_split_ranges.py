@@ -1,7 +1,7 @@
 """Build data/names/split_ranges.csv: where each daughter of an AviList split occurs, as 1-degree cells, from
 GBIF occurrence records. BirdNET geo 3.0 has no label for most split daughters, so they share their parent's
 label (synonyms.csv) and the location prior could not tell them apart; the location prior multiplies a
-daughter's (shared) value by whether the place is inside its cells (bioscan/service/adapters/geo.py).
+daughter's (shared) value by whether the place is inside its cells (gardener/service/adapters/geo.py).
 
 Names queried per daughter: its own binomial when it differs from the parent's (a daughter that keeps the parent's
 name would pull in the lumped records), its subspecies in the AviList CSV (trinomials, RANK subspecies), and the
@@ -41,7 +41,7 @@ def get(path: str, **params) -> dict:
     url = f"{API}/{path}?{urllib.parse.urlencode(params)}"
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "bioscan"}), timeout=60) as r:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "gardener"}), timeout=60) as r:
                 return json.load(r)
         except Exception as exc:  # noqa: BLE001 - retried, then raised
             if attempt == 3:

@@ -18,10 +18,10 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
-from bioscan.gardener import faces
-from bioscan.naming import norm_binomial
-from bioscan.service import names
-from bioscan.service.adapters import bioclip, geo, owlv2, siglip2
+from gardener.naming import norm_binomial
+from gardener.service import names
+from gardener.service.adapters import bioclip, geo, owlv2, siglip2
+from gardener.workbench import faces
 
 with open(Path(__file__).with_name("sample.csv"), newline="", encoding="utf-8") as f:
     OTHERS = sorted({r["scientific"] for r in csv.DictReader(f) if r["kind"] == "other_animal"})

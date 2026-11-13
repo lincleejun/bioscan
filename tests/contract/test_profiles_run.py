@@ -1,12 +1,12 @@
-"""/run's "profile": expanded by the service with its profiles (bioscan/profile.py), under the
+"""/run's "profile": expanded by the service with its profiles (gardener/profile.py), under the
 request's own want and options; a request without one gets `full`, whatever the files say."""
 from concurrent.futures import ThreadPoolExecutor
 
 from conftest import Fakes, events, make_jpg
 from fastapi.testclient import TestClient
 
-from bioscan import profile
-from bioscan.service.app import create_app
+from gardener import profile
+from gardener.service.app import create_app
 
 
 def test_album_profile_runs_without_bioclip(client, engine, tmp_path):
@@ -31,10 +31,10 @@ def test_bad_profile_is_a_400(client):
 
 
 def test_service_profiles_from_files_and_no_profile_is_full(tmp_path):
-    toml = tmp_path / "bioscan.toml"
+    toml = tmp_path / "gardener.toml"
     toml.write_text('default_profile = "quick"\n[profile.quick]\nstages = ["identify"]\n'
                     '[profile.quick.options.identify]\nspecies = false\ntop_k = 2\n')
-    profiles = profile.load([("project", toml)], env={"BIOSCAN_PROFILE": "album"})
+    profiles = profile.load([("project", toml)], env={"GARDENER_ENGINE_PROFILE": "album"})
     fakes = Fakes()
     p = make_jpg(tmp_path / "a.jpg")
     with TestClient(create_app(fakes.engine(), decode_pool=ThreadPoolExecutor(2), profiles=profiles)) as c:

@@ -1,6 +1,6 @@
-"""Gardener people capability on the real YuNet + SFace weights (pinned in bioscan/gardener/faces.py).
+"""Gardener people capability on the real YuNet + SFace weights (pinned in gardener/workbench/faces.py).
 
-Only runs with BIOSCAN_MODEL_TESTS=1 and the weights in the HF cache (tests/models/download.py). The
+Only runs with GARDENER_ENGINE_MODEL_TESTS=1 and the weights in the HF cache (tests/models/download.py). The
 wildlife sample of tests/models/sample.csv has no people, so the face model must stay quiet on it:
 well-formed output, and strong faces (the ones that start clusters) on at most a tenth of the photos (false positives on animals would put
 wildlife into person groups)."""
@@ -12,11 +12,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("BIOSCAN_MODEL_TESTS") != "1",
-                                reason="real-model smoke: set BIOSCAN_MODEL_TESTS=1 (see tests/models/download.py)")
+pytestmark = pytest.mark.skipif(os.environ.get("GARDENER_ENGINE_MODEL_TESTS") != "1",
+                                reason="real-model smoke: set GARDENER_ENGINE_MODEL_TESTS=1 (see tests/models/download.py)")
 
 HERE = Path(__file__).resolve().parent
-PHOTOS = Path(os.environ.get("BIOSCAN_PHOTO_CACHE", "~/.cache/bioscan/model-test-photos")).expanduser()
+PHOTOS = Path(os.environ.get("GARDENER_ENGINE_PHOTO_CACHE", "~/.cache/bioscan/model-test-photos")).expanduser()
 PHOTO_URL = "https://inaturalist-open-data.s3.amazonaws.com/photos/{pid}/medium.jpg"
 N = 30
 
@@ -39,7 +39,7 @@ def photos() -> list[Path]:
 
 
 def test_face_model_is_pinned_and_quiet_on_wildlife():
-    from bioscan.gardener import faces
+    from gardener.workbench import faces
 
     model = faces.FaceModel()
     model.ensure()

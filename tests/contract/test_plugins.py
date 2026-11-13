@@ -7,9 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from conftest import Fakes, events, make_jpg
 from fastapi.testclient import TestClient
 
-from bioscan.plugin import Manifest, StageBase, each
-from bioscan.plugins import BUILTIN
-from bioscan.service.app import create_app
+from gardener.plugin import Manifest, StageBase, each
+from gardener.plugins import BUILTIN
+from gardener.service.app import create_app
 
 
 class Counter:

@@ -1,9 +1,9 @@
-# bioscan — Agent Operating Rules
+# gardener — Agent Operating Rules
 
 These rules apply to every agent and model working in this repo (Claude Code, other agents, humans
 using agents). Model-specific tuning, if ever needed, goes in a separate file and never switches
 these rules off. Where a rule can be checked by a tool, the tool is the source of truth: `uv run ruff
-check .`, `uv run pytest`, the CI workflows and the harness (`bioscan eval` / `bioscan bench`).
+check .`, `uv run pytest`, the CI workflows and the harness (`gardener-engine eval` / `gardener-engine bench`).
 
 ## Think before coding
 State assumptions explicitly before the first edit. If the request has more than one reasonable
@@ -16,7 +16,7 @@ Actions workflows (`ci.yml`: lint + tests, `models.yml`: real-model smoke) are g
 head, docs (README / data/README / docs/standards.md) match the behaviour, and no TODOs are left in
 touched files. Accuracy claims need an eval run on real photos; without one, say "unverified".
 A change that can move identification results is compared against a baseline with the harness
-(`bioscan bench compare`); a regression beyond the budget blocks the change unless the owner accepts it.
+(`gardener-engine bench compare`); a regression beyond the budget blocks the change unless the owner accepts it.
 Work toward that finish line; do not pause just to report progress.
 
 ## Keep going vs. stop and ask
@@ -36,7 +36,7 @@ Work toward that finish line; do not pause just to report progress.
 - For anything longer than a few steps, keep the checklist in the task's GitHub issue (`docs/agents/issue-tracker.md`).
   Tick items when done, add anything new you find as a comment or a new issue. The issue, not the scrollback, is the
   source of truth. `TASKS.md` was migrated to issues on 2026-09-25 (archive: #16).
-- For audits, migrations, or reviews across many modules (`bioscan/service`, `bioscan/cli`, `scripts`, `tests`): one subagent per unit. Check each subagent's evidence before accepting it. Finish with one table: unit, result, evidence.
+- For audits, migrations, or reviews across many modules (`gardener/service`, `gardener/cli`, `scripts`, `tests`): one subagent per unit. Check each subagent's evidence before accepting it. Finish with one table: unit, result, evidence.
 - Parallel agents each work in their own worktree and their own scratch folder; never share scratch files.
 
 ## Reporting
@@ -53,8 +53,8 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
 
 ## Product decisions (2026-09-24)
 - Open source first; commercial use is not a goal for now.
-- The BioScan `/run` service stays stateless; state lives in files the user asks for (preds, baselines).
-  Superseded for Gardener only (ADR 0001, 2026-10-21): `bioscan.gardener` is a persistent local service
+- The Gardener Engine `/run` service stays stateless; state lives in files the user asks for (preds, baselines).
+  Superseded for Gardener only (ADR 0001, 2026-10-21): `gardener.workbench` is a persistent local service
   (SQLite records + a separate preview cache) shared by its web UI, CLI and MCP; it never writes into photo sources,
   except that a cleanup plan a person confirmed moves its files to the macOS Trash (ADR 0003).
 - Identification is all-taxa by default. A caller may narrow it to candidate taxa (e.g. "A, B or C") as a
@@ -65,15 +65,15 @@ you'd block the merge for. For each: file and line, why it's wrong, how to show 
 
 ## Default workflow (2026-09-24)
 When the owner gives a folder of photos and says nothing else, this is the job, start to finish:
-1. Service: `uv run bioscan --url http://127.0.0.1:8767 health`; if it fails, start one from this checkout:
-   `uv run bioscan serve --port 8767 --allow-root DIR --allow-root ~/Documents --allow-root ~/Pictures` (background, log in the
+1. Service: `uv run gardener-engine --url http://127.0.0.1:8767 health`; if it fails, start one from this checkout:
+   `uv run gardener-engine serve --port 8767 --allow-root DIR --allow-root ~/Documents --allow-root ~/Pictures` (background, log in the
    scratchpad). Leave it running: the review page's Export / Delete go through it (POST /apply); stop it only when told.
 2. Run, one request, names and aesthetics together, all three exports:
-   `uv run bioscan --url http://127.0.0.1:8767 aesthetic score DIR --species --export json,csv,html --out DIR/bioscan`
+   `uv run gardener-engine --url http://127.0.0.1:8767 aesthetic score DIR --species --export json,csv,html --out DIR/gardener`
    (top level only unless told `-r`; the photos' own GPS is used). When the photos have no GPS and the place is
    known, add `--lat LAT --lon LON` (a photo's own GPS still wins).
 3. Report the run's own summary (scored / named / failed, score range, star cuts, top taxa, scene counts),
-   open `DIR/bioscan.html`, and list names that look out of place for the location.
+   open `DIR/gardener.html`, and list names that look out of place for the location.
 4. If the flow cannot do what was asked, change the code (with tests and docs), then run it.
 5. When the work is done and the definition of done holds: commit on a `claude/<topic>` branch, push, open a PR
    to `main` with `gh pr create`, and watch `ci.yml` and `models.yml` until green. Report the PR link.
@@ -83,9 +83,9 @@ When the owner gives a folder of photos and says nothing else, this is the job, 
 - Contract tests run the real Engine and identify pipeline on fake model adapters injected through
   `engine.Loaders` (`tests/contract/conftest.py`); the service (app.py, run.py) uses `frame`, `ensure`, `loaded`, `info`.
 - Domain terms live in `CONTEXT.md`; use them in code, tests and docs.
-- The Gardener web UI's pure view functions (`app.js`) run under `node --test 'tests/gardener/web/*.test.js'` (Node 22+, no npm);
+- The Gardener web UI's pure view functions (`app.js`) run under `node --test 'tests/workbench/web/*.test.js'` (Node 22+, no npm);
   `uv run pytest` runs them too and skips them when `node` is missing.
-- Real-model checks live in `tests/models/` and only run with `BIOSCAN_MODEL_TESTS=1` (CI `models.yml`).
+- Real-model checks live in `tests/models/` and only run with `GARDENER_ENGINE_MODEL_TESTS=1` (CI `models.yml`).
 - The container used for agent development has no Hugging Face / BirdNET network; real-model numbers come
   from CI (`models.yml`) or the owner's Mac.
 
@@ -93,7 +93,7 @@ When the owner gives a folder of photos and says nothing else, this is the job, 
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (`lincleejun/bioscan`), driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in this repo's GitHub Issues (`lincleejun/gardener`), driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

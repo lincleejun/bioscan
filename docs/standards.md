@@ -1,12 +1,12 @@
-# bioscan standards
+# gardener standards
 
 **Our targets, what the leaders reach, and where we stand today.** Written 2026-09-24. The same bars
 are in machine-readable form in [`data/standards.toml`](../data/standards.toml), which
-`bioscan bench scorecard` reads.
+`gardener-engine bench scorecard` reads.
 
 ## The short version
 
-The owner's acceptance test is: **"Point bioscan at a folder of N photos. At least X% are named
+The owner's acceptance test is: **"Point gardener at a folder of N photos. At least X% are named
 correctly at species level, at least Y% at genus or better, and at most Z% are confident errors."**
 
 | Test folder | N | X: species correct | Y: genus or better | Z: confident errors | Today |
@@ -16,7 +16,7 @@ correctly at species level, at least Y% at genus or better, and at most Z% are c
 | Public, multi-region (to build) | ≥ 5,000 | ≥ 85% | ≥ 93% | ≤ 3% | unmeasured (the set does not exist yet) |
 | CI smoke (regression guard only) | 95 (42 birds, 35 mammals, 18 other animals) | ≥ 85% | ≥ 90% | ≤ 7% | X 87.0%, Z 6.5% (on the earlier 77-photo set): guard holds |
 
-These are the **community bars**: meet them and we invite people to try bioscan and help identify
+These are the **community bars**: meet them and we invite people to try gardener and help identify
 (release v0.x). The v1.0 "bundle and release" stage adds the bars for other animals, speed,
 onboarding and the public set. Today neither stage's gates are met; a few single bars are (bird
 coverage, list sizes, pinning, isolation). The largest gaps are genus or better on the golden folder (94.1% against 95%) and
@@ -47,7 +47,7 @@ must clear it, not just the observed rate.
 |---|---|---|---|---|---|---|
 | `smoke` | 95 iNat photos (42 birds, 35 mammals, 18 other animals; 83 species), `tests/models/sample.csv` | 95 | reduced: AviList rows of the sampled genera + 41 mammals | CC BY-NC / CC BY / CC0, fetched at test time | CI `models.yml`, CPU, every push | regression guard |
 | `golden` | iNat research-grade, California, 64 species × up to 25 (42 bird, 22 mammal), real GPS and dates, images 500 px on the long edge, `data/inat/groundtruth-inat.csv` | 1,571 | full AviList (v2026 from 2026-10-26; v1.5 numbers were measured on v2025) + MDD v2.5 | 89% CC BY-NC, 8% CC BY, 3% CC0; for evaluation only, not redistributed | owner's Mac | main accuracy claim |
-| `golden` other-animal slice | **to build**: iNat California, about 16 non-bird, non-mammal species × 25 (reptiles, amphibians, insects, spiders), with `bioscan gt inat` | ~400 | TreeOfLife-wide list (work package W4) | as golden | owner's Mac | all-taxa default |
+| `golden` other-animal slice | **to build**: iNat California, about 16 non-bird, non-mammal species × 25 (reptiles, amphibians, insects, spiders), with `gardener-engine gt inat` | ~400 | TreeOfLife-wide list (work package W4) | as golden | owner's Mac | all-taxa default |
 | `own` | owner's telephoto RAW, folder-name truth, `data/groundtruth-own.csv` (288 Western Screech-Owl, 85 Red-tailed Hawk, 31 Steller's Jay) | 404 | full lists | private | owner's Mac | the real use case |
 | `public` | **to build**: ≥ 5 regions, CC0/CC BY only, one observation per photo, ≤ 5 per observer, sequestered test split | ≥ 5,000 | full lists | CC0 / CC BY, redistributable | owner's Mac; published | claim we can show others |
 | `mac` | 2,000 RAW files, ARW + CR3 + NEF, 24 MP (plus 45 MP), from SSD and USB disk | 2,000 | full lists | private | M1-class Mac | speed |
@@ -55,7 +55,7 @@ must clear it, not just the observed rate.
 | `aesthetic-golden` | aes-golden-v1 = the 100 held-out EVA images, 20 per crowd star band (`data/aesthetic/eva-golden-v1.csv`); profile `album` | 100 (40 keepers, no shot groups) | none | CC0 (EVA) | anywhere with an EVA checkout; `bench aesthetic score` needs no model | any aesthetic scorer against crowd stars ([section 13](#13-aesthetics-agreement-with-the-owner-album)) |
 | `geotag` | synthetic GPX tracks through the golden photos' true positions, 7 scenarios (`scripts/geotag_synth.py`, seed 7) | 1,624 photos × 7 | none (no models) | derived from golden; tracks are generated, not shipped | anywhere: about 65 s to generate (~750 MB) and 80–85 s to score (measured 64 s + 82–85 s) | GPX geotagging ([section 12](#12-geotag-from-a-gpx-track-synthetic-tier)) |
 | `album` | synthetic reject set from 24 smoke photos (`scripts/cull_synth.py`, seed 7): originals, 7 degradations each, bursts; profile `album` | about 220 | none needed (species off) | derived from smoke; generated at test time, not shipped | CI `models.yml`, CPU | culling rules and reducers ([section 14](#14-culling-album-profile-synthetic-tier)) |
-| `scene` | Open Images V7 validation + test photos with human-verified labels, sampled per scene label by `bioscan gt scene` (`data/scene/oid-labels.toml`, seed 7): 38 labels × up to 50, 8 groups; profile `album` | 1,861 (aurora has 11; dry run 2026-09-25) | none needed (species off) | CC BY 2.0 every image (per-image author and landing URL kept); fetched to measure, not redistributed | owner's Mac (about 180 MB of label CSVs cached, ~1 GB of photos) | scene groups ([section 15](#15-scene-open-photos-per-scene-label)) |
+| `scene` | Open Images V7 validation + test photos with human-verified labels, sampled per scene label by `gardener-engine gt scene` (`data/scene/oid-labels.toml`, seed 7): 38 labels × up to 50, 8 groups; profile `album` | 1,861 (aurora has 11; dry run 2026-09-25) | none needed (species off) | CC BY 2.0 every image (per-image author and landing URL kept); fetched to measure, not redistributed | owner's Mac (about 180 MB of label CSVs cached, ~1 GB of photos) | scene groups ([section 15](#15-scene-open-photos-per-scene-label)) |
 
 The golden set is 89% CC BY-NC. That is fine for measuring but not for publishing the photos. This is
 why the public tier is CC0/CC BY only.
@@ -107,7 +107,7 @@ harness should also report per-species results so that one easy species cannot c
 
 These are the report keys in `data/standards.toml`, one row per (tier, kind). "Kind" is the truth
 kind: `bird`, `mammal`, `other` (other animals) or `all`. The best box is the box with the highest
-`score`, as in `bioscan eval`.
+`score`, as in `gardener-engine eval`.
 
 | Key | Definition |
 |---|---|
@@ -130,16 +130,16 @@ Failed images count as misses on every accuracy metric.
 
 ## Commands
 
-`bioscan bench run GT.csv --out DIR [--no-geo]` writes `report.json`, and `bioscan bench scorecard`
+`gardener-engine bench run GT.csv --out DIR [--no-geo]` writes `report.json`, and `gardener-engine bench scorecard`
 compares it with `data/standards.toml`.
 
 ```sh
-bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden                  # golden, real GPS
-bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden-nogeo --no-geo   # location-aware
-bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own                           # own RAW
-bioscan bench run data/groundtruth-own.csv --out runs/<tag>-own-nogeo --no-geo
-BIOSCAN_MODEL_TESTS=1 uv run pytest tests/models                                          # smoke (CI models.yml)
-bioscan bench scorecard runs/<tag>-golden/report.json                                     # bars vs report
+gardener-engine bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden                  # golden, real GPS
+gardener-engine bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden-nogeo --no-geo   # location-aware
+gardener-engine bench run data/groundtruth-own.csv --out runs/<tag>-own                           # own RAW
+gardener-engine bench run data/groundtruth-own.csv --out runs/<tag>-own-nogeo --no-geo
+GARDENER_ENGINE_MODEL_TESTS=1 uv run pytest tests/models                                          # smoke (CI models.yml)
+gardener-engine bench scorecard runs/<tag>-golden/report.json                                     # bars vs report
 ```
 
 `bench run` has no `--lat`/`--lon`: it sends each row's `lat` and `lon` from the ground-truth CSV. The own
@@ -160,7 +160,7 @@ RAW files have no GPS, so to score them with one batch coordinate, fill those tw
 | Other animals top-5 | none | **80%** | 92% | unmeasured | enough for "help identify": the right answer is usually on the short list |
 | Other animals genus | none | **75%** | 90% | unmeasured | the level most other-animal answers should stop at |
 
-How measured: golden tier (other animals: the golden other-animal slice), with GPS, `bioscan bench run
+How measured: golden tier (other animals: the golden other-animal slice), with GPS, `gardener-engine bench run
 data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden`, rows `bird`, `mammal`, `other`.
 
 The industry numbers are not like-for-like. Merlin, iNat and Dongniao measure on their own
@@ -182,7 +182,7 @@ They show the level people expect, not a result on our folders.
 | Other animals coverage | none | **≥ 40%** | ≥ 70% | unmeasured | most other-animal answers should stop at genus or family |
 | Calibration (ECE, all kinds) | none published | **≤ 0.05** | ≤ 0.02 | unmeasured (no calibrated `p_correct` yet) | a "90%" answer should be right 85–95% of the time; this gates v1.0 only |
 
-How measured: golden tier, `bioscan bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden`.
+How measured: golden tier, `gardener-engine bench run data/inat/groundtruth-inat.csv --tier golden --out runs/<tag>-golden`.
 Confident-error rate and precision must always be read together with coverage.
 
 For context, general vision-language models identify fewer than 13% of the answerable birds in the
@@ -233,7 +233,7 @@ Why these numbers:
   region.
 - **Public X = 85%** is lower because multi-region photos and other animals are harder.
 - **Z = 3% everywhere** because trust is the promise, whatever the folder.
-- **The smoke bars sit at today's level:** they catch breakage. `bioscan bench compare` against the
+- **The smoke bars sit at today's level:** they catch breakage. `gardener-engine bench compare` against the
   committed baseline is the finer regression check.
 
 The public set also has a size bar: **n ≥ 5,000** (`directory.public.all.n`), so that each region
@@ -248,17 +248,17 @@ group can prove an 85% bar with a 3-point margin.
 | Decode, median | none | **≤ 700 ms** | ≤ 300 ms | ~650 ms from a USB disk (README, before v1.1; the 3072 px detail copy since is unmeasured) | with 4 workers, 700 ms still feeds more than 5 images/s; the stretch needs the embedded preview |
 
 How measured: `mac` tier, 2,000 RAW files, 24 MP (plus 45 MP), from SSD and USB disk, on an M1-class
-Mac: `bioscan bench run <gt> --tier mac --out runs/<tag>-speed`. Throughput = ok ÷ (`done.elapsed_ms` / 1000).
+Mac: `gardener-engine bench run <gt> --tier mac --out runs/<tag>-speed`. Throughput = ok ÷ (`done.elapsed_ms` / 1000).
 Report the machine, the disk and the settings fingerprint with it.
 
 ## 7. Taxonomic coverage (manual)
 
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
-| Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,172** (all of AviList v2026) | — | 11,172 (`bioscan names stats`; data/README) | the whole world list, extinct species included |
+| Bird species in the name list | 11,000+, Dongniao (vendor claim) [^dongniao-api] | **11,172** (all of AviList v2026) | — | 11,172 (`gardener-engine names stats`; data/README) | the whole world list, extinct species included |
 | Mammal species in the name list | ~2,000 categories, SpeciesNet, all taxa (vendor claim) [^speciesnet] | **6,903** (all of MDD v2.5 but *Homo sapiens*) | — | 6,903 (`names.wildlife` leaves Homo out at load) | the whole world list; a person is never named as wildlife |
 | Other animal species with a name | 100,000+ taxa, iNat CV 2.20, all kingdoms (vendor claim) [^inat220] | **100,000** | 300,000 | 366,460 (CI 2026-09); TreeOfLife-200M has no vectors for many reptiles and ray-finned fish (smoke: 0 of 6 reptiles, 0 of 1 fish) | all taxa by default has to mean most animals people photograph |
-| Share of truth species in the lists | none | **100%** | 100% | golden birds 42/42 (checked against `avilist_map.csv` + synonyms, 2026-09-24); golden mammals 23/23 as scored by `bioscan eval` (MDD CSV not in the repo, not re-checked); own 3/3 | a species missing from the list can never be named, so it would make the accuracy numbers meaningless |
+| Share of truth species in the lists | none | **100%** | 100% | golden birds 42/42 (checked against `avilist_map.csv` + synonyms, 2026-09-24); golden mammals 23/23 as scored by `gardener-engine eval` (MDD CSV not in the repo, not re-checked); own 3/3 | a species missing from the list can never be named, so it would make the accuracy numbers meaningless |
 
 Name-list coverage by TreeOfLife vectors and BirdNET labels (84.6% / 93.3% of AviList; 55.5% of MDD
 by vectors) is a quality signal, not a bar. The missing rows are encoded with the text tower.
@@ -268,7 +268,7 @@ by vectors) is a quality signal, not a bar. The missing rows are encoded with th
 | Standard | Industry bar | Community | Stretch | Now | Why this bar |
 |---|---|---|---|---|---|
 | Failed images (report `failed_rate`) | none | **≤ 0.1%** | 0 | unmeasured as a rate (the golden report has a `failed` column; its value is not recorded in the README) | one failure per 1,000 photos is the most a 30k archive should see |
-| RAW formats with GPS and capture time read (manual) | Lightroom and exiftool read every mainstream body | **11 of 11** (ARW CR2 CR3 NEF NRW DNG RAF ORF RW2 PEF SRW) | 12 (+ HEIF) | 11 of 11 read (`bioscan/formats.py`; readers tested on synthetic files in `tests/unit/test_raw_exif.py`); CR3, RAF, ORF and RW2 not yet run on real camera files | missing GPS silently turns off the location prior, which costs birds 6+ points |
+| RAW formats with GPS and capture time read (manual) | Lightroom and exiftool read every mainstream body | **11 of 11** (ARW CR2 CR3 NEF NRW DNG RAF ORF RW2 PEF SRW) | 12 (+ HEIF) | 11 of 11 read (`gardener/formats.py`; readers tested on synthetic files in `tests/unit/test_raw_exif.py`); CR3, RAF, ORF and RW2 not yet run on real camera files | missing GPS silently turns off the location prior, which costs birds 6+ points |
 | Per-image error isolation (manual) | a baseline expectation | **yes** | yes | yes: contract tests cover per-image errors and the decode-pool rebuild (v1.2 D) | one bad file must not cost a night's run |
 
 ## 9. Onboarding (manual)
@@ -277,7 +277,7 @@ by vectors) is a quality signal, not a bar. The missing rows are encoded with th
 |---|---|---|---|---|---|
 | Fresh Mac to first identified photo, README only, downloads included | Merlin and iNat install from an app store in minutes (no published number) | **≤ 30 min** | ≤ 10 min | unmeasured. Today it needs `git`, `uv`, hand-converting an XLSX to CSV, a 3.26 GB TreeOfLife file and about 7 GB of weights: realistically hours for a non-developer | a volunteer gives up after half an hour; gates v1.0, and v0.x only needs it measured |
 
-How measured: someone who has not installed bioscan before, timed, on a 100 Mbit/s line. The time goes
+How measured: someone who has not installed gardener before, timed, on a 100 Mbit/s line. The time goes
 in the release report.
 
 ## 10. Privacy (manual)
@@ -287,7 +287,7 @@ in the release report.
 | Network requests carrying photos or their metadata during a default run | Nomen: "everything runs on your machine" (vendor claim) [^nomen] | **0** | 0 | 0 by design: the service runs with `HF_HUB_OFFLINE=1`, and no code path uploads; **not enforced by a test** | photos never leave the machine, and this is a promise we can check |
 
 How measured: a golden-tier run with outbound network blocked, or a proxy log, counting requests.
-Opt-in features that fetch data (for example `bioscan gt inat`) are outside a default run.
+Opt-in features that fetch data (for example `gardener-engine gt inat`) are outside a default run.
 
 ## 11. Reproducibility (manual)
 
@@ -300,8 +300,8 @@ Opt-in features that fetch data (for example `bioscan gt inat`) are outside a de
 
 The `geotag` tier is not a photo folder. `scripts/geotag_synth.py` (seed 7) builds GPX tracks through the golden set's
 true positions and capture times in seven scenarios: perfect, camera 37 s fast, camera 1 h fast (DST), wrong
-timezone, dropouts, photos outside the track, and several files. `bioscan bench geotag` then scores
-`bioscan.geotag` against the truth (docs/harness.md). Scope `all` pools the scenarios. Errors count only the photos
+timezone, dropouts, photos outside the track, and several files. `gardener-engine bench geotag` then scores
+`gardener.geotag` against the truth (docs/harness.md). Scope `all` pools the scenarios. Errors count only the photos
 whose true time is inside the track; a photo there without a fix is a miss.
 
 | Standard | Industry bar | Community | Stretch | Now (2026-09-24, seed 7) | Why this bar |
@@ -318,7 +318,7 @@ whose true time is inside the track; a photo there without a fix is a miss.
 How measured:
 ```sh
 uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7
-bioscan bench geotag runs/geotag-synth        # prints the tier's scorecard; exit 1 when a bar is missed
+gardener-engine bench geotag runs/geotag-synth        # prints the tier's scorecard; exit 1 when a bar is missed
 ```
 The numbers are synthetic: they show that the method works under the modelled noise, gaps and clock errors, not
 how a real watch behaves under trees or in canyons. The effect on species ID needs the Mac runs in
@@ -327,9 +327,9 @@ docs/harness.md ("Downstream"); until then it is **unverified**.
 ## 13. Aesthetics: agreement with the owner (album)
 
 The `aesthetic-own` tier (profile `album`) is the owner's own rated frames: Lightroom stars from XMP
-(or a CSV), split into trips by folder. `bioscan aesthetic eval` scores the **served** aesthetic score
+(or a CSV), split into trips by folder. `gardener-engine aesthetic eval` scores the **served** aesthetic score
 (the blend of the general and a personal head, else the general head) against them and writes a
-`bioscan-aesthetic-report` that `bioscan bench scorecard` reads (docs/harness.md). This measures
+`bioscan-aesthetic-report` that `gardener-engine bench scorecard` reads (docs/harness.md). This measures
 **agreement with one photographer**, not "aesthetic accuracy". A personal head must be judged on trips
 it was not fitted on: the report flags an in-sample head, and the learning curve always holds trips out.
 Aesthetics only reorders frames, so none of these bars can cost a keeper; the keeper-loss bars belong
@@ -344,10 +344,10 @@ to the rule stages ([section 14](#14-culling-album-profile-synthetic-tier)).
 
 How measured (service running):
 ```sh
-bioscan aesthetic train --ratings ~/Pictures/Album/train-trips --embeddings runs/aes-vec.ndjson   # optional personal head
-bioscan aesthetic eval ~/Pictures/Album/test-trips --out runs/<tag>-aesthetic --embeddings runs/aes-vec.ndjson \
-    --personal ~/.config/bioscan/aesthetic-personal.json
-bioscan bench scorecard runs/<tag>-aesthetic/report.json
+gardener-engine aesthetic train --ratings ~/Pictures/Album/train-trips --embeddings runs/aes-vec.ndjson   # optional personal head
+gardener-engine aesthetic eval ~/Pictures/Album/test-trips --out runs/<tag>-aesthetic --embeddings runs/aes-vec.ndjson \
+    --personal ~/.config/gardener/aesthetic-personal.json
+gardener-engine bench scorecard runs/<tag>-aesthetic/report.json
 ```
 Every bar here is a first guess: no aesthetic number has been measured on the owner's photos yet. The general
 head is committed (data/aesthetic/README.md: CV SRCC 0.792 on EVA, Spearman 0.877 on the 100 held-out EVA images).
@@ -355,8 +355,8 @@ head is committed (data/aesthetic/README.md: CV SRCC 0.792 on EVA, Spearman 0.87
 ### Public golden set: EVA-100 (`aesthetic-golden`)
 
 The `aesthetic-golden` tier (profile `album`) is aes-golden-v1: the 100 EVA images held out of the general head,
-frozen (owner decision 2026-09-25). `bioscan bench aesthetic score` scores **any** scorer's scores file on it and
-`bioscan bench scorecard` reads the report. The bars are the first real run, eva-head-v1
+frozen (owner decision 2026-09-25). `gardener-engine bench aesthetic score` scores **any** scorer's scores file on it and
+`gardener-engine bench scorecard` reads the report. The bars are the first real run, eva-head-v1
 (`baselines/aes-golden-v1-eva-head-v1.json`, 2026-09-25, owner's Mac), minus a margin, judged on the 95 % bound.
 
 **What EVA's stars can and cannot stand in for.** They are the mean of 30-46 crowd votes on photo-contest
@@ -374,7 +374,7 @@ scorers start behind it. The owner's set (above) remains the one that decides.
 | Keepers lost when the lowest 20% are dropped (40 keepers) | none | **≤ 15%** (upper bound) | ≤ 10% | 0.0% [0.0, 8.8]: **met**, stretch met | random order loses 20%; the bar allows one keeper of 40 lost (upper bound 12.9%), not two (16.5%) |
 | Shot-group winner is the top-scored frame | none | **≥ 50%** (lower bound) | ≥ 70% | n/a: EVA-100 has no shot groups | only a set with groups is judged; the lower bound keeps a handful of groups from passing by luck; random is 1/group size |
 
-How measured: data/aesthetic/README.md ("aes-golden-v1"). `bioscan bench aesthetic compare
+How measured: data/aesthetic/README.md ("aes-golden-v1"). `gardener-engine bench aesthetic compare
 baselines/aes-golden-v1-eva-head-v1.json NEW` holds a new scorer or head to `baselines/budget-aesthetic.toml`.
 
 [^pyiqa-iaa]: pyiqa's aesthetics benchmark (LAION v2 0.665, TOPIQ-IAA 0.791, Q-Align 0.822 SRCC on AVA): https://raw.githubusercontent.com/chaofengc/IQA-PyTorch/main/tests/IAA_benchmark_results.csv
@@ -411,14 +411,14 @@ re-measures them.
 How measured: CI `models.yml` (tests/models, `models-report-album.json`), or on any photos with boxes:
 ```sh
 uv run python scripts/cull_synth.py --preds runs/src.ndjson --out runs/album-synth --seed 7
-bioscan bench run runs/album-synth/groundtruth-album.csv --profile album --tier album --out runs/album
-bioscan bench scorecard runs/album/report.json
+gardener-engine bench run runs/album-synth/groundtruth-album.csv --profile album --tier album --out runs/album
+gardener-engine bench scorecard runs/album/report.json
 ```
 
 ## 15. Scene: open photos per scene label
 
 The `scene` tier measures the `scene` stage on photos that are not the owner's and not all wildlife:
-`bioscan gt scene` samples Open Images V7 validation and test photos whose human-verified image-level
+`gardener-engine gt scene` samples Open Images V7 validation and test photos whose human-verified image-level
 labels put them in exactly one scene label of `data/scene/oid-labels.toml` (class sets with `any` /
 `all` / `not`; a photo that fits two labels is dropped). The CSV has the album tier's `scene` (fine
 label, blank for `bird` and `mammal`, whose framing Open Images does not tell) and `scene_group` (one
@@ -464,9 +464,9 @@ sampling flags (`--map`, `--per-label`, `--seed`, `--subset`, `--cache`, `--dry-
 
 How measured (any machine with the service running and the out folder under its allow-roots):
 ```sh
-bioscan gt scene --from data/scene/scene-v1.csv --out runs/scene-v1     # ~1,861 photos, skips what is there
-bioscan bench run runs/scene-v1/groundtruth-scene.csv --profile album --tier scene --out runs/scene
-bioscan bench scorecard runs/scene/report.json --tier scene
+gardener-engine gt scene --from data/scene/scene-v1.csv --out runs/scene-v1     # ~1,861 photos, skips what is there
+gardener-engine bench run runs/scene-v1/groundtruth-scene.csv --profile album --tier scene --out runs/scene
+gardener-engine bench scorecard runs/scene/report.json --tier scene
 ```
 A new set (more labels, another seed) is sampled with `gt scene --out DIR --per-label N` and its
 `groundtruth-scene.csv` committed as the next manifest.
@@ -476,7 +476,7 @@ A new set (more labels, another seed) is sampled with `gt scene --out DIR --per-
 ### Always: every push
 
 - CI smoke inside its guard (`directory.smoke.*`, and the `tests/models` floors).
-- `bioscan bench compare` against the committed baseline, within budget.
+- `gardener-engine bench compare` against the committed baseline, within budget.
 
 ### v0.x: "try it and help identify" (community call)
 
@@ -517,7 +517,7 @@ all-taxa default honest: other animals may answer at genus, but they must not be
 - Confident-error classes reported by the community during v0.x are triaged (fixed, or documented
   as a known limitation).
 
-**Stretch bars never gate a release.** They are what we would need to call bioscan the leader, and
+**Stretch bars never gate a release.** They are what we would need to call gardener the leader, and
 the scorecard shows how far away they are.
 
 ## Machine-readable form
@@ -548,7 +548,7 @@ declares, read from report.json `plugin_metrics`).
   `median_error_m`, `p90_error_m`, `within_100m_rate`, `within_1km_rate`, `no_fix_rate`, `false_fix_rate`,
   `cell_change_rate`, `offset_error_s` (docs/harness.md defines them).
 - **Aesthetic metrics.** The `aesthetic-own` tier (ids `aesthetics.aesthetic_own.*`, explicit `tier = "aesthetic-own"`)
-  reads a `bioscan aesthetic eval` report: `spearman`, `kendall`, `plcc`, `spearman_trip_mean` (unit `correlation`),
+  reads a `gardener-engine aesthetic eval` report: `spearman`, `kendall`, `plcc`, `spearman_trip_mean` (unit `correlation`),
   `ndcg_at_k` (unit `score`) and `precision_at_k` (a rate, `fraction`). The `aesthetic-golden` tier (ids
   `aesthetics.aesthetic_golden.*`) reads a `bench aesthetic score` report (schema `bioscan-aesthetic-golden`) with
   the same metrics plus the rates `keepers_lost_at_20` and `group_top1`.

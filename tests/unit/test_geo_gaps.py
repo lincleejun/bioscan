@@ -1,10 +1,10 @@
-"""`bioscan names geo-gaps`: which unlabelled species matter at a place. Review aid only; the
+"""`gardener-engine names geo-gaps`: which unlabelled species matter at a place. Review aid only; the
 prior itself is unchanged (unlabelled rows keep p_geo = 0)."""
 import numpy as np
 import pytest
 
-from bioscan.cli import main as cli
-from bioscan.service.adapters import geo
+from gardener.cli import main as cli
+from gardener.service.adapters import geo
 
 SCI = ["Tyto furcata", "Tyto javanica", "Junco hyemalis", "Junco insularis", "Anas theodori", "Camptorhynchus labradorius"]
 COMMON = ["American Barn Owl", "Eastern Barn Owl", "Dark-eyed Junco", "Guadalupe Junco", "Mascarene Teal", "Labrador Duck"]

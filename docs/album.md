@@ -1,6 +1,6 @@
 # Album: aesthetics and culling
 
-The `album` profile scores each frame (aesthetics, quality, scene) and `bioscan cull` turns a folder into picks, bursts and rejects with reasons. Scoring and culling never delete, move or write into a photo; only `cull --xmp` rates photos, in new XMP sidecars. Acting on the marks is a separate, explicit step: the review page's Delete drops removes them through the running service (`POST /apply`), and `aesthetic apply --drop-to DIR` moves them.
+The `album` profile scores each frame (aesthetics, quality, scene) and `gardener-engine cull` turns a folder into picks, bursts and rejects with reasons. Scoring and culling never delete, move or write into a photo; only `cull --xmp` rates photos, in new XMP sidecars. Acting on the marks is a separate, explicit step: the review page's Delete drops removes them through the running service (`POST /apply`), and `aesthetic apply --drop-to DIR` moves them.
 
 ## Aesthetics
 
@@ -11,52 +11,52 @@ The `aesthetics` stage gives each frame an aesthetic score from a small linear *
 - **Personal head**: fitted on your own ratings, pulled toward the general head, and blended with it by `blend` (the personal weight, default 0.5):
 
   ```sh
-  bioscan aesthetic ratings ~/Pictures/Album                     # stars/labels from XMP (sidecars or embedded), per trip
-  bioscan aesthetic train --ratings ~/Pictures/Album --embeddings ~/.cache/bioscan/album-vec.ndjson
-  #   -> ~/.config/bioscan/aesthetic-personal.json (ridge, alpha by 5-fold CV over trips)
-  bioscan run ~/Pictures/Album --profile album                   # general head only, unless the profile names yours:
+  gardener-engine aesthetic ratings ~/Pictures/Album                     # stars/labels from XMP (sidecars or embedded), per trip
+  gardener-engine aesthetic train --ratings ~/Pictures/Album --embeddings ~/.cache/bioscan/album-vec.ndjson
+  #   -> ~/.config/gardener/aesthetic-personal.json (ridge, alpha by 5-fold CV over trips)
+  gardener-engine run ~/Pictures/Album --profile album                   # general head only, unless the profile names yours:
   ```
 
   ```toml
   [profile.album.options.aesthetics]
-  head = "/Users/me/.config/bioscan/aesthetic-personal.json"   # builtin | an absolute path | off
+  head = "/Users/me/.config/gardener/aesthetic-personal.json"   # builtin | an absolute path | off
   blend = 0.5
   ```
 
   Ratings are Lightroom stars 1-5 (`xmp:Rating`; 0 or missing = unrated and skipped, as the XMP spec says; a reject, -1, is kept as a reject, graded below one star), with the colour label and `xmpDM:pick` where a tool writes them; a sidecar wins over embedded XMP. Lightroom Classic keeps pick flags in its catalogue, not in XMP, so give picks through a CSV (`path,rating,pick,trip`) if you want them. The CLI never loads a model: vectors come from the running service's `embed` product (`--embeddings FILE` keeps them). The head path is checked against the service's allow-roots.
-- **How well it agrees with you**: `bioscan aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/bioscan/aesthetic-personal.json` writes report.json and report.md: Spearman and Kendall against your stars, NDCG@10 and precision@k against your picks per trip (k = your picks in that trip, next to what a random order gets), and a **learning curve** at 50/100/200/500/1,000 ratings for personal vs general vs blended heads, always split by trip (folder) so a burst never sits on both sides. `bioscan bench scorecard runs/aes/report.json` holds it to the `aesthetic-own` standards (docs/standards.md §13). **No aesthetic number has been measured yet: every claim here is unverified.**
-- **Choosing between aesthetic models**: the aesthetic golden set (docs/research/2026-09-24-aesthetic-golden-set.md) scores *any* scorer's output, not only bioscan's head. Build it once: `bioscan bench aesthetic init ~/Pictures/Album --out ~/aes-golden` writes images.csv from your stars; add shot groups and their winners, keep/drop with a reason, categories and slices; then `uv run python scripts/aes_plant.py ~/aes-golden` adds planted copies whose answer is known (renamed, re-encoded or resized = same score; blurred or 2 EV off = lower). Score a model with `bioscan bench aesthetic score ~/aes-golden SCORES --out runs/aes/<model>` (SCORES = `bioscan run --json` output, or NDJSON `{path, score}` from any model), and compare two with `bench aesthetic compare` (McNemar on pairs and shot groups; budget baselines/budget-aesthetic.toml). The headline numbers are the winner of each shot group, pairwise accuracy, and keepers lost when the lowest 20 % of each trip is dropped.
-- **Licences.** EVA's annotations are **CC0 1.0** (its repository's LICENSE). Its images are AVA photos from dpchallenge.com whose copyright stays with the photographers: bioscan uses them only to compute vectors and never redistributes them. The head weights are trained locally or in this repository's CI, and the head file records its data, licence, n, date, seed and CV numbers. **AVA scores and AVA-trained weights are never used or distributed.** A personal head is fitted on your own ratings of your own photos and stays on your machine.
+- **How well it agrees with you**: `gardener-engine aesthetic eval ~/Pictures/Album --out runs/aes --personal ~/.config/gardener/aesthetic-personal.json` writes report.json and report.md: Spearman and Kendall against your stars, NDCG@10 and precision@k against your picks per trip (k = your picks in that trip, next to what a random order gets), and a **learning curve** at 50/100/200/500/1,000 ratings for personal vs general vs blended heads, always split by trip (folder) so a burst never sits on both sides. `gardener-engine bench scorecard runs/aes/report.json` holds it to the `aesthetic-own` standards (docs/standards.md §13). **No aesthetic number has been measured yet: every claim here is unverified.**
+- **Choosing between aesthetic models**: the aesthetic golden set (docs/research/2026-09-24-aesthetic-golden-set.md) scores *any* scorer's output, not only gardener's head. Build it once: `gardener-engine bench aesthetic init ~/Pictures/Album --out ~/aes-golden` writes images.csv from your stars; add shot groups and their winners, keep/drop with a reason, categories and slices; then `uv run python scripts/aes_plant.py ~/aes-golden` adds planted copies whose answer is known (renamed, re-encoded or resized = same score; blurred or 2 EV off = lower). Score a model with `gardener-engine bench aesthetic score ~/aes-golden SCORES --out runs/aes/<model>` (SCORES = `gardener-engine run --json` output, or NDJSON `{path, score}` from any model), and compare two with `bench aesthetic compare` (McNemar on pairs and shot groups; budget baselines/budget-aesthetic.toml). The headline numbers are the winner of each shot group, pairwise accuracy, and keepers lost when the lowest 20 % of each trip is dropped.
+- **Licences.** EVA's annotations are **CC0 1.0** (its repository's LICENSE). Its images are AVA photos from dpchallenge.com whose copyright stays with the photographers: gardener uses them only to compute vectors and never redistributes them. The head weights are trained locally or in this repository's CI, and the head file records its data, licence, n, date, seed and CV numbers. **AVA scores and AVA-trained weights are never used or distributed.** A personal head is fitted on your own ratings of your own photos and stays on your machine.
 
-## Scoring a folder: `bioscan aesthetic score`
+## Scoring a folder: `gardener-engine aesthetic score`
 
 The ranking with the cull's verdict alongside: score a folder with the `album` profile, run its reducers (`burst`,
-`select`, as `bioscan cull` does), and export it in any of three forms at once, so the same run can be looked at and
+`select`, as `gardener-engine cull` does), and export it in any of three forms at once, so the same run can be looked at and
 kept as data. Reject reasons, waived reasons, flags and status (pick / spare / duplicate / reject) come from `select`,
 so a night photo that `cull` waives `underexposed` for reads the same on the score page.
 
 ```sh
-bioscan aesthetic score ~/Pictures/2026-05-trip -r --export json,csv,html --out ~/Pictures/2026-05-trip/aesthetic
-bioscan aesthetic score --preds aesthetic.ndjson --export html --out aesthetic      # again, offline
-bioscan aesthetic score ~/Pictures/2026-05-trip --species --export json,csv,html --out aes   # ... and name the animals
-bioscan aesthetic score ~/Pictures/2026-05-trip --species --lat 37.87 --lon -122.25 --out aes   # photos without GPS
+gardener-engine aesthetic score ~/Pictures/2026-05-trip -r --export json,csv,html --out ~/Pictures/2026-05-trip/aesthetic
+gardener-engine aesthetic score --preds aesthetic.ndjson --export html --out aesthetic      # again, offline
+gardener-engine aesthetic score ~/Pictures/2026-05-trip --species --export json,csv,html --out aes   # ... and name the animals
+gardener-engine aesthetic score ~/Pictures/2026-05-trip --species --lat 37.87 --lon -122.25 --out aes   # photos without GPS
 ```
 
 `--export` takes `json` (default), `csv`, `html`, comma-separated; `--out` is a prefix. `--species` turns the album
-profile's species naming on (BioCLIP loads; the location prior applies as in `bioscan run`): each photo carries the
-name of its surest box (species, or genus / family when only that held up, as `bioscan summarize` counts it).
-`--lat/--lon` (both or neither) is the batch coordinate for the photos whose EXIF has no GPS, as in `bioscan run`:
+profile's species naming on (BioCLIP loads; the location prior applies as in `gardener-engine run`): each photo carries the
+name of its surest box (species, or genus / family when only that held up, as `gardener-engine summarize` counts it).
+`--lat/--lon` (both or neither) is the batch coordinate for the photos whose EXIF has no GPS, as in `gardener-engine run`:
 a photo's own GPS still wins. It goes into the service request, so `--preds` (no service call) refuses it.
 The scan leaves out `<out>-files/` (the page's own copies from an earlier run). The printed summary gives scored /
 named / failed, the score range and star cuts, the top taxa (common name, count) and the scene-group counts.
 
 | file | what |
 |---|---|
-| `<out>.ndjson` | the run's events (with `products.burst` and `products.select`) and a meta line: what `--preds`, `bioscan cull --preds` and `bench aesthetic score` read back |
+| `<out>.ndjson` | the run's events (with `products.burst` and `products.select`) and a meta line: what `--preds`, `gardener-engine cull --preds` and `bench aesthetic score` read back |
 | `<out>.csv` | one row per photo, best first: rank, path, score, stars, status, scene, species, common, level, reject_reasons, waived, flags, sharpness, taken_at (the three name columns are empty without `--species`; `common` is the English name at every level: "Lesser Goldfinch", or "a vireo" / "a hawk or eagle" for a genus or family, from the common names of the taxon's candidates; status, reject_reasons and waived are `select`'s); failed decodes last |
-| `<out>.html` | the review page: a photo grid (score, stars, name, reject reason, cull status and flags on each card), an overview panel (marks progress, the score cut of each star) and a **taxon tree** (class → order → family → genus → species, with counts; click a branch to see only it, ⇢ merges one name into another). Search, sort (default: stars, then time taken, so a burst stays in shooting order within a star band; also score, name, date, species) and filters (stars, marks, reject reason, scene, species, folder) live in the toolbar's popovers; active filters show as chips. **Marks**: click selects a card, shift-click a range, ⌘-click adds, ⌘A all shown; a floating bar keeps / drops / unmarks the selection, the group header does the same for everything in view (the branch or filter), <kbd>K</kbd> / <kbd>X</kbd> / <kbd>U</kbd> work on the selection and in the lightbox. Marks stay in the browser. **Export keeps…** (overview panel) asks for a destination path (remembered) and copies the kept originals and their XMP sidecars there, files already there left as is; **Delete drops…** asks for confirmation and removes the dropped originals and sidecars from disk. Both go through the running bioscan service (`POST /apply` on the `--url` the page was made with, gated by the token in `~/.cache/bioscan/serve-token` that `aesthetic score` bakes into the page), so keep `bioscan serve` running while you review; the paths must be inside its `--allow-root`s. Without a service the page falls back to the browser's directory picker (Chrome, Edge: it asks for the photo folder once and remembers it); elsewhere save the decisions file from the ⋯ menu and run `bioscan aesthetic apply`. The **lightbox** (double-click, ↵ or the corner button) shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
+| `<out>.html` | the review page: a photo grid (score, stars, name, reject reason, cull status and flags on each card), an overview panel (marks progress, the score cut of each star) and a **taxon tree** (class → order → family → genus → species, with counts; click a branch to see only it, ⇢ merges one name into another). Search, sort (default: stars, then time taken, so a burst stays in shooting order within a star band; also score, name, date, species) and filters (stars, marks, reject reason, scene, species, folder) live in the toolbar's popovers; active filters show as chips. **Marks**: click selects a card, shift-click a range, ⌘-click adds, ⌘A all shown; a floating bar keeps / drops / unmarks the selection, the group header does the same for everything in view (the branch or filter), <kbd>K</kbd> / <kbd>X</kbd> / <kbd>U</kbd> work on the selection and in the lightbox. Marks stay in the browser. **Export keeps…** (overview panel) asks for a destination path (remembered) and copies the kept originals and their XMP sidecars there, files already there left as is; **Delete drops…** asks for confirmation and removes the dropped originals and sidecars from disk. Both go through the running gardener-engine service (`POST /apply` on the `--url` the page was made with, gated by the token in `~/.cache/bioscan/serve-token` that `aesthetic score` bakes into the page), so keep `gardener-engine serve` running while you review; the paths must be inside its `--allow-root`s. Without a service the page falls back to the browser's directory picker (Chrome, Edge: it asks for the photo folder once and remembers it); elsewhere save the decisions file from the ⋯ menu and run `gardener-engine aesthetic apply`. The **lightbox** (double-click, ↵ or the corner button) shows the original when the browser can read it (jpg, png), else the service's jpg copy at `--edge` (default 3072 px, the ceiling of the service's detail image); ←/→ move, Esc closes. The copies are in `<out>-files/` with a `--thumb-edge` (default 1024 px) thumbnail next to each for the grid; `--no-thumbs` shows browser-readable originals only |
 
-`bioscan aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
+`gardener-engine aesthetic apply bioscan-decisions.json --keep-to DIR --drop-to DIR` acts on the page's marks: the keeps are
 **copied** to `--keep-to` (originals and their XMP sidecars), the drops **moved** to `--drop-to`; `--dry-run` only
 reports. Nothing is ever deleted: empty the drop folder yourself when you are sure. A photo whose file or any of its
 sidecars is already at the target (or would be, from an earlier photo in the same run, `--dry-run` included) is
@@ -68,13 +68,13 @@ score (no head installed) sorts last with the head's note; nothing is rated, mov
 
 ## Culling an album
 
-`bioscan cull` sorts a folder for review: rule-based rejects with their reasons, bursts with their best frame, and
+`gardener-engine cull` sorts a folder for review: rule-based rejects with their reasons, bursts with their best frame, and
 the best photos per scene category. It runs the `album` profile through the service, then the `burst` and `select`
 reducers here. It never deletes or moves anything: rejects are listed, not removed.
 
 ```sh
-bioscan cull ~/Pictures/2026-05-trip -r --html review.html --csv selection.csv --link-dir picks --per-category 20
-bioscan cull --preds cull.ndjson --html review.html      # again, offline, from a saved --json run (e.g. new limits)
+gardener-engine cull ~/Pictures/2026-05-trip -r --html review.html --csv selection.csv --link-dir picks --per-category 20
+gardener-engine cull --preds cull.ndjson --html review.html      # again, offline, from a saved --json run (e.g. new limits)
 ```
 
 - **Rejects** (`quality`, rules only, each with a reason): `soft_subject` (the subject box is soft while something
@@ -86,7 +86,7 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   and `no_subject` (the gate sees an animal, the detector boxes none). A small subject is not a reject: it is the
   `subject_too_small` flag (see Flags; #131).
   Sharpness here is a re-blur measure on the subject box's core; every threshold is a constant in
-  `bioscan/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
+  `gardener/plugins/quality/stage.py` and in the stage's fingerprint. The subject is identify's best box, so photos
   without an animal (landscapes, people) are judged on the whole frame. `select` waives `underexposed` for the
   `night` group (not for the attribute `light=night`: a -2 EV day photo reads as night, CI 2026-09-26) and
   `no_subject` for every group but wildlife (#85: on flowers, food and grassland the gate's animal share is
@@ -115,18 +115,18 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   with neither found it is null. The album profile leaves it out because of its cost: one more OWLv2 forward per
   photo with a box, about 118 ms per photo on the owner's Mac (MPS, 95 smoke photos, 2026-10-22): `aesthetic score`
   took 25.6 s with it against 14.5 s without (+77%), for a flag that fired on 2 of the 95. To turn it on for
-  `aesthetic score` and `bioscan cull`, list it in the album profile's stages in a `bioscan.toml` (project, user or
-  `$BIOSCAN_CONFIG`; `bioscan config show --profile album` shows the stages in use):
+  `aesthetic score` and `gardener-engine cull`, list it in the album profile's stages in a `gardener.toml` (project, user or
+  `$GARDENER_ENGINE_CONFIG`; `gardener-engine config show --profile album` shows the stages in use):
 
   ```toml
   [profile.album]
   stages = ["identify", "embed", "aesthetics", "quality", "scene", "facing"]
   ```
 
-  or, for one `bioscan run`, `--profile album --want identify,embed,aesthetics,quality,scene,facing`. On the smoke
+  or, for one `gardener-engine run`, `--profile album --want identify,embed,aesthetics,quality,scene,facing`. On the smoke
   photos it found a head or an eye in 82 of 91 subject boxes and gave a side to 65; of the 45 a person could call
   left or right it got 40 right, none the wrong way. The prompts and thresholds are constants in
-  `bioscan/plugins/facing/stage.py` and in the stage's fingerprint; guesses, unverified until #28's labelled trips.
+  `gardener/plugins/facing/stage.py` and in the stage's fingerprint; guesses, unverified until #28's labelled trips.
 - **Selection** (`select`): the best frame of each burst: not rejected, subject sharpness (within 0.03 of the sharpest
   counts as equal), not cut off, exposure within ±0.2, then the aesthetic score when a run has one (it only reorders,
   never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category (`by`: the
@@ -143,7 +143,7 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   subject faces (the `facing` stage's side) the nearer side edge with less than `lead_room_min` (default 0.1, a share
   of the frame width; 0 turns it off) in front of its box and is not a fill-the-frame portrait; it needs the `facing`
   stage, which the album profile leaves out (see Facing above), so by default no photo gets it. `subject_too_small` when
-  the subject's box covers under 0.5% of the frame (`SMALL_SUBJECT` in `bioscan/cull.py`, from quality's subject area): a
+  the subject's box covers under 0.5% of the frame (`SMALL_SUBJECT` in `gardener/cull.py`, from quality's subject area): a
   distant bird on a long lens is a note, so a sharp burst of one still gets a pick (#131; it was a reject until then).
   The three thresholds before it are guesses,
   unverified until #28's labelled trips exist. `aesthetic score` runs the album profile's reducers too
@@ -161,13 +161,13 @@ bioscan cull --preds cull.ndjson --html review.html      # again, offline, from 
   label `xmp:Label="Red"`, no stars (so it stays unrated), and its reasons in `bioscan:reasons` (`;`-joined; namespace
   `https://github.com/lincleejun/bioscan/ns/cull/1.0/`); duplicates get nothing. Every pick is already the best of
   its burst, so a burst win adds no star. Filter on 3 stars for the picks, 2 and up for every keeper, Red for the
-  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are bioscan's, not yours: cull
-  records them in `bioscan:stars` (0 for a reject), and the ratings reader (`bioscan aesthetic ratings|train|eval`,
+  rejects. Lightroom reads sidecars for RAW files only, not for JPEGs. These stars are gardener's, not yours: cull
+  records them in `bioscan:stars` (0 for a reject), and the ratings reader (`gardener-engine aesthetic ratings|train|eval`,
   `bench aesthetic init`) skips a cull sidecar still carrying those stars. Once you change its stars (to -1 for a
   reject too), it counts as your rating.
 - **Accuracy**: unverified on real albums. CI measures the rules and reducers on a synthetic reject set made from the
   smoke photos (docs/harness.md "Album tier", docs/standards.md §14).
-- **motion vs defocus** (`MOTION_RATIO` = 1.4 in `bioscan/plugins/quality/stage.py`): set on the synthetic set only
+- **motion vs defocus** (`MOTION_RATIO` = 1.4 in `gardener/plugins/quality/stage.py`): set on the synthetic set only
   (#28 brings real rejects). `scripts/cull_synth.py` over the 1,026 photos of `runs/2026-09-23-inat-v2` (iNat, the
   subject box from the run standing in for the detector), 2026-09-25: of the whole-frame motion smears (`shake`) the
   rules gave a whole-frame reason, 851 of 869 (97.9%) read `motion`; of the whole-frame Gaussian blurs (`defocus`),

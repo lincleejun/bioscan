@@ -1,5 +1,5 @@
-"""bioscan.naming: one normaliser for every side, and the stale-map check."""
-from bioscan import naming
+"""gardener.naming: one normaliser for every side, and the stale-map check."""
+from gardener import naming
 
 MAP = {"Tyto furcata": {"tol_name": "Tyto furcata", "tol_how": "exact",
                         "birdnet_label": "Tyto alba_Western Barn Owl", "birdnet_how": "synonym"},
@@ -45,5 +45,5 @@ def test_synonym_added_without_rebuilding_the_map_is_reported():
 
 
 def test_names_module_reexports_the_same_functions():
-    from bioscan.service import names
+    from gardener.service import names
     assert names.norm_binomial is naming.norm_binomial and names.read_synonyms is naming.read_synonyms

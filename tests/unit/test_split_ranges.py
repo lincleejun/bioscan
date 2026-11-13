@@ -2,9 +2,9 @@
 same label, so the location prior zeroes a daughter outside the 1-degree cells it was recorded in (with a margin)."""
 import numpy as np
 
-from bioscan import naming
-from bioscan.service import names
-from bioscan.service.adapters import geo
+from gardener import naming
+from gardener.service import names
+from gardener.service.adapters import geo
 
 
 class Source:

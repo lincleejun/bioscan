@@ -2,7 +2,7 @@
 import math
 import random
 
-from bioscan import aesthetic as aes
+from gardener import aesthetic as aes
 
 NS = ('xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:xmpDM="http://ns.adobe.com/xmp/1.0/DynamicMedia/" '
       'xmlns:dc="http://purl.org/dc/elements/1.1/"')

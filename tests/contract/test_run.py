@@ -13,11 +13,11 @@ from conftest import ALL_WANTS, FAIL_SIZE, Fakes, client_for, events, make_jpg, 
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import bioscan
-from bioscan import plugin
-from bioscan.service import run as run_mod
-from bioscan.service import stages
-from bioscan.service.app import create_app
+import gardener
+from gardener import plugin
+from gardener.service import run as run_mod
+from gardener.service import stages
+from gardener.service.app import create_app
 
 
 def test_health(client):
@@ -83,7 +83,7 @@ def test_full_run_all_products(client, fakes, tmp_path):
     for e in results:
         assert len(e["sha256"]) == 64
         assert e["image"] == {"width": 3000, "height": 2000, "orientation": 1}
-        assert e["engine"]["version"] == bioscan.__version__
+        assert e["engine"]["version"] == gardener.__version__
         assert set(e["engine"]["models"]) >= {"gate", "detect", "species"}
         assert set(e["timing_ms"]) == {"decode", "identify", "embed", "jpg"}
         ident = e["products"]["identify"]
@@ -377,7 +377,7 @@ def test_small_request_waits_one_chunk_not_the_whole_batch(tmp_path):
 def _crash_on(path, edge=None):
     import os
 
-    from bioscan.service import decode
+    from gardener.service import decode
 
     if path.endswith("crash.jpg"):
         os._exit(1)              # a decoder that dies the way LibRaw can on a corrupt RAW

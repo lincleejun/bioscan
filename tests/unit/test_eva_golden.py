@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from bioscan import aesthetic as aes
-from bioscan.cli import aesgolden as ag
+from gardener import aesthetic as aes
+from gardener.cli import aesgolden as ag
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("eva_golden", ROOT / "scripts" / "eva_golden.py")

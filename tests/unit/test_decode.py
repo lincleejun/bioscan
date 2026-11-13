@@ -1,7 +1,7 @@
 import pytest
 from PIL import Image
 
-from bioscan.service import decode
+from gardener.service import decode
 
 
 def test_jpeg_orientation_resize_exif(tmp_path):

@@ -1,94 +1,77 @@
-# bioscan
+# Gardener
 
 **English** | [简体中文](README.zh-CN.md)
 
-**What animal is in the photo, where, and which species.** A local identification service for wildlife photography: give it a folder of RAW or JPG files and get back, per image, animal boxes, the species (birds and mammals against curated lists, every other animal against the TreeOfLife all-taxa list), a confidence and a grade. It also places photos on a GPX track and culls an album into picks, bursts and rejects. A resident HTTP service plus a thin CLI; runs on MPS on a Mac; no photo ever leaves the machine.
+**Sort a wildlife shoot on your own Mac.** Point Gardener at a card or a folder: it previews every RAW and JPG, finds the animals, names the species, groups bursts, and gives you a review page ordered by species. You keep, star and reject. No photo leaves the machine, and no file is touched unless you confirm it.
 
-## Promo video
+## Video
 
-https://github.com/user-attachments/assets/19373e87-ed64-44d2-a2e5-7aa889ba4db7
+52 seconds, Chinese captions, no narration: [assets/gardener-promo.mp4](assets/gardener-promo.mp4). Every screen in it is the real UI on a real shoot of 1,361 photos.
 
-85 seconds: the result page, sorting by scene, grading, naming the animals, and the measured numbers. Full-quality file: [assets/bioscan-promo.mp4](assets/bioscan-promo.mp4).
+## What you get
 
-## Results
-
-Measured on the owner's M-series Mac (MPS). The golden table is the 2026-11-13 run (`20381aa`) on the cleaned golden set; the v1.4 comparison and the own-RAW numbers are v1.5 (`875dc7a`, 2026-09-24). Full tables, the v1.4 comparison, failure classes and the scorecard: [docs/results.md](docs/results.md). The bars these are held to: [docs/standards.md](docs/standards.md).
-
-**Species identification**, iNaturalist golden set (California, 64 species, 1,571 research-grade photos with GPS and dates; 54 photos that showed no animal were removed on 2026-11-13, #156):
-
-| Group | Top-1 | Top-5 | Detected | Coverage | Precision | Confident errors |
-|---|---|---|---|---|---|---|
-| Birds (1046) | 91.7% | 96.2% | 98.3% | 92.8% | 97.1% | 2.7% |
-| Mammals (525) | 91.0% | 94.9% | 97.9% | 87.8% | 96.5% | 3.0% |
-| All (1571) | 91.5% | 95.7% | 98.2% | 91.2% | 96.9% | 2.8% |
-
-Coverage = share of images graded to species; precision = Top-1 among those; confident errors = graded species-level and wrong. Against v1.4 (both on the earlier 1,625-photo set, where v1.5 scored 88.2%): Top-1 +3.6 points, confident errors 7.4% → 3.1%, coverage −2.9 points and throughput 4.7 → 2.2 img/s (both deliberate: stricter grading, and every box also scored against the 366k-species all-taxa list). Own telephoto RAW set (404 images, 3 owl species, no GPS): Top-1 79.0%, Top-5 98.0%; with one coordinate for the batch, 96.3%.
-
-**Aesthetic score**, 100 EVA photos the general head never saw (20 per star, crowd consensus): Spearman 0.877 [0.82, 0.92] against the crowd's stars, drop AUC 0.98, 0% keepers lost when the lowest 20% is dropped. **Album culling** rules are measured on a synthetic reject set only (224 frames made from the CI photos: reject recall 84%, precision 96%; underexposure recall 33%, below its 80% floor); unverified on real albums.
-
-**Scene category** (album profile), 1,861 CC BY photos from Open Images V7 in 8 groups (`data/scene/scene-v1.csv`): group correct 75.0% overall with the album profile's 40 fine labels in 8 groups plus light, setting and framing attributes ([#34](https://github.com/lincleejun/bioscan/issues/34)): wildlife 93%, people 89%, food 80% (short prompts, [#45](https://github.com/lincleejun/bioscan/issues/45)), night 76%, architecture 74%, other 72%, landscape 68%, macro 47% (fungi and plants read as animals, [#46](https://github.com/lincleejun/bioscan/issues/46)). The old 8 labels gave 70.6%.
-
-**GPS from a GPX track**, synthetic tracks from the golden set: median error 7 m, 97% within 100 m, no false fix. Fed to identification, GPX positions give the same answers as true GPS (0 of 1,625 differ) and +5.2 points Top-1 over no coordinates.
+- **Scan**: several cards or folders in one task; previews first, so review can start before analysis ends.
+- **Species**: birds against AviList, mammals against MDD, every other animal against the TreeOfLife list, with a location prior from GPS. A wrong name is corrected once for the whole shoot.
+- **Review by group**: one burst is one group. Star what you keep, reject the rest, or finish many groups at once. Every mark can be undone.
+- **AI 选鸟**: a few best frames of each species, from different moments, in one collection.
+- **Out**: copy the keeps with checksums, hand stars and species keywords to Lightroom Classic, move the rejects you confirm to the Trash (recoverable).
+- **Three front ends, one local service**: web UI, `gardener` CLI, MCP.
 
 ## Quick start
 
+macOS on Apple Silicon (MPS) or CPU; Python 3.12 with `uv`.
+
 ```sh
-git clone https://github.com/lincleejun/bioscan && cd bioscan
-uv sync                                       # Python 3.12
-uv run python tests/models/download.py        # pinned weights (~7 GB) + BirdNET geo model, once
-# name lists: download AviList and MDD CSVs as described in docs/usage.md#name-lists
-uv run bioscan names stats                    # once, online: fetches the 3.26 GB TreeOfLife vectors into ~/.cache/huggingface and builds the name caches
-uv run bioscan serve                          # 127.0.0.1:8765; models stay resident
-uv run bioscan run ~/Pictures/trip -r         # one line per image, then a summary
+git clone https://github.com/lincleejun/gardener && cd gardener
+uv sync
+uv run python tests/models/download.py    # pinned weights, about 7 GB, once
+# name lists: download the AviList and MDD CSVs, see docs/usage.md#name-lists
+uv run gardener-engine names stats        # once, online: builds the name caches (3.26 GB download)
+uv run gardener serve                     # open http://127.0.0.1:8770
 ```
 
-```
-DSC00364.ARW  bird    2 boxes  [1] Western Screech-Owl 0.91 种  [2] unconfirmed
-DSC00458.ARW  none
-DSC00566.ARW  mammal  1 box    [1] Rangifer tarandus 0.77 种
-```
+## The engine on its own
 
-`--json` writes the service's NDJSON as is (boxes, species with taxonomy, p_visual / p_geo / posterior, timings). Full install notes, every flag and the output schema: [docs/usage.md](docs/usage.md).
+`gardener-engine` is the identification service and its CLI, usable without the workbench:
 
-## What it does
+| Command | Does |
+|---|---|
+| `gardener-engine run DIR -r` | boxes and species per photo, graded species / genus / family / unconfirmed |
+| `gardener-engine geotag DIR --gpx track.gpx` | GPS from a watch or phone track, written to XMP sidecars |
+| `gardener-engine cull DIR -r --html review.html` | rejects with reasons, bursts with their best frame, picks per scene |
+| `gardener-engine aesthetic score DIR --species --export html` | aesthetic ranking with names, as a review page |
+| `gardener-engine eval`, `gardener-engine bench` | accuracy reports, baselines and regression budgets |
 
-| | Command | Doc |
-|---|---|---|
-| **Identify** boxes and species, graded species / genus / family / unconfirmed; location prior from EXIF GPS or `--lat/--lon`; narrow to candidate taxa with `--candidates` | `bioscan run DIR` | [usage.md](docs/usage.md), [how-it-works.md](docs/how-it-works.md) |
-| **Geotag** photos from a watch or phone GPX track; clock offset per camera from a photo of the clock or photos with GPS; XMP sidecars | `bioscan geotag DIR --gpx track.gpx` | [geotag.md](docs/geotag.md) |
-| **Cull an album**: rejects with reasons, bursts with their best frame, best photos per scene category, aesthetic ranking; HTML review page, CSV, symlinks, optional XMP stars and labels in new sidecars; never deletes | `bioscan cull DIR -r --html review.html` | [album.md](docs/album.md) |
-| **Summarize a run**: categories, taxa and a review queue with rule reasons as `summary.json`, rendered to an HTML report | `bioscan summarize preds.ndjson --out run`, `bioscan report run` | [usage.md](docs/usage.md#run-summary-and-report) |
-| **Score a folder**: aesthetic ranking exported as NDJSON, CSV and/or an HTML review page (taxon tree with merges, keep/drop marks, full-size lightbox), with the animals named on `--species` (`--lat/--lon` for photos without GPS) and the cull's status, reasons and waivers from the album profile's `select`; re-export offline from the NDJSON; the page copies the keeps out and deletes the drops through the running service, or `aesthetic apply` copies the keeps (`--keep-to DIR`) and moves the drops (`--drop-to DIR`, never deletes) from the saved decisions | `bioscan aesthetic score DIR -r --species --export json,csv,html --out aes` | [album.md](docs/album.md) |
-| **Personal aesthetics**: a head fitted on your Lightroom stars, blended with the general one | `bioscan aesthetic train --ratings DIR` | [album.md](docs/album.md) |
-| **Profiles** `full`, `wildlife`, `album`, and your own in `bioscan.toml` | `bioscan run DIR --profile album` | [usage.md](docs/usage.md#profiles-and-bioscantoml) |
-| **Evaluate**: ground truth from folders or iNaturalist, reports with Wilson intervals, baselines and regression budgets, failure classes, scorecard against the standards | `bioscan eval`, `bioscan bench` | [development.md](docs/development.md), [harness.md](docs/harness.md) |
-| **HTTP API**: `/run` streams NDJSON; `/health`, `/products`, `/apply` (the review page's copy / delete) | `curl -sN 127.0.0.1:8765/run -H 'content-type: application/json' -d '{"inputs":[{"path":"/abs/a.ARW"}]}'` | [usage.md](docs/usage.md#http-api) |
+Every flag, the output schema and the HTTP API: [docs/usage.md](docs/usage.md).
 
-Models: SigLIP2 (gate, embed), OWLv2 (detection), BioCLIP 2.5 Huge (species), BirdNET geo (location prior), AviList v2026 and MDD v2.5 name lists, TreeOfLife-200M all-taxa list. Sources and licences: [docs/how-it-works.md](docs/how-it-works.md#pipeline).
+## Measured
 
-## Status
+iNaturalist golden set, California: 64 species, 1,571 research-grade photos with GPS, on an M-series Mac (2026-11-13).
 
-- Species accuracy is measured on the golden set above; the v0.x release gates in `docs/standards.md` are not met yet (mammal detection and Top-5 fall short).
-- Other animals (reptiles, fish, insects, …) are named from TreeOfLife's list, which lacks many reptiles and ray-finned fish; they have no location prior. Accuracy is measured on 18 CI photos only.
-- Culling rules, burst grouping and the aesthetic head are unverified on real albums; `bioscan aesthetic eval` measures agreement with your own stars.
-- Runs on macOS + MPS and on CPU; no CUDA setup or Dockerfile.
-- The full list: [docs/how-it-works.md#known-limitations-and-roadmap](docs/how-it-works.md#known-limitations-and-roadmap).
+| Group | Top-1 | Top-5 | Graded to species | Right when graded |
+|---|---|---|---|---|
+| Birds (1046) | 91.7% | 96.2% | 92.8% | 97.1% |
+| Mammals (525) | 91.0% | 94.9% | 87.8% | 96.5% |
+
+Aesthetic score against crowd stars (100 EVA photos): Spearman 0.877. GPS from a GPX track: median error 7 m on synthetic tracks. All tables and how they were measured: [docs/results.md](docs/results.md); the bars they are held to: [docs/standards.md](docs/standards.md).
+
+Not measured yet: burst grouping, culling rules and AI 选鸟 on real albums; species outside birds and mammals beyond 18 test photos. The release gates in `docs/standards.md` are not all met. Known limits: [docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap).
 
 ## Documentation
 
-| Document | What it holds |
+| | |
 |---|---|
-| [docs/usage.md](docs/usage.md) | install, CLI, supported RAW formats, ports and variables, candidates, profiles and `bioscan.toml`, run summary and report, Lightroom Classic, HTTP API, exit codes |
-| [docs/how-it-works.md](docs/how-it-works.md) | scope, the pipeline, grading and the accuracy rules, models and data with licences, name mapping, known limitations |
-| [docs/geotag.md](docs/geotag.md) | GPX geotagging: sources, time zones, clock offset, fix rule, XMP, accuracy |
-| [docs/album.md](docs/album.md) | aesthetics (general and personal head, evaluation, the golden set) and `bioscan cull` |
-| [docs/results.md](docs/results.md) | the measured numbers, v1.4 vs v1.5, own photos, RAW metadata |
-| [docs/standards.md](docs/standards.md) | the bars in 15 dimensions, with sources, and the release stages |
-| [docs/development.md](docs/development.md) | evaluation commands, the harness in short, tests, CI, source layout |
-| [docs/harness.md](docs/harness.md) | `bioscan bench` in full: report.json schema, compare, budgets, analyze, scorecard, album and aesthetic tiers |
-| [data/README.md](data/README.md) | name lists, the all-taxa list, the golden ground truth, the aesthetic head |
-| [CONTEXT.md](CONTEXT.md) | domain terms used in code, tests and docs |
+| [docs/usage.md](docs/usage.md) | install, both CLIs, profiles and `gardener.toml`, Lightroom, HTTP API |
+| [docs/gardener/](docs/gardener/) | the workbench: product brief, API contract, decisions |
+| [docs/how-it-works.md](docs/how-it-works.md) | pipeline, grading rules, models and data with licences |
+| [docs/album.md](docs/album.md), [docs/geotag.md](docs/geotag.md) | culling and aesthetics; GPX geotagging |
+| [docs/development.md](docs/development.md), [docs/harness.md](docs/harness.md) | tests, CI, the evaluation harness |
+| [CONTEXT.md](CONTEXT.md) | the terms used in code and docs |
+
+## Formerly bioscan
+
+Renamed in 2026-11. The `bioscan` command is now `gardener-engine`. `BIOSCAN_*` variables and `bioscan.toml` are still read (new names: `GARDENER_ENGINE_*`, `gardener.toml`). Names already on disk are unchanged: `~/.cache/bioscan`, the XMP `bioscan:` fields and the Lightroom plugin.
 
 ## License
 
-Code is MIT (see `LICENSE`). Models and data carry their own licenses, listed in [docs/how-it-works.md](docs/how-it-works.md#pipeline); the BirdNET prior is CC BY-NC-SA 4.0, so evaluate commercial use yourself.
+Code: MIT ([LICENSE](LICENSE)). Models and data keep their own licences ([list](docs/how-it-works.md#pipeline)); the BirdNET location prior is CC BY-NC-SA 4.0, so check before commercial use.

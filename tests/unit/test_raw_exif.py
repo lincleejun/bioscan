@@ -1,13 +1,13 @@
 """GPS and capture time from every supported container, built as tiny synthetic files
 (raw_fixtures.py); broken files give (None, None, None). Real camera files are checked on the
-owner's Mac with `python -m bioscan.service.decode DIR -r`."""
+owner's Mac with `python -m gardener.service.decode DIR -r`."""
 import struct
 
 import pytest
 import raw_fixtures as F
 
-from bioscan import formats
-from bioscan.service import decode
+from gardener import formats
+from gardener.service import decode
 
 WHEN = "2026-05-01T08:00:00-07:00"
 BASE = {0x010F: (F.ASCII, "CAMERA"), 0x0132: (F.ASCII, "2026:05:01 07:59:59")}
@@ -115,7 +115,7 @@ def test_burst_frames_keep_their_order():
 
 def test_subsec_does_not_move_the_location_prior_week():
     """taken_at reaches identify only through geo.week_of; the fraction must not change it."""
-    from bioscan.service.adapters import geo
+    from gardener.service.adapters import geo
 
     for t in ("2026-05-01T08:00:00", "2026-05-01T08:00:00-07:00", "2026-12-31T23:59:59+10:00"):
         frac = t[:19] + ".37" + t[19:]

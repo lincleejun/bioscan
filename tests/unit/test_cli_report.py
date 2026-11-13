@@ -1,14 +1,14 @@
-"""`bioscan summarize` / `bioscan report` (bioscan/cli/report.py): each review reason and the taxon keying on
+"""`gardener-engine summarize` / `gardener-engine report` (gardener/cli/report.py): each review reason and the taxon keying on
 hand-built events, a golden summary of the contract golden stream, and the page rendered from a summary.
-Re-record the golden only on purpose: BIOSCAN_REGOLDEN=1 uv run pytest tests/unit/test_cli_report.py"""
+Re-record the golden only on purpose: GARDENER_ENGINE_REGOLDEN=1 uv run pytest tests/unit/test_cli_report.py"""
 import json
 import os
 from pathlib import Path
 
-from bioscan import contract
-from bioscan.cli import cull as cull_cli
-from bioscan.cli import report as rp
-from bioscan.cli.main import main
+from gardener import contract
+from gardener.cli import cull as cull_cli
+from gardener.cli import report as rp
+from gardener.cli.main import main
 
 ROOT = Path(__file__).resolve().parents[2]
 STREAM = ROOT / "tests" / "contract" / "golden" / "run-all-products.ndjson"
@@ -77,7 +77,7 @@ def test_review_reasons_and_taxon_keying():
 
 
 def test_range_eps_matches_the_service_rule():
-    from bioscan.service import rules
+    from gardener.service import rules
 
     assert rp.RANGE_EPS == rules.RANGE_EPS
 
@@ -85,7 +85,7 @@ def test_range_eps_matches_the_service_rule():
 def test_golden_summary_of_the_contract_stream():
     _, evs = cull_cli.read_ndjson(str(STREAM))
     got = rp.summarize(evs, STREAM.name, "sha")
-    if os.environ.get("BIOSCAN_REGOLDEN"):
+    if os.environ.get("GARDENER_ENGINE_REGOLDEN"):
         GOLDEN.write_text(json.dumps(got, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     assert got == json.loads(GOLDEN.read_text(encoding="utf-8")), "summary differs from its golden"
 
@@ -173,7 +173,7 @@ def _rolled(i, level, name, top):
 def test_a_family_box_reads_its_taxon_mass_everywhere():
     """#73: first candidate 0.30 (Fringillidae), Accipitridae holds 0.66: summary, `named` and the terminal
     line all read 0.66, so it beats a family box whose first candidate is higher (0.45) but mass lower (0.62)."""
-    from bioscan.cli import aesscore, render
+    from gardener.cli import aesscore, render
 
     box = _rolled(0, "family", "Accipitridae", [
         _t("Fringilla a", "Fringillidae", 0.30), _t("Buteo b", "Accipitridae", 0.25),
@@ -192,7 +192,7 @@ def test_a_family_box_reads_its_taxon_mass_everywhere():
 def test_named_prefers_a_species_box_to_a_rolled_up_one():
     """A genus mass sums candidates, so it is not comparable with a species posterior: the service grading
     a box species is the verdict. American Crow 0.977 beats a Corvus genus box at 0.98."""
-    from bioscan.cli import aesscore
+    from gardener.cli import aesscore
 
     crow = bx(0, top=[_t("Corvus brachyrhynchos", "Corvidae", 0.977)])
     genus = _rolled(1, "genus", "Corvus", [_t("Corvus corax", "Corvidae", 0.6), _t("Corvus brachyrhynchos", "Corvidae", 0.38)])

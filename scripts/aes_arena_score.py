@@ -12,7 +12,7 @@ MODEL is one of
 Runs in its own environment, never in the service's: these models pull pyiqa (PolyForm NC), scipy, timm and
 a few GB of weights. Tested 2026-09-24 with torch 2.14, transformers 5.17, open_clip 3.3, pyiqa 0.1.16,
 setuptools<81 (openai-clip still imports pkg_resources). docs/research/2026-09-24-aesthetic-arena.md.
-Output: {"path", "score", "model", "ms"} per frame, read directly by `bioscan bench aesthetic score`.
+Output: {"path", "score", "model", "ms"} per frame, read directly by `gardener-engine bench aesthetic score`.
 `--purge` deletes what this run downloaded (new Hugging Face hub repos, new files under ~/.cache/torch/hub and
 ~/.cache/clip) once the scores are written: arena weights live only for the run; the service's own models are
 never touched because they were there before.

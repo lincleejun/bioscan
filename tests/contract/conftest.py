@@ -11,11 +11,11 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from bioscan.service.adapters.owlv2 import Detection
-from bioscan.service.app import create_app
-from bioscan.service.engine import Engine, Loaders
-from bioscan.service.names import NameList
-from bioscan.service.rules import species_crops
+from gardener.service.adapters.owlv2 import Detection
+from gardener.service.app import create_app
+from gardener.service.engine import Engine, Loaders
+from gardener.service.names import NameList
+from gardener.service.rules import species_crops
 
 FAIL_SIZE = (17, 17)   # the detector throws on images of this size
 GATE = {"bird": 0.93, "mammal": 0.02, "other_animal": 0.01, "person": 0.0, "none": 0.04}
@@ -149,8 +149,8 @@ def make_jpg(path, size=(64, 48)):
 
 
 def events(resp):
-    """Parsed NDJSON events; every one must carry its contract fields (bioscan/contract.py)."""
-    from bioscan import contract
+    """Parsed NDJSON events; every one must carry its contract fields (gardener/contract.py)."""
+    from gardener import contract
 
     assert resp.headers["content-type"].startswith("application/x-ndjson")
     evs = [json.loads(line) for line in resp.text.splitlines() if line.strip()]

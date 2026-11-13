@@ -10,9 +10,9 @@ import pytest
 from conftest import Fakes, events, make_jpg
 from fastapi.testclient import TestClient
 
-from bioscan.plugin import Manifest, StageBase
-from bioscan.plugins import BUILTIN, BY_NAME
-from bioscan.service.app import create_app
+from gardener.plugin import Manifest, StageBase
+from gardener.plugins import BUILTIN, BY_NAME
+from gardener.service.app import create_app
 
 
 class Boom(StageBase):
@@ -56,7 +56,7 @@ def test_a_misbehaving_stage_is_an_error_per_image_and_the_stream_ends(tmp_path,
 def test_builtin_stage_threads(client, tmp_path, monkeypatch):
     """identify, embed, scene and facing on the single model thread, jpg, aesthetics and quality on the CPU pool:
     pinned in the manifests and observed at run time."""
-    from bioscan import plugin
+    from gardener import plugin
 
     assert {m.name: m.thread for m in BUILTIN} == {"identify": "model", "embed": "model", "jpg": "cpu",
                                                     "geotag": "cpu", "aesthetics": "cpu", "quality": "cpu",
@@ -86,7 +86,7 @@ import sys; sys.path.insert(0, {str(here)!r})
 from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 from conftest import Fakes, make_jpg
-from bioscan.service.app import create_app
+from gardener.service.app import create_app
 p = make_jpg({str(tmp_path / 'a.jpg')!r})
 with TestClient(create_app(Fakes().engine(), decode_pool=ThreadPoolExecutor(1))) as c:
     r = c.post("/run", json={{"inputs": [{{"path": p}}], "want": ["jpg"],
@@ -96,7 +96,7 @@ with TestClient(create_app(Fakes().engine(), decode_pool=ThreadPoolExecutor(1)))
 print(sorted(m for m in sys.modules if m.endswith(".stage")))
 """
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
-    assert out.strip().splitlines()[-1] == "['bioscan.plugins.jpg.stage']"
+    assert out.strip().splitlines()[-1] == "['gardener.plugins.jpg.stage']"
 
 
 def test_want_null_is_a_400_unless_a_profile_is_named(client, tmp_path):

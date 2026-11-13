@@ -1,4 +1,4 @@
-"""bioscan/aesthetic.py: head files (format, validation, sha), scoring and blending, the owner's
+"""gardener/aesthetic.py: head files (format, validation, sha), scoring and blending, the owner's
 ratings from XMP (sidecar and embedded) and CSV, trip splits, and the ranking metrics."""
 import io
 import json
@@ -9,7 +9,7 @@ import pytest
 from aesthetic_helpers import random_head, unit, xmp
 from PIL import Image
 
-from bioscan import aesthetic as aes
+from gardener import aesthetic as aes
 
 # A Lightroom Classic sidecar as written for a RAW file (trimmed by hand): three stars, a red label.
 LIGHTROOM_SIDECAR = """<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-c000 1.000000, 0000/00/00-00:00:00">
@@ -32,7 +32,7 @@ LIGHTROOM_SIDECAR = """<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Co
 # ---- head files ------------------------------------------------------------------------------
 
 def test_embedding_constant_matches_the_adapter():
-    from bioscan.service.adapters import siglip2
+    from gardener.service.adapters import siglip2
 
     assert aes.EMBEDDING == f"{siglip2.MODEL_ID}@{siglip2.REVISION[:12]}"
 

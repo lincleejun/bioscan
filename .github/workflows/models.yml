@@ -17,27 +17,27 @@ on:
     branches: ["**"]
     tags: ["v*"]
     paths: &model-paths
-      - "bioscan/service/**"
-      - "bioscan/plugins/**"
-      - "bioscan/plugin.py"
-      - "bioscan/profile.py"
-      - "bioscan/profiles.toml"
-      - "bioscan/geotag.py"
-      - "bioscan/contract.py"
-      - "bioscan/naming.py"
-      - "bioscan/formats.py"
-      - "bioscan/cli/main.py"
+      - "gardener/service/**"
+      - "gardener/plugins/**"
+      - "gardener/plugin.py"
+      - "gardener/profile.py"
+      - "gardener/profiles.toml"
+      - "gardener/geotag.py"
+      - "gardener/contract.py"
+      - "gardener/naming.py"
+      - "gardener/formats.py"
+      - "gardener/cli/main.py"
       - "tests/*.py"
-      - "bioscan/serve_config.py"
-      - "bioscan/aesthetic*.py"
+      - "gardener/serve_config.py"
+      - "gardener/aesthetic*.py"
       - "scripts/train_aesthetic_head.py"
-      - "bioscan/cull.py"
+      - "gardener/cull.py"
       - "scripts/cull_synth.py"
       - "data/standards.toml"
       - "tests/models/**"
       - "data/names/**"
-      - "bioscan/cli/eval.py"
-      - "bioscan/cli/bench.py"
+      - "gardener/cli/eval.py"
+      - "gardener/cli/bench.py"
       - "baselines/**"
       - "uv.lock"
       - "pyproject.toml"
@@ -63,13 +63,13 @@ jobs:
     # inference cache, so at 75 every retry started cold again (2026-11-12: no green run since 10-27)
     timeout-minutes: 150
     env:
-      BIOSCAN_MODEL_TESTS: "1"
+      GARDENER_ENGINE_MODEL_TESTS: "1"
       # empty (off) on a tag or a cold dispatch
-      BIOSCAN_INFER_CACHE: ${{ !startsWith(github.ref, 'refs/tags/v') && !inputs.cold && format('{0}/.infer-cache/replay.pkl', github.workspace) || '' }}
-      BIOSCAN_REPORT: ${{ github.workspace }}/models-report.md
-      BIOSCAN_PHOTO_CACHE: ${{ github.workspace }}/.photos
-      BIOSCAN_REQUIRE_GEO: "1"
-      BIOSCAN_REQUIRE_ALLTAXA: "1"
+      GARDENER_ENGINE_INFER_CACHE: ${{ !startsWith(github.ref, 'refs/tags/v') && !inputs.cold && format('{0}/.infer-cache/replay.pkl', github.workspace) || '' }}
+      GARDENER_ENGINE_REPORT: ${{ github.workspace }}/models-report.md
+      GARDENER_ENGINE_PHOTO_CACHE: ${{ github.workspace }}/.photos
+      GARDENER_ENGINE_REQUIRE_GEO: "1"
+      GARDENER_ENGINE_REQUIRE_ALLTAXA: "1"
     steps:
       # No "free disk" step: the 145 GB runner disk has room for the ~20 GB this job needs, and deleting took 2-3 minutes
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-${{ hashFiles('tests/models/download.py', 'bioscan/service/adapters/*.py') }}
+          key: hf-${{ hashFiles('tests/models/download.py', 'gardener/service/adapters/*.py') }}
           restore-keys: hf-
       - name: Cache BirdNET geo model
         uses: actions/cache@v4
@@ -91,7 +91,7 @@ jobs:
           key: birdnet-geo-3.0-${{ hashFiles('uv.lock') }}
       - name: All-taxa list cache key (its list sha and the BioCLIP revision it is checked against)
         id: alltaxa
-        run: echo "key=$(uv run python -c 'from bioscan.service import names; from bioscan.service.adapters import bioclip; print(names.all_taxa_sha() + "-" + bioclip.REVISION[:12])')" >> "$GITHUB_OUTPUT"
+        run: echo "key=$(uv run python -c 'from gardener.service import names; from gardener.service.adapters import bioclip; print(names.all_taxa_sha() + "-" + bioclip.REVISION[:12])')" >> "$GITHUB_OUTPUT"
       - name: Cache the all-taxa name list (built from 3.26 GB of TreeOfLife vectors on a miss)
         uses: actions/cache@v4
         with:
@@ -106,14 +106,14 @@ jobs:
           key: photos-${{ hashFiles('tests/models/sample.csv') }}
           restore-keys: photos-
       - name: Restore the inference cache
-        if: env.BIOSCAN_INFER_CACHE != ''
+        if: env.GARDENER_ENGINE_INFER_CACHE != ''
         uses: actions/cache/restore@v4
         with:
           path: .infer-cache
-          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: infer-${{ hashFiles('gardener/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
           # GitHub searches this branch's caches first, then main's: its own newest, else main's newest
           restore-keys: |
-            infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-
+            infer-${{ hashFiles('gardener/service/adapters/*.py', 'uv.lock') }}-
       - name: Real-model smoke
         # tee: the album candidate report printed later can push pytest's output past what a log
         # tail shows; the last step prints the failures again
@@ -121,11 +121,11 @@ jobs:
           set -o pipefail
           HF_HUB_OFFLINE=1 uv run pytest tests/models -v -rs --durations=0 2>&1 | tee pytest-models.log
       - name: Save the inference cache (also after a failure, so the next run replays what this one computed)
-        if: always() && env.BIOSCAN_INFER_CACHE != '' && hashFiles('.infer-cache/replay.pkl') != ''
+        if: always() && env.GARDENER_ENGINE_INFER_CACHE != '' && hashFiles('.infer-cache/replay.pkl') != ''
         uses: actions/cache/save@v4
         with:
           path: .infer-cache
-          key: infer-${{ hashFiles('bioscan/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: infer-${{ hashFiles('gardener/service/adapters/*.py', 'uv.lock') }}-${{ github.ref_name == 'main' && 'main' || 'branch' }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Job summary
         if: always()
         # also printed to the log so the numbers are readable wherever the summary is not
@@ -136,12 +136,12 @@ jobs:
         # No baseline yet: print the report between markers so it can be committed as one, and pass.
         run: |
           if [ ! -f models-report.json ]; then echo "no models-report.json (the smoke did not get far enough)"; exit 0; fi
-          uv run bioscan bench analyze models-report.json --md bench-analyze.md > /dev/null
-          uv run bioscan bench scorecard models-report.json --md bench-scorecard.md > /dev/null || true
+          uv run gardener-engine bench analyze models-report.json --md bench-analyze.md > /dev/null
+          uv run gardener-engine bench scorecard models-report.json --md bench-scorecard.md > /dev/null || true
           if [ -f bench-scorecard.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-scorecard.md; fi
           if [ -f baselines/ci-smoke.json ]; then
             set +e
-            uv run bioscan bench compare baselines/ci-smoke.json models-report.json \
+            uv run gardener-engine bench compare baselines/ci-smoke.json models-report.json \
               --budget baselines/budget.toml --md bench-compare.md --json bench-compare.json > /dev/null
             rc=$?
             set -e
@@ -163,11 +163,11 @@ jobs:
         # tests/models do; the budget below does once the baseline exists).
         run: |
           if [ ! -f models-report-album.json ]; then echo "no models-report-album.json (the album smoke did not run)"; exit 0; fi
-          uv run bioscan bench scorecard models-report-album.json --md bench-scorecard-album.md > /dev/null || true
+          uv run gardener-engine bench scorecard models-report-album.json --md bench-scorecard-album.md > /dev/null || true
           if [ -f bench-scorecard-album.md ]; then tee -a "$GITHUB_STEP_SUMMARY" < bench-scorecard-album.md; fi
           if [ -f baselines/ci-album.json ]; then
             set +e
-            uv run bioscan bench compare baselines/ci-album.json models-report-album.json \
+            uv run gardener-engine bench compare baselines/ci-album.json models-report-album.json \
               --budget baselines/budget-album.toml --md bench-compare-album.md --json bench-compare-album.json > /dev/null
             rc=$?
             set -e

@@ -1,4 +1,4 @@
-"""`bioscan bench aesthetic`: the aesthetic golden set scores any model's scores file.
+"""`gardener-engine bench aesthetic`: the aesthetic golden set scores any model's scores file.
 
 Each test states the decision the metric protects: choosing the owner's winner in a shot group,
 not throwing away keepers when the bottom of a trip is culled, not moving a score when only the
@@ -14,9 +14,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from bioscan.cli import aesgolden as ag
-from bioscan.cli import bench
-from bioscan.cli import main as cli
+from gardener.cli import aesgolden as ag
+from gardener.cli import bench
+from gardener.cli import main as cli
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -143,7 +143,7 @@ def test_reasons_and_sub_scores_are_scored_when_the_model_gives_them(tmp_path):
     assert rep["owner_ceiling"] == {"n": 3, "spearman": 1.0}
 
 
-def test_bioscan_run_output_is_a_scores_file(tmp_path):
+def test_gardener_run_output_is_a_scores_file(tmp_path):
     g = build(tmp_path)
     s = good_scores(g)
     lines = [{"type": "meta"}] + [

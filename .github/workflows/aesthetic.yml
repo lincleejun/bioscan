@@ -42,21 +42,21 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-${{ hashFiles('tests/models/download.py', 'bioscan/service/adapters/*.py') }}
+          key: hf-${{ hashFiles('tests/models/download.py', 'gardener/service/adapters/*.py') }}
           restore-keys: hf-
       - name: SigLIP2 at the pinned revision (a no-op when the cache has it)
         run: |
           uv run python -c "
           from huggingface_hub import snapshot_download
-          from bioscan.service.adapters import siglip2
+          from gardener.service.adapters import siglip2
           p = snapshot_download(siglip2.MODEL_ID, revision=siglip2.REVISION, ignore_patterns=['*.bin'])
           print(siglip2.MODEL_ID, '@', p.rsplit('/', 1)[-1])"
       - name: Cache EVA (pinned commit) and its vectors
         uses: actions/cache@v4
         with:
           path: ~/.cache/bioscan/eva
-          # the EVA commit is pinned in bioscan/aesthetic.py (EVA_COMMIT); bump this prefix with it
-          key: eva-fb40a9f-${{ hashFiles('bioscan/service/adapters/siglip2.py', 'bioscan/service/decode.py') }}
+          # the EVA commit is pinned in gardener/aesthetic.py (EVA_COMMIT); bump this prefix with it
+          key: eva-fb40a9f-${{ hashFiles('gardener/service/adapters/siglip2.py', 'gardener/service/decode.py') }}
           restore-keys: eva-fb40a9f-
       - name: Train the EVA head
         shell: bash
@@ -75,7 +75,7 @@ jobs:
           seed="${SEED:-0}"
           [[ "$seed" =~ ^[0-9]+$ ]] || { echo "seed must be a whole number, got '$seed'"; exit 1; }
           # vectors depend on the model and the decode: a restore-key hit with other sources re-embeds
-          key="$(sha256sum bioscan/service/adapters/siglip2.py bioscan/service/decode.py | sha256sum | cut -c1-16)"
+          key="$(sha256sum gardener/service/adapters/siglip2.py gardener/service/decode.py | sha256sum | cut -c1-16)"
           uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva \
             --embeddings ~/.cache/bioscan/eva/embeddings-$key.ndjson --device cpu --seed "$seed" \
             --out eva-head-v1.json --print-base64 "${extra[@]}" | tee train.log

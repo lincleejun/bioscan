@@ -1,4 +1,4 @@
-# bioscan eval report
+# gardener-engine eval report
 
 - groundtruth: <tmp>/gt.csv
 - preds: <tmp>/preds.ndjson

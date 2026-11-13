@@ -1,4 +1,4 @@
-"""`bioscan aesthetic ratings|train|eval` against a fake service, the embeddings cache, the report
+"""`gardener-engine aesthetic ratings|train|eval` against a fake service, the embeddings cache, the report
 and its scorecard, and scripts/train_aesthetic_head.py end to end on a fake engine."""
 import json
 import math
@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 from aesthetic_helpers import random_head, unit
 
-from bioscan import aesthetic as aes
-from bioscan.cli import aesbench, bench, client
-from bioscan.cli.main import main
+from gardener import aesthetic as aes
+from gardener.cli import aesbench, bench, client
+from gardener.cli.main import main
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -258,7 +258,7 @@ def test_train_script_end_to_end_on_a_fake_engine(tmp_path, monkeypatch, capsys)
 
     from PIL import Image
 
-    from bioscan.service import engine
+    from gardener.service import engine
 
     eva = tmp_path / "eva"
     (eva / "data").mkdir(parents=True)
@@ -359,7 +359,7 @@ def test_train_script_refuses_to_overwrite_the_head_without_force(tmp_path, caps
 
 def test_train_has_no_pick_min():
     """Training regresses on stars; picks never enter it, so the flag is not offered."""
-    from bioscan.cli.main import parser
+    from gardener.cli.main import parser
     with pytest.raises(SystemExit):
         parser().parse_args(["aesthetic", "train", "--ratings", "r.csv", "--pick-min", "3"])
     assert parser().parse_args(["aesthetic", "eval", "r.csv", "--out", "o", "--pick-min", "3"]).pick_min == 3

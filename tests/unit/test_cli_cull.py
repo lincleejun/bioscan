@@ -1,4 +1,4 @@
-"""`bioscan cull`: the request it sends, the reducers it runs over the stream, and what it writes
+"""`gardener-engine cull`: the request it sends, the reducers it runs over the stream, and what it writes
 (selection CSV, symlink folders, HTML review page, reduced NDJSON), online (client.run faked) and
 offline (--preds)."""
 import csv
@@ -10,10 +10,10 @@ import pytest
 from aesthetic_helpers import xmp
 from cull_fixtures import result
 
-from bioscan import aesthetic, profile
-from bioscan.cli import client
-from bioscan.cli import cull as cc
-from bioscan.cli.main import main, parser
+from gardener import aesthetic, profile
+from gardener.cli import client
+from gardener.cli import cull as cc
+from gardener.cli.main import main, parser
 
 
 def photos(tmp_path, names=("a.jpg", "b.jpg", "c.ARW", "d.jpg")):
@@ -122,7 +122,7 @@ def test_xmp_packet_records_the_stars_cull_wrote():
 
 
 def rerated(status, rating):
-    """A cull sidecar the owner re-rated in an editor that keeps the bioscan properties."""
+    """A cull sidecar the owner re-rated in an editor that keeps the gardener properties."""
     text = cc.xmp_packet({"status": status, "reasons": ["blur"]})
     if 'xmp:Rating="' in text:
         return text.replace(f'xmp:Rating="{cc.XMP_STARS[status]}"', f'xmp:Rating="{rating}"')

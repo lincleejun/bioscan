@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from bioscan.service import pipeline
-from bioscan.service.adapters.bioclip import BioCLIP
-from bioscan.service.adapters.geo import GeoPrior
-from bioscan.service.adapters.owlv2 import OWLv2
-from bioscan.service.adapters.siglip2 import SigLIP2
-from bioscan.service.engine import MODELS, Engine, Loaders
+from gardener.service import pipeline
+from gardener.service.adapters.bioclip import BioCLIP
+from gardener.service.adapters.geo import GeoPrior
+from gardener.service.adapters.owlv2 import OWLv2
+from gardener.service.adapters.siglip2 import SigLIP2
+from gardener.service.engine import MODELS, Engine, Loaders
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "contract"))
 import conftest  # noqa: E402
@@ -49,7 +49,7 @@ def test_constructor_loads_nothing():
 def test_production_species_loader_places_name_lists_at_load(monkeypatch):
     """The name lists go to the device while loading, so a failure there fails ensure() (-> 503)
     instead of every later identify."""
-    from bioscan.service import engine as engine_mod
+    from gardener.service import engine as engine_mod
 
     fakes = Fakes()
     placed = []
@@ -94,7 +94,7 @@ def _load_nima(device):
 def test_plugin_models_load_lazily_by_name(monkeypatch):
     """A plugin model: faked by name through Loaders.extra, else the loader its manifest declares;
     nothing loads before ensure, and an unknown name is refused."""
-    from bioscan.service import engine as engine_mod
+    from gardener.service import engine as engine_mod
 
     monkeypatch.setattr(engine_mod, "plugin_loaders", lambda: {"nima": f"{__name__}:_load_nima", "toy": "x:y"})
     made = []

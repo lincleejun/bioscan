@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from bioscan.cli import eval as ev
+from gardener.cli import eval as ev
 
 
 def top(*names):
@@ -106,7 +106,7 @@ def test_run_eval_from_existing_preds(tmp_path):
 def test_eval_service_down_is_clear(tmp_path):
     import pytest
 
-    from bioscan.cli import client
+    from gardener.cli import client
     gt_csv = tmp_path / "gt.csv"
     gt_csv.write_text("path,scientific,tier,kind\n/1,A b,own,bird\n")
     with pytest.raises(client.ServiceError, match="cannot reach"):
@@ -170,8 +170,8 @@ def test_preds_file_carries_meta_and_rescoring_reads_it(tmp_path, monkeypatch):
 
 
 def test_identify_opts_reach_the_service_and_the_report(tmp_path, monkeypatch):
-    """`bioscan eval --identify-opt kind_check=false`: an A/B arm of one accuracy switch."""
-    from bioscan.cli import main as cli
+    """`gardener-engine eval --identify-opt kind_check=false`: an A/B arm of one accuracy switch."""
+    from gardener.cli import main as cli
 
     sent = []
     monkeypatch.setattr(ev.client, "health", lambda url: {"status": "ok"})
@@ -192,7 +192,7 @@ def test_stream_without_done_is_incomplete(tmp_path, monkeypatch):
     _fake_service(monkeypatch, PREDS[:3])
     _, complete = ev.run_eval(_gt(tmp_path), str(tmp_path / "a"), False, "http://x")
     assert complete is False
-    from bioscan.cli import main as cli
+    from gardener.cli import main as cli
     monkeypatch.setattr(ev.client, "run", lambda payload, url: (json.dumps(e).encode() for e in PREDS[:3]))
     assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "c")]) == cli.EXIT_INCOMPLETE
 
@@ -227,7 +227,7 @@ def test_broken_stream_still_replaces_preds(tmp_path, monkeypatch):
 
 
 def test_empty_stream_is_incomplete_and_keeps_earlier_preds(tmp_path, monkeypatch):
-    from bioscan.cli import main as cli
+    from gardener.cli import main as cli
     monkeypatch.setattr(ev.client, "health", lambda url: {"status": "ok"})
     monkeypatch.setattr(ev.client, "run", lambda payload, url: iter(()))       # 200, no events
     assert cli.main(["eval", _gt(tmp_path), "--out", str(tmp_path / "new")]) == cli.EXIT_INCOMPLETE

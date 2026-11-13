@@ -7,25 +7,25 @@
 
 | 路径 | 归属 | 内容 |
 |---|---|---|
-| `bioscan/gardener/capabilities.py` | 集成（已写） | 能力、预设、运行模式表；`expand`、`stages_for` |
-| `bioscan/gardener/schema.sql` | 单元 1（可扩展，须同步本文 §2） | SQLite DDL |
-| `bioscan/gardener/store.py` | 单元 1 | 连接、迁移、单写锁、全部写入与查询函数 |
-| `bioscan/gardener/query.py` | 单元 1 | 资产筛选（§6.4）→ SQL；Smart Collection 规则求值 |
-| `bioscan/gardener/tasks.py` | 单元 1 | 后台队列、工作循环、运行状态机、重启恢复 |
-| `bioscan/gardener/api.py` | 单元 1 | FastAPI 路由 `/api/v1/*`、`create_gardener_app`、静态 UI 挂载 |
-| `bioscan/gardener/server.py` | 单元 1 | `gardener serve` 启动（uvicorn、参数、数据目录） |
-| `bioscan/gardener/scan.py` | 单元 2 | 目录发现、RAW/JPEG 配对、文件身份、离线检测 |
-| `bioscan/gardener/preview.py` | 单元 2 | 缩略图/大图预览、元数据读取、视频探测与封面 |
-| `bioscan/gardener/analyze.py` | 单元 2 | `Analyzer`：复用 BioScan `RunQueue`/`Engine`，归一化结果、reducers |
-| `bioscan/gardener/grouping.py` | 单元 2 | 自动分组建议：主体（人物/物种/动物类型/场景）→ 地点或日期（修订 2） |
-| `bioscan/gardener/faces.py` | 修订 2 | 本地人脸检测与特征（YuNet + SFace）、按人聚类 |
-| `bioscan/gardener/versions.py` | 修订 2 | 同一拍摄的多个文件（跨目录副本、导出图）归到一个代表素材 |
-| `bioscan/gardener/export.py` | 单元 2 | Gardener XML 导出、可选复制 + 校验 + 冲突 |
-| `bioscan/gardener/web/` | 单元 3 | 中文 Web UI（静态 HTML/CSS/JS，无构建） |
-| `bioscan/gardener/cli.py` | 单元 3 | `gardener` CLI（只走 HTTP，import-light） |
-| `bioscan/gardener/mcp.py` | 单元 3 | MCP stdio 服务（stdlib JSON-RPC，只走 HTTP） |
-| `tests/gardener/` | 各单元各自的 `test_<unit>_*.py` | 测试；共享夹具 `tests/gardener/conftest.py` 由单元 1 写 |
-| `pyproject.toml`、`uv.lock`、`bioscan/cli/main.py`、`.github/`、`README*`、`docs/`、`CLAUDE.md` | 集成 | 子代理不要改 |
+| `gardener/workbench/capabilities.py` | 集成（已写） | 能力、预设、运行模式表；`expand`、`stages_for` |
+| `gardener/workbench/schema.sql` | 单元 1（可扩展，须同步本文 §2） | SQLite DDL |
+| `gardener/workbench/store.py` | 单元 1 | 连接、迁移、单写锁、全部写入与查询函数 |
+| `gardener/workbench/query.py` | 单元 1 | 资产筛选（§6.4）→ SQL；Smart Collection 规则求值 |
+| `gardener/workbench/tasks.py` | 单元 1 | 后台队列、工作循环、运行状态机、重启恢复 |
+| `gardener/workbench/api.py` | 单元 1 | FastAPI 路由 `/api/v1/*`、`create_gardener_app`、静态 UI 挂载 |
+| `gardener/workbench/server.py` | 单元 1 | `gardener serve` 启动（uvicorn、参数、数据目录） |
+| `gardener/workbench/scan.py` | 单元 2 | 目录发现、RAW/JPEG 配对、文件身份、离线检测 |
+| `gardener/workbench/preview.py` | 单元 2 | 缩略图/大图预览、元数据读取、视频探测与封面 |
+| `gardener/workbench/analyze.py` | 单元 2 | `Analyzer`：复用 Gardener Engine `RunQueue`/`Engine`，归一化结果、reducers |
+| `gardener/workbench/grouping.py` | 单元 2 | 自动分组建议：主体（人物/物种/动物类型/场景）→ 地点或日期（修订 2） |
+| `gardener/workbench/faces.py` | 修订 2 | 本地人脸检测与特征（YuNet + SFace）、按人聚类 |
+| `gardener/workbench/versions.py` | 修订 2 | 同一拍摄的多个文件（跨目录副本、导出图）归到一个代表素材 |
+| `gardener/workbench/export.py` | 单元 2 | Gardener XML 导出、可选复制 + 校验 + 冲突 |
+| `gardener/workbench/web/` | 单元 3 | 中文 Web UI（静态 HTML/CSS/JS，无构建） |
+| `gardener/workbench/cli.py` | 单元 3 | `gardener` CLI（只走 HTTP，import-light） |
+| `gardener/workbench/mcp.py` | 单元 3 | MCP stdio 服务（stdlib JSON-RPC，只走 HTTP） |
+| `tests/workbench/` | 各单元各自的 `test_<unit>_*.py` | 测试；共享夹具 `tests/workbench/conftest.py` 由单元 1 写 |
+| `pyproject.toml`、`uv.lock`、`gardener/cli/main.py`、`.github/`、`README*`、`docs/`、`CLAUDE.md` | 集成 | 子代理不要改 |
 
 单元 2 的模块是**纯函数/类**：不打开 SQLite、不知道 HTTP。单元 1 调用它们并负责落库。单元 3 只依赖 §6 的 HTTP 契约。
 
@@ -34,20 +34,20 @@
 - 数据目录 `--data-dir`（默认 `$GARDENER_HOME`，否则 `~/.gardener`）：`gardener.sqlite`（WAL）、`cache/previews/<id[2:4]>/<id>.thumb.jpg|.large.jpg`、`exports/`（默认导出位置）、`logs/`。
 - 只有服务写数据库；所有写入经 `store` 的单一写锁（`threading.Lock`）串行。读可并发。分析开始时把能力标为待运行（`mark_pending`）按块提交（每块至多 500 张），人的写入（如 `POST /marks`）最多等一块；每块是幂等写入，崩溃后从剩下的继续。一个数据目录只能有一个服务：`gardener serve` 启动时对 `<data>/gardener.lock` 取独占 `flock` 并在进程存活期间持有，已被占用则拒绝启动（退出码 2，“已有 Gardener 服务在使用数据目录 …”），不碰数据库；其他无法加锁的原因如实报告（“无法锁定数据目录 …：<原因>”）。没有 `fcntl` 的平台（Windows）不加锁。
 - DDL 见 `schema.sql`；`meta.schema_version` = `1`。数据库只存预览索引（`assets.preview_status/method`），不存图片。
-- 原片只读：Gardener 绝不在来源目录写入、改名、移动、删除；不得调用 BioScan 的 `jpg` stage、`/apply`、XMP 写入。导出目的地若位于任何任务来源目录之内则拒绝（400）。
+- 原片只读：Gardener 绝不在来源目录写入、改名、移动、删除；不得调用 Gardener Engine 的 `jpg` stage、`/apply`、XMP 写入。导出目的地若位于任何任务来源目录之内则拒绝（400）。
 - 清理缓存只删 `cache/`，把 `preview_status` 置回 `pending`；原片在线时按需重建（请求预览时同步生成）。
 
-## 3 能力 → BioScan
+## 3 能力 → Gardener Engine
 
 见 `capabilities.py`。`identify` 的选项：`species = ("species" in caps)`；`content` 需要 `identify`（门控与框）+ `scene`，scene 选项取 `profile.album` 的 options。`burst` = `embed` stage + `cull.burst` reducer；`aesthetic` = `aesthetics` stage + `cull.select` reducer（选项取 `profile.album`），产出 AI Pick/Reject 建议。`place_event` 与 `meta` 不调用模型。模型加载失败（`engine.ensure` 抛错）→ 相关能力对该运行全部记为 `unavailable` 并附原因，**绝不给出伪造分数**。
 
-版本：`Analyzer.versions()` 返回 `{cap: str}`，取自 `engine.info()["models"]`、`stages.fingerprints(plan)` 与 `bioscan.__version__`，形如 `scene@<fp>;siglip2@<rev12>`。每条 `results`、`ai_suggestions` 记录版本；运行 `config.versions` 快照。
+版本：`Analyzer.versions()` 返回 `{cap: str}`，取自 `engine.info()["models"]`、`stages.fingerprints(plan)` 与 `gardener.__version__`，形如 `scene@<fp>;siglip2@<rev12>`。每条 `results`、`ai_suggestions` 记录版本；运行 `config.versions` 快照。
 
 ## 4 单元 2 的 Python 接口
 
 ```python
 # scan.py
-PHOTO_EXT: frozenset[str]   # .jpg .jpeg .png .tif .tiff .heic? + bioscan.formats RAW 扩展
+PHOTO_EXT: frozenset[str]   # .jpg .jpeg .png .tif .tiff .heic? + gardener.formats RAW 扩展
 VIDEO_EXT: frozenset[str]   # .mov .mp4 .m4v .avi .mts .mkv
 @dataclass class FileInfo: path: str; role: str; ext: str; size: int; mtime_ns: int   # role: raw|jpeg|image|video
 @dataclass class Discovered: pair_key: str; media: str; primary: str; files: list[FileInfo]  # media: photo|video
@@ -108,12 +108,12 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 | quality | `{sharpness, exposure, reasons: [code], reasons_zh: [..]}` |
 | aesthetic | `{score}` |
 
-`results` 另以 `capability = "raw:<stage>"` 保存原始 BioScan product（reduce 与重放用；embed 向量以 base64 f16 存）。
+`results` 另以 `capability = "raw:<stage>"` 保存原始 Gardener Engine product（reduce 与重放用；embed 向量以 base64 f16 存）。
 
 ## 5 任务与运行生命周期（单元 1）
 
 - 创建任务即创建 `runs(kind=scan, status=queued)` 并返回任务 id；一个工作协程按 `queued_at` 顺序**一次执行一个运行**。Review 不占执行名额。
-- 运行阶段：`discover` → `preview`（逐项提交，UI 立即可见；结束时归并同一拍摄的版本，修订 2）→ `analyze`（分块，逐项提交；BioScan 能力之后跑人物）→ `group`（reduce + 最终分组）。照片的主体能力结束后才进入主体分组；分析中途的分组不做合并与细分（`final=False`）。
+- 运行阶段：`discover` → `preview`（逐项提交，UI 立即可见；结束时归并同一拍摄的版本，修订 2）→ `analyze`（分块，逐项提交；Gardener Engine 能力之后跑人物）→ `group`（reduce + 最终分组）。照片的主体能力结束后才进入主体分组；分析中途的分组不做合并与细分（`final=False`）。
 - 状态机：`queued → running → (completed | partial | failed | stopped)`；`running → paused`（当前块结束后释放名额，下一个排队运行开始）；`paused → queued`（继续）；暂停尚未生效时继续：运行在当前块结束后直接 `running → queued` 并从未完成项接着跑（不会停在 `paused`）；`queued|paused → cancelled`；服务重启时 `running → interrupted → queued`（自动恢复，从未完成项继续）。`partial` = 有单项失败、不可用能力或离线来源；不得统称完成。发现之后、登记之前消失的文件按缺失处理（`missing`），不使运行失败。
 - 追加来源 → 新运行 `append`，复用已有素材（路径 + size + mtime 未变即不重做）；重扫 `rescan`（可指定能力、素材子集，用于小批试跑新版本）；重试 `retry`（失败项）。新运行不改写旧运行与旧结果。
 - 来源离线：该来源素材 `online=0`，记录与预览保留，运行记为 `partial` 并在汇总列出；`POST /tasks/{id}/verify-sources` 重新核对，恢复在线后自动排队 `append` 继续。
@@ -181,7 +181,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - 主导航顺序：**全部素材 / Collections / 任务 / 管理**；中文界面；沿用已认可原型（仓库外 gardener-prototype/，仅作视觉参考）的视觉方向，**删除全部示例数据、模拟扫描和业务 localStorage**（仅可存 UI 偏好，如上次页面）。
 - 任务内两个视图：Preview 与 Collections，共享素材与标记，进度条持续可见；Review 页：网格 + 大图 + 主体放大（species/subject 框放大）+ 并排比较 + 连拍折叠 + 批量 Flag/Star + 撤销 + 键盘（P/X/U、0–5、←→、空格、C、⌘Z）；AI 信息与人工判断分区显示；能力状态逐项显示 未启用/待运行/运行中/完成/失败/未识别/不可用（含原因）。新结果追加到末尾，不改变当前选中项。
 - 视频：`<video src=/original>` 可播放则播放/拖动，`onerror` 显示“无法在浏览器播放”并提供“在 Finder 中显示”。
-- CLI `gardener`（`bioscan/gardener/cli.py:main`）：`serve`（转调 server）、`health`、`task create [--lat --lon]|list|show|pause|resume|stop|append|rescan|retry|archive|locate ID --lat --lon|--clear`、`assets`（筛选参数）、`mark`、`undo`、`collections`、`collection complete|zero|reopen|delete|restore`、`export`、`caps`、`storage`、`mcp`。默认 `--url http://127.0.0.1:8770`；只用 `urllib`。
+- CLI `gardener`（`gardener/workbench/cli.py:main`）：`serve`（转调 server）、`health`、`task create [--lat --lon]|list|show|pause|resume|stop|append|rescan|retry|archive|locate ID --lat --lon|--clear`、`assets`（筛选参数）、`mark`、`undo`、`collections`、`collection complete|zero|reopen|delete|restore`、`export`、`caps`、`storage`、`mcp`。默认 `--url http://127.0.0.1:8770`；只用 `urllib`。
 - MCP（`gardener mcp`）：stdio JSON-RPC 2.0（`initialize`、`tools/list`、`tools/call`），工具与 CLI 同名能力，全部转调 HTTP。
 
 ## 9 v0.1 对 PRD 未决项的默认决定（记录于 ADR 0001，可改）
@@ -197,7 +197,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 ## 10 契约修订 1（独立验收评审 X1–X9 与澄清项，优先于上文冲突处）
 
 - **X1 pair_key**：只有同目录同 stem（不区分大小写）的 **RAW + JPEG** 合为一个素材；其余任何文件（视频、TIFF、PNG、RAW+RAW 如 ARW+DNG、JPG+MOV）各自成素材，`pair_key = 目录 + "/" + 完整文件名（小写）`。RAW+JPEG 的 `pair_key = 目录 + "/" + stem（小写）+ "|rawjpeg"`。同目录多 RAW 同 stem 时只与 JPEG 配对第一个（按扩展名排序），其余独立。`discover()` 永不返回重复 pair_key。
-- **X2 原始产品**：`Analyzer.analyze` 对每个结果事件额外 yield `ItemResult(capability="raw:<stage>", status="done", data=<该 stage 原始 product>)`；`embed` 向量由 **单元 2** 在 analyze 中编码为 `{"f16_b64": ...}`（或保持 BioScan 原有编码），`reduce` 自己解码。单元 1 原样存入 `results`，**不写** `asset_caps`，不在 UI/API `caps` 中暴露 `raw:*`。
+- **X2 原始产品**：`Analyzer.analyze` 对每个结果事件额外 yield `ItemResult(capability="raw:<stage>", status="done", data=<该 stage 原始 product>)`；`embed` 向量由 **单元 2** 在 analyze 中编码为 `{"f16_b64": ...}`（或保持 Gardener Engine 原有编码），`reduce` 自己解码。单元 1 原样存入 `results`，**不写** `asset_caps`，不在 UI/API `caps` 中暴露 `raw:*`。
 - **X3 连拍**：`reduce(rows, caps)` 每次输入**该任务全部照片**（单元 1 负责从最新 `raw:*` 结果组装），单元 1 保存时 `burst_id = "<task_id>:<bid>"`；`AssetItem.burst.id` 为带命名空间的 id。select 的 rank 同样只在任务内有意义。
 - **X4 文件变化与缺失**：**永远不删除** `assets`、`task_assets`、`marks`、`mark_history`、集合成员行。来源在线但文件不见 → `asset_files.online=0` 且 `assets.meta.missing=true`（summary 计 `missing`，与 `offline_sources` 区分）；之后重新出现即恢复。同一路径 size/mtime 变化且 `quick_hash` 不同 = **内容变化**：沿用同一 `asset_id`；在 `mark_history` 写入 `actor=system, reason=content_changed` 的记录并把当前 Flag/Star **清空**（旧判断保留在历史中，可 undo 该 batch 恢复）；`assets.meta.content_changed_at` 记录时间；能力状态回 `pending` 并在本运行重新预览与分析；旧 results/ai_suggestions 保留为历史。已完成集合把这类成员计入 `review.changed_since`。size/mtime 变但 hash 相同 = 未变化，只更新 mtime。
 - **X5 marks 省略与 null**：`POST /marks` 中键**省略 = 不改**，`flag: null` = 清除 Flag，`stars: 0` = 清除星级。CLI/MCP 只发送用户明确给出的键。
@@ -206,7 +206,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **X8 自动集合身份**：重组时先按**成员重叠**把每个建议组匹配到该任务已有的同 `group_kind` 自动集合（重叠成员数最多者；无重叠才新建）；`auto_key` 只在首次创建时确定，以后不变。被软删除或被合并掉的自动集合**不恢复、不再加成员**；其已有成员也不会因此被塞进新建的同 key 集合（建议组与已删集合重叠时跳过这些成员）。scene/species 组的 key 本身稳定（标签 id），仍按同一规则处理已删集合。
 - **X9 导出输入形状**：`export(dest_dir, *, title, scope, collections, assets, copy, conflict, protected)`：`assets` = **AssetDetail 列表**（§6.3，含 files、flag、stars、ai、ai_history[0].version、caps 不需要、collections）；`collections` = `Collection` 列表（§6.5，另含 `member_ids`）；`scope = {kind: collection|asset_ids|rule, value, scope: picked|all|selected}`；复制目录 `dest_dir/files/<安全化 title>/`，`title` 由单元 1 给出（集合名或“筛选结果”），跨任务导出同样只用 title。XML 每个素材含：所有文件原路径（与复制路径、sha256）、flag、stars、AI verdict/score/reasons/version、所属集合及其审阅状态。导出不复制 XMP sidecar，ExportReport 加 `notes: ["未包含来源目录中的 XMP sidecar"]`。
 - **标签拆分（PRD §7 / D25 已确认，首版必须）**：`POST /tags/{id}/split {names: [新名], assign?: {新名: [asset_ids]}}` → 新建子标签（原标签保留或停用由 `deactivate_source` 决定，默认保留），记 `tag_history`，人工与 AI 的 `asset_tags` 来源分开保留。
-- **澄清**：`taken_at` 保留相机本地时间（有 OffsetTime 时带偏移），不换算 UTC；记录时间戳用 UTC。`GET /assets` 增加 `order=discovered`（`task_assets.ord`，任务内默认）并统一以 `id` 为次级排序。缓存分片用 `id[2:4]`。`PHOTO_EXT` 不含 HEIC。runs.kind 枚举为 scan|append|rescan|retry（恢复不新建运行，而是原运行重新排队）。`expect` 可选，发送时不符返回 409。只有开启 `place_event` 才生成事件/地点分组，`content` 才有场景分组，`species` 才有物种分组。`--allow-root` 默认不限制（与 BioScan 一致），但服务只监听 127.0.0.1，并且：Host 头必须是 127.0.0.1/localhost/[::1]（否则 403）；带非本机 `Origin` 的非 GET 请求返回 403。`Collection.review` 增加 `removed_since`（完成快照中、当前已不在集合的数量）与 `changed_since`。`asset_tags` 主键不含 run_id：重跑覆盖当前 AI 标签，旧值在 `results` 历史中。`settings.capability_versions` v0.1 只记录与展示（版本由已安装模型决定），比较新旧靠 `ai_history`/results 历史。
+- **澄清**：`taken_at` 保留相机本地时间（有 OffsetTime 时带偏移），不换算 UTC；记录时间戳用 UTC。`GET /assets` 增加 `order=discovered`（`task_assets.ord`，任务内默认）并统一以 `id` 为次级排序。缓存分片用 `id[2:4]`。`PHOTO_EXT` 不含 HEIC。runs.kind 枚举为 scan|append|rescan|retry（恢复不新建运行，而是原运行重新排队）。`expect` 可选，发送时不符返回 409。只有开启 `place_event` 才生成事件/地点分组，`content` 才有场景分组，`species` 才有物种分组。`--allow-root` 默认不限制（与 Gardener Engine 一致），但服务只监听 127.0.0.1，并且：Host 头必须是 127.0.0.1/localhost/[::1]（否则 403）；带非本机 `Origin` 的非 GET 请求返回 403。`Collection.review` 增加 `removed_since`（完成快照中、当前已不在集合的数量）与 `changed_since`。`asset_tags` 主键不含 run_id：重跑覆盖当前 AI 标签，旧值在 `results` 历史中。`settings.capability_versions` v0.1 只记录与展示（版本由已安装模型决定），比较新旧靠 `ai_history`/results 历史。
 - **真实数据边界**：DNG/ARW 内嵌预览（如 1024 px 级）只用于浏览，UI 与报告不得称其为精细对焦或完整 RAW 解码验证。
 
 ## 单元 1 变更
@@ -254,11 +254,11 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **UI**：人物分组的“编辑”是“给人物命名”（输入时提示已有名字）；素材详情的“人物”卡片列出每张脸，可命名、改名、确认（“是此人”）或取消。
 - **人物分组的稳定性**：分析进行中只建已命名人物的分组；未命名的人脸聚类与“人物 N”编号只在最终分组（`group` 阶段）生成，避免同名“人物 1”出现多份。最终分组时，不再被建议、且没有人动过（未改名、未审阅、无人工加入成员）的未命名聚类分组软删除（`collection_history.detail.reason = superseded_cluster`），其 `auto_key` 加后缀以免挡住以后同键的聚类。
 
-## 契约修订 4：物种身份、主体与识别（2026-10-26，AfterShooting PRD v1 阶段 A，ADR 0002，#106；优先于上文冲突处）
+## 契约修订 4：物种身份、主体与识别（2026-10-26，Gardener PRD v1 阶段 A，ADR 0002，#106；优先于上文冲突处）
 
-依据：owner 要求按 AfterShooting PRD v1 与调研意见（`docs/research/2026-10-26-wildlife-workflow.md`）落地；PRD §17 的顺序是先统一身份、Collections 与人工决定。
+依据：owner 要求按 Gardener PRD v1 与调研意见（`docs/research/2026-10-26-wildlife-workflow.md`）落地；PRD §17 的顺序是先统一身份、Collections 与人工决定。
 
-- **概念 ID**：BioScan 每个候选物种带 `concept`（`avibase:<Avibase ID>` | `mdd:<id>` | `name:<学名>`，见 `CONTEXT.md`）。Gardener 以概念为物种身份；学名、俗名只用于显示与检索。旧结果没有 `concept` 时按 `name:<学名>` 处理。
+- **概念 ID**：Gardener Engine 每个候选物种带 `concept`（`avibase:<Avibase ID>` | `mdd:<id>` | `name:<学名>`，见 `CONTEXT.md`）。Gardener 以概念为物种身份；学名、俗名只用于显示与检索。旧结果没有 `concept` 时按 `name:<学名>` 处理。
 - **schema 2**：新表 `subjects`（一张照片里的一只动物，id `s_…`）与 `identifications`（对一个主体的一条结论，只追加）。见 `schema.sql`。`schema_version` 1 的库启动时建表，并从全部 `raw:identify` 结果按时间顺序回填 AI 识别，然后记为 2。
 - **主体匹配**：`raw:identify` 的每个框与该素材现有主体按 IoU ≥ 0.5 匹配（一对一，取重叠最大者）；匹配不上就新建主体（`origin=ai`）。本轮没看到、且没有人工结论的 AI 主体记 `removed_at`；有人工结论的主体永远保留。人工画的框是 `origin=user` 的主体（S3）。
 - **AI 识别**：开启 species 时，每个带 `species` 的框写一行 `source=ai`：只有 `level=species` 才有 `concept`；属/科级保留上卷的 `taxon`，`concept` 为空；`candidates` 为前几名 `[{concept, scientific, common, p}]`。species 关闭时只有主体、没有识别。
@@ -324,7 +324,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
   - **拆分表** `data/names/avilist_splits.csv`（`scripts/build_splits.py` 由 AviList 变更页生成，见 `data/README.md`）：每个子种一行 `list_version, parent_scientific, parent_concept, concept, scientific, common`。
   - **何时生效**：名字索引同步（`taxa.sync`，服务启动时）时，对还没处理过的名录版本，若索引里已有它的全部子种（即已加载该版本名单）就处理一次；已处理的版本及其撤销批次记在 `meta.splits_applied`（`{版本: batch_id|null}`），之后不再重复。
   - **怎么改**：当前结论是人工（`source=user`）种级、概念为某个亲本的主体，追加一条 `source=user, actor=system, reason=split:<版本>` 的识别：`level=species`、`qualifier=slash`、`concept` 为空、`taxon/common` 保留原来记的名字、`candidates` 为各子种 `[{concept, scientific, common, p: null}]`。同一版本一个 `batch_id`，可用 `POST /identifications/undo` 整批撤销。AI 结论不动（不计入已拍到的种数）。
-  - **不在名字同步时选定**：按坐标判定子种需要 BioScan 引擎里的 BirdNET 位置先验（`bioscan/service/adapters/geo.py`，要加载模型），名字索引同步时拿不到。引擎可用时（一次运行的分析之后）按位置自动选定，见契约修订 7D。
+  - **不在名字同步时选定**：按坐标判定子种需要 Gardener Engine 引擎里的 BirdNET 位置先验（`gardener/service/adapters/geo.py`，要加载模型），名字索引同步时拿不到。引擎可用时（一次运行的分析之后）按位置自动选定，见契约修订 7D。
   - **效果**：
     - 这些主体不计入任何物种卡片，也不计入“已拍到 N 种”；`GET /species` 增加 `to_reconfirm`（这样的照片数）。
     - `GET /assets` 的 `id_state` 增加 `reconfirm`；`confirmed` 只算有概念的人工结论。视图 `current_ids` 增加 `qualifier` 列。
@@ -350,7 +350,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
     - 能按坐标与日期判定的自动选定（eBird 的做法），其余进复核队列；
     - 整批可撤销。
 
-## 契约修订 5B：四种用途、拍摄段、Smart 规则预览（2026-10-26，AfterShooting PRD v1 阶段 B；优先于上文冲突处）
+## 契约修订 5B：四种用途、拍摄段、Smart 规则预览（2026-10-26，Gardener PRD v1 阶段 B；优先于上文冲突处）
 
 依据：PRD §05 状态轴、§07 第二级、§08 决定与批量动作、§04 Smart Collection 第一版（AC13）、§15 迁移。
 
@@ -391,14 +391,14 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **CLI 与 MCP**：
   - CLI：`mark --use`、`assets --use`、`keep-best ID [--edit] [--dry-run]`、`encounters --task|--concept`、`encounter split ID --at|--assets`、`encounter merge IDS`、`collection preview-rule ID --rule JSON`、`identify --encounter`。
   - MCP：`set_marks` 增加 `use`；新工具 `keep_best`、`undo_marks`、`list_encounters`、`edit_encounters`、`preview_rule`；`identify_species` 的 `scope` 可为 `encounter`。
-## 契约修订 5C：快速比较 RAW、原像素细节（2026-10-26，AfterShooting PRD §08 第三级、§14、AC06；优先于上文冲突处）
+## 契约修订 5C：快速比较 RAW、原像素细节（2026-10-26，Gardener PRD §08 第三级、§14、AC06；优先于上文冲突处）
 
 依据：PRD 要求“切换优先显示嵌入预览，再异步加载细节”，并明确标记“快速预览 / 原像素细节加载中 / 原像素细节可用”，不能把 1600 px 预览的放大称为真实 RAW 100%。RAW 部分 2026-10-27 已在两张真实 Sony A1 ARW 上测过（契约修订 7D）；单元测试仍用假 rawpy。
 
 - **`GET /assets/{id}/detail?xyxy=x0,y0,x1,y1&max=2048`**（`detail.py`）：
   - 返回原像素裁切的 JPEG（q92）。`xyxy` 是**直立画面**的 0–1 比例（与 `subjects.xyxy`、预览同一坐标），缺省整幅；`max` 是返回图长边上限（64–4096），只缩小、不放大。
   - 读哪个文件：素材有在线的 RAW（RAW+JPEG 对里的 RAW）就读 RAW，否则读 primary。
-  - RAW：LibRaw 全尺寸解码（`postprocess(use_camera_wb=True, output_bps=8)`，不用 half_size），由 LibRaw 按 `sizes.flip` 转正，与 BioScan 识别用的解码同一方向；再裁到相机的默认裁切（`DefaultCropOrigin/Size`，exiftool 读取；没有这两项则不裁），与相机 JPEG、预览同一画幅（契约修订 7D）。JPEG/PNG/TIFF：Pillow 按 EXIF 方向转正后裁切。
+  - RAW：LibRaw 全尺寸解码（`postprocess(use_camera_wb=True, output_bps=8)`，不用 half_size），由 LibRaw 按 `sizes.flip` 转正，与 Gardener Engine 识别用的解码同一方向；再裁到相机的默认裁切（`DefaultCropOrigin/Size`，exiftool 读取；没有这两项则不裁），与相机 JPEG、预览同一画幅（契约修订 7D）。JPEG/PNG/TIFF：Pillow 按 EXIF 方向转正后裁切。
   - 响应头说明它是什么：`X-Detail-Source: original`、`X-Detail-File: raw|image`、`X-Detail-Decoder: libraw-full|pillow`、`X-Detail-Orientation`（已转正的 EXIF 方向）、`X-Detail-Full: W×H`（原图直立尺寸）、`X-Detail-Crop: x0,y0,x1,y1`（原像素框）、`X-Detail-Size`、`X-Detail-Scale`（返回像素 / 原像素，1 = 未缩小）、`X-Detail-Cache: hit|miss|none`、`X-Detail-Ms`。
   - 错误：`xyxy`/`max` 不合法 400；视频 400；原片离线 404（“只有快速预览”）；解码失败 404 并附原因；被取代 409；超时 503。
 - **不阻塞**：解码在独立的 2 线程池里跑；等待中的细节请求只占一个请求线程（UI 每个视图同时最多一个），网格与标记不排在解码后面（`test_marks_do_not_wait_for_a_decode`）。若以后需要，可改为 async 路由 + `asyncio.wait_for(wrap_future)`，等待时不占线程；rawpy 0.27 在 `unpack`/`dcraw_process` 期间释放 GIL（已查其 `_rawpy.pyx`）。同一素材有更新的请求时，仍在排队的旧请求直接返回 409；等待上限 90 s，超时时还在排队的请求被取消，已经开始的解码继续完成并写入缓存，重试即命中。UI 换图、缩放、平移或点“取消”都会中止上一个请求。
@@ -415,7 +415,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **未做**：四图以上比较（PRD 允许后置）；眼部裁切建议（没有眼部检测）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与相机 JPEG 的对齐：常量偏移已由默认裁切消除，剩下相机 JPEG 的机内畸变校正（LibRaw 不做），中心 0 px、画面边缘最多约 45 px（见 7D）。
   - RAW 解码耗时**未测**：用 `--photos <真实目录>` 在 owner 的 Mac 上补测。
 - **未做**：四图以上比较（PRD 允许后置；四图比较与头部 / 眼部建议见修订 7C）；检查器侧栏的小图仍是快速预览（其“主体放大”沿用原逻辑）；RAW 与同拍 JPEG 若尺寸略有不同，比例坐标会有几个像素的偏差（未在真实文件上核对）。
-## 契约修订 5D：正式导入（2026-10-26，AfterShooting PRD v1 §06“正式导入”、§09、AC10、AC11；优先于上文冲突处）
+## 契约修订 5D：正式导入（2026-10-26，Gardener PRD v1 §06“正式导入”、§09、AC10、AC11；优先于上文冲突处）
 
 依据：PRD §06 要求 Review 后先生成导入计划、再复制并核对，§09 要求完成页能核对目标、待定、重复、容量与失败项后再“导入 N 张”。
 
@@ -437,7 +437,7 @@ def export(dest_dir: Path, *, title: str, scope: dict, collections: list[dict], 
 - **界面**：任务页“完成与导入 →”（`#/import/<task>`）填写目标根目录、地点与“待定照片一起导入”，生成计划后进入确认页（`#/import/<task>/<plan>`）：各用途照片数与默认处理、文件与容量、目标目录、重复与改名、未完成项，按钮“导入 N 张”；之后显示进度与结果（入库数、失败清单、未复制范围、下一步）。确认页切换待定开关即按同一目标重新生成计划。
 - **CLI 与 MCP**：`gardener import plan|run|show|list`；MCP `plan_import`、`run_import`、`get_import`。
 - **未做**：完成页的物种统计（新增物种、已有物种补充、唯一记录影响）（修订 7B 已做）；导入批次成为 Collection（修订 7B 已做）；Lightroom 交接与清理计划；exFAT 上崩溃留下的半个目标文件只报告为失败（无法证明是自己写的，不删除）。
-## 契约修订 5E：Lightroom 交接与清理计划（2026-10-26，AfterShooting PRD v1 §11、§12、§13，AC14、AC15、AC18；ADR 0003）
+## 契约修订 5E：Lightroom 交接与清理计划（2026-10-26，Gardener PRD v1 §11、§12、§13，AC14、AC15、AC18；ADR 0003）
 
 依据：owner 2026-10-26 决定——交接通过扩展现有 Lightroom Classic 插件（`extensions/lightroom/bioscan.lrplugin/`）完成，
 Gardener 不为此写入照片目录；清理为经人确认后把计划里的文件移到废纸篓（ADR 0003）。
@@ -579,7 +579,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 对齐（5×5 个 384 px 区块，高通后的对数亮度做归一化互相关，±60 px 搜索）：裁切后中心区块 0,0（`_DSC2286`，相关峰 0.88）与 +2,+1（`_DSC1725`，夜景、纹理少）。其余是相机 JPEG 的机内畸变校正（`DistortionCorrection: 1`，LibRaw 不做）：24 mm 的那张在 10 %/90 % 处最多 ±27 px（横）、±37 px（纵），16 mm 的那张最多 ±45 px，约为长边的 0.5 %。没有相机的校正模型就不能消除，所以 UI 叠放的原像素细节在画面边缘会与预览错开这么多。
   - 嵌入的 `PreviewImage`（exiftool `-b -PreviewImage`）是 1616×1080 的屏幕缩略图，宽高比 1.496，竖图也按横图存储且没有方向标记；预览不用它，不参与对齐。
   - 耗时写在 5C“测量”。
-  - 未改：BioScan 识别的解码（`bioscan/service/decode.py`，half_size 的 LibRaw 画幅）仍是未裁的 8660×5784，主体框与预览、细节最多差 12 px（长边的 0.14 %）。改它会移动识别几何，须先跑 `bioscan bench compare`。
+  - 未改：Gardener Engine 识别的解码（`gardener/service/decode.py`，half_size 的 LibRaw 画幅）仍是未裁的 8660×5784，主体框与预览、细节最多差 12 px（长边的 0.14 %）。改它会移动识别几何，须先跑 `gardener-engine bench compare`。
 - **exFAT 外置盘（5D、5E）**：`hdiutil create -size 2g -fs ExFAT -volname GTEST`，挂在 `/Volumes/GTEST`（macOS 的 fskit exFAT）；实际服务（端口 8782，数据目录在临时目录）。
   - 导入：19 个文件 858 MB（8 个 ARW 变体、10 个 JPEG、1 个 xmp）。在已完成 11 个文件时 `kill -9` 服务，重启后 `interruptions` = 1，已完成的 12 个文件 inode 与修改时间不变（没有重复复制），崩溃留下的 `.gardener-part`（连同其 `._` AppleDouble 文件）被清理，19/19 完成，sha256 全部与来源及记录一致。exFAT 没有硬链接，`_copy` 改走 O_EXCL 复制发布，正常。exFAT 的修改时间精度是 10 ms，副本的 `mtime_ns` 与来源不同（如 …250000000 对 …255051479），不影响：`reuse` 比的是来源的修改时间，同一来源再生成计划得到 `reuse` 19、复制 0。macOS 在每个副本旁写 `._*`（`com.apple.provenance`）；扫描跳过点文件，sidecar 与清理也不收它们。
   - 离线：`hdiutil detach -force` 会等写入中的文件完成才卸下（在完成 2 个时执行，6/6 仍完成、校验一致），不算中途断开。`diskutil unmount force` 在完成 1 个时执行：计划 `partial`，3 完成、5 失败，导入线程仍在；失败原因原来是临时文件的 `FileNotFoundError` 或 `Errno 5`，**已改为**“目标目录不可用（磁盘已断开？）：<目录>；重新连接后再执行一次即可继续”（`imports.Runner.execute`：失败时计划目录已不存在）。重新挂载后再执行：全部完成，sha256 一致，断开时留下的 15 MB 临时文件被清理。断开时没有出现“发布到一半的目标文件”（5D 未做项），仍未在真实卷上见到。
@@ -593,16 +593,16 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - 没有 GPS 时（同一组照片）：5 框以上混杂 7 张（6 张会多出卡），3–4 框混杂 8 张（6 张）。
   - **决定：保留 5**。降到 3 能多挡住 4 张照片的错卡，却让 31 张逐框一致（多数正确）的照片失去种名；升到 6 只影响 5 框的 5 张（其中 2 张混杂）。代价是 5 框以上逐框一致的 11 张正确照片也只记到属，人确认一次即可（连拍范围可一起改）。“逐框一致的鸟群保留种名”是否值得做，由 owner 决定（未做）。
 - **拆分按位置选定（修订 4 S7 第二部分的后续）**：
-  - `identities.resolve_splits(c, p_geo_of)`：对当前结论仍是 `split:<版本>` 待重新确认、照片有 GPS 的主体，问 `p_geo_of(子种概念, lat, lon, taken_at)`（只返回位置先验直接标注的子种）。恰好一个子种 `p_geo ≥ RANGE_TAU`（0.05，BioScan 的“在分布区”线），其余都 `< RANGE_EPS`（0.01，“不在这里”线）时，追加一条 `source=user, actor=system, reason=split-geo:<版本>` 的识别：`level=species`、该子种的 `concept/taxon/common`、`candidates` 为各子种并带上 `p`（p_geo），本次调用一个 `batch_id`，可用 `POST /identifications/undo` 撤销。这里 `candidates[].p` 是位置先验 p_geo，不是视觉后验概率。否则不动，留给人选。
+  - `identities.resolve_splits(c, p_geo_of)`：对当前结论仍是 `split:<版本>` 待重新确认、照片有 GPS 的主体，问 `p_geo_of(子种概念, lat, lon, taken_at)`（只返回位置先验直接标注的子种）。恰好一个子种 `p_geo ≥ RANGE_TAU`（0.05，Gardener Engine 的“在分布区”线），其余都 `< RANGE_EPS`（0.01，“不在这里”线）时，追加一条 `source=user, actor=system, reason=split-geo:<版本>` 的识别：`level=species`、该子种的 `concept/taxon/common`、`candidates` 为各子种并带上 `p`（p_geo），本次调用一个 `batch_id`，可用 `POST /identifications/undo` 撤销。这里 `candidates[].p` 是位置先验 p_geo，不是视觉后验概率。否则不动，留给人选。
   - 每个主体每次拆分只尝试一次：撤销 `split-geo` 批次后不会再被自动选定。之后若撤销原来的 `split:<版本>` 批次，会因为其后有人工行而 409（与撤销规则一致，不特殊处理）。
-  - 何时运行：一次运行的 BioScan 分析之后（`tasks.RunExec.resolve_splits`），只在引擎已加载 BioCLIP、因而有鸟类位置先验时（`tasks.split_prior`：`engine.priors["bird"]` 与 `engine.names["bird"].concept`）；全库范围；出错只记日志，不影响运行；名字同步（`taxa.sync`）不变。
+  - 何时运行：一次运行的 Gardener Engine 分析之后（`tasks.RunExec.resolve_splits`），只在引擎已加载 BioCLIP、因而有鸟类位置先验时（`tasks.split_prior`：`engine.priors["bird"]` 与 `engine.names["bird"].concept`）；全库范围；出错只记日志，不影响运行；名字同步（`taxa.sync`）不变。
   - **真实先验的结果（2026-10-27 起有子种分布范围）**：
     - BirdNET geo 3.0 用的是拆分前的分类，35 个拆分中 34 个的子种共用亲本的标签，单靠 BirdNET 一个也分不开。
     - 现在子种有了自己的分布范围 `data/names/split_ranges.csv`（见 `data/README.md`）：位置先验把子种在自己范围外的值记为 0（`geo.LocationPrior`，±`RANGE_MARGIN` = 1 格容差）。80 个子种中 71 个有范围；35 组拆分中 29 组所有子种都有。
     - 在 8 组地点上核对：新泽西海岸 → Saltmarsh Willet，北达科他 → Prairie Willet，西雅图 → Western Marsh Wren，纽约州北部 → Eastern Marsh Wren，加州 → Great Horned Owl，基多高原 → Paramo Horned Owl，共 6 组自动选定。
     - 利马、马瑙斯两组仍留给人：BirdNET 对亲本在那里本身就几乎为 0，没有位置信号可用。
-    - 范围同样作用于 BioScan 识别本身：子种在范围外不再沾亲本的位置分数。
-## 契约修订 7C：四图比较、头部 / 眼部裁切建议（2026-10-27，AfterShooting PRD §08 第三级“提供眼部或主体裁切建议”、AC06，#110；优先于上文冲突处）
+    - 范围同样作用于 Gardener Engine 识别本身：子种在范围外不再沾亲本的位置分数。
+## 契约修订 7C：四图比较、头部 / 眼部裁切建议（2026-10-27，Gardener PRD §08 第三级“提供眼部或主体裁切建议”、AC06，#110；优先于上文冲突处）
 
 - **比较 2–4 张**（`web/app.js` 的 dvCompare）：
   - 选中 2–4 张后按 C 或点“比较”。两张时仍是原来的并排比较（默认不变）；3、4 张为 2×2 网格，每格左上角有格号。
@@ -614,9 +614,9 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **`GET /assets/{id}/parts?subject=<subject id>`**（`parts.py`）：
   - 返回 `{asset_id, subject, kind, file: raw|image, parts: [{name: head|eye, xyxy, score}], floor: {head, eye}, ms}`，`xyxy` 是直立画面的 0–1 比例（与 `subjects.xyxy` 同一坐标）。
   - 做法：没有眼部检测模型，用 identify 已加载的 OWLv2（开放词表）。在主体框的**原像素**裁切上（RAW 用 5C 的全尺寸解码与缓存，走细节池，但不与查看器的请求互相取代；裁切长边超过 960 px 先缩小），按主体种类用 facing 阶段的提示词（`bird head` / `bird eye`，`mammal …`，其他与人画的框用 `animal …`）。每个部位只留最高分的一个，分数 ≥ 0.2，且面积不超过主体框的 60 %（否则就是整只动物）。都没有时 `parts` 为空，界面如实说“没有足够确定的头部 / 眼部”，不放大。
-  - 只在按需时运行：不改 identify，不写库，BioScan 的识别结果与契约测试的 golden 都不变，所以不需要 `bench compare`。
+  - 只在按需时运行：不改 identify，不写库，Gardener Engine 的识别结果与契约测试的 golden 都不变，所以不需要 `bench compare`。
   - 错误：缺 `subject` 400；主体不存在或已移除、原片离线 404；视频 400；原像素解码超时、OWLv2 加载失败 503（附原因）。
-- **设备锁**：同一台 Mac 上两个线程同时在 MPS 上跑模型会使进程直接中止（torch 2.14 实测：`failed assertion _status < MTLCommandBufferStatusCommitted`）。所以 `Engine.device_lock`（可重入）由 RunQueue 的模型线程（每个阶段每批一次）、`Engine.ensure`（加载模型时也要把权重拷到设备上）与 parts 路由共同持有。分析进行中请求头部 / 眼部时，会等当前阶段的这一批跑完（实测最长 2.7 s），不会出错。BioScan 服务只有一条模型线程，结果不变。
+- **设备锁**：同一台 Mac 上两个线程同时在 MPS 上跑模型会使进程直接中止（torch 2.14 实测：`failed assertion _status < MTLCommandBufferStatusCommitted`）。所以 `Engine.device_lock`（可重入）由 RunQueue 的模型线程（每个阶段每批一次）、`Engine.ensure`（加载模型时也要把权重拷到设备上）与 parts 路由共同持有。分析进行中请求头部 / 眼部时，会等当前阶段的这一批跑完（实测最长 2.7 s），不会出错。Gardener Engine 服务只有一条模型线程，结果不变。
 - **测量**（2026-10-27，owner 的 Mac，MPS；脚本与原始数据在 agent 草稿目录，未入库）：
   - 鸟类：iNat 照片 50 张（42 个种，`data/inat`），49 张有主体框。按最高分的主体框统计：头部 34/49（69 %），眼部 20/49（41 %），头部或眼部 36/49。按全部 65 个框统计：头部 42，眼部 26。头部中位面积为主体框的 8 %；另有 2 个高分“头部”超过 60 % 而被去掉。
   - 抽查 12 张联系表：分数 ≥ 0.2 的头部 12/12 位置正确，眼部 6/6 正确。被下限挡掉的眼部（0.03–0.16）多半是错的，例如蜂鸟的“眼部”0.05 框住了整个身体。
@@ -626,7 +626,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - **局限**：iNat 照片长边只有 500 px，主体框中位 137 px，眼部只有几个像素，所以眼部召回偏低可能部分是分辨率所致。这次测量分不出原像素与 2048 px 画面的差别。真实 RAW（`/Volumes/Media`）被 macOS 拒绝读取，没有测，RAW 路径只在假 rawpy 上测过。眼部按同一下限保留：命中率不高，但达到下限的基本都对。
 - **未做**：胶片条只能替换，不能往比较里加一格（先在网格里多选）；头部 / 眼部不进分析、不缓存（每次打开视图第一次点时都会请求一次）；没有对焦判断，只是放大到那里。
 
-## 契约修订 7A：Review 收尾——一起改的范围、拆分错误连拍、拍摄段撤销（2026-10-27，#110；AfterShooting PRD §05、§07、AC07；优先于上文冲突处）
+## 契约修订 7A：Review 收尾——一起改的范围、拆分错误连拍、拍摄段撤销（2026-10-27，#110；Gardener PRD §05、§07、AC07；优先于上文冲突处）
 
 - **schema**（不改 `schema_version`，新表 `CREATE IF NOT EXISTS`，见 `schema.sql` 末尾 7A 段）：`burst_overrides`、`encounter_history`。
 - **一起改的范围**（检查器“物种”卡片）：下拉框“仅此主体 / 同一连拍（N 张）/ 同一拍摄段（M 张）”，只列出当前照片实际有的范围；选择记在界面偏好 `idscope`（取代 `idburst`，缺省 `burst`；记的范围当前照片没有时退回同一连拍，再退回仅此主体）。画出的框仍只改它自己。`AssetDetail` 增加 `encounters: [{id, task_id, photos}]`，界面据此判断有没有拍摄段。
@@ -642,9 +642,9 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **用词**：界面不再出现 Pick / Reject，按四种用途说（保留记录、选入修图、待定、淘汰）；接口字段 `picks`、`flag` 不变。
 - **CLI 与 MCP**：CLI `burst split --at ID | --assets IDS`、`encounter undo BATCH`；MCP 新工具 `split_burst`，`edit_encounters` 的 `action` 增加 `undo`（`batch_id`）。
 
-## 契约修订 8：界面按 AfterShooting PRD 设计稿重做（2026-10-27，#120；PRD §05、§23–§28）
+## 契约修订 8：界面按 Gardener PRD 设计稿重做（2026-10-27，#120；PRD §05、§23–§28）
 
-界面产品名为 **AfterShooting**（服务、模块与 CLI 仍叫 Gardener）。主导航按 §05：待整理 · 所有照片 · Collections（Wildlife · 旅行 · 精选 · 待修图）· 任务与导入；设计稿里较早的 Landscape / People / Cities 不采用（§23）。为此 API 增加以下只读字段，旧字段不变：
+界面产品名为 **Gardener**（服务、模块与 CLI 仍叫 Gardener）。主导航按 §05：待整理 · 所有照片 · Collections（Wildlife · 旅行 · 精选 · 待修图）· 任务与导入；设计稿里较早的 Landscape / People / Cities 不采用（§23）。为此 API 增加以下只读字段，旧字段不变：
 
 - `GET /storage` 增加 `disk_total`、`disk_free`：数据目录所在磁盘的容量与可用空间（字节），侧栏“本地存储”用。
 - `Task` 增加 `import`：最近一次导入计划 `{plan_id, status}`，没有计划为 `null`；待整理据此显示 扫描 → Review → 导入 三步。
@@ -725,7 +725,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
   - `dirs`：子文件夹（不含隐藏与链接），每个 `{name, path, photos, videos, dirs, readable, tasks}`。计数只看直接子项的文件名（不 stat、不递归）；一次列表最多花 0.3 s 计数，之后的子文件夹计数为 `null`。
   - `tasks` / `dirs[].tasks`：来源包含该文件夹的任务 `[{id, title}]`（任务递归扫描来源，所以来源的子文件夹也算）。
 - **`GET /fs/thumb?path=&size=thumb|large`** → JPEG（长边 360 / 1600），按需生成：`preview.make_preview`（RAW 用内嵌预览）；`size=thumb` 只写缩略图（RAW 内嵌预览 ≥ 360 即可，不为大图解码）。缓存在 `<cache>/fs/<key[:2]>/<key>.t|l.jpg`，`key = sha256(真实路径, 大小, mtime_ns)`：文件变了就是新键。上限 1 GiB，超出时按修改时间删最旧的到 90 %。`POST /storage/clear-cache` 一并删除。只能预览照片或视频扩展名的文件（否则 400）；生成失败 404 附原因。响应带 `Cache-Control: private, max-age=86400`，界面在 URL 里加 `v=<mtime>`。
-- **界面**：左侧导航“所有照片”之后加「本地目录」（`#/fs/<编码后的路径>`）。左侧文件夹树单独滚动、按需展开、显示计数与「任务」徽标（链到任务）；右侧沿用图库的网格 / 单张版式（网格只有缩略图与文件名，单张 = 大图 + 胶片带），G / E / F、←/→、空格切换；每页 300 张、滚动到底再取，缩略图 `loading="lazy"`。没有标记、比较与检查器（这些文件还不是 Gardener 的照片）。页头说明“只浏览：不导入、不复制、不移动文件，也不写入 AfterShooting 的记录”。
+- **界面**：左侧导航“所有照片”之后加「本地目录」（`#/fs/<编码后的路径>`）。左侧文件夹树单独滚动、按需展开、显示计数与「任务」徽标（链到任务）；右侧沿用图库的网格 / 单张版式（网格只有缩略图与文件名，单张 = 大图 + 胶片带），G / E / F、←/→、空格切换；每页 300 张、滚动到底再取，缩略图 `loading="lazy"`。没有标记、比较与检查器（这些文件还不是 Gardener 的照片）。页头说明“只浏览：不导入、不复制、不移动文件，也不写入 Gardener 的记录”。
 - **测量**（2026-11-12，owner 的 Mac，测试服务 8796）：`~/Pictures/2026/2026-11-01`（1,264 张 ARW）列表 8–44 ms；2,000 个空 ARW 的合成文件夹 11–19 ms；浏览器从打开到第一格 42–48 ms，首屏只请求可见的 60 张缩略图；冷缩略图 60 张、6 路并发共 0.68 s，缓存命中中位 6 ms；大图（1600）约 95 ms。2,000 张真实 RAW 的缩略图未测。
 - CLI / MCP 本版不加命令。
 
@@ -734,7 +734,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 
 依据：owner 实际使用后的反馈是“同一只鸟会被分到好多个组，合并和移动很麻烦”。在 owner 的 Byxbee Park 卡（1,361 张）上量到三个来源：连拍被切碎（同一场景拆成 3/2/7/3 张；39 张的飞行追拍拆成 15 组）；物种名把同一只鸟打散（鹞的连拍里个别帧只到属，或多出的小框被叫成云雀、海鸥）；审片的单位是几百张的拍摄段。
 
-- **组（连拍）的规则**，只对 Gardener（`analyze.GROUP`；BioScan 的 album 默认值不变）：同一相机相邻两帧，间隔 ≤ 0.35 s（一次快门，不看画面相似度；`cull.burst` 的新选项 `shutter_gap_s`，默认 0 = 关），或间隔 ≤ 5 s 且整幅向量余弦 ≥ 0.94，接成一组。在这张卡上：264 组 → 194 组，39 张的飞行序列 15 组 → 2 组，“一组里有两个高置信物种”的组 3 → 2。阈值是在这一张卡上选的，没有连拍标注集：**unverified**。
+- **组（连拍）的规则**，只对 Gardener（`analyze.GROUP`；Gardener Engine 的 album 默认值不变）：同一相机相邻两帧，间隔 ≤ 0.35 s（一次快门，不看画面相似度；`cull.burst` 的新选项 `shutter_gap_s`，默认 0 = 关），或间隔 ≤ 5 s 且整幅向量余弦 ≥ 0.94，接成一组。在这张卡上：264 组 → 194 组，39 张的飞行序列 15 组 → 2 组，“一组里有两个高置信物种”的组 3 → 2。阈值是在这一张卡上选的，没有连拍标注集：**unverified**。
 - **group 阶段把 `quality` 告诉 reducer**：此前只传 `burst`、`aesthetic`，修订“没有美学分时的连拍名次”在服务里实际没有生效（名次仍是拍摄顺序）。现在启用了 `quality` 的任务按 `cull.burst_order` 排。
 - **组内同名**（`identities.burst_consensus`，group 阶段在保存连拍之后、人工拆分 / 合并连拍之后各跑一次）：
   - 只读模型自己的最新结论（`reason` 不是 `burst` 的最新 ai 行），写出的行是 `source=ai, reason=burst`，所以可以重复执行，也不会在自己的结果上再投票。
@@ -767,7 +767,7 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 
 ## 契约修订 15：当前 AI 建议一个视图、组的代表帧一条规则（2026-11-12，#144 F2；只是整理，行为不变；优先于修订 14 的“`GET /assets` 不加字段”）
 
-依据：`ai_suggestions` 只追加，每张照片 id 最大的一行是当前的；这条“最新一行”的子查询在 `bioscan/gardener/*.py` 里手写了 18 处。组的代表帧（最好的一帧）在 `review.encounters`、`review.merge_bursts` 与网页（`ws.burstRep`）各算一次，规则不同，会显示不同的帧。
+依据：`ai_suggestions` 只追加，每张照片 id 最大的一行是当前的；这条“最新一行”的子查询在 `gardener/workbench/*.py` 里手写了 18 处。组的代表帧（最好的一帧）在 `review.encounters`、`review.merge_bursts` 与网页（`ws.burstRep`）各算一次，规则不同，会显示不同的帧。
 
 - **`current_suggestions` 视图**（`schema.sql`）：每张照片当前的一行，按 `asset_id` 相关取最大 id（走索引 `ai_asset`），不用 `GROUP BY` 的全库列表（#131）。和 `current_ids` 一样每次启动先删后建，旧库打开即有。读“当前建议”的地方都改读它；要历史（`ai_history`）、某次运行的行（`apply_burst_overrides`）和写入的地方仍读表。
 - **代表帧一条规则** `review.representative(frames)`：人的决定在先（选入修图、保留记录、星级），再按连拍名次、美学分；相同时取拍摄顺序在前的一张。就是 Review 一直用的规则（原来 `max(g, key=_rank)`）。`GET /encounters` 每组的 `rep`、`POST /bursts/merge` 返回的 `rep`、`GET /assets` 每张的 `burst.rep` 都由它算出。
@@ -795,12 +795,12 @@ Gardener 不为此写入照片目录；清理为经人确认后把计划里的�
 - **规则** `identities.main_subjects(c, asset_ids)`（一次查询，读 `current_ids` 与主体的框）：一张照片的**主物种**是人确认的种（人确认了几个框时，取其中最大的框）；没有时，取主要动物——**最大的框**（按面积）——的种，若它有种级结论；最大的框只到属、科或未确认时，取有种级结论的框里最大的一个。都没有时这张照片没有主物种（函数仍返回最大的框，结论不是种级）。面积相同按主体 id 定序。和组内同名（`burst_consensus` 把小于最大框一半的额外框当旁观者）同一个看法：主要动物是大的那只。
 - **用它的地方**：格子与单张视图的 `AssetItem.species`（`store.asset_items`，`GET /assets`、`GET /assets/{id}`，MCP 与 CLI 经同一路由）；同一对象（`review.subject_runs`）：每帧的种与主体大小都取主物种所在的框。
 - **按设计列出全部物种、不收窄的地方**：物种卡片的成员、张数、封面与进度（`identities.species`、`review.species_progress`）、`GET /encounters` 每段的 `species` 与 `concept=` 范围、拍摄段切分（`review._task_species`）、`species=` / `concept=` / `id_state=` 筛选（`query.py`）、导入计划的物种统计与唯一记录（`imports`）、清理的“最后一张”（`cleanup`）、保留最佳时的唯一记录保护（`review.keep_best`）、Lightroom 关键词（`handoff`，人确认的全部种）、整批改物种（`POST /identifications/move`，按主体）。组内同名与鸟群规则按主体写鉴定，不按照片取名，也不改。
-- **不改的地方**：分析时存下的 `species` 结果（`analyze._species`：按检测分第一个有名字的框）与由它写的 AI 物种标签（`tasks.ai_tags`）。改它只影响以后的扫描，已有照片读回的仍是旧结果，要统一就得重扫（原片离线）。格子只在照片**没有任何种级鉴定**时才退回这个结果，所以它和主物种从不同时出现。`bioscan bench` 的规则（检测分最高的框）是 BioScan 评测的口径，改它会让基线不可比，留给 owner。
+- **不改的地方**：分析时存下的 `species` 结果（`analyze._species`：按检测分第一个有名字的框）与由它写的 AI 物种标签（`tasks.ai_tags`）。改它只影响以后的扫描，已有照片读回的仍是旧结果，要统一就得重扫（原片离线）。格子只在照片**没有任何种级鉴定**时才退回这个结果，所以它和主物种从不同时出现。`gardener-engine bench` 的规则（检测分最高的框）是 Gardener Engine 评测的口径，改它会让基线不可比，留给 owner。
 - 在 owner 这张卡的副本上（1,361 张，1,304 张有主体）：194 张有两个以上种级主体（其中 92 张是两个以上不同的种）；33 个格子换了名字，其中 17 个旧规则选的是不到最大框一半的小框；格子与同一对象用的种不一致的照片 36 → 0（两边都有名字但不同 34，格子有名字而同一对象没有 2；其中 33 张是格子换了名字，3 张是同一对象用的种换了：1 张最大的框只到属，2 张人确认的是较小的框）；132 串同一对象、每张照片所属的串前后相同；34 张物种卡片、每张的张数与组数前后相同；`current_ids` 3,510 行前后相同（没有写入）。另有 109 个格子显示分析时存下的名字而没有任何种级鉴定（83 张的主体由鸟群规则降为属、科或未确认，26 张是模型自己只到属、科或未确认），同一对象对它们没有名字，前后不变。**unverified**：没有物种的 ground truth，这些只是计数。
 
 ## 契约修订：#125 的界面验收修正并入（2026-11-12，#124 / #125；只补充，优先于上文冲突处）
 
-- **物种裁切用 3072 px 细节副本**：Gardener 的分析器与 `bioscan serve`、自有 RAW 基线一样传 `detail_edge = serve_config.DETAIL_EDGE`（3072）。此前没有传，远处的鸟只按 2048 px 的整幅来定名。只改识别输入的尺寸；对识别结果的影响没有在 Gardener 上用 `bioscan bench compare` 量过：**unverified**。
+- **物种裁切用 3072 px 细节副本**：Gardener 的分析器与 `gardener-engine serve`、自有 RAW 基线一样传 `detail_edge = serve_config.DETAIL_EDGE`（3072）。此前没有传，远处的鸟只按 2048 px 的整幅来定名。只改识别输入的尺寸；对识别结果的影响没有在 Gardener 上用 `gardener-engine bench compare` 量过：**unverified**。
 - **清理移到废纸篓的照片**：`GET /encounters` 不再列出（同物种卡片，见上文 §`GET /encounters`）；修订 16 的 `groups / decided / started`（`review.species_progress`）同样不计，所以清理之后两者的组数仍逐个相同。
 - **扫描页的分析状态**：模型能力（`stages` 或 `local` 的能力）在运行到识别之前没有 `asset_caps` 行；任务有排队、运行、暂停或中断的运行时，这样的照片 `analysis` 为 `pending`，不再显示为已归类。`Task.scan` 取正在运行的那次运行，排在它后面的重试不会遮住进度。
 

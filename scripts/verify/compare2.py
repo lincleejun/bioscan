@@ -1,4 +1,4 @@
-"""Three-way compare: folder GT vs codex vs bioscan (baseline no-geo, and geo run). Usage: compare2.py sample.csv codex.jsonl geo_preds.ndjson"""
+"""Three-way compare: folder GT vs codex vs gardener (baseline no-geo, and geo run). Usage: compare2.py sample.csv codex.jsonl geo_preds.ndjson"""
 import csv, json, sys
 def norm(s): return (s or "").strip().lower()
 rows = list(csv.DictReader(open(sys.argv[1])))

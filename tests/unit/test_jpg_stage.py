@@ -3,8 +3,8 @@ asked for, and the edge option's check."""
 import pytest
 from PIL import Image
 
-from bioscan.plugins.jpg import MANIFEST
-from bioscan.plugins.jpg import stage as j
+from gardener.plugins.jpg import MANIFEST
+from gardener.plugins.jpg import stage as j
 
 
 def test_edge_picks_the_detail_copy_only_above_the_image(tmp_path):

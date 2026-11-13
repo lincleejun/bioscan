@@ -1,6 +1,6 @@
 # How it works
 
-What bioscan is for, the pipeline, the accuracy rules, the models and data, the name mapping, and the known limitations. Commands are in [usage.md](usage.md).
+What gardener is for, the pipeline, the accuracy rules, the models and data, the name mapping, and the known limitations. Commands are in [usage.md](usage.md).
 
 ## Goals and scope
 
@@ -9,7 +9,7 @@ In scope:
 - Three products, in any combination: `identify` (boxes + species), `embed` (whole-frame SigLIP2 vector), `jpg` (RAW to upright JPG).
 - **AviList v2026** (birds, 11172 species) and **MDD v2.5** (mammals, 6904 species) are the naming standards for birds and mammals; BirdNET, TreeOfLife/BioCLIP and iNaturalist names are mapped onto them through the tables in `data/names/`.
 - All taxa by default: every other animal (reptiles, amphibians, fish, insects, spiders, …) is named from the TreeOfLife-200M all-taxa list. Naming candidate taxa first is optional (see [All taxa and candidates](usage.md#all-taxa-and-candidates)).
-- Built-in evaluation: `bioscan gt` builds a ground-truth set (from folder names or iNaturalist), `bioscan eval` writes a report.
+- Built-in evaluation: `gardener-engine gt` builds a ground-truth set (from folder names or iNaturalist), `gardener-engine eval` writes a report.
 
 Out of scope (v1):
 - Caching and persistent state, writing back human corrections, photo management, a web UI.
@@ -46,14 +46,14 @@ Three fixes for confident species-level mistakes and one for missed animals. Eac
 | `mammal_geo` | **Mammal location prior.** The BirdNET geo model the service already loads also scores 1,048 mammals; `data/names/mdd_map.csv` gives them to MDD rows. An MDD row with no label gets the highest p_geo among labelled species of its genus (**genus back-off**), or 0.05 when its genus has none. Birds keep their rule: unlabelled rows get 0. | `geo.UNLABELLED_NEUTRAL` = 0.05; per-list policy `names.LISTS[...].unlabelled` |
 | `all_vocab_pass` | **Every vocabulary at once.** The gate picks the detector's words, so a bird it calls a mammal is only asked "a mammal" and scores 0. A frame with no box after both passes is asked every vocabulary's words at once, at their first-pass floors; a box is filed under the frame's own kind when its word is in that vocabulary, else under the word's kind, and the crop check and kind check judge it as usual. Cleaned golden set, 2026-11-13: 9 images fixed, 0 broken; top-1 91.5% → 92.0%, no box 1.5% → 0.8%, confident errors 2.8% → 2.9%; identify median +3 ms. Not measured on photos without an animal. | `taxa.ALL_WORDS`, `taxa.WORD_KIND` |
 
-**Trial: `kind_size_correct`** (identify option, off by default). A size-corrected kind check: before the lists are compared, each list's i-th best logit loses σ · E[i-th best of N standard normals], where N is the list's row count (or the rows candidates leave it) and σ the spread of that box's logits over the list (`rules.chance_top`, Blom's approximation via `statistics.NormalDist`: about 3.9 σ for the best of AviList's 11k rows, 4.6 σ for the ~366k-row all-taxa list). What is left is the evidence each list holds above what its size and spread give by chance, so a longer list no longer wins on size alone (on synthetic logits, a 20,000-row noise list beats a 1,000-row list in ~98 % of draws uncorrected and ~half corrected). It changes only the kind check's comparison, not the ranking within a list. `taxa.ONE_WAY` still applies with it on; it can replace that rule only after an on/off eval on real photos (`--identify-opt kind_size_correct=true`, then `bioscan bench compare`). Unverified on real photos.
+**Trial: `kind_size_correct`** (identify option, off by default). A size-corrected kind check: before the lists are compared, each list's i-th best logit loses σ · E[i-th best of N standard normals], where N is the list's row count (or the rows candidates leave it) and σ the spread of that box's logits over the list (`rules.chance_top`, Blom's approximation via `statistics.NormalDist`: about 3.9 σ for the best of AviList's 11k rows, 4.6 σ for the ~366k-row all-taxa list). What is left is the evidence each list holds above what its size and spread give by chance, so a longer list no longer wins on size alone (on synthetic logits, a 20,000-row noise list beats a 1,000-row list in ~98 % of draws uncorrected and ~half corrected). It changes only the kind check's comparison, not the ranking within a list. `taxa.ONE_WAY` still applies with it on; it can replace that rule only after an on/off eval on real photos (`--identify-opt kind_size_correct=true`, then `gardener-engine bench compare`). Unverified on real photos.
 
 All thresholds, the unlabelled policies, the label maps' contents and the option defaults (except a trial's, while it is off by default) are in the settings fingerprint; `result.engine.models.label_maps` names each label map with its sha. With `range_veto`, `kind_check`, `mammal_geo` and `all_vocab_pass` off, identify output is the same as v1.4 for birds and mammals (checked byte for byte on a 300-frame stand-in recording, 5 option sets). The whole output is the same only without the all-taxa list: with it, `other_animal` boxes get a species where v1.4 gave `null`. To measure one fix, run the same ground truth twice and compare the reports:
 ```sh
-bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-on
-bioscan eval data/inat/groundtruth-inat.csv --out runs/<date>-no-veto --identify-opt range_veto=false
+gardener-engine eval data/inat/groundtruth-inat.csv --out runs/<date>-on
+gardener-engine eval data/inat/groundtruth-inat.csv --out runs/<date>-no-veto --identify-opt range_veto=false
 ```
-Over HTTP, pass `"options":{"identify":{"kind_check":false}}`. CI's real-model smoke runs its photos with the three species fixes on and off (`all_vocab_pass` stays on in both) and adds an on/off table plus every changed image to its report (`models-report`). It fails only if, for either kind, the options lose more than one Top-1 hit or add more than one species-level wrong answer: with about 38 photos a kind that is a tripwire, and the real gate is `bioscan bench compare` against the committed baseline with its regression budgets.
+Over HTTP, pass `"options":{"identify":{"kind_check":false}}`. CI's real-model smoke runs its photos with the three species fixes on and off (`all_vocab_pass` stays on in both) and adds an on/off table plus every changed image to its report (`models-report`). It fails only if, for either kind, the options lose more than one Top-1 hit or add more than one species-level wrong answer: with about 38 photos a kind that is a tripwire, and the real gate is `gardener-engine bench compare` against the committed baseline with its regression budgets.
 
 Models and data:
 
@@ -80,7 +80,7 @@ The BirdNET prior model is licensed non-commercially; for commercial use, drop t
 
 The 744 AviList species without a BirdNET label get 0 in the location prior (mostly extinct species or species BirdNET lumps with a sister, such as *Tyto javanica*, which should stay suppressed). To find the gaps that actually matter at a place:
 ```sh
-bioscan names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # unlabelled species whose genus occurs there
+gardener-engine names geo-gaps --lat 37.4 --lon -122.1 --date 2026-05-01   # unlabelled species whose genus occurs there
 ```
 After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the map.
 
@@ -94,7 +94,7 @@ After review, add the row to `synonyms.csv` (source `birdnet`) and rebuild the m
 - The golden set's no-box mammal images were mostly photos of tracks and scat (bears, mountain lions, bobcats); they left the truth on 2026-11-13 (#156). With `all_vocab_pass`, 12 of 1,571 golden images still get no box.
 - Other animals have no location prior.
 - Other animals use TreeOfLife's own names and taxonomy; `data/names/synonyms.csv` only maps AviList/MDD names, so an iNaturalist truth label spelled differently from TreeOfLife (a genus move, say) scores as a miss. Their accuracy is measured on 18 photos in CI only (see Tests).
-- The mammal location prior, the range veto and the kind check are unverified on real photos until a `bioscan eval` on the Mac (CI's on/off table covers 95 photos only). ε, τ, the kind-check margin and the neutral constant are first guesses. With the all-taxa list loaded, the kind check also weighs it against birds and mammals; its effect on bird and mammal accuracy is measured only by CI's on/off table.
+- The mammal location prior, the range veto and the kind check are unverified on real photos until a `gardener-engine eval` on the Mac (CI's on/off table covers 95 photos only). ε, τ, the kind-check margin and the neutral constant are first guesses. With the all-taxa list loaded, the kind check also weighs it against birds and mammals; its effect on bird and mammal accuracy is measured only by CI's on/off table.
 - The range veto can rename a genuine vagrant to a local congener (graded genus, never species).
 - Recently split species (Northern / Hen Harrier, American / Western Barn Owl) carry old names in the training data and are separated by a shared vector plus the location prior; synonyms do not yet apply per region.
 - The 0.02 floor in the prior formula limits how far location can override vision; it has not been tuned on the golden set.

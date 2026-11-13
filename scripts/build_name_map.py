@@ -27,9 +27,9 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from bioscan import naming  # noqa: E402
-from bioscan.service import names  # noqa: E402
-from bioscan.service.adapters import geo  # noqa: E402
+from gardener import naming  # noqa: E402
+from gardener.service import names  # noqa: E402
+from gardener.service.adapters import geo  # noqa: E402
 
 OUT = naming.DATA_DIR / naming.NAMES_DIR
 MAP_COLS = ["scientific", "common", "order", "family", "tol_name", "tol_how", "birdnet_label", "birdnet_how"]

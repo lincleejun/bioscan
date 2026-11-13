@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from bioscan.plugin import Item
-from bioscan.plugins.facing import stage as fs
-from bioscan.service.adapters.owlv2 import Detection
+from gardener.plugin import Item
+from gardener.plugins.facing import stage as fs
+from gardener.service.adapters.owlv2 import Detection
 
 FRAME = (200, 100)
 

@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: "22"
       - name: node --test (Gardener web view functions)
-        run: node --test 'tests/gardener/web/*.test.js'
+        run: node --test 'tests/workbench/web/*.test.js'
       - name: ruff
         run: uv run ruff check .
       - name: pytest (fake models; real-model tests skip here, see models.yml)

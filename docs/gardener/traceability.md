@@ -1,6 +1,6 @@
 # Gardener v0.1 需求 → 实现 → 测试 追踪矩阵
 
-来源：[`prd-v0.1.md`](prd-v0.1.md)（§ 节号）与 [`decisions.md`](decisions.md)（D 编号）。实现路径相对 `bioscan/gardener/`，测试相对 `tests/gardener/`。
+来源：[`prd-v0.1.md`](prd-v0.1.md)（§ 节号）与 [`decisions.md`](decisions.md)（D 编号）。实现路径相对 `gardener/workbench/`，测试相对 `tests/workbench/`。
 “状态”只写已由测试或真实数据运行证实的内容；未证实写“未验证”。明确后置的需求列在末尾，不算已实现。
 
 | # | 需求（来源） | 实现 | 测试 / 证据 | 状态 |
@@ -16,7 +16,7 @@
 | R09 | 结束汇总：发现、完成、失败、未运行能力；分析完成 ≠ Review 完成（§5） | `runs.summary`；任务 `scan` 与 `review` 分开 | `test_core_*` | 见 PR 证据 |
 | R10 | 多任务、后台队列逐个执行，Review A 时扫描 B；扫描状态与 Review 进度分开（D35） | `tasks.py` FIFO 单执行；`Task.scan` / `Task.review` | `test_core_*` | 见 PR 证据 |
 | R11 | 追加来源/重分析记录新一轮执行，不改写历史；复用未变文件（D22，§5，§8） | `runs.kind=append/rescan`；`results` 只追加 | `test_core_*` | 见 PR 证据 |
-| R12 | 能力：基础清点、内容分类、地点事件、物种、连拍相似、质量、美学与选择建议（D24，§6） | `capabilities.py` → BioScan stages/reducers（`analyze.py`、`grouping.py`） | `test_media_*`；真实模型冒烟 | 见 PR 证据 |
+| R12 | 能力：基础清点、内容分类、地点事件、物种、连拍相似、质量、美学与选择建议（D24，§6） | `capabilities.py` → Gardener Engine stages/reducers（`analyze.py`、`grouping.py`） | `test_media_*`；真实模型冒烟 | 见 PR 证据 |
 | R13 | 用户描述不变成逐图 GPS 或确认物种；无可靠解释如实表示（§6） | 描述只存任务；AI 理由为空时 UI 显示“无可靠理由” | `test_media_analyze*` | 见 PR 证据 |
 | R14 | 模型不可用时不给伪造分数，如实报告（实施要求） | `Analyzer` → `unavailable` + 原因 | `test_media_analyze*`、`test_core_*` | 见 PR 证据 |
 | R15 | 能力/标签/预设分开管理；运行记录能力与模型版本和参数（D25，§7） | `/capabilities`、`/tags`、`/presets`、`runs.config.versions`、`results.version` | `test_core_*` | 见 PR 证据 |
@@ -39,7 +39,7 @@
 | R32 | 导出“复制内容”默认关，只生成一个 XML；开启复制所选（视频整段）（D23，§13 场景 6） | `export.export`；`POST /export` | `test_media_export*`、`test_core_*` | 见 PR 证据 |
 | R33 | XML 不冒称 Lightroom 可读；显式兼容边界（§10） | `compatibility="gardener-only"` + 注释；UI 文案 | `test_media_export*` | 见 PR 证据 |
 | R34 | 复制校验与同名冲突（§10） | sha256 校验；rename/skip/fail | `test_media_export*` | 见 PR 证据 |
-| R35 | 页面（契约修订 8，取代 D36）：待整理 / 所有照片 / Collections（Wildlife · 旅行 · 精选 · 待修图）/ 任务与导入 / 管理；每个批次 扫描 → Review → 导入（AfterShooting PRD §05、§23–§28） | `web/` | `test_ui_*`（导航顺序） | #120 |
+| R35 | 页面（契约修订 8，取代 D36）：待整理 / 所有照片 / Collections（Wildlife · 旅行 · 精选 · 待修图）/ 任务与导入 / 管理；每个批次 扫描 → Review → 导入（Gardener PRD §05、§23–§28） | `web/` | `test_ui_*`（导航顺序） | #120 |
 | R36 | 归档任务；删除 Collection 可恢复；清理缓存不丢记录；Reject 不触发文件操作；无永久删除原片（D34，§12，§13 场景 9/10） | `/archive`、软删除 `/restore`、`/storage/clear-cache` | `test_core_*` | 见 PR 证据 |
 | R37 | 原片只读，不自动移动、改名、删除（D09，§12） | 无任何写来源路径的代码；导出拒绝来源内目的地 | `test_core_*`；真实数据前后 sha256 比对 | 见 PR 证据 |
 | R38 | 多客户端修改用版本检测冲突，不静默覆盖人工判断（§12） | `marks.version`、`collections.version`、409 | `test_core_*` | 见 PR 证据 |
@@ -49,7 +49,7 @@
 | R42 | 按人分组：本地人脸检测与聚类；给人物分组或单张脸命名，所有任务与以后的扫描直接归入，同名即合并（owner 2026-10-21，契约修订 3） | `faces.py`、`people.py`、能力 `people`、`PATCH /collections`、`POST /assets/{id}/faces/{i}` | `test_media_people_versions*`、`test_core_groups*` | 见 PR 证据；聚类质量未验证（无标注） |
 | R43 | 导出图与跨目录副本作为原片的版本合并，只出现一次；人可撤销（owner 2026-10-21）；成为版本时人工标记随代表走（契约修订 10B，#131） | `versions.py`（`carry_marks`、schema 4 `backfill_carry`）、`assets.version_of`、`POST /assets/{id}/split-version`、`AssetDetail.versions[].marks_differ` | `test_media_people_versions*`、`test_core_groups*`、`test_core_version_marks.py` | 见 PR 证据 |
 
-| R44 | 物种身份用概念 ID（`avibase:`/`mdd:`/`name:`），改学名不改身份（ADR 0002，PRD §15） | BioScan `names.read_avilist/read_mdd`、`contract.Candidate.concept` | `tests/unit/test_names.py::test_concept_ids_*`；契约 golden（去掉 concept 后不变） | 已由测试证实；真实名单 18,076 个概念全部唯一 |
+| R44 | 物种身份用概念 ID（`avibase:`/`mdd:`/`name:`），改学名不改身份（ADR 0002，PRD §15） | Gardener Engine `names.read_avilist/read_mdd`、`contract.Candidate.concept` | `tests/unit/test_names.py::test_concept_ids_*`；契约 golden（去掉 concept 后不变） | 已由测试证实；真实名单 18,076 个概念全部唯一 |
 | R45 | 按主体（每只动物）记录识别，ID 跨重跑稳定；一张照片多个物种（PRD §03，AC03） | `identities.ingest`、表 `subjects`/`identifications` | `test_core_identities.py::test_a_rerun_box_*`、`test_a_two_species_photo_*` | 已由测试证实 |
 | R46 | 人工结论优先，模型重跑不覆盖；纠错、连拍范围、先看影响范围、整批撤销（PRD §10，AC04、AC09） | `POST /identifications`、`/identifications/undo` | `test_core_identities.py::test_correcting_*`、`test_a_burst_claim_*`、`test_a_rescan_keeps_*`、`test_a_drawn_box_*` | 已由测试证实；真模型试用一次（Mac） |
 | R47 | 物种卡片跨任务累积、无最小张数，“已拍到 N 种”只计人工确认，候选不计（PRD §03、§04，AC02、AC05） | `GET /species`、视图 `current_ids` | `test_core_identities.py::test_species_cards_*`、`test_hiding_a_card_*` | 已由测试证实；真模型试用一次（Mac） |

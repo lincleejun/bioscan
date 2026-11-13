@@ -1,5 +1,5 @@
-"""bioscan.geotag (GPX parsing, time model, fix rule, clock offset, XMP) and the `bioscan geotag` /
-`bioscan run --gpx` commands, on hand-built tracks and tiny synthetic JPEGs. No network."""
+"""gardener.geotag (GPX parsing, time model, fix rule, clock offset, XMP) and the `gardener-engine geotag` /
+`gardener-engine run --gpx` commands, on hand-built tracks and tiny synthetic JPEGs. No network."""
 import csv
 import io
 import json
@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 import pytest
 import raw_fixtures as F
 
-from bioscan import geotag as gt
-from bioscan import profile
-from bioscan.cli import main as cli
+from gardener import geotag as gt
+from gardener import profile
+from gardener.cli import main as cli
 
 T0 = datetime(2026, 5, 1, 15, 0, 0, tzinfo=timezone.utc).timestamp()   # 08:00:00 at -07:00
 LAT0, LON0 = 37.5, -122.25
@@ -441,7 +441,7 @@ def test_run_lat_lon_without_exiftool_keeps_exif_gps(folder, monkeypatch):
 
 
 def test_run_lat_lon_without_pillow_stops(folder, monkeypatch):
-    monkeypatch.setitem(sys.modules, "bioscan.service.decode", None)    # import -> ImportError
+    monkeypatch.setitem(sys.modules, "gardener.service.decode", None)    # import -> ImportError
     a = cli.parser().parse_args(["run", str(folder / "photos"), "--lat", "1", "--lon", "2"])
     with pytest.raises(SystemExit, match="--lat/--lon needs Pillow"):
         cli.build_payload(a)

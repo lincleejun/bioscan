@@ -1,13 +1,13 @@
-"""`bioscan lr`: the latest.json rules (stars, keywords, group) and the open/install commands.
+"""`gardener-engine lr`: the latest.json rules (stars, keywords, group) and the open/install commands.
 Synthetic NDJSON only; everything is written under tmp_path and Lightroom is never launched."""
 import json
 from datetime import datetime
 
 import pytest
 
-from bioscan import contract
-from bioscan.cli import lr
-from bioscan.cli.main import PROJECT_ROOT, main
+from gardener import contract
+from gardener.cli import lr
+from gardener.cli.main import PROJECT_ROOT, main
 
 OWL = ["Animalia", "Chordata", "Aves", "Strigiformes", "Strigidae", "Megascops", "Megascops kennicottii"]
 VIREO = ["Animalia", "Chordata", "Aves", "Passeriformes", "Vireonidae", "Vireo"]

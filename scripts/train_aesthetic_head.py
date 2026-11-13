@@ -3,14 +3,14 @@
     uv run python scripts/train_aesthetic_head.py --download --eva-dir ~/.cache/bioscan/eva \\
         --embeddings ~/.cache/bioscan/eva/embeddings.ndjson
 
-1. `--download`: the EVA files at the pinned commit (bioscan.aesthetic.EVA_COMMIT) from
+1. `--download`: the EVA files at the pinned commit (gardener.aesthetic.EVA_COMMIT) from
    raw.githubusercontent.com: LICENSE, readme.md, data/votes_filtered.csv and the seven parts of
    images/EVA_together.zip (~695 MB), joined and unzipped into EVA_DIR/images/EVA_together/ (5,101
    images, 4,070 of them with filtered votes); the parts are deleted after unzipping.
-2. Vectors: every EVA image goes through the service's own code: bioscan.service.decode.decode (the
+2. Vectors: every EVA image goes through the service's own code: gardener.service.decode.decode (the
    same 2048 px image the service embeds) and Engine.frame with the pinned SigLIP2 revision (weights
    from ~/.cache/huggingface, as the service loads them). `--embeddings` caches them (the format of
-   `bioscan aesthetic --embeddings`), so a rerun only fits.
+   `gardener-engine aesthetic --embeddings`), so a rerun only fits.
 3. Fit: ridge on the standardised vectors to the per-image mean score (0-10), alpha by 5-fold CV
    (seeded), refit on all; CV SRCC/PLCC go into the head's provenance and are printed.
 4. `--print-base64`: the head file between `===== BEGIN/END eva-head-v1.json base64 =====` markers
@@ -22,7 +22,7 @@ CI runner ~0.1-0.2 s each (7-14 min); on an M-series Mac with MPS 1-3 min; the f
 An existing `--out` (by default the committed head) is never overwritten without `--force` (exit 2
 before any download or embedding, nothing written); `--download-only` writes no head and is not checked.
 
-The same fit through a running service instead: `bioscan aesthetic train --eva EVA_DIR`.
+The same fit through a running service instead: `gardener-engine aesthetic train --eva EVA_DIR`.
 """
 from __future__ import annotations
 
@@ -38,8 +38,8 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from bioscan import aesthetic as aes
-from bioscan.cli.aesbench import _stamp, read_cache
+from gardener import aesthetic as aes
+from gardener.cli.aesbench import _stamp, read_cache
 
 BATCH = 32
 
@@ -77,7 +77,7 @@ def download(root: Path) -> None:
 
 def _decode(path: str):
     """The service's decode (the 2048 px image it embeds), or the exception."""
-    from bioscan.service.decode import decode
+    from gardener.service.decode import decode
 
     try:
         return decode(path)
@@ -93,7 +93,7 @@ def embed(paths: list[str], cache: Path | None, device: str | None) -> dict[str,
     todo = [p for p in paths if p not in vecs]
     if not todo:
         return vecs
-    from bioscan.service.engine import Engine
+    from gardener.service.engine import Engine
 
     engine = Engine(device)
     engine.ensure(["siglip2"])
@@ -168,14 +168,14 @@ def main(argv: list[str] | None = None) -> int:
     t_embed = time.monotonic() - t0
     eva = [e for e in eva if e[0] in vecs]
 
-    from bioscan import aesthetic_fit as fit
-    from bioscan.service.adapters import siglip2
+    from gardener import aesthetic_fit as fit
+    from gardener.service.adapters import siglip2
 
     assert aes.EMBEDDING == f"{siglip2.MODEL_ID}@{siglip2.REVISION[:12]}", "aesthetic.EMBEDDING is stale"
     X = fit.np.asarray([vecs[p] for p, _, _ in eva])
     y = fit.np.asarray([s for _, s, _ in eva])
     prov = {**aes.EVA_PROVENANCE, "date": time.strftime("%Y-%m-%d", time.gmtime()),
-            "vectors": "in-process bioscan.service decode + Engine.frame (scripts/train_aesthetic_head.py)",
+            "vectors": "in-process gardener.service decode + Engine.frame (scripts/train_aesthetic_head.py)",
             "votes_per_image_min": min(n for _, _, n in eva), "limit": a.limit,
             "held_out": aes.eva_holdout_provenance()}
     doc, summary = fit.train_head(X, y, name=a.name, lo=0.0, hi=10.0, target="EVA mean general score, 0-10",

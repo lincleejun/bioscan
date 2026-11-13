@@ -10,9 +10,9 @@ import pytest
 from cull_fixtures import box, photo, result
 from PIL import Image
 
-from bioscan import profile
-from bioscan.cli import bench
-from bioscan.plugins.quality import stage as q
+from gardener import profile
+from gardener.cli import bench
+from gardener.plugins.quality import stage as q
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("cull_synth", ROOT / "scripts" / "cull_synth.py")

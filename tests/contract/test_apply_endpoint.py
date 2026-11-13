@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from conftest import Fakes
 from fastapi.testclient import TestClient
 
-from bioscan.service.app import create_app, parse_apply
+from gardener.service.app import create_app, parse_apply
 
 
 def album(tmp_path):
@@ -46,7 +46,7 @@ def test_parse_apply_checks_the_shape():
 
 
 def test_apply_refuses_everything_without_a_token(tmp_path, monkeypatch):
-    from bioscan import apply as applying
+    from gardener import apply as applying
     src = album(tmp_path)
     monkeypatch.setattr(applying, "token", lambda create=False: None)
     app = create_app(Fakes().engine(), decode_pool=ThreadPoolExecutor(2), allow_roots=[str(tmp_path)])

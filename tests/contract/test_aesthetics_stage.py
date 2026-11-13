@@ -8,9 +8,9 @@ import pytest
 from aesthetic_helpers import random_head
 from conftest import Fakes, client_for, events, make_jpg
 
-from bioscan import aesthetic as aes
-from bioscan import plugin, profile
-from bioscan.plugins import BY_NAME
+from gardener import aesthetic as aes
+from gardener import plugin, profile
+from gardener.plugins import BY_NAME
 
 FAKE_VEC = [1 / np.sqrt(768)] * 768          # what FakeSigLIP2.embed_images returns for every frame
 
@@ -111,7 +111,7 @@ def test_personal_head_path_is_checked_against_allow_roots(tmp_path, heads):
 
     from fastapi.testclient import TestClient
 
-    from bioscan.service.app import create_app
+    from gardener.service.app import create_app
 
     (tmp_path / "photos").mkdir()
     p = make_jpg(tmp_path / "photos" / "a.jpg")
@@ -156,8 +156,8 @@ def test_album_profile_run_has_the_product(tmp_path, no_builtin):
 def test_engine_plugins_head_id_wins_then_fingerprints_in_report_order(client, tmp_path, heads):
     """stages.fingerprints: aesthetics names its head (plugin_id), quality and scene report their
     settings fingerprint, in plan.want (report) order; aesthetics with head off reports nothing."""
-    from bioscan.plugins.quality import stage as quality_stage
-    from bioscan.plugins.scene import stage as scene_stage
+    from gardener.plugins.quality import stage as quality_stage
+    from gardener.plugins.scene import stage as scene_stage
 
     g, _ = heads
     p = make_jpg(tmp_path / "a.jpg")

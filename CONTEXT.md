@@ -1,4 +1,4 @@
-# bioscan
+# gardener
 
 Local service and CLI that find animals in photos and name the species (all taxa by default), for one
 photographer's archive. Terms below are the ones code, tests and docs use.
@@ -25,7 +25,7 @@ A larger (≤ detail edge) decode of the same photo used only for species crops;
 
 **Scan extensions**:
 The file extensions a folder scan picks up, in any case: every RAW extension the decoder routes to rawpy plus JPEG
-(`formats.SCAN_EXT`); one list for the decoder, `bioscan run` and `bioscan gt folders`.
+(`formats.SCAN_EXT`); one list for the decoder, `gardener-engine run` and `gardener-engine gt folders`.
 
 **Container**:
 Where a file keeps its EXIF: `tiff` (ARW, NEF, DNG, CR2, …), `orf`, `rw2` (TIFF with their own magic), `cr3`
@@ -39,7 +39,7 @@ zeroed DateTimeOriginal counts as missing: IFD0 DateTime (with SubSecTime and Of
 _Avoid_: timestamp, date
 
 **Stage**:
-One unit of per-image work in a run, batched per chunk: a plugin in `bioscan/plugins/<name>/` (today `identify`,
+One unit of per-image work in a run, batched per chunk: a plugin in `gardener/plugins/<name>/` (today `identify`,
 `embed`, `jpg`, `geotag`, `aesthetics`, `quality`, `scene`). It reads facts and may provide facts for later stages; its output is the product of the same name.
 _Avoid_: hook, step, node
 
@@ -51,8 +51,8 @@ a plan contains the stage.
 _Avoid_: registry entry, spec
 
 **Geotag stage**:
-The `geotag` stage (`bioscan/plugins/geotag`): reads `time`, provides `place` from GPX tracks for photos whose
-request and EXIF have none, on the CPU pool, no models; in `wildlife`, never in `full`. `bioscan geotag` and
+The `geotag` stage (`gardener/plugins/geotag`): reads `time`, provides `place` from GPX tracks for photos whose
+request and EXIF have none, on the CPU pool, no models; in `wildlife`, never in `full`. `gardener-engine geotag` and
 `run --gpx` without such a profile do the same work in the CLI.
 _Avoid_: GPS stage
 
@@ -69,24 +69,24 @@ _Avoid_: pipeline, DAG
 
 **Profile**:
 A named request template: stages, options and reducers. Built in: `full` (what a request without a profile
-gets; fixed), `wildlife`, `album` (`bioscan/profiles.toml`); more, or changes, in a `bioscan.toml`. Expanded by the
-CLI (`--profile`) and by the service (`"profile"` in /run) with the same resolver (`bioscan/profile.py`).
+gets; fixed), `wildlife`, `album` (`gardener/profiles.toml`); more, or changes, in a `gardener.toml`. Expanded by the
+CLI (`--profile`) and by the service (`"profile"` in /run) with the same resolver (`gardener/profile.py`).
 _Avoid_: preset, mode
 
 **Config layer**:
-One source of profile or serve values, lowest first: stage defaults, `profiles.toml`, the user `bioscan.toml`, the
-project `bioscan.toml`, `$BIOSCAN_CONFIG`, then the request (flags or /run body). `bioscan config show` names each
+One source of profile or serve values, lowest first: stage defaults, `profiles.toml`, the user `gardener.toml`, the
+project `gardener.toml`, `$GARDENER_ENGINE_CONFIG`, then the request (flags or /run body). `gardener-engine config show` names each
 value's layer.
 
 **Reducer**:
-A model-free unit over a whole run's results, run by the CLI (`bioscan cull`, `bench`) or offline over a saved
-run, never inside the service stream: `burst` and `select` (`bioscan/cull.py`; manifests with kind `reducer` in
+A model-free unit over a whole run's results, run by the CLI (`gardener-engine cull`, `bench`) or offline over a saved
+run, never inside the service stream: `burst` and `select` (`gardener/cull.py`; manifests with kind `reducer` in
 `plugins.REDUCERS`). Its output goes under `products[<reducer>]` of the CLI's copy of each result.
 _Avoid_: stage (a stage sees one chunk)
 
 **Run summary**:
-`summary.json` (`bioscan summarize`): one run's categories (gate classes), taxa and review queue, reduced from a
-saved preds file by the CLI, never by the service. `bioscan report` renders it and reads nothing else.
+`summary.json` (`gardener-engine summarize`): one run's categories (gate classes), taxa and review queue, reduced from a
+saved preds file by the CLI, never by the service. `gardener-engine report` renders it and reads nothing else.
 _Avoid_: report (that is the page), digest
 
 **Review reason**:
@@ -96,7 +96,7 @@ _Avoid_: flag, warning, low confidence
 
 **Product**:
 A named result a run can ask for per image (`identify`, `embed`, `jpg`, `geotag`, `aesthetics`, `quality`, `scene`): the output of the stage of that name
-(`bioscan.plugins.BUILTIN`), under `result.products[<name>]`.
+(`gardener.plugins.BUILTIN`), under `result.products[<name>]`.
 
 ## Identify
 
@@ -245,7 +245,7 @@ A row with no BirdNET label whose genus is present at a place; fixed by a review
 The resolved settings one service process runs with (host, port, decode workers, chunk, detail edge, allow roots).
 
 **Resolve**:
-Flag, else `BIOSCAN_*` variable, else the `[serve]` table of a `bioscan.toml`, else default, done once per process
+Flag, else `GARDENER_ENGINE_*` variable, else the `[serve]` table of a `gardener.toml`, else default, done once per process
 (`serve_config.resolve`).
 
 **Allow roots**:
@@ -263,7 +263,7 @@ Every timed point of one or more GPX files and their segments, merged in time or
 _Avoid_: route (a GPX `rte` has no times), log
 
 **Outing**:
-One photographer's photos of one trip and the track(s) recorded alongside: the unit `bioscan geotag` works on (one
+One photographer's photos of one trip and the track(s) recorded alongside: the unit `gardener-engine geotag` works on (one
 `--tz`, one clock offset per camera), and a group in the synthetic scenarios (same observer and day).
 _Avoid_: session, hike
 
@@ -292,18 +292,18 @@ outside the track unless extrapolation holds an end.
 ## Aesthetics
 
 **Aesthetic head**:
-A linear map from the whole-frame SigLIP2 vector to a score (`bioscan.aesthetic.Head`): weights, bias, the
+A linear map from the whole-frame SigLIP2 vector to a score (`gardener.aesthetic.Head`): weights, bias, the
 vectors' mean and scale, the rating range that maps to 0-1, and its provenance, in one sha-checked JSON file.
 The `aesthetics` stage scores every frame with it; the score only reorders frames, it never rejects one.
 _Avoid_: aesthetic model (there is no second backbone), predictor, quality (that is identify's per-box sharpness and exposure, and the `quality` stage)
 
 **General head**:
-The aesthetic head shipped with bioscan (`data/aesthetic/eva-head-v1.json`, option `head: builtin`), fitted on EVA's
+The aesthetic head shipped with gardener (`data/aesthetic/eva-head-v1.json`, option `head: builtin`), fitted on EVA's
 mean scores (CC0 annotations). Never fitted on AVA.
 _Avoid_: default model, base model
 
 **Personal head**:
-An aesthetic head fitted on the owner's own ratings (`bioscan aesthetic train --ratings`), pulled toward the
+An aesthetic head fitted on the owner's own ratings (`gardener-engine aesthetic train --ratings`), pulled toward the
 general head; the stage blends the two by `blend`, the personal head's weight. Stays on the owner's machine.
 _Avoid_: user model, fine-tune (the backbone is never trained)
 
@@ -323,7 +323,7 @@ _Avoid_: outing (geotag's term: one camera, one track), session, burst
 **Learning curve**:
 Agreement (Spearman on held-out trips) of freshly fitted personal heads against the number of the owner's ratings
 they were fitted on (50, 100, 200, 500, 1,000), next to the general head and the blend on the same frames
-(`bioscan aesthetic eval`).
+(`gardener-engine aesthetic eval`).
 
 ## Culling
 
@@ -387,8 +387,8 @@ _Avoid_: sequence, encounter (an encounter is wider and stored)
 The one name a Gardener photo is known by wherever one name per photo is shown (its tile, 同一对象): the species a
 person confirmed on it (on the largest such box when several), else the species of its main animal, the largest box,
 when that box has a species-level name, else the largest box that has one (`identities.main_subjects`, 契约修订 17).
-Read-side, from the current identifications. Not the BioScan **Subject** (best box by detector score), which the
-cull and `bioscan bench` keep. Pages that count or filter by species (species cards, `species=` filters, encounters,
+Read-side, from the current identifications. Not the Gardener Engine **Subject** (best box by detector score), which the
+cull and `gardener-engine bench` keep. Pages that count or filter by species (species cards, `species=` filters, encounters,
 progress) use every species on the photo, not this one.
 _Avoid_: top species, best species, photo species (as a vaguer synonym)
 
@@ -441,7 +441,7 @@ within a burst and a scene category; it never rejects.
 
 **Aesthetic golden set**:
 A frozen folder of the owner's labelled frames (`images.csv`, optional `pairs.csv`) that any aesthetic scorer is held to
-with `bioscan bench aesthetic` (docs/research/2026-09-24-aesthetic-golden-set.md). Its sha256 ties reports together;
+with `gardener-engine bench aesthetic` (docs/research/2026-09-24-aesthetic-golden-set.md). Its sha256 ties reports together;
 a changed set is a new version.
 _Avoid_: test set (alone), benchmark data
 
@@ -494,11 +494,11 @@ _Avoid_: milestone, phase (the strategy doc's roadmap phases)
 ## Evaluation harness
 
 **Preds file**:
-`preds.ndjson` from `bioscan eval`: a meta line, then the run's result/error events and its `done`.
+`preds.ndjson` from `gardener-engine eval`: a meta line, then the run's result/error events and its `done`.
 
 **Report**:
 `report.json` (schema `bioscan-report`): one scored run as data — meta, metrics per scope with Wilson
-intervals, per-species and per-family tables, one row per image (`bioscan bench run` / `bench report`).
+intervals, per-species and per-family tables, one row per image (`gardener-engine bench run` / `bench report`).
 _Avoid_: results, scores (eval's `report.md` is the markdown view of the same run)
 
 **Scope**:
@@ -533,7 +533,7 @@ One Import/Scan job: sources, background text, a capability config; persists and
 
 **Task run** (运行):
 One execution of a task (scan, append, rescan, retry) with its config and scope snapshot; never rewrites an earlier one.
-_Avoid_: Run (that is a BioScan `/run` request; a task run may drive several)
+_Avoid_: Run (that is a Gardener Engine `/run` request; a task run may drive several)
 
 **Asset** (素材):
 What the user reviews: one photo (RAW + same-stem JPEG in one folder) or one whole video, with its files.
@@ -578,4 +578,4 @@ score), top max(10%, 20) kept, so a weak shoot still gets one. A view, never a m
 _Avoid_: AI pick (the per-photo suggestion verdict, which can be empty for a whole weak shoot)
 
 **Capability** (能力):
-A user-facing analysis switch (content, species, quality, ...) mapped to BioScan stages and reducers; not a model.
+A user-facing analysis switch (content, species, quality, ...) mapped to Gardener Engine stages and reducers; not a model.

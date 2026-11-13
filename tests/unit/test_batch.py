@@ -5,10 +5,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from bioscan.service import pipeline
-from bioscan.service.adapters import geo
-from bioscan.service.adapters.owlv2 import Detection
-from bioscan.service.names import NameList
+from gardener.service import pipeline
+from gardener.service.adapters import geo
+from gardener.service.adapters.owlv2 import Detection
+from gardener.service.names import NameList
 
 GATE = ("bird", "mammal", "other_animal", "person", "none")
 OPTS = {"top_k": 3, "geo": True, "species": True}

@@ -4,7 +4,7 @@
     uv run python scripts/cull_synth.py --boxes sources.csv --out runs/album-synth
 
 Sources are photos with their subject box: the best identify box of each result in a preds file
-(`bioscan run --json`, `bioscan eval`), or a CSV `path,x0,y0,x1,y1[,scene]` (box normalised 0-1,
+(`gardener-engine run --json`, `gardener-engine eval`), or a CSV `path,x0,y0,x1,y1[,scene]` (box normalised 0-1,
 upright image). A source is used when its box is clear of the frame edges (so "cut" and "too small"
 have one meaning) and covers 2-50 % of the frame. Per source, deterministically from (seed, index):
 
@@ -23,7 +23,7 @@ have one meaning) and covers 2-50 % of the frame. Per source, deterministically 
 Every variant gets its own capture time, 10 minutes apart, so only burst frames can form a burst.
 Writes `<out>/photos/*.jpg` and `<out>/groundtruth-album.csv` with columns path, tier (album),
 keep, reject_reasons (";"-joined), burst_id, scene, taken_at, source, variant. docs/harness.md
-("Album tier") scores it: `bioscan bench run <out>/groundtruth-album.csv --profile album --tier album`.
+("Album tier") scores it: `gardener-engine bench run <out>/groundtruth-album.csv --profile album --tier album`.
 """
 from __future__ import annotations
 

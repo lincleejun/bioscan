@@ -4,9 +4,9 @@ import urllib.error
 
 import pytest
 
-from bioscan import contract
-from bioscan.cli import client, gt
-from bioscan.cli import main as cli
+from gardener import contract
+from gardener.cli import client, gt
+from gardener.cli import main as cli
 
 OK = [contract.result("/a.jpg", "0" * 64, {}, {}, {}, {}), contract.done(1, 0, 1.0)]
 PARTIAL = [contract.result("/a.jpg", "0" * 64, {}, {}, {}, {}), contract.error("/b.jpg", None, "decode: boom"),

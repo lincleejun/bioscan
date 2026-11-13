@@ -3,9 +3,9 @@
 import json
 import re
 
-from bioscan import aesthetic
-from bioscan.cli import aespage
-from bioscan.cli import cull as cc
+from gardener import aesthetic
+from gardener.cli import aespage
+from gardener.cli import cull as cc
 
 
 def _row(path, score=0.5, **kw):

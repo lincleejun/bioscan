@@ -5,9 +5,9 @@ import pytest
 from cull_fixtures import BOX, box, photo
 from PIL import Image, ImageFilter
 
-from bioscan import plugin
-from bioscan.plugins.quality import MANIFEST, REASONS
-from bioscan.plugins.quality import stage as q
+from gardener import plugin
+from gardener.plugins.quality import MANIFEST, REASONS
+from gardener.plugins.quality import stage as q
 
 BIRD = {"bird": 0.9, "mammal": 0.02, "other_animal": 0.01, "person": 0.0, "none": 0.07}
 SCENERY = {"bird": 0.01, "mammal": 0.01, "other_animal": 0.01, "person": 0.02, "none": 0.95}

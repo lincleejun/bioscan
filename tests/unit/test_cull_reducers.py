@@ -1,4 +1,4 @@
-"""The burst and select reducers (bioscan/cull.py) on crafted result events, and how profiles carry
+"""The burst and select reducers (gardener/cull.py) on crafted result events, and how profiles carry
 reducer options."""
 import base64
 import struct
@@ -6,7 +6,7 @@ import struct
 import pytest
 from cull_fixtures import result as ev
 
-from bioscan import cull, profile
+from gardener import cull, profile
 
 BURST = {"max_gap_s": 1.5, "min_cosine": 0.92}
 SELECT = {"per_category": 2, "dup_cosine": 0.95, "sharp_tie": 0.03, "exposure_ok": 0.2, "by": "group",
@@ -182,7 +182,7 @@ def test_waive_keys_are_scene_labels_groups_or_attributes():
 
 
 def test_profiles_carry_reducer_options(tmp_path):
-    f = tmp_path / "bioscan.toml"
+    f = tmp_path / "gardener.toml"
     f.write_text('[profile.x]\nstages = ["identify"]\nreducers = ["burst", "select"]\n'
                  '[profile.x.options.select]\nper_category = 3\n[profile.x.options.burst]\nmax_gap_s = 0.5\n')
     cfg = profile.load([("project", f)], env={})
@@ -233,7 +233,7 @@ def test_row_scene_and_row_scene_group():
 
 
 def test_scene_manifest_declares_both_metrics():
-    from bioscan.plugins.scene import MANIFEST
+    from gardener.plugins.scene import MANIFEST
     assert [m.name for m in MANIFEST.metrics] == ["scene_acc", "group_acc"]
     assert all(m.kind == "rate" for m in MANIFEST.metrics)
 

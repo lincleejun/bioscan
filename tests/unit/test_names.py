@@ -5,8 +5,8 @@ import time
 import numpy as np
 import torch
 
-from bioscan import contract
-from bioscan.service import names
+from gardener import contract
+from gardener.service import names
 
 AVI_HEADER = ["Sequence", "Taxon_rank", "Order", "Family", "Scientific_name", "English_name_AviList"]
 AVI_ROWS = [
@@ -69,7 +69,7 @@ def test_tol_text_matches_treeoflife_format():
 
 
 def test_read_avilist_v2026_headers_match_v2025(tmp_path):
-    from bioscan.cli import bench
+    from gardener.cli import bench
     v2026 = ["#", "RANK", "ORDER", "FAMILY", "SCIENTIFIC NAME", "ENGLISH NAME: AVILIST"]
     write_csv(tmp_path / "v2025.csv", AVI_HEADER, AVI_ROWS)
     write_csv(tmp_path / "v2026.csv", v2026, AVI_ROWS)
@@ -222,7 +222,7 @@ def test_a_person_is_never_named_as_a_species(tmp_path):
 
     from PIL import Image
 
-    from bioscan.service import candidates, pipeline
+    from gardener.service import candidates, pipeline
 
     data, tol, vecs = setup(tmp_path)
     write_csv(data / "mdd" / "mdd.csv", MDD_HEADER,
@@ -320,7 +320,7 @@ def test_build_name_map_small_sample():
 
 
 def test_cache_rebuilt_when_model_revision_changes(tmp_path, monkeypatch):
-    from bioscan.service.adapters import bioclip
+    from gardener.service.adapters import bioclip
 
     data, tol, _ = setup(tmp_path)
     cache = tmp_path / "cache"

@@ -1,15 +1,15 @@
-"""Profiles and bioscan.toml (bioscan/profile.py): the built-in profiles, the merge order, unknown
+"""Profiles and gardener.toml (gardener/profile.py): the built-in profiles, the merge order, unknown
 keys, the CLI's payload (unchanged without a profile), eval's request, the serve file layer and
-`bioscan config show`."""
+`gardener-engine config show`."""
 import json
 import subprocess
 import sys
 
 import pytest
 
-from bioscan import profile, serve_config
-from bioscan.cli import config as cli_config
-from bioscan.cli.main import build_payload, main, parser
+from gardener import profile, serve_config
+from gardener.cli import config as cli_config
+from gardener.cli.main import build_payload, main, parser
 
 BUILTIN = profile.builtin()
 
@@ -22,12 +22,12 @@ def write(path, text):
 
 def files(tmp_path, user="", project="", extra=None):
     """(label, path) list as config_files gives it, with the given contents ("" = no file)."""
-    out = [("user", tmp_path / "home" / ".config" / "bioscan" / "bioscan.toml"), ("project", tmp_path / "bioscan.toml")]
+    out = [("user", tmp_path / "home" / ".config" / "gardener" / "gardener.toml"), ("project", tmp_path / "gardener.toml")]
     for (_, p), text in zip(out, (user, project)):
         if text:
             write(p, text)
     if extra is not None:
-        out.append(("BIOSCAN_CONFIG", write(tmp_path / "extra.toml", extra)))
+        out.append(("GARDENER_ENGINE_CONFIG", write(tmp_path / "extra.toml", extra)))
     return out
 
 
@@ -46,9 +46,9 @@ def test_builtin_profiles():
     assert wild.options["geotag"]["gpx"] == [] and "geotag" not in profile.resolve(BUILTIN, "full").want
 
 
-def test_facing_is_opt_in_through_a_bioscan_toml(tmp_path):
+def test_facing_is_opt_in_through_a_gardener_toml(tmp_path):
     """The album profile leaves the facing stage out (one more OWLv2 call per photo, #27 step 2); a
-    bioscan.toml that lists it runs it after identify, with no new model to load."""
+    gardener.toml that lists it runs it after identify, with no new model to load."""
     assert "facing" not in profile.resolve(BUILTIN, "album").want
     cfg = profile.load(files(tmp_path, project='[profile.album]\nstages = ["identify", "embed", "aesthetics", "quality", '
                                                '"scene", "facing"]\n'), env={})
@@ -65,7 +65,7 @@ def test_waive_keys_must_name_a_scene_category():
 
 def test_no_profile_resolves_as_before(tmp_path):
     """The service's request without a profile: `full`, i.e. every stage's defaults under the request."""
-    from bioscan.plugin import merge_options
+    from gardener.plugin import merge_options
 
     for opts in (None, {"identify": {"top_k": 3}}, {"jpg": {"out_dir": "/o"}, "embed": {"format": "f16_base64"}}):
         assert profile.resolve(BUILTIN, "full", options=opts).options == merge_options(opts)
@@ -90,7 +90,7 @@ def photos(tmp_path):
     (["--want", "jpg,embed", "--jpg-out", "OUT"], ["jpg", "embed"], {"jpg": {"out_dir": "OUT"}}),
 ])
 def test_payload_without_a_profile_is_the_one_sent_before_profiles(photos, tmp_path, args, want, options):
-    """Byte for byte (key order included) the body `bioscan run` built at b02f189."""
+    """Byte for byte (key order included) the body `gardener-engine run` built at b02f189."""
     out = str(tmp_path / "o")
     a = parser().parse_args(["run", str(photos), *[out if x == "OUT" else x for x in args]])
     body = build_payload(a, BUILTIN)
@@ -133,20 +133,20 @@ def test_merge_order_and_sources(tmp_path):
              '[serve]\nport = 9001\nchunk = 8\n',
         project='[profile.wildlife.options.identify]\ntop_k = 9\n[serve]\nchunk = 16\n',
         extra='[profile.wildlife.options.identify]\nkind_check = false\n'), env={})
-    assert cfg.default_profile() == ("wildlife", f"default_profile in user {tmp_path}/home/.config/bioscan/bioscan.toml")
+    assert cfg.default_profile() == ("wildlife", f"default_profile in user {tmp_path}/home/.config/gardener/gardener.toml")
     res = profile.resolve(cfg, "wildlife", options={"identify": {"kind_check": True}}, source="flag")
     o, src = res.options["identify"], res.sources["identify"]
     assert (o["top_k"], o["geo"], o["kind_check"], o["species"]) == (9, False, True, True)
-    assert src["top_k"] == f"project {tmp_path}/bioscan.toml" and src["geo"].startswith("user ")
+    assert src["top_k"] == f"project {tmp_path}/gardener.toml" and src["geo"].startswith("user ")
     assert src["kind_check"] == "flag" and src["species"] == "default"
-    assert profile.resolve(cfg, "wildlife").sources["identify"]["kind_check"] == f"BIOSCAN_CONFIG {tmp_path}/extra.toml"
+    assert profile.resolve(cfg, "wildlife").sources["identify"]["kind_check"] == f"GARDENER_ENGINE_CONFIG {tmp_path}/extra.toml"
     assert {k: v for k, (v, _) in cfg.serve().items()} == {"port": 9001, "chunk": 16}
 
 
 def test_profile_choice(tmp_path):
-    cfg = profile.load(files(tmp_path, project='default_profile = "album"\n'), env={"BIOSCAN_PROFILE": "wildlife"})
+    cfg = profile.load(files(tmp_path, project='default_profile = "album"\n'), env={"GARDENER_ENGINE_PROFILE": "wildlife"})
     assert profile.select(cfg, "full") == ("full", "--profile")
-    assert profile.select(cfg, None) == ("wildlife", "BIOSCAN_PROFILE")
+    assert profile.select(cfg, None) == ("wildlife", "GARDENER_ENGINE_PROFILE")
     cfg = profile.load(files(tmp_path, project='default_profile = "album"\n'), env={})
     assert profile.select(cfg, None)[0] == "album"
     assert profile.select(BUILTIN, None) == ("full", "default")
@@ -165,23 +165,23 @@ def test_profile_choice(tmp_path):
     ('[serve]\nport = "80"\n', "serve.port must be int"),
     ('[serve]\nallow_roots = "/a"\n', "serve.allow_roots must be a list of paths"),
     ('default_profile = 3\n', "default_profile must be a string"),
-    ('[profile\n', "project .*bioscan.toml: "),
+    ('[profile\n', "project .*gardener.toml: "),
 ])
 def test_bad_files_are_errors_naming_the_file(tmp_path, text, message):
     with pytest.raises(ValueError, match=message) as e:
         profile.load(files(tmp_path, project=text), env={})
-    assert str(tmp_path / "bioscan.toml") in str(e.value)
+    assert str(tmp_path / "gardener.toml") in str(e.value)
 
 
 def test_missing_files(tmp_path):
     assert profile.load(files(tmp_path), env={}).names() == ["album", "full", "wildlife"]    # none: fine
-    with pytest.raises(ValueError, match="BIOSCAN_CONFIG: no such file"):
-        profile.load([("BIOSCAN_CONFIG", tmp_path / "none.toml")], env={})
-    env = {"BIOSCAN_CONFIG": str(tmp_path / "x.toml"), "XDG_CONFIG_HOME": str(tmp_path / "xdg")}
-    real = getattr(profile.config_files, "real", profile.config_files)       # tests/bioscan_test_env.py
+    with pytest.raises(ValueError, match="GARDENER_ENGINE_CONFIG: no such file"):
+        profile.load([("GARDENER_ENGINE_CONFIG", tmp_path / "none.toml")], env={})
+    env = {"GARDENER_ENGINE_CONFIG": str(tmp_path / "x.toml"), "XDG_CONFIG_HOME": str(tmp_path / "xdg")}
+    real = getattr(profile.config_files, "real", profile.config_files)       # tests/gardener_test_env.py
     assert [(k, str(p)) for k, p in real(env, cwd=tmp_path)] == [
-        ("user", f"{tmp_path}/xdg/bioscan/bioscan.toml"), ("project", f"{tmp_path}/bioscan.toml"),
-        ("BIOSCAN_CONFIG", f"{tmp_path}/x.toml")]
+        ("user", f"{tmp_path}/xdg/gardener/gardener.toml"), ("project", f"{tmp_path}/gardener.toml"),
+        ("GARDENER_ENGINE_CONFIG", f"{tmp_path}/x.toml")]
 
 
 def test_request_errors_keep_their_messages():
@@ -207,8 +207,8 @@ def test_eval_request():
 
 
 def test_eval_meta_line_records_the_profile(tmp_path, monkeypatch):
-    from bioscan.cli import client
-    from bioscan.cli import eval as ev
+    from gardener.cli import client
+    from gardener.cli import eval as ev
 
     sent = []
     monkeypatch.setattr(client, "health", lambda url: {})
@@ -233,24 +233,24 @@ def test_serve_config_flag_env_file_default():
     assert c.allow_roots[0].endswith("/P") and not c.allow_roots[0].startswith("~")
     assert src == {"host": "user y", "port": "project x", "decode_workers": "default", "chunk": "project x",
                    "detail_edge": "user y", "allow_roots": "user y"}
-    c, src = serve_config.resolve_sources(chunk=2, env={"BIOSCAN_DETAIL_EDGE": "5000", "BIOSCAN_CHUNK": "4"}, file=file)
-    assert (c.chunk, src["chunk"], c.detail_edge, src["detail_edge"]) == (2, "flag", 5000, "env BIOSCAN_DETAIL_EDGE")
+    c, src = serve_config.resolve_sources(chunk=2, env={"GARDENER_ENGINE_DETAIL_EDGE": "5000", "GARDENER_ENGINE_CHUNK": "4"}, file=file)
+    assert (c.chunk, src["chunk"], c.detail_edge, src["detail_edge"]) == (2, "flag", 5000, "env GARDENER_ENGINE_DETAIL_EDGE")
     assert serve_config.resolve(env={}, file={"chunk": 8}).chunk == 8
     with pytest.raises(SystemExit, match="^chunk must be >= 1$"):
         serve_config.resolve(env={}, file={"chunk": 0})
 
 
 def test_serve_reads_the_file(tmp_path, monkeypatch):
-    from bioscan.service import app
+    from gardener.service import app
 
     got = []
     monkeypatch.setattr(app, "serve", got.append)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    for var in ("XDG_CONFIG_HOME", "BIOSCAN_CONFIG", "BIOSCAN_CHUNK", "BIOSCAN_ALLOW_ROOTS", "BIOSCAN_DETAIL_EDGE",
-                "BIOSCAN_DECODE_WORKERS"):
+    for var in ("XDG_CONFIG_HOME", "GARDENER_ENGINE_CONFIG", "GARDENER_ENGINE_CHUNK", "GARDENER_ENGINE_ALLOW_ROOTS", "GARDENER_ENGINE_DETAIL_EDGE",
+                "GARDENER_ENGINE_DECODE_WORKERS"):
         monkeypatch.delenv(var, raising=False)
-    project = write(tmp_path / "bioscan.toml", '[serve]\nport = 9100\nchunk = 12\nallow_roots = ["/photos"]\n')
+    project = write(tmp_path / "gardener.toml", '[serve]\nport = 9100\nchunk = 12\nallow_roots = ["/photos"]\n')
     monkeypatch.setattr(profile, "config_files", lambda env=None: [("project", project)])
     assert main(["serve"]) == 0
     app.main([])
@@ -261,16 +261,16 @@ def test_serve_reads_the_file(tmp_path, monkeypatch):
 def test_launchd_bakes_the_file_and_points_the_job_at_it(tmp_path, monkeypatch, capsysbinary):
     import plistlib
 
-    project = write(tmp_path / "bioscan.toml", '[serve]\nport = 9100\nallow_roots = ["/photos"]\ndetail_edge = 4096\n')
+    project = write(tmp_path / "gardener.toml", '[serve]\nport = 9100\nallow_roots = ["/photos"]\ndetail_edge = 4096\n')
     monkeypatch.setattr(profile, "config_files", lambda env=None: [("project", project)])
-    for var in ("BIOSCAN_CHUNK", "BIOSCAN_DECODE_WORKERS"):
+    for var in ("GARDENER_ENGINE_CHUNK", "GARDENER_ENGINE_DECODE_WORKERS"):
         monkeypatch.delenv(var, raising=False)
     assert main(["serve", "--launchd", "--chunk", "8"]) == 0
     p = plistlib.loads(capsysbinary.readouterr().out)
     args = p["ProgramArguments"]
     assert args[args.index("--port") + 1] == "9100" and args[args.index("--chunk") + 1] == "8"
     assert args[-4:] == ["--allow-root", "/photos", "--detail-edge", "4096"]
-    assert p["EnvironmentVariables"]["BIOSCAN_CONFIG"] == str(project)
+    assert p["EnvironmentVariables"]["GARDENER_ENGINE_CONFIG"] == str(project)
 
 
 # ---- config show ---------------------------------------------------------------------------
@@ -278,28 +278,40 @@ def test_launchd_bakes_the_file_and_points_the_job_at_it(tmp_path, monkeypatch, 
 def test_config_show(tmp_path, capsys):
     cfg = profile.load(files(tmp_path, project='[profile.album.options.identify]\ntop_k = 3\n[serve]\nchunk = 8\n'),
                        env={})
-    d = cli_config.show("album", cfg, env={"BIOSCAN_DETAIL_EDGE": "4000"})
+    d = cli_config.show("album", cfg, env={"GARDENER_ENGINE_DETAIL_EDGE": "4000"})
     assert d["profile"] == {"name": "album", "from": "--profile"}
     assert d["stages"] == {"want": ["identify", "embed", "aesthetics", "quality", "scene"], "from": "profiles.toml",
                            "run_order": ["aesthetics", "embed", "identify", "quality", "scene"]}
     assert d["reducers"] == ["burst", "select"] and d["options"]["select"]["per_category"] == {"value": 10, "from": "default"}
     assert d["models"] == ["owlv2", "siglip2"] and d["frame_pass"] and d["detail_copy"]
-    assert d["options"]["identify"]["top_k"] == {"value": 3, "from": f"project {tmp_path}/bioscan.toml"}
+    assert d["options"]["identify"]["top_k"] == {"value": 3, "from": f"project {tmp_path}/gardener.toml"}
     assert d["options"]["identify"]["species"] == {"value": False, "from": "profiles.toml"}
     assert d["options"]["embed"]["format"] == {"value": "list", "from": "default"}
-    assert d["serve"]["chunk"]["from"].startswith("project ") and d["serve"]["detail_edge"]["from"] == "env BIOSCAN_DETAIL_EDGE"
+    assert d["serve"]["chunk"]["from"].startswith("project ") and d["serve"]["detail_edge"]["from"] == "env GARDENER_ENGINE_DETAIL_EDGE"
     text = cli_config.show_text(d)
     assert "profile   album  (from --profile" in text and "identify.species" in text and "serve.chunk" in text
     assert cli_config.show(None, BUILTIN, env={})["profile"] == {"name": "full", "from": "default"}
 
 
 def test_config_show_command_stays_import_light(tmp_path):
-    """`bioscan config show` (and --profile on run/eval/bench) resolve profiles with no heavy import."""
+    """`gardener-engine config show` (and --profile on run/eval/bench) resolve profiles with no heavy import."""
     heavy = ("numpy", "torch", "transformers", "open_clip", "PIL")
-    code = ("import sys; from bioscan.cli import main; main.main(['config', 'show', '--profile', 'album']); "
+    code = ("import sys; from gardener.cli import main; main.main(['config', 'show', '--profile', 'album']); "
             "main.main(['config', 'show', '--json']); "
             f"print('HEAVY', [m for m in sys.modules if m.split('.')[0] in {heavy!r} "
-            "or m.startswith('bioscan.service') or m.endswith('.stage')])")
+            "or m.startswith('gardener.service') or m.endswith('.stage')])")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=tmp_path,
                          env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}).stdout
     assert "HEAVY []" in out and "run order aesthetics, embed, identify, quality, scene" in out and '"run_order"' in out
+
+
+def test_the_old_names_still_count_bioscan_toml_and_BIOSCAN_variables(tmp_path):
+    """Renamed 2026-11: a bioscan.toml is read where there is no gardener.toml, and BIOSCAN_X is GARDENER_ENGINE_X."""
+    (tmp_path / "bioscan.toml").write_text("")
+    assert dict(profile.config_files.real({}, cwd=tmp_path, home=tmp_path))["project"] == tmp_path / "bioscan.toml"
+    (tmp_path / "gardener.toml").write_text("")
+    assert dict(profile.config_files.real({}, cwd=tmp_path, home=tmp_path))["project"] == tmp_path / "gardener.toml"
+    code = "import os, gardener; print(os.environ['GARDENER_ENGINE_PROFILE'], os.environ['GARDENER_ENGINE_CHUNK'])"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         env={"BIOSCAN_PROFILE": "album", "BIOSCAN_CHUNK": "4", "GARDENER_ENGINE_CHUNK": "8"})
+    assert out.stdout.split() == ["album", "8"]

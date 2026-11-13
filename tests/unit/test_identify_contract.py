@@ -1,4 +1,4 @@
-"""The identify payload has one owner, bioscan/contract.py: what identify emits conforms to it, the
+"""The identify payload has one owner, gardener/contract.py: what identify emits conforms to it, the
 CLI reads it through it, and /products describes the same fields."""
 import json
 import re
@@ -7,10 +7,10 @@ import pytest
 from PIL import Image
 from test_batch import FRAMES, Models
 
-from bioscan import contract
-from bioscan.cli import eval as ev
-from bioscan.cli.render import Renderer
-from bioscan.service import pipeline, rules
+from gardener import contract
+from gardener.cli import eval as ev
+from gardener.cli.render import Renderer
+from gardener.service import pipeline, rules
 
 OPTION_SETS = [{"top_k": 3, "geo": True, "species": True}, {"top_k": 1, "geo": False, "species": True},
                {"top_k": 5, "geo": True, "species": False}]
@@ -90,5 +90,5 @@ def test_products_describes_the_contract_fields():
     assert list(box["quality"]) == list(contract.Quality.__annotations__)
     words = set(re.findall(r"\w+", box["species"]))
     assert set(contract.Species.__annotations__) <= words and set(contract.Candidate.__annotations__) <= words
-    from bioscan.service import stages
+    from gardener.service import stages
     assert stages.PRODUCTS["identify"]["output"] is doc

@@ -1,5 +1,5 @@
 """scripts/geotag_synth.py (synthetic GPX scenarios from the committed golden CSV) and
-`bioscan bench geotag`. Small cases only: the first outings of the golden set, no network."""
+`gardener-engine bench geotag`. Small cases only: the first outings of the golden set, no network."""
 import csv
 import importlib.util
 import json
@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from bioscan.cli import bench, geobench
-from bioscan.cli import main as cli
+from gardener.cli import bench, geobench
+from gardener.cli import main as cli
 
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = ROOT / "data" / "inat" / "groundtruth-inat-geotag.csv"   # the 1,625 rows the tier was measured on (#156)
@@ -118,7 +118,7 @@ def test_bench_geotag_command_and_gt_out(scenarios, tmp_path, capsys):
                      "--md", str(tmp_path / "r.md"), "--gt-out", str(tmp_path / "gt")])
     assert code in (0, 1)
     out = capsys.readouterr().out
-    assert "| perfect |" in out and "bioscan bench scorecard" in out
+    assert "| perfect |" in out and "gardener-engine bench scorecard" in out
     rep = json.loads((tmp_path / "r.json").read_text())
     assert set(rep["metrics"]) == {"all", "perfect"}
     with open(GOLDEN, newline="", encoding="utf-8") as f:
