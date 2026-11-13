@@ -34,7 +34,9 @@ def test_species_progress_goes_none_started_complete_over_every_frame_of_each_gr
         assert prog() == {OWL: (2, 0, 0), WREN["concept"]: (1, 0, 0)}
         assert enc(OWL) == sorted([(tuple(a[:5]), 0, 0), ((a[5],), 0, 0)])
         assert enc(WREN["concept"]) == [((a[4],), 0, 0)]
-        mark([a[5]], stars=3)                                            # stars without a use decide nothing
+        mark([a[5]], stars=3)                                            # a star keeps an undecided photo (#163)
+        assert prog()[OWL] == (2, 1, 1)
+        mark([a[5]], use="pending", stars=0)
         assert prog()[OWL] == (2, 0, 0)
 
         # started: two of the burst's five frames are marked; the other three are not, so the group is not decided

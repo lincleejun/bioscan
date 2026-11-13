@@ -441,10 +441,14 @@ class Store:
                                           ps)]
 
     # ---- marks (human layer, global per asset) ----
-    def set_marks(self, ids: list[str], fields: dict[str, Any], *, actor: str, reason: str | None = None,
-                  expect: dict[str, int] | None = None) -> dict[str, Any]:
+    def set_marks(self, ids: list[str] | None, fields: dict[str, Any], *, actor: str, reason: str | None = None,
+                  expect: dict[str, int] | None = None, only_pending: bool = False,
+                  task_id: str | None = None) -> dict[str, Any]:
+        """`ids`, or with `task_id` and no ids every photo of that task."""
         with self.tx() as c:
-            return apply_marks(c, ids, fields, actor=actor, reason=reason, expect=expect)
+            if ids is None:
+                ids = [r[0] for r in c.execute("SELECT asset_id FROM task_assets WHERE task_id = ?", (task_id,))]
+            return apply_marks(c, ids, fields, actor=actor, reason=reason, expect=expect, only_pending=only_pending)
 
     def undo(self, batch_id: str, actor: str) -> dict[str, Any]:
         with self.tx() as c:
@@ -603,10 +607,12 @@ def write_mark(c: sqlite3.Connection, asset_id: str, use: str | None, stars: int
 
 def apply_marks(c: sqlite3.Connection, ids: list[str], fields: dict[str, Any], *, actor: str,
                 reason: str | None = None, expect: dict[str, int] | None = None,
-                batch: str | None = None) -> dict[str, Any]:
+                batch: str | None = None, only_pending: bool = False) -> dict[str, Any]:
     """Set use (record|edit|reject|None = pending) and/or stars on `ids` as one batch (`batch` joins an
     existing one); Conflict when an `expect`ed version is stale. `flag` is the older form: pick = record
-    (an edit photo stays edit), reject = reject, None = pending."""
+    (an edit photo stays edit), reject = reject, None = pending. `only_pending`: a photo a person already
+    gave a use keeps it (完成: what is left undecided is kept, #163). A star on a pending photo keeps it
+    (use record): 有星就留下."""
     ids = list(dict.fromkeys(ids))
     found = {r[0] for part in chunks(ids) for r in c.execute(
         f"SELECT id FROM assets WHERE id IN ({marks_in(part)})", part)}
@@ -623,11 +629,15 @@ def apply_marks(c: sqlite3.Connection, ids: list[str], fields: dict[str, Any], *
     for i in ids:
         old = cur[i]
         use = old["use"]
-        if "use" in fields:
+        if only_pending and use is not None:
+            pass
+        elif "use" in fields:
             use = fields["use"]
         elif "flag" in fields:
             use = old["use"] if fields["flag"] == "pick" and old["use"] in ("record", "edit") else \
                 USE_OF_FLAG[fields["flag"]]
+        if fields.get("stars") and use is None:
+            use = "record"
         new = {"use": use, "stars": fields["stars"] if "stars" in fields else old["stars"]}
         changed = [f for f in ("use", "stars") if new[f] != old[f]]
         version = old["version"] + (1 if changed else 0)

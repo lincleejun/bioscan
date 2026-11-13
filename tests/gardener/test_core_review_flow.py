@@ -99,7 +99,7 @@ def test_keep_best_previews_its_reach_skips_protected_and_only_record_frames_and
         assert c.get(f"{API}/assets/{p3}").json()["use"] == "pending"          # a dry run writes nothing
         done = c.post(f"{API}/marks/keep-best", json={"asset_id": keep, "keep_use": "edit", "expect": r["expect"]}).json()
         uses = {i: c.get(f"{API}/assets/{i}").json()["use"] for i in (keep, protected, wren, p3, p4)}
-        assert uses == {keep: "edit", protected: "pending", wren: "pending", p3: "reject", p4: "reject"}
+        assert uses == {keep: "edit", protected: "record", wren: "pending", p3: "reject", p4: "reject"}   # the starred one was kept by its star (#163)
         assert c.post(f"{API}/marks/undo", json={"batch_id": done["batch_id"]}).json()["undone"] == 3
         assert all(c.get(f"{API}/assets/{i}").json()["use"] == "pending" for i in (keep, p3, p4))
         stale = c.post(f"{API}/marks/keep-best", json={"asset_id": keep, "expect": r["expect"]})

@@ -306,3 +306,24 @@ def test_a_species_card_is_confirmed_in_one_undoable_step(env, fakes, tmp_path):
         assert sp["to_confirm"] == [] and [(x["concept"], x["candidates"]) for x in sp["species"]] == [(k["concept"], 0)]
         assert c.post(f"{API}/identifications/undo", json={"batch_id": r.json()["batch_id"]}).status_code == 200
         assert [x["concept"] for x in c.get(f"{API}/species", params={"task": t["id"]}).json()["to_confirm"]] == [k["concept"]]
+
+
+def test_done_keeps_what_is_undecided_and_leaves_a_persons_marks(env, fakes, tmp_path):
+    """完成 (#163): `only: "pending"` gives the use to photos without one; for a whole task with `task_id`."""
+    src = tmp_path / "card"
+    photos(src, 4)
+    with env.client() as c:
+        t = scanned(c, src)
+        a = ids(c, task=t["id"])
+        use = lambda: [c.get(f"{API}/assets/{i}").json()["use"] for i in a]          # noqa: E731
+        assert c.post(f"{API}/marks", json={"asset_ids": [a[0]], "use": "reject"}).status_code == 200
+        assert c.post(f"{API}/marks", json={"asset_ids": [a[1]], "stars": 4}).status_code == 200
+        assert use() == ["reject", "record", "pending", "pending"]                   # a star keeps: 有星就留下
+        r = c.post(f"{API}/marks", json={"asset_ids": a[:3], "use": "record", "only": "pending"})
+        assert r.status_code == 200 and use() == ["reject", "record", "record", "pending"]
+        r = c.post(f"{API}/marks", json={"task_id": t["id"], "use": "record", "only": "pending"}).json()
+        assert use() == ["reject", "record", "record", "record"]
+        assert c.post(f"{API}/marks/undo", json={"batch_id": r["batch_id"]}).status_code == 200
+        assert use() == ["reject", "record", "record", "pending"]
+        assert c.post(f"{API}/marks", json={"task_id": "t_none", "use": "record"}).status_code == 404
+        assert c.post(f"{API}/marks", json={"asset_ids": a, "use": "record", "only": "all"}).status_code == 400
