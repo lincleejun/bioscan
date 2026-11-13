@@ -33,7 +33,7 @@ from bioscan.service.rules import (
     species_crops,
     species_level,
 )
-from bioscan.service.taxa import KIND_CHECK, ONE_WAY, VOCAB
+from bioscan.service.taxa import ALL_WORDS, KIND_CHECK, ONE_WAY, VOCAB, WORD_KIND
 
 CROP_BATCH = 32          # crop-gate crops per SigLIP2 call
 SPECIES_BATCH = 16       # species crops per BioCLIP call
@@ -305,6 +305,20 @@ def _identify_batch(engine: Models, frames: list[Frame], opts: dict[str, Any]) -
     second = _detect_many(engine, [frames[i].image for i in again], [plan[i][0] for i in again], True)
     kept.update(zip(again, _judged_many(engine, [(frames[i].image, dedupe(d)[:SECOND_PASS_TOP], plan[i][1])
                                                  for i, d in zip(again, second)])))
+    # Still nothing: the gate may have chosen the wrong words. Every vocabulary at once, at the first-pass
+    # floors; a box is filed under the frame's own kind when its word is in that vocabulary, else under the
+    # word's kind, and the crop gate judges it as usual.
+    if switch(opts, "all_vocab_pass"):
+        empty = [i for i in again if not kept[i]]
+        third = _detect_many(engine, [frames[i].image for i in empty], [ALL_WORDS] * len(empty), False)
+        work = []
+        for i, dets in zip(empty, third):
+            by_kind: dict[str, list[Detection]] = defaultdict(list)
+            for d in dedupe(dets):
+                by_kind[plan[i][1] if d.prompt in plan[i][0] else WORD_KIND[d.prompt]].append(d)
+            work += [(i, frames[i].image, ds, kind) for kind, ds in by_kind.items()]
+        for (i, *_), judged in zip(work, _judged_many(engine, [w[1:] for w in work])):
+            kept[i] = kept[i] + judged
     species_work = []
     for i in active:
         k = sorted(kept[i], key=lambda dk: -dk[0].confidence)
