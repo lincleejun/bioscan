@@ -2,11 +2,11 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-**Sort a wildlife shoot on your own Mac.** Point Gardener at a card or a folder: it previews every RAW and JPG, finds the animals, names the species, groups bursts, and gives you a review page ordered by species. You keep, star and reject; it never deletes and no photo leaves the machine.
+**Sort a wildlife shoot on your own Mac.** Point Gardener at a card or a folder: it previews every RAW and JPG, finds the animals, names the species, groups bursts, and gives you a review page ordered by species. You keep, star and reject. No photo leaves the machine, and no file is touched unless you confirm it.
 
 ## Video
 
-52 seconds, Chinese narration and captions: [assets/gardener-promo.mp4](assets/gardener-promo.mp4). Every screen in it is the real UI on a real shoot of 1,361 photos.
+52 seconds, Chinese captions, no narration: [assets/gardener-promo.mp4](assets/gardener-promo.mp4). Every screen in it is the real UI on a real shoot of 1,361 photos.
 
 ## What you get
 
@@ -14,7 +14,7 @@
 - **Species**: birds against AviList, mammals against MDD, every other animal against the TreeOfLife list, with a location prior from GPS. A wrong name is corrected once for the whole shoot.
 - **Review by group**: one burst is one group. Star what you keep, reject the rest, or finish many groups at once. Every mark can be undone.
 - **AI 选鸟**: a few best frames of each species, from different moments, in one collection.
-- **Out**: copy the keeps with checksums, hand stars and species keywords to Lightroom Classic, move confirmed rejects to the Trash.
+- **Out**: copy the keeps with checksums, hand stars and species keywords to Lightroom Classic, move the rejects you confirm to the Trash (recoverable).
 - **Three front ends, one local service**: web UI, `gardener` CLI, MCP.
 
 ## Quick start
