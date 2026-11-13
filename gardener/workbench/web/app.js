@@ -802,7 +802,7 @@
             <a class="btn" href="#/fs">在文件夹里选…</a>
           </div>
           <p class="field-err" id="err-sources" aria-live="polite"></p>
-          <div class="kind-pick" role="radiogroup" aria-label="加入方式">${[['browse', '只加入图库', '马上可以浏览，不跑模型；以后随时可以再归类'], ['sort', '加入并自动归类', '识别物种、归并连拍、给出选片建议，需要一些时间']].map(([k, t, h]) => `<label><input type="radio" name="kind" value="${k}" ${prefs.get('addkind', 'browse') === k ? 'checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}</div>
+          <div class="kind-pick" role="radiogroup" aria-label="加入方式">${[['browse', '只加入图库', '马上可以浏览，不跑模型；以后随时可以再归类'], ['sort', '加入并自动归类', '识别物种、归并连拍，标出好片和不好的，需要一些时间']].map(([k, t, h]) => `<label><input type="radio" name="kind" value="${k}" ${prefs.get('addkind', 'browse') === k ? 'checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}</div>
         </section>
         <details class="form-sec form-more" id="create-more"><summary>更多设置</summary>
           ${field('title', '名称', false, `<input id="f-title" name="title" class="input" maxlength="80" value="${esc(d.title)}" placeholder="默认用文件夹名" aria-describedby="err-title">`)}
@@ -851,7 +851,7 @@
     const body = Object.assign({ title: (d.title || '').trim() || baseName(d.sources[0]), subtitle: (d.subtitle || '').trim(), description: (d.description || '').trim(), sources: d.sources, run_mode: d.run_mode },
       kind === 'browse' ? { capabilities: ['meta'] } : { preset: d.preset, capabilities: d.caps }, loc || {});
     const t = await api('POST', '/tasks', body);
-    toast(kind === 'browse' ? `正在把「${t.title}」加入图库，照片会陆续出现` : `正在扫描「${t.title}」并归类`);
+    toast(kind === 'browse' ? `正在把「${t.title}」加入图库，照片会陆续出现` : `正在扫描「${t.title}」并归类；完成后看「好片」和「不好」`);
     await refreshTasks();
     if (kind === 'browse') { ui.lib = { task: t.id }; location.hash = '#/library'; } else location.hash = `#/task/${t.id}/scan`;
     return t;
@@ -2019,7 +2019,10 @@
   // 常用的几项放在一行（搜索框 + 下列四项），其余收进「更多筛选」；生效的筛选都显示为可移除的标签（owner 反馈 2026-11-12）
   const LIB_MAIN = ['task', 'use', 'stars_min', 'order'];
   const LIB_TXT = { date_from: ['起始日期', 'date'], date_to: ['结束日期', 'date'], content: ['内容', 'search', '场景大类或标签'], species: ['物种', 'search', '学名或俗名'], q: ['文件名', 'search', '包含…'] };
-  async function vLibrary() {
+  // 好片 / 不好（修订 21）：人的标记优先，没人标过的照片看 AI 建议；不好 = 按 X 淘汰的 + AI 认为不好的
+  const PILE = { good: ['好片', '选入修图的、打了星的，以及 AI 认为好的'], bin: ['不好', '按 X 淘汰的，以及 AI 认为不好的。选中按 R 放回；清空后移到废纸篓。'] };
+  async function vLibrary(p) {
+    const pile = (p && p.pile) || '';
     if (!S.cols.length) await refreshCols();
     let tags = [];
     try { tags = await api('GET', '/tags'); } catch (e) { tags = []; }
@@ -2037,11 +2040,11 @@
       const t = `${d ? d[1] : (LIB_TXT[k] || [k])[0]}：${o ? o[1] : v}`;
       return `<button type="button" class="fchip" data-action="lib-unset" data-k="${esc(k)}" aria-label="移除筛选 ${esc(t)}">${esc(t)}${ic('x')}</button>`;
     };
-    makeWs('query', rule, f.order || 'time', Object.keys(rule).join() === 'task' ? { view: 'library', encQuery: { task: rule.task } } : { view: 'library' });
-    return `<div class="wpage calm">
+    makeWs('query', pile ? Object.assign({}, rule, { pile }) : rule, f.order || 'time', !pile && Object.keys(rule).join() === 'task' ? { view: 'library', encQuery: { task: rule.task } } : { view: 'library' });
+    return `<div class="wpage calm${pile ? ' pile-' + pile : ''}">
       <header class="rv-head">
-        <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">图库</h1></div>
-          <div class="rh-actions">${Object.keys(rule).length ? '<button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button>' : ''}<details class="more"><summary class="btn sm ghost" aria-label="更多操作">更多</summary><div class="more-menu"><button type="button" data-action="save-smart">把当前筛选存为智能集合…</button><button type="button" data-action="export">导出…</button><button type="button" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></details></div></div>
+        <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">${pile ? PILE[pile][0] : '图库'}</h1>${pile ? `<span class="hint">${PILE[pile][1]}</span>` : ''}</div>
+          <div class="rh-actions">${pile === 'bin' ? '<button type="button" class="btn sm danger" data-action="bin-empty">清空…</button>' : ''}${Object.keys(rule).length ? '<button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button>' : ''}<details class="more"><summary class="btn sm ghost" aria-label="更多操作">更多</summary><div class="more-menu"><button type="button" data-action="save-smart">把当前筛选存为智能集合…</button><button type="button" data-action="export">导出…</button><button type="button" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></details></div></div>
         <form class="filters" id="lib-filters" aria-label="组合筛选">
           <div class="lf-row">
             <div class="lf-search">${ic('zoom')}<select class="input sm" data-lib-sfield aria-label="搜索范围"><option value="species" ${sf === 'species' ? 'selected' : ''}>物种</option><option value="q" ${sf === 'q' ? 'selected' : ''}>文件名</option></select><input class="input sm" type="search" name="${sf}" value="${esc(f[sf] || '')}" placeholder="${sf === 'q' ? '文件名包含…' : '学名或俗名'}" aria-label="搜索${sf === 'q' ? '文件名' : '物种'}"></div>
@@ -2689,7 +2692,7 @@
         return ['task', { id: parts[1], tab: parts[2] || 'preview' }];
       case 'review': return ['review', { id: parts[1], grid: parts[2] === 'grid' }];
       case 'collections': return parts[1] === 'deleted' ? ['deleted', {}] : ['collections', { cat: CAT[parts[1]] ? parts[1] : '' }];
-      case 'library': return ['library', {}];
+      case 'library': return ['library', { pile: PILE[parts[1]] ? parts[1] : '' }];
       case 'fs': return ['fs', { path: parts.slice(1).join('/') }];
       case 'species': return parts[1] === 'task' ? (parts[3] ? ['species-one', { concept: parts[3], task: parts[2] }] : ['species', { task: parts[2] }]) : parts[1] ? ['species-one', { concept: parts[1] }] : ['species', {}];
       case 'settings': return ['settings', {}];
@@ -2720,9 +2723,9 @@
     const here = view === 'flow-review' && $('.fr-rail .is-here');   // 左栏各自滚动：换物种后当前这一行仍在视野里
     if (here) here.scrollIntoView({ block: 'nearest' });
     prefs.set('route', location.hash);
-    const navKey = NAV_OF[view];
+    const navKey = view === 'library' && params.pile ? 'lib-' + params.pile : NAV_OF[view];
     $$('.nav a').forEach(a => { if (a.dataset.nav === navKey) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-    document.title = `${view === 'collections' && params.cat ? CAT[params.cat][0] : TITLES[view]} · Gardener`;
+    document.title = `${view === 'collections' && params.cat ? CAT[params.cat][0] : view === 'library' && params.pile ? PILE[params.pile][0] : TITLES[view]} · Gardener`;
     const h = $('h1', main);
     if (h && keepPos !== true) h.focus({ preventScroll: true });
     if (ui.ws) {
@@ -2990,6 +2993,7 @@
     },
     'restore-batch': el => undoBatch(el.dataset.id, el.dataset.label).then(() => { S.details.clear(); renderInspector(); }),
     'add-path': () => addPath(),
+    'bin-empty': async el => { el.disabled = true; try { const plan = await api('POST', '/cleanup-plans', { pile: 'bin' }); location.hash = `#/cleanup/${encodeURIComponent(plan.id)}`; } catch (e) { toast(errMsg(e)); el.disabled = false; } },
     'fs-add': async el => { el.disabled = true; try { await addToLibrary(Object.assign(defaultDraft(), { sources: [el.dataset.path] }), el.dataset.kind); } catch (e) { toast(errMsg(e)); el.disabled = false; } },
     'rm-path': el => { ui.draft.sources.splice(Number(el.dataset.i), 1); $('#path-chips').innerHTML = pathChipsHTML(ui.draft); $('#path-input').focus(); },
     'toggle-sel': el => {
@@ -3626,7 +3630,7 @@
     if (!list || !fsv.items.length) fsv.mode = 'grid';
     setTimeout(fsMount, 0);
     const l = fsv.list;
-    const head = l ? `${fsCrumbs(l)}<span class="hint">${l.photos.toLocaleString()} 张照片${l.videos ? ` · ${l.videos.toLocaleString()} 段视频` : ''}${l.dirs.length ? ` · ${l.dirs.length} 个子文件夹` : ''}</span>${fsTaskBadge(l.tasks)}${l.tasks && l.tasks.length ? '' : `<button type="button" class="btn sm primary" data-action="fs-add" data-kind="browse" data-path="${esc(l.path)}" title="只读取、不复制、不移动；马上可以在图库里浏览">加入图库</button><button type="button" class="btn sm" data-action="fs-add" data-kind="sort" data-path="${esc(l.path)}" title="加入图库，并识别物种、归并连拍、给出选片建议">加入并自动归类</button>`}` : '<span class="hint">在左侧选择一个文件夹</span>';
+    const head = l ? `${fsCrumbs(l)}<span class="hint">${l.photos.toLocaleString()} 张照片${l.videos ? ` · ${l.videos.toLocaleString()} 段视频` : ''}${l.dirs.length ? ` · ${l.dirs.length} 个子文件夹` : ''}</span>${fsTaskBadge(l.tasks)}${l.tasks && l.tasks.length ? '' : `<button type="button" class="btn sm primary" data-action="fs-add" data-kind="browse" data-path="${esc(l.path)}" title="只读取、不复制、不移动；马上可以在图库里浏览">加入图库</button><button type="button" class="btn sm" data-action="fs-add" data-kind="sort" data-path="${esc(l.path)}" title="加入图库，识别物种、归并连拍，并标出好片和不好的（没有主体、模糊、废片）">加入并自动归类</button>`}` : '<span class="hint">在左侧选择一个文件夹</span>';
     const body = fsv.err ? `<div class="grid-empty">${esc(errMsg(fsv.err))}</div>`
       : !l ? '<div class="grid-empty">选择左侧的文件夹，浏览里面的照片与视频。</div>'
         : fsv.items.length ? fsv.items.map(fsTile).join('') : `<div class="grid-empty">这个文件夹里没有照片或视频${l.dirs.length ? '，看看子文件夹' : ''}。</div>`;

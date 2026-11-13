@@ -7,11 +7,11 @@ from typing import Any
 
 KEYS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "ai", "judged", "online",
         "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "concept", "id_state", "q",
-        "changed_after", "versions", "use")
+        "changed_after", "versions", "use", "pile")
 CHOICES = {"media": ("photo", "video"), "flag": ("pick", "reject", "none"), "ai": ("pick", "reject", "none"),
            "judged": ("yes", "no"), "online": ("1", "0"), "has_gps": ("1", "0"),
            "analysis": ("pending", "done", "failed", "unavailable"), "versions": ("hide", "all", "only"),
-           "id_state": ("confirmed", "candidate", "unresolved", "reconfirm"), "use": ("record", "edit", "pending", "reject")}
+           "id_state": ("confirmed", "candidate", "unresolved", "reconfirm"), "use": ("record", "edit", "pending", "reject"), "pile": ("good", "bin")}
 MAX_DEPTH = 4    # smart rules may name other collections; this bounds the chain (and cycles)
 
 LATEST_AI = "(SELECT s.verdict FROM current_suggestions s WHERE s.asset_id = a.id)"
@@ -20,6 +20,12 @@ ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user' AND ci.co
              "candidate": "ci.level = 'species' AND ci.source = 'ai'",
              "unresolved": "ci.level IN ('genus', 'family', 'unconfirmed')",
              "reconfirm": "ci.qualifier = 'slash'", "any": "1"}      # a person's claim a list split reopened
+# 好片 / 不好 (ADR 0004 修订 21): a person's mark decides; where no person has marked the photo, the AI suggestion does
+TOUCHED = "EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id)"
+PILES = {"bin": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject') OR "
+                f"(NOT {TOUCHED} AND {LATEST_AI} = 'reject'))",
+         "good": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND (m.use = 'edit' OR m.stars > 0)) OR "
+                 f"(NOT {TOUCHED} AND {LATEST_AI} = 'pick'))"}
 BASENAME = "replace(a.primary_path, rtrim(a.primary_path, replace(a.primary_path, '/', '')), '')"
 # within one task (param: task id) an asset stands for its capture unless its representative is in that task too;
 # a version whose representative only another task holds (a wider folder) is that task's business
@@ -112,6 +118,8 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
             add("NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use IS NOT NULL)")
         else:
             add("EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = ?)", f["use"])
+    if "pile" in f:
+        add(PILES[f["pile"]])
     if "stars_min" in f:
         add("coalesce((SELECT m.stars FROM marks m WHERE m.asset_id = a.id), 0) >= ?", int(f["stars_min"]))
     if "stars" in f:
