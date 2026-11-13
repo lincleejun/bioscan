@@ -2855,7 +2855,7 @@
       try {
         const r = await api('GET', `/tasks/${encodeURIComponent(el.dataset.task)}/picks`, null, { per_species: n });
         if (!r.asset_ids.length) { toast('还没有认出物种的照片，选不出来'); return; }
-        const col = await api('POST', '/collections', { name: `AI 选鸟 · ${el.dataset.title} · 每种 ${n} 张`, task_id: el.dataset.task, asset_ids: r.asset_ids });
+        const col = await api('POST', '/collections', { name: `AI 选鸟 · ${el.dataset.title} · 每种 ${n} 张`, asset_ids: r.asset_ids });
         toast(`AI 选鸟：${r.species} 个物种，${r.asset_ids.length} 张，已放进集合`, { action: { label: '打开', run: () => { location.hash = '#/review/' + col.id; } } });
       } catch (e) { toast(errMsg(e)); } finally { el.disabled = false; }
     },

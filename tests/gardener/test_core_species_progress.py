@@ -88,3 +88,26 @@ def test_species_picks_take_the_best_frame_of_different_groups_and_never_a_rejec
         c.post(f"{API}/marks", json={"asset_ids": [a[2]], "stars": 5})
         assert picks(4)["asset_ids"] == [a[2]]                            # the rejected single is out; a star leads its group
         assert c.get(f"{API}/tasks/{t['id']}/picks", params={"per_species": 0}).status_code == 400
+
+
+def test_species_picks_spread_over_encounters_and_follow_the_main_species(env, fakes, tmp_path):
+    src = tmp_path / "card"
+    photos(src, 6)
+    fakes.boxes["IMG_0001.jpg"] = [owl_box(), owl_box((0.5, 0.5, 0.6, 0.6), **WREN)]   # a small second bird
+    with env.client() as c:
+        t = wait_task(c, create_task(c, [str(src)])["id"])
+        a = [i["id"] for i in c.get(f"{API}/assets", params={"task": t["id"], "order": "time", "limit": 100}).json()["items"]]
+        assert c.post(f"{API}/bursts/split", json={"at": a[3]}).status_code == 201
+        assert c.post(f"{API}/bursts/split", json={"at": a[5]}).status_code == 201     # groups [a0..a2] [a3 a4] [a5]
+        (e,) = c.get(f"{API}/encounters", params={"task": t["id"]}).json()["encounters"]
+        assert c.post(f"{API}/encounters/{e['id']}/split", json={"at": a[5]}).status_code == 201   # a5: its own encounter
+        c.post(f"{API}/marks", json={"asset_ids": [a[0]], "stars": 5})
+        c.post(f"{API}/marks", json={"asset_ids": [a[3]], "stars": 4})                 # both outrank the unstarred a5
+
+        def picks(n):
+            return c.get(f"{API}/tasks/{t['id']}/picks", params={"per_species": n}).json()
+
+        assert picks(1)["asset_ids"] == [a[0]]
+        assert picks(2)["asset_ids"] == [a[0], a[5]]                     # the other encounter before a second group of this one
+        assert picks(3)["asset_ids"] == [a[0], a[5], a[3]]
+        assert picks(3)["species"] == 1                                  # the wren is nobody's main species: no pick for it

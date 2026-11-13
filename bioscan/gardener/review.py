@@ -277,20 +277,25 @@ def species_progress(c: Any, task_id: str) -> dict[str, dict[str, int]]:
 
 def species_picks(c: Any, task_id: str, per_species: int) -> dict[str, Any]:
     """AI 选鸟 (契约修订 19): for each species of a task, the best frame (`representative`) of up to `per_species`
-    different groups, the groups being the ones `species_progress` counts. Best groups first, a group of an
+    different groups, the groups being the ones `species_progress` counts, over the photos whose **main species**
+    it is (a small second bird on a frame does not make it a pick of that species). Best groups first, a group of an
     encounter not yet picked from before a second group of the same encounter, so the picks are different moments.
     A frame a person rejected is never picked. Read-only: the caller puts the ids in a collection."""
-    from bioscan.gardener.identities import GONE
+    from bioscan.gardener.identities import GONE, main_subjects
 
     groups: dict[str, dict[Any, list[dict[str, Any]]]] = {}
-    for r in c.execute(
+    rows = c.execute(
             "SELECT DISTINCT ci.concept, a.id, em.encounter_id, s.burst_id, m.use, coalesce(m.stars, 0) stars, "
             "s.burst_rank, s.score, a.taken_at FROM task_assets ta "
             "JOIN assets a ON a.id = ta.asset_id JOIN current_ids ci ON ci.asset_id = a.id "
             "LEFT JOIN encounter_members em ON em.asset_id = a.id AND em.task_id = ta.task_id "
             "LEFT JOIN current_suggestions s ON s.asset_id = a.id LEFT JOIN marks m ON m.asset_id = a.id "
             f"WHERE ta.task_id = ? AND {IN_TASK_REP} AND ci.level = 'species' AND ci.concept IS NOT NULL {GONE} "
-            "AND coalesce(m.use, '') != 'reject' ORDER BY a.taken_at, a.id", (task_id, task_id)):
+            "AND coalesce(m.use, '') != 'reject' ORDER BY a.taken_at, a.id", (task_id, task_id)).fetchall()
+    main = main_subjects(c, sorted({r["id"] for r in rows}))
+    for r in rows:
+        if main.get(r["id"], {}).get("concept") != r["concept"]:
+            continue
         key = (r["encounter_id"], r["burst_id"] or r["id"]) if r["encounter_id"] else (None, r["id"])
         groups.setdefault(r["concept"], {}).setdefault(key, []).append(dict(r))
     picks: dict[str, None] = {}
