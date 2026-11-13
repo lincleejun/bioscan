@@ -3,8 +3,7 @@
 promo/compositions/*.html next to this file. Screens and photos come from cap.py (a running `gardener serve`);
 lines.json holds each caption line and its seconds. `npx hyperframes render` in promo/ makes the file.
 The committed file is that render without audio, small enough to upload on GitHub for the README player (10 MB limit):
-`ffmpeg -i render.mp4 -an -c:v libx264 -crf 27 -preset slow -pix_fmt yuv420p -movflags +faststart gardener-promo.mp4`;
-assets/readme/hero.gif is six short cuts of it at 800 px, 10 fps.
+`ffmpeg -i render.mp4 -an -c:v libx264 -crf 27 -preset slow -pix_fmt yuv420p -movflags +faststart gardener-promo.mp4`.
 PROMO_VOICE=1 adds assets/vo/l<N>.wav and assets/bgm/track.wav: only audio you may publish (not macOS system voices)."""
 import json
 import os
