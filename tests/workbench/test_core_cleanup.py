@@ -10,7 +10,7 @@ from pathlib import Path
 from core_fixtures import *  # noqa: F403 - fixtures (env, fakes)
 from core_fixtures import create_task, make_jpg, owl_box, wait_task
 
-from gardener.workbench import cleanup
+from gardener.workbench import cleanup, query
 from gardener.workbench import store as st
 
 API = "/api/v1"
@@ -291,7 +291,7 @@ def test_a_planned_file_that_is_no_longer_a_plain_file_is_reported_as_changed(en
     assert trash.moved == [] and r.json()["report"]["skipped"] == [{"asset_id": aids[1], "reason": "changed"}]
 
 
-def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_emptying_it_plans_both(env, fakes, tmp_path):
+def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_emptying_it_plans_both(env, fakes, tmp_path, monkeypatch):
     """修订 21: pile=bin / pile=good read the person's mark first and the AI suggestion only where nobody marked the
     photo; 放回 (use record) takes a photo out of the bin for good; emptying turns the AI-only rejects into the
     person's and plans them."""
@@ -312,6 +312,12 @@ def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_em
         c.post(f"{API}/marks", json={"asset_ids": [aids[2]], "use": "reject"})       # X on a photo the AI liked
         assert pile("bin") == sorted([aids[1], aids[2]]) and pile("good") == [aids[3]]
         c.post(f"{API}/marks", json={"asset_ids": [aids[3]], "use": "record"})       # 完成 keeps it: still the AI's pick
+        assert pile("good") == [aids[3]]
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:     # no picks: the best-ranked frames, up to the share
+            db.execute("UPDATE ai_suggestions SET verdict = 'none', rank = 2 WHERE asset_id = ?", (aids[3],))
+            db.execute("UPDATE ai_suggestions SET verdict = 'none', rank = 3 WHERE asset_id = ?", (aids[0],))
+        assert pile("good") == []                                      # a tenth of 4 suggestions is none
+        monkeypatch.setattr(query, "GOOD_SHARE", 0.5)                  # half of 4: ranks 1 and 2
         assert pile("good") == [aids[3]]
         p = c.post(f"{API}/cleanup-plans", json={"pile": "bin"}).json()
         assert p["scope"] == {"pile": "bin"} and sorted(i["asset_id"] for i in p["items"]) == sorted([aids[1], aids[2]])

@@ -851,7 +851,7 @@
     const body = Object.assign({ title: (d.title || '').trim() || baseName(d.sources[0]), subtitle: (d.subtitle || '').trim(), description: (d.description || '').trim(), sources: d.sources, run_mode: d.run_mode },
       kind === 'browse' ? { capabilities: ['meta'] } : { preset: d.preset, capabilities: d.caps }, loc || {});
     const t = await api('POST', '/tasks', body);
-    toast(kind === 'browse' ? `正在把「${t.title}」加入图库，照片会陆续出现` : `正在扫描「${t.title}」并归类；完成后看「好片」和「不好」`);
+    toast(kind === 'browse' ? `正在把「${t.title}」加入图库，照片会陆续出现` : `正在扫描「${t.title}」并归类；完成后看「好片」和「垃圾箱」`);
     await refreshTasks();
     if (kind === 'browse') { ui.lib = { task: t.id }; location.hash = '#/library'; } else location.hash = `#/task/${t.id}/scan`;
     return t;
@@ -2020,7 +2020,7 @@
   const LIB_MAIN = ['task', 'use', 'stars_min', 'order'];
   const LIB_TXT = { date_from: ['起始日期', 'date'], date_to: ['结束日期', 'date'], content: ['内容', 'search', '场景大类或标签'], species: ['物种', 'search', '学名或俗名'], q: ['文件名', 'search', '包含…'] };
   // 好片 / 不好（修订 21）：人的标记优先，没人标过的照片看 AI 建议；不好 = 按 X 淘汰的 + AI 认为不好的
-  const PILE = { good: ['好片', '选入修图的、打了星的，以及 AI 认为好的'], bin: ['不好', '按 X 淘汰的，以及 AI 认为不好的。选中按 R 放回；清空后移到废纸篓。'] };
+  const PILE = { good: ['好片', '选入修图的、打了星的，以及 AI 挑出的大约十分之一'], bin: ['垃圾箱', '按 X 或 Delete 删除的，以及 AI 认为不好的。选中按 R 放回；清空垃圾箱时才移到系统废纸篓。'] };
   async function vLibrary(p) {
     const pile = (p && p.pile) || '';
     if (!S.cols.length) await refreshCols();
@@ -2044,7 +2044,7 @@
     return `<div class="wpage calm${pile ? ' pile-' + pile : ''}">
       <header class="rv-head">
         <div class="rh-row"><div class="rh-title"><h1 tabindex="-1">${pile ? PILE[pile][0] : '图库'}</h1>${pile ? `<span class="hint">${PILE[pile][1]}</span>` : ''}</div>
-          <div class="rh-actions">${pile === 'bin' ? '<button type="button" class="btn sm danger" data-action="bin-empty">清空…</button>' : ''}${Object.keys(rule).length ? '<button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button>' : ''}<details class="more"><summary class="btn sm ghost" aria-label="更多操作">更多</summary><div class="more-menu"><button type="button" data-action="save-smart">把当前筛选存为智能集合…</button><button type="button" data-action="export">导出…</button><button type="button" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></details></div></div>
+          <div class="rh-actions">${pile === 'bin' ? '<button type="button" class="btn sm danger" data-action="bin-empty">清空垃圾箱…</button>' : ''}${Object.keys(rule).length ? '<button type="button" class="btn sm ghost" data-action="lib-clear">清除筛选</button>' : ''}<details class="more"><summary class="btn sm ghost" aria-label="更多操作">更多</summary><div class="more-menu"><button type="button" data-action="save-smart">把当前筛选存为智能集合…</button><button type="button" data-action="export">导出…</button><button type="button" data-action="lr-handoff">选中的在 Lightroom 打开…</button></div></details></div></div>
         <form class="filters" id="lib-filters" aria-label="组合筛选">
           <div class="lf-row">
             <div class="lf-search">${ic('zoom')}<select class="input sm" data-lib-sfield aria-label="搜索范围"><option value="species" ${sf === 'species' ? 'selected' : ''}>物种</option><option value="q" ${sf === 'q' ? 'selected' : ''}>文件名</option></select><input class="input sm" type="search" name="${sf}" value="${esc(f[sf] || '')}" placeholder="${sf === 'q' ? '文件名包含…' : '学名或俗名'}" aria-label="搜索${sf === 'q' ? '文件名' : '物种'}"></div>
@@ -3390,6 +3390,7 @@
     if (k === 'ArrowRight') { e.preventDefault(); move(1); }
     else if (k === 'ArrowLeft') { e.preventDefault(); move(-1); }
     else if ((k === 'ArrowDown' || k === 'ArrowUp') && !lb) { e.preventDefault(); move(k === 'ArrowDown' ? gridCols() : -gridCols()); }
+    else if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); markKey({ use: 'reject' }, '已放进垃圾箱'); }
     else if (KEY_USE[k.toLowerCase()]) markKey({ use: KEY_USE[k.toLowerCase()] }, useZh(KEY_USE[k.toLowerCase()]));
     else if (/^[0-5]$/.test(k)) markKey({ stars: Number(k) }, k === '0' ? '清除星级' : `${k} 星`);
     else if (k === 'Escape' && !lb && ws.sel.size > 1) { ws.sel = new Set(ws.current ? [ws.current] : []); applySel(); }
