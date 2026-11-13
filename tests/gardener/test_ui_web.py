@@ -46,7 +46,7 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "spview", "cands", "cpmode", "mode", "panel", "libmore"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "cploupe", "spview", "cands", "cpmode", "mode", "panel", "libmore"}, keys
 
 
 def test_nav_order():
@@ -358,3 +358,11 @@ def test_species_progress_comes_from_the_server_and_shows_on_the_rail_and_the_sp
     assert "if (ui.view === 'flow-review') await frReload();" in app                # pollFlow
     assert "if (ui.view === 'flow-review') frReload().catch(e => toast(errMsg(e)));" in app   # afterMarks
     assert ".sp-prog.is-done .bar > i { background: var(--accent); }" in css
+
+
+def test_review_compare_detail_inset_is_off_unless_switched_on():
+    """The eye / head inset in the Review compare covers the photo: off by default, a switch brings it back."""
+    app = text("app.js")
+    assert "const lp = prefs.get('cploupe', '0') === '1';" in app and "$('.cp-loupe', host).hidden = !lp;" in app
+    assert "if (!lp || a.media !== 'photo' || a.preview !== 'ready') return;" in app      # off: no extra detail request
+    assert "data-cp-loupe" in app and "prefs.set('cploupe', t.checked ? '1' : '0');" in app

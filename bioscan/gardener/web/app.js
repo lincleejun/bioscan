@@ -522,7 +522,7 @@
     if (rail && safeForStructure()) { swap(rail, `<h2>本次拍到</h2>${railHTML(t, sp, k.concept)}`); const m = $('.rl-more', rail); if (m && more && more.open) m.open = true; }
   }
 
-  // 原像素比较（PRD §08、图 3）：两张同尺度，大图保留全图上下文，左下角是眼部（找不到则头部、动物）原像素细节；
+  // 原像素比较（PRD §08、图 3）：两张同尺度，大图保留全图上下文；“细节小窗”开着时（偏好 cploupe，默认关）左下角是眼部（找不到则头部、动物）原像素细节；
   // 胶片条是本拍摄段的全部帧；四种用途作用于“当前选择”这一格。
   const cp = { panes: [], loupes: [] };
   function cpPaneHTML(i) {
@@ -568,7 +568,9 @@
     const sync = prefs.get('cmpsync', '1') === '1', o = sync && cp.panes.find((p, j) => p && j !== i && dvLive.has(p));
     const v = cp.panes[i] = dvMount($('.cp-view', host), a, o ? { z: o.z, cx: o.cx, cy: o.cy } : null, cpOnView);
     v.pane = i;
-    if (a.media !== 'photo' || a.preview !== 'ready') return;
+    const lp = prefs.get('cploupe', '0') === '1';      // 细节小窗默认关：它挡住画面，还要多取一次原像素和部位
+    $('.cp-loupe', host).hidden = !lp;
+    if (!lp || a.media !== 'photo' || a.preview !== 'ready') return;
     const lv = cp.loupes[i] = dvMount($('.cp-lv', host), a, null, () => cpMark(v));
     lv.pane = i;
     ensureDetail(a.id).then(() => setTimeout(() => cpLoupeFocus(lv, v), 0));
@@ -623,6 +625,7 @@
         <p class="hint">${esc((fmtTime((A(e.asset_ids[0]) || {}).taken_at) || '').slice(11))} · ${e.photos} 张 · ← → 换帧 · Enter 留这张、其余淘汰 · [ ] 上一组 / 下一组 · ${PREVIEW_NOTE}</p></div>
         <div class="cp-ctl"><div class="seg" role="group" aria-label="比较方式"><button type="button" class="seg-btn" data-action="cp-mode" data-v="2" aria-pressed="${cp.shown.length === 2}" ${other ? '' : 'disabled'}>${ic('compare')}双图比较</button><button type="button" class="seg-btn" data-action="cp-mode" data-v="1" aria-pressed="${cp.shown.length === 1}">${ic('lib')}单图</button></div>
           <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-sync ${sync ? 'checked' : ''}><span>同步缩放</span></label>
+          <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-loupe ${prefs.get('cploupe', '0') === '1' ? 'checked' : ''}><span>细节小窗</span></label>
           <button type="button" class="icon-btn" data-action="cp-full" aria-label="全屏" title="全屏">${ic('expand')}</button></div></header>
       <div class="cp-panes n${cp.shown.length}" id="cp-panes"></div>
       <div class="cp-film" id="cp-strip">${cpStripHTML()}</div>
@@ -3353,6 +3356,9 @@
       route(true);
     } else if (t.matches('[data-cp-sync]')) {
       prefs.set('cmpsync', t.checked ? '1' : '0');
+    } else if (t.matches('[data-cp-loupe]')) {
+      prefs.set('cploupe', t.checked ? '1' : '0');
+      cpRender();
     } else if (t.dataset.actionChange === 'batch-stars' && t.value !== '') {
       const n = Number(t.value);
       doMark(Array.from(ui.ws.sel), { stars: n }, n ? `批量 ${n} 星` : '批量清除星级');
