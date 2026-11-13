@@ -789,7 +789,12 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     @r.post("/marks")
     def post_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
-        ids = strs(body.get("asset_ids"), "asset_ids")
+        """`asset_ids`, or `task_id` for every photo of a task; `only: "pending"` leaves photos that already
+        have a use as they are (完成 of a group, a species or a task: #163)."""
+        tid = text(body, "task_id")
+        ids = None if tid and body.get("asset_ids") is None else strs(body.get("asset_ids"), "asset_ids")
+        if body.get("only") not in (None, "pending"):
+            raise Error("only must be pending")
         fields: dict[str, Any] = {}
         if "use" in body:              # contract revision 5B: the four uses; `flag` is the older form
             if body["use"] not in st.USES or "flag" in body:
@@ -803,14 +808,16 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
             if not isinstance(body["stars"], int) or isinstance(body["stars"], bool) or not 0 <= body["stars"] <= 5:
                 raise Error("stars must be 0..5")
             fields["stars"] = body["stars"]
-        if not ids or not fields:
-            raise Error("asset_ids and use, flag or stars are required")
+        if (not ids and not tid) or not fields:
+            raise Error("asset_ids (or task_id) and use, flag or stars are required")
+        if tid and not store.one("SELECT 1 FROM tasks WHERE id = ?", (tid,)):
+            raise NotFound(f"no task {tid}")
         expect = body.get("expect")
         if expect is not None and (not isinstance(expect, dict) or not all(isinstance(v, int) for v in expect.values())):
             raise Error("expect must be {asset_id: version}")
         reason = body.get("reason")
         return store.set_marks(ids, fields, actor=actor, reason=reason if isinstance(reason, str) else None,
-                               expect=expect)
+                               expect=expect, only_pending=body.get("only") == "pending", task_id=tid)
 
     @r.post("/marks/undo")
     def undo_marks(body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:

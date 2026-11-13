@@ -443,6 +443,7 @@
     const s = groupState(g);
     return `<div class="gt${s.done ? ' is-done' : ''}" data-group="${esc(g.id)}"><a class="et" href="${esc(groupHref(t.id, k, g))}" aria-label="第 ${g.n} 组，${g.photos} 张${s.any ? `，已留 ${s.kept} 张、淘汰 ${s.out} 张` : '，还没决定'}">${photo(a, 'thumb')}
       <span class="gt-n">${g.photos > 1 ? `${g.photos} 张` : '单张'}</span>${s.any ? `<span class="gt-s">${s.kept ? `<b class="k">留 ${s.kept}</b>` : ''}${s.out ? `<b class="x">淘 ${s.out}</b>` : ''}</span>` : ''}</a>
+      <span class="gt-acts">${s.done ? '' : `<button type="button" data-action="gr-done" data-ids="${esc(g.asset_ids.join(','))}" data-n="${g.n}" title="这一组看完了：还没决定的都留下（可撤销）">完成</button>`}${s.out === g.photos ? '' : `<button type="button" class="x" data-action="gr-none" data-ids="${esc(g.asset_ids.join(','))}" data-n="${g.n}" title="这一组都不要：全部记为不留，不删除文件（可撤销）">全部不要</button>`}</span>
       ${prev ? `<button type="button" class="gt-merge" data-action="gr-merge" data-a="${esc(prev.rep)}" data-b="${esc(g.rep)}" title="和前一组是同一只、同一个瞬间：并成一组" aria-label="把第 ${g.n} 组并入第 ${prev.n} 组">${ic('left')}并入前一组</button>` : ''}</div>`;
   }
   // 连着的几组如果拍的是同一个对象（服务端 review.subject_runs：主体物种相同、相隔不到半分钟、主体大小相近），
@@ -471,7 +472,7 @@
     if (!k) return '<div class="empty">本次还没有识别出物种。可以在「其他分组」里浏览全部照片，或等扫描继续。</div>';
     const done = groups.filter(g => groupState(g).done).length;
     return `<div class="fr-top"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i> · ${groups.length} 组 · ${fr.ids.length} 张 · 已决定 ${done} 组${k.confirmed ? '' : ' · <span class="txt-warn">只有模型候选</span>'}</p></div>
-      <div class="fr-acts">${k.candidates ? `<button type="button" class="btn sm" data-action="sp-confirm" data-concept="${esc(k.concept)}" data-taxon="${esc(k.taxon)}" data-common="${esc(k.common || '')}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认对了：本次拍摄里模型叫这个名字的照片全部记为你确认过（可撤销）">认对了，全部确认</button>` : ''}<button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
+      <div class="fr-acts">${k.candidates ? `<button type="button" class="btn sm" data-action="sp-confirm" data-concept="${esc(k.concept)}" data-taxon="${esc(k.taxon)}" data-common="${esc(k.common || '')}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认对了：本次拍摄里模型叫这个名字的照片全部记为你确认过（可撤销）">认对了，全部确认</button>` : ''}${done < groups.length ? `<button type="button" class="btn sm" data-action="sp-done" data-name="${esc(spName(k))}" title="这个物种看完了：还没决定的照片都留下（可撤销）">全部完成</button>` : ''}<button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
       <a class="btn sm ghost" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div>
       ${groupBlocksHTML(groups, g => groupTileHTML(t, k.concept, g, groups[g.n - 2]))}
       ${!groups.length ? '<div class="empty">这个物种在本次拍摄中还没有照片。</div>' : ''}`;
@@ -485,7 +486,7 @@
       <div class="rule"><span class="rule-ic ok">${ic('check')}</span><span>保护唯一记录<small>某物种只有一张时不会被自动淘汰</small></span><span class="rule-on">始终</span></div>
       <div class="rule"><span class="rule-ic warn">${ic('warn')}</span><span>未知物种进入待鉴定<small>只识别到属、科或不确定的照片不会消失</small></span><span class="rule-on">始终</span></div>
       ${k ? `<h2 class="rule-h">这个物种</h2><dl class="rule-n"><dt>已判断</dt><dd>${as.filter(a => a.judged).length} / ${as.length}</dd><dt>选入修图</dt><dd>${n('edit')}</dd><dt>保留记录</dt><dd>${n('record')}</dd><dt>待定</dt><dd>${n('pending')}</dd><dt>淘汰</dt><dd>${n('reject')}</dd></dl>` : ''}
-      <p class="hint">一组 = 一次连拍（同一只、同一个瞬间）。封面是这一组里按清晰度、主体完整度排的第一张。点一组进去：← → 换帧，Enter 留下当前这张并淘汰其余，自动到下一组。分错了：并入前一组，或在组里从某一张起拆开。</p>`;
+      <p class="hint">一组 = 一次连拍（同一只、同一个瞬间）。封面是这一组里按清晰度、主体完整度排的第一张。点一组进去：← → 换帧，1–5 打星（有星就留下），X 淘汰，Enter 完成这一组（没决定的都留下）并到下一组。分错了：并入前一组，或在组里从某一张起拆开。</p>`;
   }
   async function vFlowReview(p) {
     const t = await api('GET', `/tasks/${encodeURIComponent(p.id)}`);
@@ -504,8 +505,9 @@
       <div class="fr-body"><nav class="fr-rail" aria-label="本次拍到"><h2>本次拍到</h2>${railHTML(t, sp, k && k.concept)}</nav>
         <div class="fr-center" id="fr-center">${frCenterHTML()}</div>
         <aside class="fl-panel fr-rules" id="fr-rules">${frRulesHTML()}</aside></div>
-      <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>一组一组过：进组，留下最好的一张，其余淘汰，自动到下一组。</p></div>
-        <a class="btn ghost lg" href="#/import/${esc(t.id)}">完成与导入${ic('right')}</a>
+      <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>一组一组过：要留的打星（1–5），不要的淘汰；按「完成」时没决定的都留下。</p></div>
+        <a class="btn ghost" href="#/import/${esc(t.id)}" title="把留下的照片导入照片库：可选，之后再做也行">导入…</a>
+        <button type="button" class="btn ghost lg" data-action="task-done" data-task="${esc(t.id)}" title="这次拍摄看完了：还没决定的照片都留下（可撤销）。不导入。">完成${ic('check')}</button>
         ${first && k ? `<a class="btn primary lg" href="${esc(groupHref(t.id, k.concept, first))}">${fr.groups.some(g => groupState(g).any) ? '继续' : '开始'}：第 ${first.n} 组${ic('right')}</a>` : ''}</footer>
     </div>`;
   }
@@ -539,7 +541,9 @@
     const b = v => { const [label, key, tone, icon] = USE[v]; return `<button type="button" class="cp-use u-${v}" data-action="cp-use" data-v="${v}" aria-pressed="${a.use === v}">${icon ? ic(icon) : '<span class="q">?</span>'}<span>${label}</span><kbd>${key}</kbd></button>`; };
     return `<div class="cp-uses" role="group" aria-label="选片用途（作用于当前选择）">${['record', 'edit', 'pending', 'reject'].map(b).join('')}</div>
       <div class="cp-grp" role="group" aria-label="这一组">${cp.enc.n > 1 ? `<button type="button" class="btn sm ghost" data-action="cp-merge" title="和前一组是同一只、同一个瞬间（M）">并入前一组<kbd>M</kbd></button>` : ''}${cp.enc.asset_ids.indexOf(a.id) > 0 ? `<button type="button" class="btn sm ghost" data-action="cp-split" title="这一张起是另一个瞬间或另一只：拆成新的一组">从这张起拆开</button>` : ''}<button type="button" class="btn sm ghost" data-action="cp-move" title="这一组认错了：整组改成另一个物种（可撤销）">不是${esc(spName(cp.k))}…</button></div>
-      ${cp.enc.photos > 1 ? `<button type="button" class="btn primary" data-action="cp-quick" title="留下当前这张，这一组其余的标为淘汰，然后到下一组（可撤销）">留这张，其余淘汰<kbd>Enter</kbd></button>` : ''}
+      ${cp.enc.photos > 1 ? `<button type="button" class="btn sm ghost" data-action="cp-quick" title="留下当前这张，这一组其余的标为淘汰，然后到下一组（可撤销）">只留这张</button>` : ''}
+      <button type="button" class="btn sm ghost" data-action="cp-none" title="这一组都不要：全部记为不留，不删除文件（可撤销）">全部不要</button>
+      <button type="button" class="btn primary" data-action="cp-done" title="这一组看完了：还没决定的都留下，然后到下一组（可撤销）">完成这一组<kbd>Enter</kbd></button>
       <button type="button" class="btn lg" data-action="cp-next">下一组<kbd>]</kbd>${ic('right')}</button>`;
   }
   function cpBadge() { const a = A(cp.shown[cp.active]); return a.judged ? `<span class="tag ok">已决定 · ${esc(useZh(a.use))}</span>` : cp.enc.candidates.includes(a.id) ? '<span class="tag warn">AI 建议，等待确认</span>' : '<span class="tag soft">未判断</span>'; }
@@ -622,7 +626,7 @@
     const sync = prefs.get('cmpsync', '1') === '1';
     return `<div class="page fl cp">
       <header class="cp-head"><div><nav class="cp-crumbs" aria-label="位置"><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">Review</a><span>/</span><a href="#/task/${esc(t.id)}/review/${esc(encodeURIComponent(p.concept))}">${esc(spName(k))}</a><span>/</span><h1 tabindex="-1">第 ${e.n} / ${list.length} 组</h1><span id="cp-badge">${cpBadge()}</span></nav>
-        <p class="hint">${esc((fmtTime((A(e.asset_ids[0]) || {}).taken_at) || '').slice(11))} · ${e.photos} 张 · ← → 换帧 · Enter 留这张、其余淘汰 · [ ] 上一组 / 下一组 · ${PREVIEW_NOTE}</p></div>
+        <p class="hint">${esc((fmtTime((A(e.asset_ids[0]) || {}).taken_at) || '').slice(11))} · ${e.photos} 张 · ← → 换帧 · 1–5 打星即留 · Enter 完成这一组 · [ ] 上一组 / 下一组 · ${PREVIEW_NOTE}</p></div>
         <div class="cp-ctl"><div class="seg" role="group" aria-label="比较方式"><button type="button" class="seg-btn" data-action="cp-mode" data-v="2" aria-pressed="${cp.shown.length === 2}" ${other ? '' : 'disabled'}>${ic('compare')}双图比较</button><button type="button" class="seg-btn" data-action="cp-mode" data-v="1" aria-pressed="${cp.shown.length === 1}">${ic('lib')}单图</button></div>
           <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-sync ${sync ? 'checked' : ''}><span>同步缩放</span></label>
           <label class="cp-sync"><input type="checkbox" role="switch" class="switch" data-cp-loupe ${prefs.get('cploupe', '0') === '1' ? 'checked' : ''}><span>细节小窗</span></label>
@@ -646,7 +650,7 @@
       return true;
     }
     if (k === 'tab' && cp.shown.length === 2 && e.target === document.body) { e.preventDefault(); cp.active = 1 - cp.active; cpChrome(); return true; }
-    if (k === 'enter' && !e.target.closest('button, a, summary') && cp.enc.photos > 1) { e.preventDefault(); cpQuick(); return true; }
+    if (k === 'enter' && !e.target.closest('button, a, summary')) { e.preventDefault(); cpDone(); return true; }
     if (k === ']' || k === 'pagedown') { e.preventDefault(); cpNext(); return true; }
     if (k === '[' || k === 'pageup') { e.preventDefault(); cpNext(-1); return true; }
     if (k === 'm' && cp.enc.n > 1) { e.preventDefault(); cpMerge(); return true; }
@@ -667,6 +671,20 @@
     else { toast('这个物种的组都过完了'); location.hash = `#/task/${encodeURIComponent(cp.t.id)}/review/${encodeURIComponent(fl.concept)}`; }
   }
   // 留下当前这张，这一组其余的淘汰，直接到下一组；不弹对话框，toast 里可以撤销（契约修订 13）
+  // 收尾（#163）：完成 = 还没决定的都留下；全部不要 = 这些帧都记为不留。按服务端的全部帧算，不看浏览器载入了哪些。
+  async function bulkMark(body, label, after) {
+    try {
+      const r = await api('POST', '/marks', body);
+      ui.undo.push({ batch: r.batch_id, label });
+      toast(label, { action: { label: '撤销', run: doUndo } });
+      afterMarks(r.assets.filter(x => A(x.id)));
+      await pollNow();
+      if (after) after();
+    } catch (e) { toast(errMsg(e)); }
+  }
+  const DONE = { use: 'record', only: 'pending' };
+  const cpDone = () => bulkMark(Object.assign({ asset_ids: cp.enc.asset_ids }, DONE), `第 ${cp.enc.n} 组已完成`, () => cpNext());
+  const cpNone = () => bulkMark({ asset_ids: cp.enc.asset_ids, use: 'reject' }, `第 ${cp.enc.n} 组全部不要`, () => cpNext());
   async function cpQuick() {
     const id = cp.shown[cp.active], a = A(id), use = a.use === 'edit' ? 'edit' : 'record';
     try {
@@ -2806,6 +2824,12 @@
     'cp-use': el => cpUse(el.dataset.v),
     'cp-next': () => cpNext(),
     'cp-quick': () => cpQuick(),
+    'cp-done': () => cpDone(),
+    'cp-none': () => cpNone(),
+    'gr-done': el => bulkMark(Object.assign({ asset_ids: el.dataset.ids.split(',') }, DONE), `第 ${el.dataset.n} 组已完成`, () => route()),
+    'gr-none': el => bulkMark({ asset_ids: el.dataset.ids.split(','), use: 'reject' }, `第 ${el.dataset.n} 组全部不要`, () => route()),
+    'sp-done': el => bulkMark(Object.assign({ asset_ids: fr.ids }, DONE), `「${el.dataset.name}」已全部完成`, () => route()),
+    'task-done': el => bulkMark(Object.assign({ task_id: el.dataset.task }, DONE), '这次拍摄已完成：没决定的都已留下', () => route()),
     'cp-merge': () => cpMerge(),
     'cp-split': () => cpSplit(),
     'cp-move': () => chooseSpecies(`这一组（${cp.enc.photos} 张）是什么`, `现在是「${esc(spName(cp.k))}」。选对的物种，这一组里叫这个名字的都会改过去，可撤销。`, claim => {

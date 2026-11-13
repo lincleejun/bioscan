@@ -1299,6 +1299,10 @@ select.input { padding-right: 28px; }
 .gt-merge { position: absolute; left: 6px; bottom: 6px; display: none; align-items: center; gap: 2px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line-2); background: rgba(10, 13, 14, .9); color: var(--ink); font-size: 12px; cursor: pointer; }
 .gt-merge .ic { width: 12px; height: 12px; }
 .gt:hover .gt-merge, .gt-merge:focus-visible { display: inline-flex; }
+.gt-acts { position: absolute; right: 6px; bottom: 6px; display: none; gap: 4px; }
+.gt-acts button { padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line-2); background: rgba(10, 13, 14, .9); color: var(--ink); font-size: 12px; cursor: pointer; }
+.gt-acts button.x { color: var(--reject); }
+.gt:hover .gt-acts, .gt-acts:focus-within { display: inline-flex; }
 .cp-grp { display: flex; gap: 6px; align-items: center; margin-left: auto; }
 .cp-bar kbd { margin-left: 6px; }
 .rl-more > summary { padding: 8px 10px; color: var(--muted); font-size: 13px; cursor: pointer; }
