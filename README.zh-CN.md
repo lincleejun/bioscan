@@ -6,9 +6,9 @@
 
 把卡交给 Gardener。它在你自己的 Mac 上为每张 RAW 和 JPG 出预览，找出动物，认出物种，把连拍归成组，再按物种排好，等你来留、打星、淘汰。**照片不出本机，不经你确认不动任何文件。**
 
-https://github.com/user-attachments/assets/3201085d-e7ae-46b4-be80-db524a5c1cc2
+https://github.com/user-attachments/assets/18bfad8b-6864-4edf-bb72-e1d05f7c075f
 
-52 秒，无声，中文字幕。画面全部是真实界面，素材是一次真实拍摄。
+50 秒，无声，中文字幕。画面全部是真实界面，素材是一个 3,554 张的真实图库。
 
 ## 一次拍摄怎么整理
 

@@ -1,15 +1,17 @@
 # ruff: noqa  (a one-off generator, kept as it ran)
-"""The marketing video (assets/gardener-promo.mp4) as a HyperFrames project: writes promo/index.html and
-promo/compositions/*.html next to this file. Screens and photos come from cap.py (a running `gardener serve`);
+"""The marketing video (assets/gardener-promo.mp4) as a HyperFrames project: writes index.html and
+compositions/*.html into $PROMO_DIR (default: promo/ next to this file). Screens, photos and the counts
+(assets/ui/boxes.json) come from cap.py (a running `gardener serve` on a copy of a library);
 lines.json holds each caption line and its seconds. `npx hyperframes render` in promo/ makes the file.
 The committed file is that render without audio, small enough to upload on GitHub for the README player (10 MB limit):
 `ffmpeg -i render.mp4 -an -c:v libx264 -crf 27 -preset slow -pix_fmt yuv420p -movflags +faststart gardener-promo.mp4`.
-PROMO_VOICE=1 adds assets/vo/l<N>.wav and assets/bgm/track.wav: only audio you may publish (not macOS system voices)."""
+The film is silent: captions only."""
 import json
 import os
 from pathlib import Path
 
-P = Path(__file__).parent / "promo"
+P = Path(os.environ.get("PROMO_DIR") or Path(__file__).parent / "promo")
+N = json.load(open(P / "assets/ui/boxes.json"))["n"]      # all, good, bin, species, added: what the screens show
 lines = json.load(open(Path(__file__).parent / "lines.json"))
 VO_IN = 0.4
 starts, t = [], 0.0
@@ -18,7 +20,7 @@ for ln in lines:
     t += VO_IN + ln["dur"] + 0.35
 TOTAL = round(starts[-1] + VO_IN + lines[-1]["dur"] + 2.4, 2)
 ends = starts[1:] + [TOTAL]
-NAMES = ["hook", "scan", "review", "batch", "picks", "proof", "local", "end"]
+NAMES = ["hook", "lib", "sort", "good", "bin", "proof", "local", "end"]
 
 CSS = """
 #root{position:absolute;inset:0;overflow:hidden;font-family:'PingFang SC','Inter',sans-serif;color:#ededed}
@@ -70,83 +72,80 @@ def scene(name, dur, body, script, intro=True, outro=True):
 
 dur = [round(e - s, 2) for s, e in zip(starts, ends)]
 
-# 1 hook: the shoot floods in, the count, the question
+# 1 hook: the library floods in, the count, the question
 tiles = "".join(f'<img id="$p{i}" src="assets/ph/p{i:02d}.jpg" style="position:absolute;left:{(i % 8) * 240}px;top:{(i // 8) * 180}px;width:240px;height:180px;object-fit:cover;opacity:0">' for i in range(48))
 scene("hook", dur[0], f"""<div id="$grid" style="position:absolute;inset:0">{tiles}</div>
 <div id="$shade" style="position:absolute;inset:0;background:rgba(14,15,16,.82);opacity:0"></div>
 <div class="t" id="$n" style="top:300px;font-size:250px;font-weight:900;font-family:Inter,sans-serif;opacity:0"><span id="$num">0</span><span style="font-size:110px;font-family:'PingFang SC';font-weight:600"> 张</span></div>
-<div class="t" id="$s" style="top:610px;font-size:60px;color:#c6c6c6;opacity:0">一天，一张卡</div>
-<div class="t" id="$q" style="top:440px;font-size:130px;opacity:0">哪些值得<span class="acc">留下</span>？</div>""",
+<div class="t" id="$s" style="top:610px;font-size:60px;color:#c6c6c6;opacity:0">都在硬盘里</div>
+<div class="t" id="$q" style="top:440px;font-size:130px;opacity:0"><span class="acc">好的</span>那几张，在哪？</div>""",
       """
 for (let i = 0; i < 48; i++) { const k = (i * 29) % 48; if (k < 20) gsap.set('$p' + i, { opacity: 1 }); else tl.fromTo('$p' + i, { opacity: 0, scale: 1.15 }, { opacity: 1, scale: 1, duration: 0.22, ease: 'power3.out' }, 0.1 + (k - 20) * 0.05); }
-tl.to('$shade', { opacity: 1, duration: 0.4, ease: 'power2.inOut' }, 1.9);
-show('$n', 2.0, 0.25); show('$s', 2.3, 0.2);
-const c = { v: 0 }; tl.to(c, { v: 1361, duration: 1.1, ease: 'power3.out', onUpdate: () => { document.querySelector('$num').textContent = Math.round(c.v).toLocaleString('en-US'); } }, 2.0);
-hide('$n', 3.75); hide('$s', 3.75); show('$q', 3.95, 0.25);
-""", intro=False)
+tl.to('$shade', { opacity: 1, duration: 0.4, ease: 'power2.inOut' }, 1.7);
+show('$n', 1.8, 0.25); show('$s', 2.1, 0.2);
+const c = { v: 0 }; tl.to(c, { v: __ALL__, duration: 1.0, ease: 'power3.out', onUpdate: () => { document.querySelector('$num').textContent = Math.round(c.v).toLocaleString('en-US'); } }, 1.8);
+hide('$n', 3.3); hide('$s', 3.3); show('$q', 3.5, 0.25);
+""".replace("__ALL__", str(N["all"])), intro=False)
 
-# 2 scan: the real scan page; the three lanes; the species it found
-scene("scan", dur[1], """<div class="cam" id="$cam"><img src="assets/ui/scan.jpg"></div>
-<div class="chip" id="$c1" style="left:150px;top:660px;opacity:0">生成预览</div>
-<div class="chip" id="$c2" style="left:790px;top:660px;opacity:0">找出动物</div>
-<div class="chip" id="$c3" style="left:1420px;top:660px;opacity:0"><span class="acc">认出物种</span></div>""",
+# 2 lib: the real folder page; one click on 加入图库; the same photos in the library
+scene("lib", dur[1], """<div class="cam" id="$cam"><img src="assets/ui/fs.jpg"><img id="$i1" src="assets/ui/added.jpg" style="opacity:0"><div class="cur" id="$cur"></div></div>
+<div class="chip" id="$c1" style="left:1090px;top:420px;opacity:0">选一个<span class="acc">文件夹</span></div>
+<div class="chip" id="$c2" style="left:1130px;top:820px;opacity:0">不复制 · 不移动 · <span class="acc">马上可看</span></div>""",
       """
-gsap.set('$cam', { transformOrigin: '0 0', scale: 1.06, x: -58, y: -32 });
-cam('$cam', 0, 1.2, 960, 540, 1, 'power3.out');
-cam('$cam', 2.6, 0.6, 900, 245, 2.05);
-show('$c1', 3.5); show('$c2', 4.5); show('$c3', 5.4);
-hide('$c1', D - 1.05); hide('$c2', D - 1.05); hide('$c3', D - 1.05);
-cam('$cam', D - 1.0, 0.55, 1730, 420, 1.9);
+document.querySelector('$cur').innerHTML = CUR;
+gsap.set('$cam', { transformOrigin: '0 0' }); gsap.set('$cur', { x: 1500, y: 1150 });
+const go = (x, y, at, d) => tl.to('$cur', { x, y, duration: d || 0.5, ease: 'power3.inOut' }, at);
+const click = at => { tl.to('$cur', { scale: 0.82, duration: 0.07, ease: 'power2.in' }, at - 0.07); tl.to('$cur', { scale: 1, duration: 0.16, ease: 'power3.out' }, at); };
+show('$c1', 0.7); hide('$c1', 2.0);
+cam('$cam', 2.0, 0.6, 620, 150, 2.4);
+go(566, 20, 2.3, 0.7); click(3.3); flip('$i1', 3.3);
+tl.to('$cur', { opacity: 0, duration: 0.2 }, 3.6);
+cam('$cam', 3.7, 0.7, 960, 540, 1);
+show('$c2', 4.6);
 """)
 
-# 3 review: by species (the rail), one burst is one group (the tiles)
-scene("review", dur[2], """<div class="cam" id="$cam"><img src="assets/ui/review.jpg"></div>
-<div class="chip" id="$c1" style="left:1010px;top:250px;opacity:0">按<span class="acc">物种</span>排好</div>
+# 3 sort: the species it named (the real page), then one burst as one group (the real review page)
+scene("sort", dur[2], """<div class="cam" id="$cam"><img src="assets/ui/species.jpg"><img id="$i1" src="assets/ui/review.jpg" style="opacity:0"></div>
+<div class="chip" id="$c1" style="left:1180px;top:300px;opacity:0">认出<span class="acc">物种</span></div>
 <div class="chip" id="$c2" style="left:1180px;top:800px;opacity:0">一次连拍 = <span class="acc">一组</span></div>""",
       """
 gsap.set('$cam', { transformOrigin: '0 0' });
-cam('$cam', 0.25, 0.6, 520, 500, 1.75);
-show('$c1', 0.9); hide('$c1', 2.25);
-cam('$cam', 2.3, 0.6, 1066, 420, 1.55);
-show('$c2', 3.0); hide('$c2', D - 0.3);
-""", outro=False)
+cam('$cam', 0.3, 0.7, 700, 250, 1.8);
+show('$c1', 1.1); hide('$c1', 2.9);
+tl.set('$i1', { opacity: 1 }, 3.05); tl.set('$cam', { x: 0, y: 0, scale: 1 }, 3.05);
+cam('$cam', 3.1, 0.6, 1066, 420, 1.55);
+show('$c2', 3.8);
+""")
 
-# 4 batch: tick, shift-tick, 完成; tick two, 全部不要. Screens are the real states; only the first tick of each pair is drawn.
-tick = lambda i, x, y: f'<div id="$k{i}" style="position:absolute;left:{x}px;top:{y}px;width:24px;height:24px;border-radius:5px;background:#e6e6e6;opacity:0;display:grid;place-items:center"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#1a1a1a" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
-scene("batch", dur[3], f"""<div class="cam" id="$cam"><img src="assets/ui/review.jpg"><img id="$i1" src="assets/ui/selected.jpg" style="opacity:0"><img id="$i2" src="assets/ui/done.jpg" style="opacity:0"><img id="$i3" src="assets/ui/selected2.jpg" style="opacity:0"><img id="$i4" src="assets/ui/rejected.jpg" style="opacity:0">
-{tick(0, 562, 468)}{tick(1, 1386, 468)}
-<div id="$sh" style="position:absolute;left:1120px;top:520px;padding:4px 12px;border-radius:7px;background:#ededed;color:#1a1a1a;font:700 20px Inter,sans-serif;opacity:0">Shift</div>
-<div class="cur" id="$cur"></div></div>
-<div class="chip" id="$u" style="left:1250px;top:880px;opacity:0">↩ 每一步都可以<span class="acc">撤销</span></div>""",
-      """
-document.querySelector('$cur').innerHTML = CUR;
-gsap.set('$cam', { transformOrigin: '0 0', x: Math.min(0, 960 - 1.55 * 1066), y: Math.min(0, Math.max(1080 - 1080 * 1.55, 540 - 1.55 * 420)), scale: 1.55 });
-gsap.set('$cur', { x: 1500, y: 760 });
-const go = (x, y, at, d) => tl.to('$cur', { x, y, duration: d || 0.42, ease: 'power3.inOut' }, at);
-const click = at => { tl.to('$cur', { scale: 0.82, duration: 0.07, ease: 'power2.in' }, at - 0.07); tl.to('$cur', { scale: 1, duration: 0.16, ease: 'power3.out' }, at); };
-go(570, 476, 0.3, 0.5); click(0.85); flip('$k0', 0.85);
-go(1188, 476, 0.95); show('$sh', 1.05, 0.12); click(1.5); flip('$i1', 1.5); tl.set('$k0', { opacity: 0 }, 1.5); hide('$sh', 1.75, 0.12);
-go(745, 246, 1.75); click(2.45); flip('$i2', 2.45);
-go(1394, 476, 2.9, 0.5); click(3.5); flip('$k1', 3.5);
-go(570, 633, 3.6, 0.45); click(4.15); flip('$i3', 4.15); tl.set('$k1', { opacity: 0 }, 4.15);
-go(918, 246, 4.3); click(4.9); flip('$i4', 4.9);
-go(1300, 700, 5.1, 0.6);
-show('$u', 5.3);
-""", intro=False)
-
-# 5 picks: the real collection page, then the picked photos
-pk = "".join(f'<img id="$g{i}" src="assets/ph/p{j:02d}.jpg" style="position:absolute;left:{120 + (i % 4) * 425}px;top:{300 + (i // 4) * 205}px;width:405px;height:190px;object-fit:cover;border-radius:10px;opacity:0">' for i, j in enumerate([3, 19, 7, 27, 16, 43, 30, 23, 37, 10, 22, 41]))
-scene("picks", dur[4], f"""<div class="cam" id="$cam"><img src="assets/ui/picks.jpg"></div>
+# 4 good: the real 好片 page, then photos that are in it
+pk = "".join(f'<img id="$g{i}" src="assets/ph/g{i:02d}.jpg" style="position:absolute;left:{120 + (i % 4) * 425}px;top:{320 + (i // 4) * 205}px;width:405px;height:190px;object-fit:cover;border-radius:10px;opacity:0">' for i in range(12))
+scene("good", dur[3], f"""<div class="cam" id="$cam"><img src="assets/ui/good.jpg"></div>
 <div id="$shade" style="position:absolute;inset:0;background:rgba(18,19,20,.94);opacity:0"></div>
-<div class="t" id="$h" style="top:110px;font-size:92px;opacity:0"><span class="acc">AI 选鸟</span></div>
-<div class="t" id="$s" style="top:228px;font-size:42px;color:#c6c6c6;opacity:0">每个物种 · 不同瞬间 · 最好的几张</div>
+<div class="t" id="$h" style="top:90px;font-size:92px;opacity:0"><span class="acc">好片</span></div>
+<div class="t" id="$s" style="top:215px;font-size:46px;color:#c6c6c6;opacity:0">{N["all"]:,} 张里的 <span style="color:#fff;font-weight:600">{N["good"]}</span> 张</div>
 {pk}""",
       """
 gsap.set('$cam', { transformOrigin: '0 0' });
-cam('$cam', 0.2, 0.7, 560, 150, 2.1);
-tl.to('$shade', { opacity: 1, duration: 0.35, ease: 'power2.inOut' }, 1.75);
-show('$h', 1.85, 0.2); show('$s', 2.3, 0.2);
-for (let i = 0; i < 12; i++) tl.fromTo('$g' + i, { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'power3.out' }, 2.5 + i * 0.2);
+cam('$cam', 0.2, 0.7, 900, 200, 2.0);
+tl.to('$shade', { opacity: 1, duration: 0.35, ease: 'power2.inOut' }, 1.9);
+show('$h', 2.0, 0.2); show('$s', 2.4, 0.2);
+for (let i = 0; i < 12; i++) tl.fromTo('$g' + i, { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'power3.out' }, 2.7 + i * 0.18);
+""")
+
+# 5 bin: a photo selected in the library, X, the real 垃圾箱 page and its 清空 button
+scene("bin", dur[4], """<div class="cam" id="$cam"><img src="assets/ui/selected.jpg"><img id="$i1" src="assets/ui/bin.jpg" style="opacity:0">
+<div id="$key" style="position:absolute;left:440px;top:420px;width:84px;height:84px;border-radius:14px;background:#ededed;color:#1a1a1a;font:800 50px Inter,sans-serif;display:grid;place-items:center;box-shadow:0 8px 0 #9a9a9a;opacity:0">X</div></div>
+<div class="chip" id="$c1" style="left:1120px;top:330px;opacity:0">进<span class="acc">垃圾箱</span>，文件不动</div>
+<div class="chip" id="$c2" style="left:980px;top:420px;opacity:0">清空时，才移到废纸篓</div>""",
+      """
+gsap.set('$cam', { transformOrigin: '0 0' });
+cam('$cam', 0.2, 0.6, 520, 480, 2.0);
+show('$key', 1.0, 0.15); tl.to('$key', { y: 6, boxShadow: '0 2px 0 #9a9a9a', duration: 0.08 }, 1.5); tl.to('$key', { y: 0, boxShadow: '0 8px 0 #9a9a9a', duration: 0.14 }, 1.62);
+hide('$key', 1.95, 0.12);
+tl.set('$i1', { opacity: 1 }, 2.1); tl.set('$cam', { x: 0, y: 0, scale: 1 }, 2.1);
+show('$c1', 2.5); hide('$c1', 3.9);
+cam('$cam', 3.9, 0.6, 1640, 120, 2.3);
+show('$c2', 4.7);
 """)
 
 # 6 proof: the measured number, with what it was measured on
@@ -156,26 +155,21 @@ scene("proof", dur[5], """<div class="t" id="$k" style="top:150px;font-size:44px
 <div class="t" id="$m" style="top:810px;font-size:44px;color:#c6c6c6;opacity:0">定到种的照片里，97.1% 是对的</div>""",
       """
 show('$k', 0.5, 0.25);
-show('$n', 3.3, 0.2);
-const c = { v: 0 }; tl.to(c, { v: 91.7, duration: 1.3, ease: 'power3.out', onUpdate: () => { document.querySelector('$num').textContent = c.v.toFixed(1); } }, 3.3);
-show('$l', 3.6, 0.2); show('$m', 4.7, 0.25);
+show('$n', 2.9, 0.2);
+const c = { v: 0 }; tl.to(c, { v: 91.7, duration: 1.3, ease: 'power3.out', onUpdate: () => { document.querySelector('$num').textContent = c.v.toFixed(1); } }, 2.9);
+show('$l', 3.2, 0.2); show('$m', 4.3, 0.25);
 """)
 
-# 7 local: nothing leaves, nothing deleted, then the real 送到 Lightroom button
+# 7 local: nothing leaves, nothing touched, over the real compare page
 scene("local", dur[6], """<div class="cam" id="$cam"><img src="assets/ui/compare.jpg"></div>
 <div id="$shade" style="position:absolute;inset:0;background:rgba(16,17,18,.8);opacity:0"></div>
 <div class="t" id="$a" style="top:330px;font-size:104px;opacity:0">照片<span class="acc">不离开</span>你的电脑</div>
-<div class="t" id="$b" style="top:520px;font-size:104px;opacity:0">不经你确认，原片<span class="acc">一张不动</span></div>
-<div class="cam" id="$cam2" style="opacity:0"><img src="assets/ui/picks.jpg"></div>
-<div class="chip" id="$c" style="left:240px;top:330px;opacity:0">选好了，再交给 <span class="acc">Lightroom</span></div>""",
+<div class="t" id="$b" style="top:520px;font-size:104px;opacity:0">不经你确认，原片<span class="acc">一张不动</span></div>""",
       """
-gsap.set('$cam', { transformOrigin: '0 0' }); gsap.set('$cam2', { transformOrigin: '0 0', x: 1920 - 1920 * 2.4, y: 0, scale: 2.4 });
+gsap.set('$cam', { transformOrigin: '0 0' });
 cam('$cam', 0, D, 1000, 520, 1.12, 'none');
-tl.to('$shade', { opacity: 1, duration: 0.35 }, 0.25);
-show('$a', 0.45, 0.25); show('$b', 2.2, 0.25);
-hide('$a', 3.75); hide('$b', 3.75);
-tl.fromTo('$cam2', { opacity: 0, filter: 'blur(10px)' }, { opacity: 1, filter: 'blur(0px)', duration: 0.25, ease: 'power3.out' }, 3.95);
-show('$c', 4.5);
+tl.to('$shade', { opacity: 1, duration: 0.35 }, 0.9);
+show('$a', 1.1, 0.25); show('$b', 2.9, 0.25);
 """)
 
 # 8 end card: the product's own mark, the name, where to get it
@@ -221,14 +215,9 @@ capjs = "const tl = gsap.timeline({ paused: true });\n" + "".join(
 </template>
 """)
 
-clicks = [starts[3] + x for x in (0.85, 1.5, 2.45, 3.5, 4.15, 4.9)]
 hosts = "".join(
     f'<div id="{n}" data-composition-id="{n}" data-composition-src="compositions/{n}.html" data-start="{s}" data-duration="{d}" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080" style="z-index:1"></div>\n'
     for n, s, d in zip(NAMES, starts, dur))
-VOICE = os.environ.get("PROMO_VOICE") == "1"      # the wavs under assets/vo must be ones you may publish
-vo = "" if not VOICE else "".join(f'<audio id="vo{i + 1}" class="clip" src="assets/vo/l{i + 1}.wav" data-start="{round(s + VO_IN, 2)}" data-duration="{lines[i]['dur']}" data-track-index="{10}" data-volume="1"></audio>\n' for i, s in enumerate(starts))
-sfx = "".join(f'<audio id="ck{i}" class="clip" src="assets/sfx/click-soft.mp3" data-start="{round(c + 0.02, 2)}" data-duration="0.3" data-track-index="11" data-volume="0.4"></audio>\n' for i, c in enumerate(clicks))
-bgm = f'<audio id="bgm" class="clip" src="assets/bgm/track.wav" data-start="0" data-duration="{TOTAL}" data-track-index="12" data-volume="0.14" data-fade-in="0.6" data-fade-out="2"></audio>\n' if VOICE and (P / "assets/bgm/track.wav").exists() else ""
 (P / "index.html").write_text(f"""<!doctype html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=1920, height=1080">
@@ -237,8 +226,8 @@ bgm = f'<audio id="bgm" class="clip" src="assets/bgm/track.wav" data-start="0" d
 <body>
 <div id="root" data-composition-id="main" data-start="0" data-duration="{TOTAL}" data-width="1920" data-height="1080">
 {hosts}<div id="cap" data-composition-id="cap" data-composition-src="compositions/cap.html" data-start="0" data-duration="{TOTAL}" data-track-index="5" data-track-kind="captions" data-width="1920" data-height="1080" style="z-index:5"></div>
-{vo}{sfx}{bgm}</div>
+</div>
 <script>window.__timelines["main"] = gsap.timeline({{ paused: true }});</script>
 </body></html>
 """)
-print("total", TOTAL, "starts", starts, "groups", len(groups), "bgm", bool(bgm))
+print("total", TOTAL, "starts", starts, "groups", len(groups))
