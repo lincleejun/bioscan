@@ -323,7 +323,7 @@ def cmd_names_geo_gaps(a, source=None):
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="gardener-engine", description="Animal detection + species ID (thin client for the gardener service).",
+    p = argparse.ArgumentParser(prog="gardener-engine", description="Animal detection + species ID (thin client for the gardener-engine service).",
                                 epilog="exit codes: 0 ok, 1 some images failed, 2 service unreachable or refused, "
                                        "3 incomplete stream or upstream error, 130 interrupted")
     p.add_argument("--url", default=client.DEFAULT_URL, help="service URL (env GARDENER_ENGINE_URL; default %(default)s)")

@@ -168,7 +168,7 @@ def cmd_train(a) -> int:
         if Path(out).exists() and not a.force:                        # before embedding, the slow part
             print(f"{out} exists; pass --force to overwrite it", file=sys.stderr)
             raise SystemExit(2)
-        prov = {**aes.EVA_PROVENANCE, "date": today, "vectors": f"gardener service /run embed ({a.url})",
+        prov = {**aes.EVA_PROVENANCE, "date": today, "vectors": f"gardener-engine service /run embed ({a.url})",
                 "held_out": aes.eva_holdout_provenance()}
     else:
         rows = _ratings(a.ratings)
@@ -179,7 +179,7 @@ def cmd_train(a) -> int:
         prov = {"data": f"the owner's ratings from {os.path.abspath(a.ratings)} ({len(set(groups))} trips)",
                 "licence": "the owner's own ratings of the owner's own photos; the head stays with the owner",
                 "ratings_sha256": aes.ratings_sha(rows), "date": today,
-                "vectors": f"gardener service /run embed ({a.url})"}
+                "vectors": f"gardener-engine service /run embed ({a.url})"}
     vecs, failed = embed_paths(paths, a.url, a.embeddings)
     keep = [i for i, p in enumerate(paths) if p in vecs]
     if failed:

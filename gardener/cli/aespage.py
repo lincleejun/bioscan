@@ -352,7 +352,7 @@ async function deleteDrops(){const drops=LIVE().filter(r=>DEC[r.p]==='x');if(!dr
       for(const nm of sidecars(name)){try{await d.removeEntry(nm)}catch(e){}}GONE.add(r.p);delete DEC[r.p];toast(`deleting… ${n+miss} / ${drops.length}`)}
     save();refresh();toast(`deleted ${n} photo${n===1?'':'s'}${miss?`; ${miss} already gone`:''}`,8000)}
   catch(e){save();refresh();toast(e.name==='AbortError'?'':e.message,8000)}}
-/* ---- through the gardener service (POST /apply), when one runs: no folder picking, the paths are known ---- */
+/* ---- through the gardener-engine service (POST /apply), when one runs: no folder picking, the paths are known ---- */
 let svc=false;
 async function probeService(){if(!SERVICE||!TOKEN)return false;try{const c=new AbortController();setTimeout(()=>c.abort(),1500);const r=await fetch(SERVICE+'/health',{signal:c.signal});svc=r.ok}catch(e){svc=false}
   $('#svc').textContent=svc?'service: '+SERVICE.replace(/^https?:\/\//,''):(SERVICE?'service off (start gardener-engine serve to copy and delete by path)':'');return svc}

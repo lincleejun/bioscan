@@ -1,4 +1,4 @@
-"""Thin HTTP client for the gardener service (spec section 4). stdlib only."""
+"""Thin HTTP client for the gardener-engine service (spec section 4). stdlib only."""
 import json
 import os
 import urllib.error
@@ -20,7 +20,7 @@ def _open(req, url, timeout):
         raise ServiceError(f"service returned HTTP {e.code}: {body}") from None
     except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
         reason = getattr(e, "reason", e)
-        raise ServiceError(f"cannot reach gardener service at {url} ({reason}); start it with `gardener-engine serve`") from None
+        raise ServiceError(f"cannot reach gardener-engine service at {url} ({reason}); start it with `gardener-engine serve`") from None
 
 
 def iter_ndjson(path) -> Iterator[dict]:
