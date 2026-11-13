@@ -290,3 +290,19 @@ def test_a_largest_box_at_genus_falls_back_to_the_largest_box_with_a_species(env
         assert [i["species"]["common"] for i in items] == ["Pacific Wren"] * 2
         enc = c.get(f"{API}/encounters", params={"task": t["id"]}).json()["encounters"]
         assert len({b["run"] for e in enc for b in e["bursts"]}) == 1     # wren, then wren: one run
+
+
+def test_a_species_card_is_confirmed_in_one_undoable_step(env, fakes, tmp_path):
+    """「认对了，全部确认」: moving a species to itself turns every model candidate into a person's claim."""
+    src = tmp_path / "card"
+    photos(src, 3)
+    with env.client() as c:
+        t = scanned(c, src)
+        k = c.get(f"{API}/species", params={"task": t["id"]}).json()["to_confirm"][0]
+        claim = {"level": "species", "concept": k["concept"], "taxon": k["taxon"], "common": k["common"]}
+        r = c.post(f"{API}/identifications/move", json={"task_id": t["id"], "from_concept": k["concept"], "claim": claim})
+        assert r.status_code == 200 and len(r.json()["changed"]) == 3, r.text
+        sp = c.get(f"{API}/species", params={"task": t["id"]}).json()
+        assert sp["to_confirm"] == [] and [(x["concept"], x["candidates"]) for x in sp["species"]] == [(k["concept"], 0)]
+        assert c.post(f"{API}/identifications/undo", json={"batch_id": r.json()["batch_id"]}).status_code == 200
+        assert [x["concept"] for x in c.get(f"{API}/species", params={"task": t["id"]}).json()["to_confirm"]] == [k["concept"]]

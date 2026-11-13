@@ -471,7 +471,7 @@
     if (!k) return '<div class="empty">本次还没有识别出物种。可以在「其他分组」里浏览全部照片，或等扫描继续。</div>';
     const done = groups.filter(g => groupState(g).done).length;
     return `<div class="fr-top"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i> · ${groups.length} 组 · ${fr.ids.length} 张 · 已决定 ${done} 组${k.confirmed ? '' : ' · <span class="txt-warn">只有模型候选</span>'}</p></div>
-      <div class="fr-acts"><button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
+      <div class="fr-acts">${k.candidates ? `<button type="button" class="btn sm" data-action="sp-confirm" data-concept="${esc(k.concept)}" data-taxon="${esc(k.taxon)}" data-common="${esc(k.common || '')}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认对了：本次拍摄里模型叫这个名字的照片全部记为你确认过（可撤销）">认对了，全部确认</button>` : ''}<button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
       <a class="btn sm ghost" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div>
       ${groupBlocksHTML(groups, g => groupTileHTML(t, k.concept, g, groups[g.n - 2]))}
       ${!groups.length ? '<div class="empty">这个物种在本次拍摄中还没有照片。</div>' : ''}`;
@@ -2812,6 +2812,10 @@
       const nx = cp.list[cp.list.indexOf(cp.enc) + 1], back = `#/task/${encodeURIComponent(cp.t.id)}/review/${encodeURIComponent(fl.concept)}`;
       moveSpecies({ asset_ids: cp.enc.asset_ids, from_concept: fl.concept, claim }, `已改为 ${claim.common || claim.taxon || '不确定'}`, () => { if (nx) cpGo(nx); else location.hash = back; });
     }),
+    // 整个物种一键确认：对自己这个物种做一次「全部改为」，写成人工结论，可撤销
+    'sp-confirm': el => moveSpecies({ task_id: el.dataset.task, from_concept: el.dataset.concept,
+      claim: { level: 'species', concept: el.dataset.concept, taxon: el.dataset.taxon, common: el.dataset.common || null } },
+      `「${el.dataset.name}」已全部确认`, () => route(true)),
     'sp-move': el => chooseSpecies(`「${el.dataset.name}」全部改为`, '本次拍摄里现在叫这个名字的照片都会改过去（你确认过的也一起改），可撤销。', claim => {
       moveSpecies({ task_id: el.dataset.task, from_concept: el.dataset.concept, claim }, `「${el.dataset.name}」已全部改为 ${claim.common || claim.taxon || '不确定'}`, () => {
         const to = `#/task/${encodeURIComponent(el.dataset.task)}/review${claim.concept ? '/' + encodeURIComponent(claim.concept) : ''}`;
