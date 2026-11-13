@@ -53,3 +53,12 @@ VOCAB: dict[str, dict[str, float]] = {
 }
 
 ANIMALS = tuple(VOCAB)                   # gate classes that send a frame to the detector
+# Every vocabulary's words at once, for a frame whose own vocabulary found nothing: the gate may have picked
+# the wrong class (a bird gated mammal is only asked "a mammal" and scores 0; asked "a bird" it scores 0.8).
+# A word two vocabularies share keeps its lower floor and the kind of the first that lists it.
+ALL_WORDS: dict[str, float] = {}
+WORD_KIND: dict[str, str] = {}
+for _kind, _words in VOCAB.items():
+    for _word, _floor in _words.items():
+        ALL_WORDS[_word] = min(_floor, ALL_WORDS.get(_word, _floor))
+        WORD_KIND.setdefault(_word, _kind)
