@@ -1402,3 +1402,11 @@ select.input { padding-right: 28px; }
 .calm .burst-btn { background: rgba(0, 0, 0, .55); color: #fff; }
 .calm .ws.mode-grid .lib-foot .check-row { display: none; }
 .calm .batch-bar:empty { display: none; }
+.kind-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kind-pick label { position: relative; cursor: pointer; }
+.kind-pick input { position: absolute; opacity: 0; }
+.kind-pick span { display: flex; flex-direction: column; gap: 4px; height: 100%; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: var(--r); }
+.kind-pick small { color: var(--muted); }
+.kind-pick input:checked + span { border-color: var(--accent); background: var(--accent-soft); }
+.kind-pick input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.form-more > summary { cursor: pointer; font-weight: 600; }

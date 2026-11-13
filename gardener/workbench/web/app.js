@@ -284,7 +284,8 @@
   }
 
   // ---------- 待整理（PRD §05/§06）：每个批次 扫描 → Review → 导入，三步各自的真实进度 ----------
-  const inboxTasks = () => S.tasks.filter(t => !t.archived && !(t.import && t.import.status === 'completed' && (t.review || {}).judged >= (t.review || {}).total));
+  // 只加入图库的文件夹（只开 meta）不是待整理的批次
+  const inboxTasks = () => S.tasks.filter(t => !t.archived && (t.capabilities || []).some(c => c !== 'meta') && !(t.import && t.import.status === 'completed' && (t.review || {}).judged >= (t.review || {}).total));
   const flowHref = (t, step) => (step === 'import' ? `#/import/${encodeURIComponent(t.id)}` : `#/task/${encodeURIComponent(t.id)}/${step}`);
   function stepsHTML(t, here) {
     const s = t.scan || {}, r = t.review || {}, im = t.import;
@@ -791,40 +792,31 @@
     const d = ui.draft || (ui.draft = defaultDraft());
     const field = (id, label, req, input, hint) => `<div class="field"><label for="f-${id}">${label}${req ? ' <span class="req">必填</span>' : ''}</label>${input}${hint ? `<p class="hint">${hint}</p>` : ''}<p class="field-err" id="err-${id}" aria-live="polite"></p></div>`;
     return `<div class="page"><div class="narrow">
-      <a class="back" href="#/tasks">${ic('left')}任务</a>
-      <header class="page-head"><div><h1 tabindex="-1">新建扫描任务</h1><p class="lede">选择来源目录并补充背景。扫描只读取原片并建立记录，不会复制、移动或改名。</p></div></header>
+      <header class="page-head"><div><h1 tabindex="-1">添加照片</h1><p class="lede">选一个文件夹或存储卡。原片只读取，不复制、不移动、不改名。</p></div></header>
       <form id="create-form" class="form" novalidate>
         <section class="form-sec">
-          <h2>来源目录</h2>
-          <p class="hint">填写服务所在电脑上的绝对路径，可添加多张卡或多个目录。</p>
-          <ul class="path-chips" id="path-chips" aria-label="已添加的来源目录">${pathChipsHTML(d)}</ul>
+          <ul class="path-chips" id="path-chips" aria-label="已添加的文件夹">${pathChipsHTML(d)}</ul>
           <div class="path-add">
-            <label class="sr-only" for="path-input">目录路径</label>
+            <label class="sr-only" for="path-input">文件夹路径</label>
             <input id="path-input" class="input mono" placeholder="/Volumes/SD_CARD/DCIM" autocomplete="off" spellcheck="false" aria-describedby="err-sources">
-            <button type="button" class="btn" data-action="add-path">${ic('plus')}添加目录</button>
+            <a class="btn" href="#/fs">在文件夹里选…</a>
           </div>
           <p class="field-err" id="err-sources" aria-live="polite"></p>
+          <div class="kind-pick" role="radiogroup" aria-label="加入方式">${[['browse', '只加入图库', '马上可以浏览，不跑模型；以后随时可以再归类'], ['sort', '加入并自动归类', '识别物种、归并连拍、给出选片建议，需要一些时间']].map(([k, t, h]) => `<label><input type="radio" name="kind" value="${k}" ${prefs.get('addkind', 'browse') === k ? 'checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}</div>
         </section>
-        <section class="form-sec">
-          <h2>背景信息</h2>
-          ${field('title', '任务标题', true, `<input id="f-title" name="title" class="input" maxlength="80" value="${esc(d.title)}" aria-describedby="err-title">`)}
+        <details class="form-sec form-more" id="create-more"><summary>更多设置</summary>
+          ${field('title', '名称', false, `<input id="f-title" name="title" class="input" maxlength="80" value="${esc(d.title)}" placeholder="默认用文件夹名" aria-describedby="err-title">`)}
           ${field('subtitle', '副标题', false, `<input id="f-subtitle" name="subtitle" class="input" maxlength="120" value="${esc(d.subtitle)}" placeholder="地点 · 时间">`)}
           ${field('description', '描述', false, `<textarea id="f-description" name="description" class="input" rows="3" maxlength="2000">${esc(d.description)}</textarea>`, '描述只作为背景，不会被当作每张照片的精确地点或已确认物种。')}
           ${field('loc', '拍摄地点（经纬度）', false, `<input id="f-loc" name="loc" class="input mono" inputmode="decimal" autocomplete="off" value="${esc(d.loc || '')}" placeholder="37.457, -122.104" aria-describedby="err-loc">`, '照片没有 GPS 时，物种识别用这个位置排除不在当地分布的物种；照片自带 GPS 优先。')}
-        </section>
-        <section class="form-sec">
-          <h2>扫描预设与能力</h2>
+          <h2>归类用的预设与能力</h2>
           <div class="field"><label for="f-preset">预设</label><select id="f-preset" name="preset" class="input">${S.presets.map(p => `<option value="${esc(p.id)}" ${p.id === d.preset ? 'selected' : ''}>${esc(p.name)}${p.builtin ? '' : '（自定义）'}</option>`).join('')}</select></div>
           <div id="cap-toggles">${capToggles(d.caps, 'cap')}</div>
           <p class="hint">开启某能力会同时开启它依赖的能力。标为「不可用」的能力仍可选择，扫描时会如实记录为不可用，不会给出伪造结果。任务保存启动时的配置快照。</p>
-        </section>
-        <section class="form-sec">
-          <h2>运行模式</h2>
           <div class="seg-radio" role="radiogroup" aria-label="运行模式">${Object.entries(MODES).map(([k, r]) => `<label><input type="radio" name="run_mode" value="${k}" ${d.run_mode === k ? 'checked' : ''}><span>${r[0]}<small>${r[1]}</small></span></label>`).join('')}</div>
-          <p class="hint">运行模式只控制资源占用，不会关闭能力或降低分析质量。</p>
-        </section>
+        </details>
         <p class="field-err" id="err-submit" aria-live="polite"></p>
-        <footer class="form-foot"><a class="btn ghost" href="#/tasks">取消</a><button type="submit" class="btn primary">${ic('check')}创建并加入扫描队列</button></footer>
+        <footer class="form-foot"><a class="btn ghost" href="#/library">取消</a><button type="submit" class="btn primary">${ic('check')}开始</button></footer>
       </form>
     </div></div>`;
   }
@@ -853,24 +845,29 @@
     inp.focus();
     return true;
   }
+  const baseName = p => p.replace(/\/+$/, '').split('/').pop() || p;
+  // 加入图库（ADR 0004）：kind 'browse' 只清点与出预览（meta，不跑模型），'sort' 用设置好的预设与能力
+  async function addToLibrary(d, kind, loc) {
+    const body = Object.assign({ title: (d.title || '').trim() || baseName(d.sources[0]), subtitle: (d.subtitle || '').trim(), description: (d.description || '').trim(), sources: d.sources, run_mode: d.run_mode },
+      kind === 'browse' ? { capabilities: ['meta'] } : { preset: d.preset, capabilities: d.caps }, loc || {});
+    const t = await api('POST', '/tasks', body);
+    toast(kind === 'browse' ? `正在把「${t.title}」加入图库，照片会陆续出现` : `正在扫描「${t.title}」并归类`);
+    await refreshTasks();
+    if (kind === 'browse') { ui.lib = { task: t.id }; location.hash = '#/library'; } else location.hash = `#/task/${t.id}/scan`;
+    return t;
+  }
   async function submitCreate() {
     const inp = $('#path-input');
     if (inp.value.trim() && !addPath()) return;
     const d = ui.draft;
     showErr('sources', d.sources.length ? '' : '至少添加一个来源目录');
-    showErr('title', d.title.trim() ? '' : '请填写任务标题');
     if (!d.sources.length) { inp.focus(); return; }
-    if (!d.title.trim()) { $('#f-title').focus(); return; }
     const loc = parseLoc(d.loc);
     showErr('loc', loc ? '' : '格式：纬度, 经度，例如 37.457, -122.104');
-    if (!loc) { $('#f-loc').focus(); return; }
-    try {
-      const t = await api('POST', '/tasks', Object.assign({ title: d.title.trim(), subtitle: d.subtitle.trim(), description: d.description.trim(), sources: d.sources, preset: d.preset, capabilities: d.caps, run_mode: d.run_mode }, loc));
-      ui.draft = null;
-      toast(`已创建「${t.title}」并加入扫描队列`);
-      await refreshTasks();
-      location.hash = `#/task/${t.id}/preview`;
-    } catch (e) { showErr('submit', errMsg(e)); }
+    if (!loc) { $('#create-more').open = true; $('#f-loc').focus(); return; }
+    const kind = ($('input[name=kind]:checked') || {}).value || 'browse';
+    prefs.set('addkind', kind);
+    try { await addToLibrary(d, kind, loc); ui.draft = null; } catch (e) { showErr('submit', errMsg(e)); }
   }
 
   // ---------- 任务详情 ----------
@@ -2993,6 +2990,7 @@
     },
     'restore-batch': el => undoBatch(el.dataset.id, el.dataset.label).then(() => { S.details.clear(); renderInspector(); }),
     'add-path': () => addPath(),
+    'fs-add': async el => { el.disabled = true; try { await addToLibrary(Object.assign(defaultDraft(), { sources: [el.dataset.path] }), el.dataset.kind); } catch (e) { toast(errMsg(e)); el.disabled = false; } },
     'rm-path': el => { ui.draft.sources.splice(Number(el.dataset.i), 1); $('#path-chips').innerHTML = pathChipsHTML(ui.draft); $('#path-input').focus(); },
     'toggle-sel': el => {
       const ws = ui.ws, id = el.dataset.id;
@@ -3580,7 +3578,7 @@
   const fsImg = (x, size) => `${API}/fs/thumb?${new URLSearchParams({ path: x.path, size, v: x.mtime })}`;
   function fsTaskBadge(tasks) {
     if (!tasks || !tasks.length) return '';
-    return `<a class="fs-task" href="#/task/${esc(encodeURIComponent(tasks[0].id))}" title="已在任务中：${esc(tasks.map(t => t.title).join('、'))}">${ic('check')}任务</a>`;
+    return `<a class="fs-task" href="#/task/${esc(encodeURIComponent(tasks[0].id))}" title="已在图库中：${esc(tasks.map(t => t.title).join('、'))}">${ic('check')}已在图库</a>`;
   }
   function fsNode(d, depth) {
     const open = fsv.open.has(d.path), kids = fsv.kids.get(d.path), here = fsv.list && fsv.list.path === d.path;
@@ -3628,17 +3626,16 @@
     if (!list || !fsv.items.length) fsv.mode = 'grid';
     setTimeout(fsMount, 0);
     const l = fsv.list;
-    const head = l ? `${fsCrumbs(l)}<span class="hint">${l.photos.toLocaleString()} 张照片${l.videos ? ` · ${l.videos.toLocaleString()} 段视频` : ''}${l.dirs.length ? ` · ${l.dirs.length} 个子文件夹` : ''}</span>${fsTaskBadge(l.tasks)}` : '<span class="hint">在左侧选择一个文件夹</span>';
+    const head = l ? `${fsCrumbs(l)}<span class="hint">${l.photos.toLocaleString()} 张照片${l.videos ? ` · ${l.videos.toLocaleString()} 段视频` : ''}${l.dirs.length ? ` · ${l.dirs.length} 个子文件夹` : ''}</span>${fsTaskBadge(l.tasks)}${l.tasks && l.tasks.length ? '' : `<button type="button" class="btn sm primary" data-action="fs-add" data-kind="browse" data-path="${esc(l.path)}" title="只读取、不复制、不移动；马上可以在图库里浏览">加入图库</button><button type="button" class="btn sm" data-action="fs-add" data-kind="sort" data-path="${esc(l.path)}" title="加入图库，并识别物种、归并连拍、给出选片建议">加入并自动归类</button>`}` : '<span class="hint">在左侧选择一个文件夹</span>';
     const body = fsv.err ? `<div class="grid-empty">${esc(errMsg(fsv.err))}</div>`
       : !l ? '<div class="grid-empty">选择左侧的文件夹，浏览里面的照片与视频。</div>'
         : fsv.items.length ? fsv.items.map(fsTile).join('') : `<div class="grid-empty">这个文件夹里没有照片或视频${l.dirs.length ? '，看看子文件夹' : ''}。</div>`;
     return `<div class="wpage"><div class="ws lib fs mode-${esc(fsv.mode)} grid-${esc(prefs.get('grid', 'm'))}">
       <div class="lib-bar"><h1 tabindex="-1">文件夹</h1>${head}<div class="ws-tools"><button type="button" class="btn sm ghost" data-action="grid-size" aria-label="切换缩略图大小">${ic('grid')}</button></div></div>
-      <p class="fs-note">${ic('warn')}只浏览：不导入、不复制、不移动文件，也不写入 Gardener 的记录。要整理这些照片，请新建扫描任务。</p>
       <div class="lib-body"><nav class="lib-side fs-tree" id="fs-tree" aria-label="文件夹">${fsTreeHTML()}</nav>
         <section class="ws-pane" aria-label="照片"><div class="lib-loupe" id="fs-loupe"></div>
           <div class="grid-scroll" id="fs-scroll"><div class="grid" id="fs-grid" role="list">${body}</div><div id="fs-sentinel" aria-hidden="true"></div></div>
-          <div class="lib-foot">${fsViewsHTML()}<span class="hint">G 网格 · E 单张 · F 全屏 · ←/→ 换张 · 空格切换</span></div></section></div></div></div>`;
+          <div class="lib-foot">${fsViewsHTML()}</div></section></div></div></div>`;
   }
   function fsMount() {
     const tree = $('#fs-tree'), s = $('#fs-sentinel');

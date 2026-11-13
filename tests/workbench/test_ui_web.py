@@ -46,7 +46,7 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "cploupe", "spview", "cands", "picks", "cpmode", "mode", "panel", "libmore"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "cploupe", "spview", "cands", "picks", "cpmode", "mode", "panel", "libmore", "addkind"}, keys
 
 
 def test_nav_order():
@@ -296,7 +296,7 @@ def test_local_folder_browser_is_read_only_and_reuses_the_library_layout():
     fs = js[js.index("契约修订 12：本地目录"):js.index("契约修订 12 结束")]
     assert set(re.findall(r"api\('(\w+)', '(/fs/[\w/]+)'", fs)) == {("GET", "/fs/roots"), ("GET", "/fs/list")}
     assert "/fs/thumb?" in fs and 'loading="lazy"' in fs
-    assert "只浏览：不导入、不复制、不移动文件，也不写入 Gardener 的记录" in fs
+    assert 'data-action="fs-add" data-kind="browse"' in fs and "只读取、不复制、不移动" in fs   # adding is one click, and says so
     assert "ws lib fs mode-" in fs and "lib-loupe" in fs and "grid-scroll" in fs      # the library's layout classes
     for banned in ("/marks", "doMark", "ui.ws =", "starsHTML", "flagSeg"):           # no marks here
         assert banned not in fs, banned
