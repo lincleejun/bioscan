@@ -46,15 +46,22 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "cploupe", "spview", "cands", "picks", "cpmode", "mode", "panel", "libmore"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "cploupe", "spview", "cands", "picks", "cpmode", "mode", "panel", "libmore", "addkind"}, keys
 
 
 def test_nav_order():
-    # PRD §05: 待整理 · 所有照片 · (本地目录, 契约修订 12) · Collections (Wildlife · 旅行 · 精选 · 待修图) · 任务与导入
+    # ADR 0004: the library first, nouns only; 待整理 shows only while a batch is there; tasks live under 管理
     assert re.findall(r'data-nav="([\w-]+)"', text("index.html")) == [
-        "inbox", "library", "fs", "collections", "species", "col-trip", "col-featured", "col-edit", "tasks", "settings"]
+        "library", "lib-good", "lib-bin", "fs", "species", "sp-bird", "sp-mammal", "sp-other_animal",
+        "collections", "col-trip", "col-featured", "col-edit", "inbox", "settings"]
     labels = re.findall(r'data-nav="[\w-]+"[^>]*>.*?</svg>([^<]+)<', text("index.html"))
-    assert labels == ["待整理", "所有照片", "本地目录", "Collections", "Wildlife", "旅行", "精选", "待修图", "任务与导入", "管理"]
+    assert labels == ["图库", "好片", "不好", "文件夹", "野生动物", "鸟类", "哺乳类", "其他", "集合", "旅行", "精选", "待修图", "待整理", "管理"]
+    assert "prefs.get('route', '#/library')" in text("app.js")
+    assert 'href="#/tasks">扫描任务' in text("app.js") and 'href="#/new" class="nav-add"' in text("index.html")   # both still reachable
+    assert '.nav a[data-nav="inbox"]:not([aria-current="page"]):not(:has(.nav-has, .nav-n)) { display: none; }' in text("styles.css")
+    # one language: no English product nouns in what a user reads (comments aside)
+    code = "\n".join(line.partition("   // ")[0] for line in text("app.js").split("\n") if not line.lstrip().startswith("//"))
+    assert not re.findall(r"(?<![A-Za-z])(?:Review|Collections?|Smart|Manual)(?![A-Za-z])", code)
 
 
 @pytest.mark.parametrize("phrase", [
@@ -291,7 +298,7 @@ def test_local_folder_browser_is_read_only_and_reuses_the_library_layout():
     fs = js[js.index("契约修订 12：本地目录"):js.index("契约修订 12 结束")]
     assert set(re.findall(r"api\('(\w+)', '(/fs/[\w/]+)'", fs)) == {("GET", "/fs/roots"), ("GET", "/fs/list")}
     assert "/fs/thumb?" in fs and 'loading="lazy"' in fs
-    assert "只浏览：不导入、不复制、不移动文件，也不写入 Gardener 的记录" in fs
+    assert 'data-action="fs-add" data-kind="browse"' in fs and "只读取、不复制、不移动" in fs   # adding is one click, and says so
     assert "ws lib fs mode-" in fs and "lib-loupe" in fs and "grid-scroll" in fs      # the library's layout classes
     for banned in ("/marks", "doMark", "ui.ws =", "starsHTML", "flagSeg"):           # no marks here
         assert banned not in fs, banned

@@ -289,3 +289,30 @@ def test_a_planned_file_that_is_no_longer_a_plain_file_is_reported_as_changed(en
         r = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True})
     assert r.status_code == 200, r.text
     assert trash.moved == [] and r.json()["report"]["skipped"] == [{"asset_id": aids[1], "reason": "changed"}]
+
+
+def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_emptying_it_plans_both(env, fakes, tmp_path):
+    """修订 21: pile=bin / pile=good read the person's mark first and the AI suggestion only where nobody marked the
+    photo; 放回 (use record) takes a photo out of the bin for good; emptying turns the AI-only rejects into the
+    person's and plans them."""
+    import sqlite3
+
+    with env.client(trash=Bin(tmp_path / "bin")) as c:
+        _, aids = shoot(c, fakes, tmp_path)
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:
+            db.execute("DELETE FROM ai_suggestions")
+            for a, verdict in zip(aids, ("reject", "reject", "pick", "pick")):
+                db.execute("INSERT INTO ai_suggestions (asset_id, run_id, verdict, created_at) VALUES (?, 'r', ?, ?)",
+                           (a, verdict, "2026-11-13T00:00:00.000000Z"))
+
+        def pile(name):
+            return sorted(i["id"] for i in c.get(f"{API}/assets", params={"pile": name}).json()["items"])
+        assert pile("bin") == sorted(aids[:2]) and pile("good") == sorted(aids[2:])
+        c.post(f"{API}/marks", json={"asset_ids": [aids[0]], "use": "record"})       # 放回: a person keeps it, an ordinary photo again
+        c.post(f"{API}/marks", json={"asset_ids": [aids[2]], "use": "reject"})       # X on a photo the AI liked
+        assert pile("bin") == sorted([aids[1], aids[2]]) and pile("good") == [aids[3]]
+        c.post(f"{API}/marks", json={"asset_ids": [aids[3]], "use": "record"})       # 完成 keeps it: still the AI's pick
+        assert pile("good") == [aids[3]]
+        p = c.post(f"{API}/cleanup-plans", json={"pile": "bin"}).json()
+        assert p["scope"] == {"pile": "bin"} and sorted(i["asset_id"] for i in p["items"]) == sorted([aids[1], aids[2]])
+        assert sorted(i["id"] for i in c.get(f"{API}/assets", params={"use": "reject"}).json()["items"]) == sorted([aids[1], aids[2]])

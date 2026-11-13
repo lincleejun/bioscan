@@ -1383,3 +1383,31 @@ select.input { padding-right: 28px; }
   .tabs { overflow-x: auto; gap: 18px; }       /* 任务页的标签：横滑，不把字竖排 */
   .tabs a { flex: none; white-space: nowrap; }
 }
+
+/* ---------- 图库优先（ADR 0004）：侧栏只留名词；图库网格里状态不常驻 ---------- */
+.nav a[data-nav="inbox"]:not([aria-current="page"]):not(:has(.nav-has, .nav-n)) { display: none; }
+.nav .nav-add { color: var(--ink-2); border: 1px dashed var(--line-2); }
+.more { position: relative; }
+.more > summary { list-style: none; cursor: pointer; }
+.more > summary::-webkit-details-marker { display: none; }
+.more-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 230px; padding: 6px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, .45); }
+.more-menu button { padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.more-menu button:hover, .more-menu button:focus-visible { background: var(--hover); }
+.gc-cats { display: inline-flex; margin-bottom: 12px; }
+.gc-cats a { text-decoration: none; }
+.gc-cats a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
+.calm .tile-ai, .calm .tile-tags .tb-off { opacity: 0; transition: opacity .12s; }
+.calm .tile:hover .tile-ai, .calm .tile:focus-visible .tile-ai, .calm .tile:hover .tb-off { opacity: 1; }
+.calm .tile-file { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
+.calm .burst-btn { background: rgba(0, 0, 0, .55); color: #fff; }
+.calm .ws.mode-grid .lib-foot .check-row { display: none; }
+.calm .batch-bar:empty { display: none; }
+.kind-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kind-pick label { position: relative; cursor: pointer; }
+.kind-pick input { position: absolute; opacity: 0; }
+.kind-pick span { display: flex; flex-direction: column; gap: 4px; height: 100%; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: var(--r); }
+.kind-pick small { color: var(--muted); }
+.kind-pick input:checked + span { border-color: var(--accent); background: var(--accent-soft); }
+.kind-pick input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.form-more > summary { cursor: pointer; font-weight: 600; }
+.calm.pile-bin .tile-ai, .calm.pile-good .tile-ai { opacity: 1; }

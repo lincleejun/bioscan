@@ -1519,7 +1519,13 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     @r.post("/cleanup-plans", status_code=201)
     def post_cleanup_plan(body: dict[str, Any] = OPT_BODY, actor: str = ACTOR) -> dict[str, Any]:
         """The rejected assets in a scope (default: the whole library) with every file and species impact."""
-        scope, ids, _ = scope_of(body)
+        if body.get("pile") == "bin":      # 清空「不好」(修订 21): what only the AI rejected becomes the person's reject first
+            ai_only = store.ids_where({"pile": "bin", "use": "pending"})
+            if ai_only:
+                store.set_marks(ai_only, {"use": "reject"}, actor=actor, reason="清空「不好」")
+            scope, ids = {"pile": "bin"}, store.ids_where({"pile": "bin"})
+        else:
+            scope, ids, _ = scope_of(body)
         if not scope:
             ids = store.ids_where({"flag": "reject"})
         with store.tx() as c:
