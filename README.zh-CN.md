@@ -2,17 +2,13 @@
 
 [English](README.md) | **简体中文**
 
-[![Gardener 整理一次 1,361 张的拍摄](assets/readme/hero.gif)](assets/gardener-promo.mp4)
-
 ### 拍一天鸟，带回 1,361 张照片。哪些值得留下？
 
 把卡交给 Gardener。它在你自己的 Mac 上为每张 RAW 和 JPG 出预览，找出动物，认出物种，把连拍归成组，再按物种排好，等你来留、打星、淘汰。**照片不出本机，不经你确认不动任何文件。**
 
-## 看一遍（52 秒，无声，中文字幕）
-
 https://github.com/user-attachments/assets/3201085d-e7ae-46b4-be80-db524a5c1cc2
 
-画面全部是真实界面，素材是一次真实拍摄。
+52 秒，无声，中文字幕。画面全部是真实界面，素材是一次真实拍摄。
 
 ## 一次拍摄怎么整理
 

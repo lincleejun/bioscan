@@ -2,17 +2,13 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-[![Gardener sorting a shoot of 1,361 photos](assets/readme/hero.gif)](assets/gardener-promo.mp4)
-
 ### One day of birding. 1,361 frames. Which ones are worth keeping?
 
 Hand Gardener the card. On your own Mac it previews every RAW and JPG, finds the animals, names the species and groups the bursts, then lays the shoot out by species for you to keep, star and reject. **No photo leaves the machine, and no file is touched unless you confirm it.**
 
-## Watch it (52 seconds, silent, Chinese captions)
-
 https://github.com/user-attachments/assets/3201085d-e7ae-46b4-be80-db524a5c1cc2
 
-Every screen is the real UI on a real shoot.
+52 seconds, silent, Chinese captions. Every screen is the real UI on a real shoot.
 
 ## How a shoot goes
 
