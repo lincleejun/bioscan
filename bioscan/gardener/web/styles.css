@@ -1303,6 +1303,16 @@ select.input { padding-right: 28px; }
 .gt-acts button { padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line-2); background: rgba(10, 13, 14, .9); color: var(--ink); font-size: 12px; cursor: pointer; }
 .gt-acts button.x { color: var(--reject); }
 .gt:hover .gt-acts, .gt-acts:focus-within { display: inline-flex; }
+.gt-ck { position: absolute; left: 6px; bottom: 6px; z-index: 1; display: none; place-items: center; width: 24px; height: 24px; padding: 0; border-radius: 5px; border: 1px solid var(--line-2); background: rgba(10, 13, 14, .9); color: transparent; cursor: pointer; }
+.gt-ck .ic { width: 14px; height: 14px; }
+.gt:hover .gt-ck, .gt-ck:focus-visible, .gt-ck[aria-checked="true"], .fr-center:has(.gt-ck[aria-checked="true"]) .gt-ck { display: grid; }
+.gt-ck[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.gt:has(.gt-ck[aria-checked="true"]) .et { border-color: var(--accent); }
+.gt .gt-merge { left: 36px; }
+.gr-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; padding: 6px 0; background: var(--surface); }
+.gr-bar-n { margin: 0 4px; font-size: 13px; }
+.gr-bar-x { color: var(--reject); }
+.fl-picks { display: inline-flex; align-items: center; gap: 6px; }
 .cp-grp { display: flex; gap: 6px; align-items: center; margin-left: auto; }
 .cp-bar kbd { margin-left: 6px; }
 .rl-more > summary { padding: 8px 10px; color: var(--muted); font-size: 13px; cursor: pointer; }

@@ -46,7 +46,7 @@ def test_localstorage_only_holds_ui_preferences():
         assert method in ("getItem", "setItem") and arg.strip().startswith("'gardener.ui.' +"), (method, arg)
     keys = set(re.findall(r"prefs\.(?:get|set)\('([\w.]+)", text("app.js")))
     keys = {k.rstrip(".") for k in keys}
-    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "cploupe", "spview", "cands", "cpmode", "mode", "panel", "libmore"}, keys
+    assert keys <= {"route", "grid", "burst", "advance", "last", "idscope", "enc", "cmpsync", "cploupe", "spview", "cands", "picks", "cpmode", "mode", "panel", "libmore"}, keys
 
 
 def test_nav_order():

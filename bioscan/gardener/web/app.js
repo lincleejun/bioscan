@@ -400,7 +400,10 @@
   }
 
   // Review 总览：本次拍到的物种 → 拍摄段 → 代表候选（PRD §07、图 2）。全部照片仍在物种工作区（检视器与批量）。
-  const fr = { open: new Set() };
+  const fr = { open: new Set(), sel: new Set(), last: null };
+  // 多选组（契约修订 19）：选中的组的全部帧，一次交给 POST /marks；已经不在列表里的组（并掉、拆掉的）不算
+  const selIds = (groups, sel) => groups.filter(g => sel.has(g.id)).flatMap(g => g.asset_ids);
+  const pickN = () => Math.min(4, Math.max(1, Number(prefs.get('picks', '2')) || 2));
   const candN = () => Number(prefs.get('cands', '2')) || 2;
   function railHTML(t, sp, concept) {
     const list = sp.species.concat(sp.to_confirm).sort((x, y) => y.photos - x.photos);
@@ -443,6 +446,7 @@
     const s = groupState(g);
     return `<div class="gt${s.done ? ' is-done' : ''}" data-group="${esc(g.id)}"><a class="et" href="${esc(groupHref(t.id, k, g))}" aria-label="第 ${g.n} 组，${g.photos} 张${s.any ? `，已留 ${s.kept} 张、淘汰 ${s.out} 张` : '，还没决定'}">${photo(a, 'thumb')}
       <span class="gt-n">${g.photos > 1 ? `${g.photos} 张` : '单张'}</span>${s.any ? `<span class="gt-s">${s.kept ? `<b class="k">留 ${s.kept}</b>` : ''}${s.out ? `<b class="x">淘 ${s.out}</b>` : ''}</span>` : ''}</a>
+      <button type="button" class="gt-ck" role="checkbox" aria-checked="${fr.sel.has(g.id)}" data-action="gr-sel" data-id="${esc(g.id)}" aria-label="选中第 ${g.n} 组" title="选中这一组（Shift 点选连续的几组）">${ic('check')}</button>
       <span class="gt-acts">${s.done ? '' : `<button type="button" data-action="gr-done" data-ids="${esc(g.asset_ids.join(','))}" data-n="${g.n}" title="这一组看完了：还没决定的都留下（可撤销）">完成</button>`}${s.out === g.photos ? '' : `<button type="button" class="x" data-action="gr-none" data-ids="${esc(g.asset_ids.join(','))}" data-n="${g.n}" title="这一组都不要：全部记为不留，不删除文件（可撤销）">全部不要</button>`}</span>
       ${prev ? `<button type="button" class="gt-merge" data-action="gr-merge" data-a="${esc(prev.rep)}" data-b="${esc(g.rep)}" title="和前一组是同一只、同一个瞬间：并成一组" aria-label="把第 ${g.n} 组并入第 ${prev.n} 组">${ic('left')}并入前一组</button>` : ''}</div>`;
   }
@@ -471,10 +475,14 @@
     const { t, k, groups } = fr;
     if (!k) return '<div class="empty">本次还没有识别出物种。可以在「其他分组」里浏览全部照片，或等扫描继续。</div>';
     const done = groups.filter(g => groupState(g).done).length;
+    fr.sel = new Set(groups.filter(g => fr.sel.has(g.id)).map(g => g.id));
+    const nSel = fr.sel.size, open = groups.filter(g => !groupState(g).done).length;
+    const bar = groups.length < 2 ? '' : `<div class="gr-bar" role="toolbar" aria-label="批量处理选中的组"><button type="button" class="btn sm ghost" data-action="gr-sel-all" data-v="${nSel === groups.length ? 'none' : 'all'}">${nSel === groups.length ? '取消全选' : '全选'}</button>${open && open < groups.length ? '<button type="button" class="btn sm ghost" data-action="gr-sel-all" data-v="open">选未完成的</button>' : ''}
+      ${nSel ? `<span class="gr-bar-n">已选 <b>${nSel}</b> 组 · ${selIds(groups, fr.sel).length} 张</span><button type="button" class="btn sm" data-action="gr-sel-done" title="选中的组看完了：还没决定的都留下（可撤销）">${ic('check')}完成</button><button type="button" class="btn sm ghost gr-bar-x" data-action="gr-sel-none" title="选中的组都不要：全部记为不留，不删除文件（可撤销）">全部不要</button><button type="button" class="btn sm ghost" data-action="gr-sel-all" data-v="none">取消选择</button>` : '<span class="gr-bar-n hint">点格子左下角的勾选中几组，一次完成或全部不要</span>'}</div>`;
     return `<div class="fr-top"><div><h2>${esc(spName(k))}</h2><p class="hint">${k.zh && k.common ? esc(k.common) + ' · ' : ''}<i>${esc(k.taxon)}</i> · ${groups.length} 组 · ${fr.ids.length} 张 · 已决定 ${done} 组${k.confirmed ? '' : ' · <span class="txt-warn">只有模型候选</span>'}</p></div>
       <div class="fr-acts">${k.candidates ? `<button type="button" class="btn sm" data-action="sp-confirm" data-concept="${esc(k.concept)}" data-taxon="${esc(k.taxon)}" data-common="${esc(k.common || '')}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认对了：本次拍摄里模型叫这个名字的照片全部记为你确认过（可撤销）">认对了，全部确认</button>` : ''}${done < groups.length ? `<button type="button" class="btn sm" data-action="sp-done" data-name="${esc(spName(k))}" title="这个物种看完了：还没决定的照片都留下（可撤销）">全部完成</button>` : ''}<button type="button" class="btn sm ghost" data-action="sp-move" data-concept="${esc(k.concept)}" data-task="${esc(t.id)}" data-name="${esc(spName(k))}" title="认错了：把这个物种在本次拍摄里的全部照片改成另一个物种（可撤销）">认错了，全部改为…</button>
       <a class="btn sm ghost" href="${esc(speciesHref(k.concept, t.id))}">全部照片</a></div></div>
-      ${groupBlocksHTML(groups, g => groupTileHTML(t, k.concept, g, groups[g.n - 2]))}
+      ${bar}${groupBlocksHTML(groups, g => groupTileHTML(t, k.concept, g, groups[g.n - 2]))}
       ${!groups.length ? '<div class="empty">这个物种在本次拍摄中还没有照片。</div>' : ''}`;
   }
   function frRulesHTML() {
@@ -498,6 +506,7 @@
       k ? flowAssets({ task: t.id, concept: k.concept }) : []]);
     enc.encounters.forEach((e, i) => { e.n = i + 1; });
     Object.assign(fr, { t, k, enc, sp, groups: groupsOf(enc), ids: k ? enc.encounters.flatMap(e => e.asset_ids).concat(enc.unassigned || []) : [] });
+    if (fl.task !== t.id || fl.concept !== (k && k.concept)) { fr.sel.clear(); fr.last = null; }   // 换了物种：同一个连拍在另一个物种下是另一组
     Object.assign(fl, { task: t.id, concept: k && k.concept });
     const un = sp.unresolved.genus_family + sp.unresolved.unconfirmed;
     const first = fr.groups.find(g => !groupState(g).done) || fr.groups[0];
@@ -507,6 +516,7 @@
         <aside class="fl-panel fr-rules" id="fr-rules">${frRulesHTML()}</aside></div>
       <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>一组一组过：要留的打星（1–5），不要的淘汰；按「完成」时没决定的都留下。</p></div>
         <a class="btn ghost" href="#/import/${esc(t.id)}" title="把留下的照片导入照片库：可选，之后再做也行">导入…</a>
+        <span class="fl-picks"><select class="input sm" id="fr-picks" aria-label="AI 选鸟：每个物种几张">${[1, 2, 3, 4].map(i => `<option value="${i}" ${pickN() === i ? 'selected' : ''}>每种 ${i} 张</option>`).join('')}</select><button type="button" class="btn ghost" data-action="ai-picks" data-task="${esc(t.id)}" data-title="${esc(t.title)}" title="每个物种从不同的组里各挑最好的几张，放进一个「AI 选鸟」集合；不改留 / 淘汰标记">AI 选鸟</button></span>
         <button type="button" class="btn ghost lg" data-action="task-done" data-task="${esc(t.id)}" title="这次拍摄看完了：还没决定的照片都留下（可撤销）。不导入。">完成${ic('check')}</button>
         ${first && k ? `<a class="btn primary lg" href="${esc(groupHref(t.id, k.concept, first))}">${fr.groups.some(g => groupState(g).any) ? '继续' : '开始'}：第 ${first.n} 组${ic('right')}</a>` : ''}</footer>
     </div>`;
@@ -2732,7 +2742,7 @@
   }
 
   // node --test（tests/gardener/web/）：只在 node 里交出纯视图函数并就此返回，下面挂 DOM 事件与轮询的代码不在 node 里跑；浏览器里没有 module，照常往下。
-  if (typeof module !== 'undefined' && module.exports) { module.exports = { store, aiPill, groupsOf, groupState, spProgHTML, groupBlocksHTML, encOn, encOrder }; return; }
+  if (typeof module !== 'undefined' && module.exports) { module.exports = { store, aiPill, selIds, groupsOf, groupState, spProgHTML, groupBlocksHTML, encOn, encOrder }; return; }
 
   // ---------- 轮询 ----------
   async function refreshTasks() { S.tasks = await api('GET', '/tasks', null, { archived: 'all' }); }
@@ -2828,6 +2838,27 @@
     'cp-none': () => cpNone(),
     'gr-done': el => bulkMark(Object.assign({ asset_ids: el.dataset.ids.split(',') }, DONE), `第 ${el.dataset.n} 组已完成`, () => route()),
     'gr-none': el => bulkMark({ asset_ids: el.dataset.ids.split(','), use: 'reject' }, `第 ${el.dataset.n} 组全部不要`, () => route()),
+    'gr-sel': (el, e) => {
+      const ids = fr.groups.map(g => g.id), i = ids.indexOf(el.dataset.id), j = e && e.shiftKey ? ids.indexOf(fr.last) : -1;
+      const on = !fr.sel.has(el.dataset.id);
+      (j < 0 ? [el.dataset.id] : ids.slice(Math.min(i, j), Math.max(i, j) + 1)).forEach(id => { if (on) fr.sel.add(id); else fr.sel.delete(id); });
+      fr.last = el.dataset.id; frRefresh();
+      const b = $(`[data-action="gr-sel"][data-id="${CSS.escape(el.dataset.id)}"]`); if (b) b.focus({ preventScroll: true });
+    },
+    'gr-sel-all': el => { const v = el.dataset.v; fr.sel = new Set(fr.groups.filter(g => v === 'all' || (v === 'open' && !groupState(g).done)).map(g => g.id)); frRefresh(); },
+    'gr-sel-done': () => { const n = fr.sel.size, ids = selIds(fr.groups, fr.sel); fr.sel.clear(); bulkMark(Object.assign({ asset_ids: ids }, DONE), `${n} 组已完成`, () => route()); },
+    'gr-sel-none': () => { const n = fr.sel.size, ids = selIds(fr.groups, fr.sel); fr.sel.clear(); bulkMark({ asset_ids: ids, use: 'reject' }, `${n} 组全部不要`, () => route()); },
+    'ai-picks': async el => {
+      const n = Number(($('#fr-picks') || {}).value) || pickN();
+      prefs.set('picks', String(n));
+      el.disabled = true;
+      try {
+        const r = await api('GET', `/tasks/${encodeURIComponent(el.dataset.task)}/picks`, null, { per_species: n });
+        if (!r.asset_ids.length) { toast('还没有认出物种的照片，选不出来'); return; }
+        const col = await api('POST', '/collections', { name: `AI 选鸟 · ${el.dataset.title} · 每种 ${n} 张`, task_id: el.dataset.task, asset_ids: r.asset_ids });
+        toast(`AI 选鸟：${r.species} 个物种，${r.asset_ids.length} 张，已放进集合`, { action: { label: '打开', run: () => { location.hash = '#/review/' + col.id; } } });
+      } catch (e) { toast(errMsg(e)); } finally { el.disabled = false; }
+    },
     'sp-done': el => bulkMark(Object.assign({ asset_ids: fr.ids }, DONE), `「${el.dataset.name}」已全部完成`, () => route()),
     'task-done': el => bulkMark(Object.assign({ task_id: el.dataset.task }, DONE), '这次拍摄已完成：没决定的都已留下', () => route()),
     'cp-merge': () => cpMerge(),
