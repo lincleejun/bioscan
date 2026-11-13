@@ -2,20 +2,47 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-**Sort a wildlife shoot on your own Mac.** Point Gardener at a card or a folder: it previews every RAW and JPG, finds the animals, names the species, groups bursts, and gives you a review page ordered by species. You keep, star and reject. No photo leaves the machine, and no file is touched unless you confirm it.
+[![Gardener sorting a shoot of 1,361 photos](assets/readme/hero.gif)](assets/gardener-promo.mp4)
 
-## Video
+### One day of birding. 1,361 frames. Which ones are worth keeping?
 
-52 seconds, Chinese captions, no narration: [assets/gardener-promo.mp4](assets/gardener-promo.mp4). Every screen in it is the real UI on a real shoot of 1,361 photos.
+Hand Gardener the card. On your own Mac it previews every RAW and JPG, finds the animals, names the species and groups the bursts, then lays the shoot out by species for you to keep, star and reject. **No photo leaves the machine, and no file is touched unless you confirm it.**
 
-## What you get
+## Watch it (52 seconds, silent, Chinese captions)
 
-- **Scan**: several cards or folders in one task; previews first, so review can start before analysis ends.
-- **Species**: birds against AviList, mammals against MDD, every other animal against the TreeOfLife list, with a location prior from GPS. A wrong name is corrected once for the whole shoot.
-- **Review by group**: one burst is one group. Star what you keep, reject the rest, or finish many groups at once. Every mark can be undone.
-- **AI 选鸟**: a few best frames of each species, from different moments, in one collection.
-- **Out**: copy the keeps with checksums, hand stars and species keywords to Lightroom Classic, move the rejects you confirm to the Trash (recoverable).
+https://github.com/user-attachments/assets/3201085d-e7ae-46b4-be80-db524a5c1cc2
+
+Every screen is the real UI on a real shoot.
+
+## How a shoot goes
+
+<table>
+<tr>
+<td width="50%"><img src="assets/readme/scan.jpg" alt="Scan"><br><b>1. Scan.</b> Several cards or folders in one task. Previews come first, so you can start before analysis ends.</td>
+<td width="50%"><img src="assets/readme/review.jpg" alt="Review by species"><br><b>2. Review by species.</b> One burst is one group. Finish or reject many groups at once; a wrong name is corrected once for the whole shoot.</td>
+</tr>
+<tr>
+<td><img src="assets/readme/compare.jpg" alt="Compare frames"><br><b>3. Compare.</b> Two frames side by side, zoomed to the head or the eye. Star what you keep. Every mark can be undone.</td>
+<td><img src="assets/readme/picks.jpg" alt="AI 选鸟"><br><b>4. AI 选鸟.</b> A few best frames of each species, from different moments, in one collection: here 1,361 frames became 47. Then on to Lightroom.</td>
+</tr>
+</table>
+
+- **Names you can check**: birds against AviList, mammals against MDD, every other animal against the TreeOfLife list, with a location prior from GPS.
+- **Out, safely**: copy the keeps with checksums, hand stars and species keywords to Lightroom Classic, move the rejects you confirm to the Trash (recoverable).
 - **Three front ends, one local service**: web UI, `gardener` CLI, MCP.
+
+## Measured, not promised
+
+**91.7% top-1 on birds, 91.0% on mammals**; when Gardener commits to a species it is right 97.1% / 96.5% of the time. iNaturalist golden set, California: 64 species, 1,571 research-grade photos with GPS, on an M-series Mac (2026-11-13).
+
+| Group | Top-1 | Top-5 | Graded to species | Right when graded |
+|---|---|---|---|---|
+| Birds (1046) | 91.7% | 96.2% | 92.8% | 97.1% |
+| Mammals (525) | 91.0% | 94.9% | 87.8% | 96.5% |
+
+Aesthetic score against crowd stars (100 EVA photos): Spearman 0.877. GPS from a GPX track: median error 7 m on synthetic tracks. All tables and how they were measured: [docs/results.md](docs/results.md); the bars they are held to: [docs/standards.md](docs/standards.md).
+
+Not measured yet: burst grouping, culling rules and AI 选鸟 on real albums; species outside birds and mammals beyond 18 test photos. The release gates in `docs/standards.md` are not all met. Known limits: [docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap).
 
 ## Quick start
 
@@ -43,19 +70,6 @@ uv run gardener serve                     # open http://127.0.0.1:8770
 | `gardener-engine eval`, `gardener-engine bench` | accuracy reports, baselines and regression budgets |
 
 Every flag, the output schema and the HTTP API: [docs/usage.md](docs/usage.md).
-
-## Measured
-
-iNaturalist golden set, California: 64 species, 1,571 research-grade photos with GPS, on an M-series Mac (2026-11-13).
-
-| Group | Top-1 | Top-5 | Graded to species | Right when graded |
-|---|---|---|---|---|
-| Birds (1046) | 91.7% | 96.2% | 92.8% | 97.1% |
-| Mammals (525) | 91.0% | 94.9% | 87.8% | 96.5% |
-
-Aesthetic score against crowd stars (100 EVA photos): Spearman 0.877. GPS from a GPX track: median error 7 m on synthetic tracks. All tables and how they were measured: [docs/results.md](docs/results.md); the bars they are held to: [docs/standards.md](docs/standards.md).
-
-Not measured yet: burst grouping, culling rules and AI 选鸟 on real albums; species outside birds and mammals beyond 18 test photos. The release gates in `docs/standards.md` are not all met. Known limits: [docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap).
 
 ## Documentation
 

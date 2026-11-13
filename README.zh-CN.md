@@ -2,20 +2,47 @@
 
 [English](README.md) | **简体中文**
 
-**在自己的 Mac 上整理一次野生动物拍摄。** 把一张卡或一个文件夹交给 Gardener：它为每张 RAW 和 JPG 出预览，找出动物，认出物种，把连拍归成组，再给你一个按物种排好的审片页面。留、打星、淘汰由你决定。照片不出本机，不经你确认不动任何文件。
+[![Gardener 整理一次 1,361 张的拍摄](assets/readme/hero.gif)](assets/gardener-promo.mp4)
 
-## 视频
+### 拍一天鸟，带回 1,361 张照片。哪些值得留下？
 
-52 秒，中文字幕，无配音：[assets/gardener-promo.mp4](assets/gardener-promo.mp4)。画面全部是真实界面，素材是一次 1,361 张的真实拍摄。
+把卡交给 Gardener。它在你自己的 Mac 上为每张 RAW 和 JPG 出预览，找出动物，认出物种，把连拍归成组，再按物种排好，等你来留、打星、淘汰。**照片不出本机，不经你确认不动任何文件。**
 
-## 能做什么
+## 看一遍（52 秒，无声，中文字幕）
 
-- **扫描**：一个任务可以有多张卡或多个文件夹；先出预览，分析没跑完就能开始审片。
-- **物种**：鸟类对照 AviList，哺乳类对照 MDD，其他动物对照 TreeOfLife 名单，并用 GPS 做地点先验。认错的名字，整次拍摄改一次即可。
-- **按组审片**：一次连拍是一组。要留的打星，其余淘汰，也可以一次完成多组。每次标记都能撤销。
-- **AI 选鸟**：每个物种从不同瞬间各挑最好的几张，放进一个集合。
-- **输出**：带校验地复制留下的照片，把星级和物种关键词交给 Lightroom Classic，把你确认淘汰的移到废纸篓（可恢复）。
+https://github.com/user-attachments/assets/3201085d-e7ae-46b4-be80-db524a5c1cc2
+
+画面全部是真实界面，素材是一次真实拍摄。
+
+## 一次拍摄怎么整理
+
+<table>
+<tr>
+<td width="50%"><img src="assets/readme/scan.jpg" alt="扫描"><br><b>1. 扫描。</b>一个任务可以有多张卡或多个文件夹。先出预览，分析没跑完就能开始。</td>
+<td width="50%"><img src="assets/readme/review.jpg" alt="按物种审片"><br><b>2. 按物种审片。</b>一次连拍是一组。可以一次完成或淘汰多组；认错的名字，整次拍摄改一次即可。</td>
+</tr>
+<tr>
+<td><img src="assets/readme/compare.jpg" alt="双图比较"><br><b>3. 比较。</b>两张并排，直接放大到头部或眼睛。要留的打星。每次标记都能撤销。</td>
+<td><img src="assets/readme/picks.jpg" alt="AI 选鸟"><br><b>4. AI 选鸟。</b>每个物种从不同瞬间各挑最好的几张，放进一个集合：这里 1,361 张变成 47 张。然后交给 Lightroom。</td>
+</tr>
+</table>
+
+- **名字有据可查**：鸟类对照 AviList，哺乳类对照 MDD，其他动物对照 TreeOfLife 名单，并用 GPS 做地点先验。
+- **安全地输出**：带校验地复制留下的照片，把星级和物种关键词交给 Lightroom Classic，把你确认淘汰的移到废纸篓（可恢复）。
 - **三个入口，一个本机服务**：网页、`gardener` 命令行、MCP。
+
+## 实测，不是承诺
+
+**鸟类首选正确率 91.7%，哺乳类 91.0%**；Gardener 定到种时，正确率是 97.1% / 96.5%。iNaturalist 标准集，加州：64 个物种，1,571 张带 GPS 的研究级照片，M 系列 Mac（2026-11-13）。
+
+| 类群 | Top-1 | Top-5 | 定到种的比例 | 定到种时的正确率 |
+|---|---|---|---|---|
+| 鸟类（1046） | 91.7% | 96.2% | 92.8% | 97.1% |
+| 哺乳类（525） | 91.0% | 94.9% | 87.8% | 96.5% |
+
+美学评分对照大众星级（100 张 EVA 照片）：Spearman 0.877。GPX 轨迹补 GPS：合成轨迹上中位误差 7 米。全部表格和测量方法：[docs/results.md](docs/results.md)；对照的标准：[docs/standards.md](docs/standards.md)。
+
+尚未实测：真实相册上的连拍分组、挑片规则和 AI 选鸟；鸟类和哺乳类之外的物种只测过 18 张照片。`docs/standards.md` 的发布门槛还没有全部达到。已知限制：[docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap)。
 
 ## 快速开始
 
@@ -43,19 +70,6 @@ uv run gardener serve                     # 打开 http://127.0.0.1:8770
 | `gardener-engine eval`、`gardener-engine bench` | 准确率报告、基线与回归预算 |
 
 全部参数、输出格式和 HTTP API：[docs/usage.md](docs/usage.md)。
-
-## 实测
-
-iNaturalist 标准集，加州：64 个物种，1,571 张带 GPS 的研究级照片，M 系列 Mac（2026-11-13）。
-
-| 类群 | Top-1 | Top-5 | 定到种的比例 | 定到种时的正确率 |
-|---|---|---|---|---|
-| 鸟类（1046） | 91.7% | 96.2% | 92.8% | 97.1% |
-| 哺乳类（525） | 91.0% | 94.9% | 87.8% | 96.5% |
-
-美学评分对照大众星级（100 张 EVA 照片）：Spearman 0.877。GPX 轨迹补 GPS：合成轨迹上中位误差 7 米。全部表格和测量方法：[docs/results.md](docs/results.md)；对照的标准：[docs/standards.md](docs/standards.md)。
-
-尚未实测：真实相册上的连拍分组、挑片规则和 AI 选鸟；鸟类和哺乳类之外的物种只测过 18 张照片。`docs/standards.md` 的发布门槛还没有全部达到。已知限制：[docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap)。
 
 ## 文档
 
