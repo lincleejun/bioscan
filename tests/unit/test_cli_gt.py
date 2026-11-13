@@ -109,6 +109,20 @@ class FakeClock:
         self.t += s
 
 
+def test_inat_skips_an_observation_of_another_taxon(tmp_path):
+    photo = [{"id": 10, "license_code": "cc-by", "url": "https://x/photos/10/square.jpg"}]
+    obs = [{"id": 1, "taxon": {"name": "Pelagophycus porra"}, "photos": photo},
+           {"id": 2, "taxon": {"name": "Alces alces gigas"}, "photos": photo}]
+
+    def get(url):
+        return json.dumps({"results": obs}).encode() if "api.inaturalist.org" in url else b"JPEG"
+
+    fc = FakeClock()
+    rows = gt.gt_inat([("Alces alces", "Moose")], None, 25, str(tmp_path), get=get,
+                      throttle=gt.Throttle(1.0, fc.clock, fc.sleep), log=lambda *_: None)
+    assert [r["source"] for r in rows] == ["https://www.inaturalist.org/observations/2"]
+
+
 def test_inat_download_with_fallback_license_filter_and_throttle(tmp_path):
     obs = [
         {"id": 1, "uri": "https://www.inaturalist.org/observations/1", "geojson": {"coordinates": [-149.9, 61.2]},

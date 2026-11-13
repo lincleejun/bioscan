@@ -4,7 +4,25 @@ Every number here was measured; the README shows the v1.5 row of each table. `do
 
 Measured on the owner's M-series Mac (MPS) on 2026-09-24: v1.4 (`91b6bd6`) against v1.5 (`875dc7a`) on the same photos, paired by sha256 with `bioscan bench compare`. ▲ better, ▼ worse. Reports: `baselines/golden-inat-v1.4.json`, `baselines/golden-inat-v1.5.json`, `baselines/own-raw-2026-09-24-v1.{4,5}.json`; comparison, failure analysis and scorecard in the raw reports listed at the end.
 
-### iNaturalist golden set (California, 65 species × 25 = 1,625 research-grade observations, real GPS and dates)
+### Cleaned golden set, 2026-11-13 (64 species, 1,571 photos)
+
+54 rows left `data/inat/groundtruth-inat.csv` on 2026-11-13 (#156): all 25 *Alces alces* rows, which were Elk Kelp
+photos, and 29 photos that show only tracks, scat, a bone or feathers. Same code as before (`20381aa`); only the
+truth changed. Report: `baselines/golden-inat-2026-11-13.json`. The tables below this section are on the earlier
+1,625 photos and do not compare with it.
+
+| Group | Top-1 | Top-5 | Detected | Coverage | Precision | Confident errors | No box |
+|---|---|---|---|---|---|---|---|
+| Birds (1046) | 91.7% | 96.2% | 98.3% | 92.8% | 97.1% | 2.7% | 1.4% |
+| Mammals (525) | 91.0% | 94.9% | 97.9% | 87.8% | 96.5% | 3.0% | 1.7% |
+| All (1571) | 91.5% | 95.7% | 98.2% | 91.2% | 96.9% | 2.8% | 1.5% |
+
+- Scorecard (Wilson 95 % bound): 6 pass, 16 fail, 8 n/a. Passing now: golden top-1, mammals top-1, coverage and
+  detect rate for both kinds. Most of the fails miss on the bound by under one point.
+- The sign-only photos were picked by eye from the 53 no-box images; photos of sign that did get a box were not
+  looked for. Four unclear no-box photos were kept. Images are 500 px on the long edge.
+
+### iNaturalist golden set until 2026-11-13 (California, 65 species × 25 = 1,625 research-grade observations, real GPS and dates)
 
 | Version | Group | Top-1 | Top-5 | Detected | Coverage | Precision | Confident errors | Identify (median) |
 |---|---|---|---|---|---|---|---|---|

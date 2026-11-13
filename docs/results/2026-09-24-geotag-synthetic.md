@@ -7,7 +7,7 @@ median 7.3 m, within 100 m 97.3%, 8/8 bars pass. Timing: about 65 s to generate 
 Updated after the W6 review: offset tie-break, a 3 h limit on the stood-still rule, and failed estimates counted.
 
 ```sh
-uv run python scripts/geotag_synth.py data/inat/groundtruth-inat.csv --out runs/geotag-synth --seed 7
+uv run python scripts/geotag_synth.py data/inat/groundtruth-inat-geotag.csv --out runs/geotag-synth --seed 7
 bioscan bench geotag runs/geotag-synth
 ```
 

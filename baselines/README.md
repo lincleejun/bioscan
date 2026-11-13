@@ -7,7 +7,8 @@ are compared with, plus the regression budget.
 |---|---|
 | `budget.toml` | The default regression budget for `bioscan bench compare` |
 | `ci-smoke.json` | The real-model CI smoke (`tests/models`, 95 iNaturalist photos: 42 birds, 35 mammals, 18 other animals; CPU). `models.yml` compares every run with it. It is created from the first CI run: while it is missing, the harness step prints that run's report between `===== BEGIN bioscan-report ci-smoke candidate =====` markers and passes; commit that JSON here, from a run without the inference cache (a `v*` tag or a `cold` dispatch of `models.yml`), whose speed is real |
-| `golden-inat-<tag>.json` | The full iNaturalist golden set (`data/inat/groundtruth-inat.csv`) at release tag `<tag>`, run on the owner's Mac |
+| `golden-inat-<tag>.json` | The full iNaturalist golden set (`data/inat/groundtruth-inat.csv`) at release tag `<tag>`, run on the owner's Mac. v1.4 and v1.5 are on the 1,625 photos the set had until 2026-11-13 |
+| `golden-inat-2026-11-13.json` | The cleaned golden set (1,571 photos: 25 kelp photos labelled *Alces alces* and 29 sign-only photos removed, #156) at `20381aa`, owner's Mac. The baseline to compare with from now on; it does not compare with v1.5 as an accuracy change (the truth changed) |
 | `own-raw-<YYYY-MM-DD>.json` | The owner's own RAW set (`data/groundtruth-own.csv`) on that date |
 | `budget-album.toml` | The budget for album reports (tier `album`): plugin rules on keepers lost, reject recall and precision, burst F1, scene accuracy |
 | `budget-aesthetic.toml` | The budget for aesthetic golden-set reports (`bioscan bench aesthetic compare`): Spearman, keepers lost @20 %, precision@k, missing frames; pair, group and planted rules for sets that have them. Sized at about half of the EVA-100 run's 95 % intervals |
