@@ -1347,7 +1347,7 @@ select.input { padding-right: 28px; }
   /* 工作区：网格在上，检视器接在下面，整页滚动 */
   .ws { display: flex; flex-direction: column; height: auto; }
   .ws-pane { min-height: 60vh; }
-  .ws-toolbar, .ws-tools { flex-wrap: wrap; }
+  .ws-tools { flex-wrap: wrap; }
   .ws-tools { margin-left: 0; }
   .inspector { border-left: 0; border-top: 1px solid var(--line); }
   .insp-scroll { overflow: visible; }

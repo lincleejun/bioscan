@@ -1495,9 +1495,8 @@
       const r = await api('POST', '/marks', body);
       if (reason) reason.value = '';
       afterMarks(r.assets);
-      if (!r.assets.some(x => x.version !== body.expect[x.id])) { toast(`已经是「${label}」，没有变化`); return; }   // 没改东西：没有可撤销的批次
-      ui.undo.push({ batch: r.batch_id, label, ids });
-      toast(`${label} · ${ids.length} 张`, { action: { label: '撤销', run: doUndo } });
+      if (!r.assets.some(x => x.version !== body.expect[x.id])) toast(`已经是「${label}」，没有变化`);   // 没改东西：没有可撤销的批次
+      else { ui.undo.push({ batch: r.batch_id, label, ids }); toast(`${label} · ${ids.length} 张`, { action: { label: '撤销', run: doUndo } }); }
       if (advance && prefs.get('advance', '1') === '1' && ui.ws === ws && ws.current === from) move(1);
     } catch (e) {
       if (e.status === 409) { toast('有素材刚被其他客户端修改，已载入最新标记，请重新操作'); await Promise.all(ids.map(id => { S.details.delete(id); return ensureDetail(id); })); patchTiles(ids); renderInspector(); }
@@ -1787,7 +1786,8 @@
     const [items, out] = await Promise.all([apiAll({ collection: c.id, order: 'time' }),
       Promise.all(((c.exceptions || {}).excluded || []).slice(0, 60).map(ensureDetail))]);
     store(items);
-    Object.assign(cd, { c, cursor: items.reduce((m, a) => (a.updated_at > m ? a.updated_at : m), '0'), ids: items.map(a => a.id), out: out.filter(Boolean).map(a => a.id), tab: cd.c && cd.c.id === c.id ? cd.tab : 'all' });
+    Object.assign(cd, { c, cursor: items.reduce((m, a) => (a.updated_at > m ? a.updated_at : m), '1970-01-01T00:00:00Z'),   // 空集合也要合法的 ISO 时间（'0' 会 400）
+      ids: items.map(a => a.id), out: out.filter(Boolean).map(a => a.id), tab: cd.c && cd.c.id === c.id ? cd.tab : 'all' });
     const smart = c.kind === 'smart', ex = c.exceptions || { added: [], excluded: [] };
     const tasks = new Set(items.flatMap(a => (a.task_ids || []).slice(0, 1)));
     const tab = (k, l, n) => `<button type="button" class="seg-btn" data-action="cd-tab" data-v="${k}" aria-pressed="${cd.tab === k}">${l}（${n}）</button>`;
