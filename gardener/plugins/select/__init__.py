@@ -19,6 +19,12 @@ MANIFEST = Manifest(
                            "description": "sharpness (1 - blur) within this of a burst's sharpest counts as equal"},
              "exposure_ok": {"type": "number", "minimum": 0, "default": 0.2,
                              "description": "|exposure| up to this is within limits"},
+             "area_weight": {"type": "number", "minimum": 0, "default": 0,
+                             "description": "added to the aesthetic score per tenfold of the subject's share of the "
+                                            "frame when ordering a category; 0 = aesthetic alone"},
+             "burst_weight": {"type": "number", "minimum": 0, "default": 0,
+                              "description": "added per frame of the burst (at most 20) when ordering a category: "
+                                             "the moments the photographer shot most; 0 = off"},
              "by": {"type": "string", "enum": ["group", "label"], "default": "group",
                     "description": "the category: the scene group (the label when the stage reports none) or label"},
              "waive": {"type": "object", "default": {"night": ["underexposed"]},
