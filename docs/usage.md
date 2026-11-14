@@ -307,7 +307,7 @@ CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreacha
 
 `PHOTOS=/path/to/photos docker compose up -d` builds the image and starts the service on `http://127.0.0.1:8770`
 (published on this machine only: the service has no login). The first start downloads the name lists, the model weights
-and the name caches into Docker volumes, about 10 GB; later starts take seconds. `PHOTOS` (default `~/Pictures`) is
+and the name caches into Docker volumes: 16.4 GB and 16.5 minutes on a fast line (measured 2026-11-13); later starts take seconds. `PHOTOS` (default `~/Pictures`) is
 mounted at the same path inside the container, so the paths Gardener shows are the host's.
 
 - **Speed.** A container on a Mac has no GPU. 48 small JPGs with the 野生动物 preset took 151 s in the container and

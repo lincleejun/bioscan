@@ -53,7 +53,7 @@ uv run gardener serve                     # open http://127.0.0.1:8770; --port N
 Or in Docker (any machine; on a Mac it runs on the CPU, about seven times slower than the native install):
 
 ```sh
-PHOTOS=~/Pictures docker compose up -d    # first start downloads the same 10 GB; then open http://127.0.0.1:8770
+PHOTOS=~/Pictures docker compose up -d    # first start downloads about 16 GB (17 min on a fast line); then open http://127.0.0.1:8770
 ```
 
 `PHOTOS` is the one folder the container can read. Emptying the bin there moves files to `PHOTOS/.gardener-trash`. Details: [docs/usage.md](docs/usage.md#docker).
