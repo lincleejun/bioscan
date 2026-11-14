@@ -321,7 +321,7 @@
   // ---------- 批次流程：扫描（图 1）→ Review 总览（图 2）→ 原像素比较（图 3）；导入确认见「完成与导入」 ----------
   const RAW_EXT = /\.(arw|cr2|cr3|nef|nrw|raf|orf|rw2|dng|pef|srw|3fr|iiq|x3f)$/i;
   const fmtOf = a => (a.media === 'video' ? '视频' : RAW_EXT.test(a.name) ? 'RAW' : (a.name.split('.').pop() || '').toUpperCase());
-  const fl = { cursor: '0' };             // 流程页共用：当前任务、物种与轮询游标
+  const fl = { cursor: '1970-01-01T00:00:00Z' };   // 合法的 ISO 时间：'0' 会让轮询 400             // 流程页共用：当前任务、物种与轮询游标
   function flowHead(t, here, title, sub) {
     return `<header class="fl-head"><div class="fl-title"><h1 tabindex="-1">${esc(title)}</h1><p class="fl-sub">${sub}</p></div>
       <div class="fl-steps" data-bind="task-steps" data-id="${esc(t.id)}">${stepsHTML(t, here)}</div><div class="fl-aside"><a class="btn ghost sm" href="#/task/${esc(t.id)}/preview">任务详情</a></div></header>`;
@@ -350,7 +350,7 @@
   }
   function scanTileHTML(a) {
     const st = a.preview !== 'ready' ? ['wait', a.preview === 'failed' ? '预览失败' : '等待预览'] : ['pending', 'running'].includes(a.analysis) ? ['run', '识别中']
-      : ['failed', 'unavailable'].includes(a.analysis) ? ['fail', '识别失败'] : ['done', '已归类'];
+      : ['failed', 'unavailable'].includes(a.analysis) ? ['fail', '识别失败'] : ['done', '已分析'];
     const sub = [a.species && (a.species.zh || a.species.common || a.species.taxon), a.camera, fmtTime(a.taken_at).slice(11)].filter(Boolean).join(' · ');
     return `<figure class="sc-tile">${photo(a, 'large')}<span class="sc-fmt">${esc(fmtOf(a))}</span><span class="sc-st st-${st[0]}">${st[0] === 'run' ? '<i class="sc-spin on"></i>' : ''}${st[1]}</span>
       <figcaption><b>${esc(a.name)}</b><small>${esc(sub)}</small></figcaption></figure>`;
@@ -968,7 +968,7 @@
   function makeWs(kind, query, order, extra) {
     const view = (extra && extra.view) || kind, open = ui.open;
     ui.open = null;
-    const ws = Object.assign({ kind, view, mode: prefs.get('mode.' + view, 'grid') === 'loupe' ? 'loupe' : 'grid', query, order, filter: 'all', all: [], allSet: new Set(), ids: [], sel: new Set(), current: null, anchor: null, offset: 0, total: 0, loadedAll: false, cursor: '0', collapse: prefs.get('burst', '1') === '1', expanded: new Set(), burstRep: new Map(), loading: false, enc: null }, extra, open ? { start: open, open, mode: 'loupe' } : {});
+    const ws = Object.assign({ kind, view, mode: prefs.get('mode.' + view, 'grid') === 'loupe' ? 'loupe' : 'grid', query, order, filter: 'all', all: [], allSet: new Set(), ids: [], sel: new Set(), current: null, anchor: null, offset: 0, total: 0, loadedAll: false, cursor: '1970-01-01T00:00:00Z', collapse: prefs.get('burst', '1') === '1', expanded: new Set(), burstRep: new Map(), loading: false, enc: null }, extra, open ? { start: open, open, mode: 'loupe' } : {});
     ui.ws = ws;
     return ws;
   }
@@ -1744,7 +1744,7 @@
     const by = { recent: c => c.updated_at || '', size: c => String(c.size).padStart(9, '0'), name: null }[ui.gcol.sort || 'recent'];
     const list = all.filter(c => (!cat || colCat(c) === cat) && (!kind || c.kind === kind) && (!q || colTitle(c).toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q)))
       .sort((x, y) => (by ? (by(y) > by(x) ? 1 : by(y) < by(x) ? -1 : 0) : colTitle(x).localeCompare(colTitle(y), 'zh')));
-    if (!list.length) return `<div class="empty">${all.length ? '没有符合条件的集合。' : cat === 'edit' ? '还没有待修图集合。在「图库」筛选「选入修图」，保存为智能集合。' : '还没有集合。扫描后每次外拍会出现在「旅行」；也可以新建自己的集合。'}</div>`;
+    if (!list.length) return `<div class="empty">${cat === 'edit' ? '还没有待修图集合。<a href="#/library" data-action="lib-preset" data-filter="use" data-value="edit">查看选入修图的照片</a>，可以保存为智能集合。' : all.length ? '没有符合条件的集合。' : '还没有集合。扫描后每次外拍会出现在「旅行」；也可以新建自己的集合。'}</div>`;
     return `<div class="gc-grid">${list.map(gColCardHTML).join('')}</div>`;
   }
   async function vCollections(p) {
@@ -1952,7 +1952,7 @@
       <header class="wl-head">
         ${t ? `<nav class="crumbs" aria-label="位置"><a href="#/task/${esc(t.id)}/scan">${esc(t.title)}</a><span aria-hidden="true">/</span><a href="#/species">全部物种</a></nav>` : ''}
         <div class="wl-title"><h1 tabindex="-1">${t ? '本次拍到的野生动物' : '我拍到的野生动物'}</h1><span class="wl-rule" aria-hidden="true"></span>
-          <p class="wl-total">已拍到 <b>${lib.confirmed_total}</b> 种</p><span class="wl-rule" aria-hidden="true"></span>
+          <p class="wl-total">已拍到 <b>${lib.confirmed_total}</b> 种${lib.to_confirm.length ? `<span class="hint"> · 待你确认 ${lib.to_confirm.length} 种</span>` : ''}</p><span class="wl-rule" aria-hidden="true"></span>
           <p class="wl-photos">${conf.total.toLocaleString()} 张已确认照片</p>
           <a class="btn warn-out" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="unresolved"${p.task ? ` data-task="${esc(p.task)}"` : ''}>${ic('warn')}待鉴定 ${unN} 张</a>
           ${cand.total ? `<a class="btn warn-out" href="#/library" data-action="lib-preset" data-filter="id_state" data-value="candidate"${p.task ? ` data-task="${esc(p.task)}"` : ''}>待确认 ${cand.total} 张</a>` : ''}
@@ -2648,7 +2648,7 @@
     const row = (k, t) => `<tr><td>${k.split(' ').map(x => `<kbd>${x}</kbd>`).join(' ')}</td><td>${t}</td></tr>`;
     dialog({
       title: '键盘快捷键', cls: 'small',
-      body: `<table class="kbd-table">${row('P', '选入修图')}${row('X', '淘汰（不删除文件）')}${row('U', '待定')}${row('R', '保留记录')}${row('G / E', '网格 / 单张（大图 + 胶片带）')}${row('空格 / 回车', '网格与单张之间切换')}${row('Tab / I', '单张视图：收起或展开信息面板')}${row('F', '全屏')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('C', '比较已选 2–4 张；只选一张时与下一张比较')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
+      body: `<table class="kbd-table">${row('P', '选入修图')}${row('X / Delete', '放进垃圾箱（清空垃圾箱前不动文件）')}${row('U', '待定')}${row('R', '保留记录')}${row('G / E', '网格 / 单张（大图 + 胶片带）')}${row('空格 / 回车', '网格与单张之间切换')}${row('Tab / I', '单张视图：收起或展开信息面板')}${row('F', '全屏')}${row('1 2 3 4 5', '设置星级')}${row('0', '清除星级')}${row('← →', '上一张 / 下一张')}${row('↑ ↓', '上一行 / 下一行')}${row('C', '比较已选 2–4 张；只选一张时与下一张比较')}${row('⌘/Ctrl Z', '撤销')}${row('⌘/Ctrl A', '全选当前网格')}${row('Esc', '关闭对话框 / 取消多选')}</table>
         <p class="hint">在输入框中打字时快捷键不会触发。多选时标记作用于全部已选素材；单张视图、全屏与比较里只作用于眼前这张（比较里是高亮的一格）。</p>`,
     });
   }

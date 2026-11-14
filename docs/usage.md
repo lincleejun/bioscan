@@ -27,7 +27,7 @@ uv run gardener-engine names stats                # required once, online, befor
 
 Each folder must hold exactly one CSV. Sources, versions and checksums in detail (Chinese): [data/README.md](../data/README.md).
 
-- **Birds**, `data/avilist/AviList-v2026-20Oct2026-extended-version.csv`: AviList v2026 (CC BY 4.0), https://www.avilist.org/checklist/. Only the XLSX is published: https://www.avilist.org/wp-content/uploads/2026/10/AviList-v2026-20Oct2026-extended-version.xlsx (sha256 `df031d392b766673ce8a9eb37b8e57a91baabf9576b6b2bcfd6cf9aa4902797d`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `02663bc97888d8940eab5628ef60b951c3818d998174f8d7549ccc94fe0c85d9`). A v2025 CSV still reads; its headers differ and are mapped:
+- **Birds**, `data/avilist/AviList-v2026-20Oct2026-extended-version.csv`: AviList v2026 (CC BY 4.0), https://www.avilist.org/checklist/. Only the XLSX is published, and the site answers `curl` with 403, so download it in a browser: https://www.avilist.org/wp-content/uploads/2026/10/AviList-v2026-20Oct2026-extended-version.xlsx (sha256 `df031d392b766673ce8a9eb37b8e57a91baabf9576b6b2bcfd6cf9aa4902797d`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `02663bc97888d8940eab5628ef60b951c3818d998174f8d7549ccc94fe0c85d9`). A v2025 CSV still reads; its headers differ and are mapped:
 
   ```sh
   uv run --no-project --with openpyxl python -c "
@@ -36,7 +36,7 @@ Each folder must hold exactly one CSV. Sources, versions and checksums in detail
   with open('AviList-v2026-20Oct2026-extended-version.csv', 'w', newline='', encoding='utf-8') as f:
       csv.writer(f).writerows([('' if v is None else v) for v in r] for r in ws.iter_rows(values_only=True))"
   ```
-- **Mammals**, `data/mdd/MDD_v2.5_6904species.csv`: MDD v2.5, from `assets/data/MDD.zip` in https://github.com/mammaldiversity/mammaldiversity.github.io (commit `22ab0ad7`); unzip and take `MDD/MDD_v2.5_6904species.csv` (sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`).
+- **Mammals**, `data/mdd/MDD_v2.5_6904species.csv`: MDD v2.5, from `assets/data/MDD.zip` in https://github.com/mammaldiversity/mammaldiversity.github.io (commit `22ab0ad7`): `curl -LO https://raw.githubusercontent.com/mammaldiversity/mammaldiversity.github.io/22ab0ad7/assets/data/MDD.zip`; unzip and take `MDD/MDD_v2.5_6904species.csv` (sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`).
 
 ## Running
 

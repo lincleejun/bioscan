@@ -50,7 +50,7 @@ uv sync
 uv run python tests/models/download.py    # 固定版本的权重，约 7 GB，只需一次
 # 名单：下载 AviList 和 MDD 的 CSV，见 docs/usage.md#name-lists
 uv run gardener-engine names stats        # 只需一次，联网：建立名单缓存（下载 3.26 GB）
-uv run gardener serve                     # 打开 http://127.0.0.1:8770
+uv run gardener serve                     # 打开 http://127.0.0.1:8770；--port N 换端口，数据在 ~/.gardener（$GARDENER_HOME）
 ```
 
 ## 单独使用识别引擎

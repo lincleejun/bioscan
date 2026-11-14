@@ -121,10 +121,11 @@ def _impact(c: Any, ready: set[str]) -> dict[str, list[dict[str, Any]]]:
     return out
 
 
-def create(c: Any, ids: list[str], *, scope: dict[str, Any], actor: str) -> str:
-    """A plan over the rejected assets among `ids`."""
+def create(c: Any, ids: list[str], *, scope: dict[str, Any], actor: str, whole: bool = False) -> str:
+    """A plan over the rejected assets among `ids`; with `whole` over all of them (the bin: the caller marks what only
+    the AI rejected when the person confirms the run)."""
     use = uses_of(c, ids)
-    rejected = [a for a in ids if use[a] == "reject"]
+    rejected = [a for a in ids if whole or use[a] == "reject"]
     pid, t = st.new_id("p"), now()
     found = {aid: _files(c, aid) for aid in rejected}
     ready = {aid for aid, files in found.items() if files and all(f["exists"] for f in files)}

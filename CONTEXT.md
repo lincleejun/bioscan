@@ -528,6 +528,14 @@ out_of_range, prior_suppressed, within_genus, within_family, far_miss; `overconf
 
 ## Gardener (docs/gardener/)
 
+**Album core** (相册核心):
+What must work with no model loaded: browse, add a folder, mark, the bin, collections, export (ADR 0005).
+_Avoid_: library manager, DAM
+
+**Wildlife** (野生动物):
+The vertical Gardener goes deepest in: birds, mammals and other animals named to species, bursts, picks and the bin.
+_Avoid_: bird recognition (birds are one kind of three)
+
 **Task** (任务):
 One Import/Scan job: sources, background text, a capability config; persists and can be appended to. Not a Collection.
 

@@ -50,7 +50,7 @@ uv sync
 uv run python tests/models/download.py    # pinned weights, about 7 GB, once
 # name lists: download the AviList and MDD CSVs, see docs/usage.md#name-lists
 uv run gardener-engine names stats        # once, online: builds the name caches (3.26 GB download)
-uv run gardener serve                     # open http://127.0.0.1:8770
+uv run gardener serve                     # open http://127.0.0.1:8770; --port N, data in ~/.gardener ($GARDENER_HOME)
 ```
 
 ## The engine on its own
