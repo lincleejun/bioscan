@@ -6,9 +6,9 @@
 
 Gardener is a local album: point it at a folder and browse. Ask it to sort, and it finds the animals, names the species, groups the bursts, marks the good frames and puts the blurred and empty ones in a bin for you to check. Birds, mammals and every other animal go through the same steps. **No photo leaves the machine, and no file is touched unless you confirm it.**
 
-https://github.com/user-attachments/assets/f8a49a63-00e3-4349-9201-a4f84e18181e
+https://github.com/user-attachments/assets/76ca294b-82c4-4afd-9ed4-332920a1b91b
 
-52 seconds, silent, Chinese captions. Every screen is the real UI on a real library of 3,554 photos. The UI is in Chinese for now; species show their scientific and English names.
+86 seconds, silent, Chinese captions. Every screen is the real UI on a real library of 3,554 photos. The UI is in Chinese for now; species show their scientific and English names.
 
 ## From a card to an album
 
