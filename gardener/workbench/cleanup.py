@@ -8,8 +8,10 @@ asset is rejected in the same plan too."""
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,7 +27,16 @@ TRASH_NOTE = ("移到废纸篓的文件仍占用磁盘空间，可在废纸篓�
 
 def trash(path: str) -> None:
     """Move one file to the macOS Trash (Finder's "Move to Trash"; /usr/bin/trash on macOS 15+, else Finder via
-    AppleScript). Raises OSError when it did not happen."""
+    AppleScript). Raises OSError when it did not happen. With GARDENER_TRASH_DIR set (the container image: there is
+    no macOS Trash) the file moves under that folder instead, keeping its full path, so it can be put back by hand."""
+    own = os.environ.get("GARDENER_TRASH_DIR")
+    if own:
+        dst = Path(own) / path.lstrip("/")
+        if dst.exists():                                  # a second file from the same place: keep both
+            dst = dst.with_name(f"{dst.name}.{time.time_ns()}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(path, dst)
+        return
     if os.path.exists("/usr/bin/trash"):
         cmd = ["/usr/bin/trash", path]
     else:
@@ -121,10 +132,11 @@ def _impact(c: Any, ready: set[str]) -> dict[str, list[dict[str, Any]]]:
     return out
 
 
-def create(c: Any, ids: list[str], *, scope: dict[str, Any], actor: str) -> str:
-    """A plan over the rejected assets among `ids`."""
+def create(c: Any, ids: list[str], *, scope: dict[str, Any], actor: str, whole: bool = False) -> str:
+    """A plan over the rejected assets among `ids`; with `whole` over all of them (the bin: the caller marks what only
+    the AI rejected when the person confirms the run)."""
     use = uses_of(c, ids)
-    rejected = [a for a in ids if use[a] == "reject"]
+    rejected = [a for a in ids if whole or use[a] == "reject"]
     pid, t = st.new_id("p"), now()
     found = {aid: _files(c, aid) for aid in rejected}
     ready = {aid for aid, files in found.items() if files and all(f["exists"] for f in files)}

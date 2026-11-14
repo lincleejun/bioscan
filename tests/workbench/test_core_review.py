@@ -464,3 +464,20 @@ def test_clear_cache_tolerates_a_file_vanishing_meanwhile(env, tmp_path, monkeyp
         monkeypatch.undo()
         assert r.status_code == 200 and r.json()["removed_files"] == 3
         assert c.get(f"{API}/assets/{aid}").json()["preview"] == "pending"
+
+
+def test_a_store_from_before_schema_5_gets_wildlife_as_its_default_preset_once(env):
+    """契约修订 23: the old builtin default `quick` named no species; the migration moves it once and keeps a later choice."""
+    import sqlite3
+
+    db = env.data / "gardener.sqlite"
+    with env.client() as c:
+        assert c.get(f"{API}/settings").json()["default_preset"] == "wildlife"
+    with sqlite3.connect(db) as cx:
+        cx.execute("UPDATE meta SET value = '4' WHERE key = 'schema_version'")
+        cx.execute("UPDATE settings SET value = '\"quick\"' WHERE key = 'default_preset'")
+    with env.client() as c:
+        assert c.get(f"{API}/settings").json()["default_preset"] == "wildlife"
+        assert c.put(f"{API}/settings", json={"default_preset": "quick"}).json()["default_preset"] == "quick"
+    with env.client() as c:
+        assert c.get(f"{API}/settings").json()["default_preset"] == "quick"

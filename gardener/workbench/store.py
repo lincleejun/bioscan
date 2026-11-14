@@ -17,12 +17,13 @@ from typing import Any
 from gardener.workbench import capabilities as capmod
 from gardener.workbench import query
 
-SCHEMA_VERSION = 4                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
+SCHEMA_VERSION = 5                 # 2: subjects + identifications (ADR 0002), backfilled from raw:identify
                                    # 3: four uses replace Pick/Reject (marks.use) + encounters (contract revision 5B)
                                    # 4: marks hidden on versions carried to their representative (契约修订 10B)
+                                   # 5: the default preset "quick" becomes "wildlife" (ADR 0005: 自动归类 names species)
 SCHEMA = Path(__file__).with_name("schema.sql")
 MODEL_CAP_IDS = frozenset(c.id for c in capmod.CAPABILITIES if c.stages or c.local)   # same set as tasks.MODEL_CAPS
-DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "quick",
+DEFAULT_SETTINGS: dict[str, Any] = {"run_mode": capmod.DEFAULT_MODE, "default_preset": "wildlife",
                                     "capability_versions": {}, "cap_status": {}}
 TERMINAL = ("completed", "partial", "failed", "stopped", "cancelled")
 ADDED_COLUMNS = (("ai_suggestions", "burst_rank", "INTEGER"), ("ai_suggestions", "burst_size", "INTEGER"),
@@ -182,6 +183,8 @@ class Store:
                 from gardener.workbench import versions
 
                 versions.backfill_carry(c)
+                if int(row[0]) < 5:
+                    c.execute("UPDATE settings SET value = '\"wildlife\"' WHERE key = 'default_preset' AND value = '\"quick\"'")
                 c.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
             t = now()
             for pid, p in capmod.PRESETS.items():

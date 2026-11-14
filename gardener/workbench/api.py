@@ -1519,17 +1519,15 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     @r.post("/cleanup-plans", status_code=201)
     def post_cleanup_plan(body: dict[str, Any] = OPT_BODY, actor: str = ACTOR) -> dict[str, Any]:
         """The rejected assets in a scope (default: the whole library) with every file and species impact."""
-        if body.get("pile") == "bin":      # 清空「不好」(修订 21): what only the AI rejected becomes the person's reject first
-            ai_only = store.ids_where({"pile": "bin", "use": "pending"})
-            if ai_only:
-                store.set_marks(ai_only, {"use": "reject"}, actor=actor, reason="清空「不好」")
+        whole = body.get("pile") == "bin"   # 清空垃圾箱 (修订 23): the plan lists the whole bin and writes no mark
+        if whole:
             scope, ids = {"pile": "bin"}, store.ids_where({"pile": "bin"})
         else:
             scope, ids, _ = scope_of(body)
         if not scope:
             ids = store.ids_where({"flag": "reject"})
         with store.tx() as c:
-            return cleanup.get(c, cleanup.create(c, ids, scope=scope, actor=actor))
+            return cleanup.get(c, cleanup.create(c, ids, scope=scope, actor=actor, whole=whole))
 
     @r.get("/cleanup-plans")
     def get_cleanup_plans(limit: int = LIMIT100) -> list[dict[str, Any]]:
@@ -1541,10 +1539,15 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
         return cleanup.get(store.conn(), pid)
 
     @r.post("/cleanup-plans/{pid}/run")
-    def run_cleanup_plan(pid: str, body: dict[str, Any] = BODY) -> dict[str, Any]:
+    def run_cleanup_plan(pid: str, body: dict[str, Any] = BODY, actor: str = ACTOR) -> dict[str, Any]:
         """Move the plan's files to the Trash after a person confirmed, re-checking every item first."""
         if body.get("confirm") is not True:
             raise Error("清理需要人确认：confirm 必须为 true")
+        plan = cleanup.get(store.conn(), pid)
+        if plan["scope"] == {"pile": "bin"}:    # 修订 23: confirming is the person's reject of what only the AI rejected
+            ai_only = sorted({i["asset_id"] for i in plan["items"]} & set(store.ids_where({"pile": "bin", "use": "pending"})))
+            if ai_only:
+                store.set_marks(ai_only, {"use": "reject"}, actor=actor, reason="清空垃圾箱")
         report = cleanup.run(store, pid, trash_fn)
         return cleanup.get(store.conn(), pid) | {"report": report}
     # ---- end 契约修订 5E ----

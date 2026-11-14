@@ -2,24 +2,24 @@
 
 [English](README.md) | **简体中文**
 
-### 拍一天鸟，带回 1,361 张照片。哪些值得留下？
+### 拍野生动物的人的相册。
 
-把卡交给 Gardener。它在你自己的 Mac 上为每张 RAW 和 JPG 出预览，找出动物，认出物种，把连拍归成组，再按物种排好，等你来留、打星、淘汰。**照片不出本机，不经你确认不动任何文件。**
+Gardener 是一个本地相册：指给它一个文件夹，就能浏览。让它归类，它会找出动物、认出物种、把连拍归成组、标出好片，把模糊的和没有主体的放进垃圾箱等你确认。鸟类、哺乳类和其他动物走同一套流程。**照片不出本机，不经你确认不动任何文件。**
 
 https://github.com/user-attachments/assets/18bfad8b-6864-4edf-bb72-e1d05f7c075f
 
 50 秒，无声，中文字幕。画面全部是真实界面，素材是一个 3,554 张的真实图库。
 
-## 一次拍摄怎么整理
+## 从一张卡到相册
 
 <table>
 <tr>
-<td width="50%"><img src="assets/readme/scan.jpg" alt="扫描"><br><b>1. 扫描。</b>一个任务可以有多张卡或多个文件夹。先出预览，分析没跑完就能开始。</td>
+<td width="50%"><img src="assets/readme/scan.jpg" alt="扫描"><br><b>1. 加入文件夹。</b>「加入图库」只读取，马上能浏览；「加入并自动归类」同时归类。不复制、不移动任何文件。</td>
 <td width="50%"><img src="assets/readme/review.jpg" alt="按物种审片"><br><b>2. 按物种审片。</b>一次连拍是一组。可以一次完成或淘汰多组；认错的名字，整次拍摄改一次即可。</td>
 </tr>
 <tr>
 <td><img src="assets/readme/compare.jpg" alt="双图比较"><br><b>3. 比较。</b>两张并排，直接放大到头部或眼睛。要留的打星。每次标记都能撤销。</td>
-<td><img src="assets/readme/picks.jpg" alt="AI 选鸟"><br><b>4. AI 选鸟。</b>每个物种从不同瞬间各挑最好的几张，放进一个集合：这里 1,361 张变成 47 张。然后交给 Lightroom。</td>
+<td><img src="assets/readme/picks.jpg" alt="好片"><br><b>4. 好片和垃圾箱。</b>一次拍摄里大约十分之一会被挑成好片；模糊的和没有主体的进垃圾箱，清空之前文件都还在磁盘上。Lightroom 用不用由你。</td>
 </tr>
 </table>
 
@@ -38,20 +38,25 @@ https://github.com/user-attachments/assets/18bfad8b-6864-4edf-bb72-e1d05f7c075f
 
 美学评分对照大众星级（100 张 EVA 照片）：Spearman 0.877。GPX 轨迹补 GPS：合成轨迹上中位误差 7 米。全部表格和测量方法：[docs/results.md](docs/results.md)；对照的标准：[docs/standards.md](docs/standards.md)。
 
-尚未实测：真实相册上的连拍分组、挑片规则和 AI 选鸟；鸟类和哺乳类之外的物种只测过 18 张照片。`docs/standards.md` 的发布门槛还没有全部达到。已知限制：[docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap)。
+尚未实测：真实相册上的连拍分组、挑片规则和按物种挑片；鸟类和哺乳类之外的物种只测过 18 张照片。`docs/standards.md` 的发布门槛还没有全部达到。已知限制：[docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap)。
 
 ## 快速开始
 
-macOS，Apple Silicon（MPS）或 CPU；Python 3.12 和 `uv`。
+macOS，Apple Silicon；Python 3.12 和 [`uv`](https://docs.astral.sh/uv/)。首次下载约 10 GB。
 
 ```sh
 git clone https://github.com/lincleejun/gardener && cd gardener
-uv sync
-uv run python tests/models/download.py    # 固定版本的权重，约 7 GB，只需一次
-# 名单：下载 AviList 和 MDD 的 CSV，见 docs/usage.md#name-lists
-uv run gardener-engine names stats        # 只需一次，联网：建立名单缓存（下载 3.26 GB）
-uv run gardener serve                     # 打开 http://127.0.0.1:8770
+./scripts/install.sh                      # 依赖、名录、模型权重、名录缓存，一步完成
+uv run gardener serve                     # 打开 http://127.0.0.1:8770；--port N 换端口，数据在 ~/.gardener（$GARDENER_HOME）
 ```
+
+也可以用 Docker（任何机器都行；在 Mac 上只能用 CPU，比原生安装慢约七倍）：
+
+```sh
+PHOTOS=~/Pictures docker compose up -d    # 首次启动下载约 16 GB（快网约 17 分钟）；然后打开 http://127.0.0.1:8770
+```
+
+`PHOTOS` 是容器唯一能读的文件夹。在容器里清空垃圾箱，文件移到 `PHOTOS/.gardener-trash`。详见 [docs/usage.md](docs/usage.md#docker)。
 
 ## 单独使用识别引擎
 

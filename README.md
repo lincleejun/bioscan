@@ -2,24 +2,24 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-### One day of birding. 1,361 frames. Which ones are worth keeping?
+### The photo album for people who shoot wildlife.
 
-Hand Gardener the card. On your own Mac it previews every RAW and JPG, finds the animals, names the species and groups the bursts, then lays the shoot out by species for you to keep, star and reject. **No photo leaves the machine, and no file is touched unless you confirm it.**
+Gardener is a local album: point it at a folder and browse. Ask it to sort, and it finds the animals, names the species, groups the bursts, marks the good frames and puts the blurred and empty ones in a bin for you to check. Birds, mammals and every other animal go through the same steps. **No photo leaves the machine, and no file is touched unless you confirm it.**
 
 https://github.com/user-attachments/assets/18bfad8b-6864-4edf-bb72-e1d05f7c075f
 
-50 seconds, silent, Chinese captions. Every screen is the real UI on a real library of 3,554 photos.
+50 seconds, silent, Chinese captions. Every screen is the real UI on a real library of 3,554 photos. The UI is in Chinese for now; species show their scientific and English names.
 
-## How a shoot goes
+## From a card to an album
 
 <table>
 <tr>
-<td width="50%"><img src="assets/readme/scan.jpg" alt="Scan"><br><b>1. Scan.</b> Several cards or folders in one task. Previews come first, so you can start before analysis ends.</td>
+<td width="50%"><img src="assets/readme/scan.jpg" alt="Scan"><br><b>1. Add a folder.</b> 「加入图库」 only reads it and you browse at once; 「加入并自动归类」 also sorts it. Nothing is copied or moved.</td>
 <td width="50%"><img src="assets/readme/review.jpg" alt="Review by species"><br><b>2. Review by species.</b> One burst is one group. Finish or reject many groups at once; a wrong name is corrected once for the whole shoot.</td>
 </tr>
 <tr>
 <td><img src="assets/readme/compare.jpg" alt="Compare frames"><br><b>3. Compare.</b> Two frames side by side, zoomed to the head or the eye. Star what you keep. Every mark can be undone.</td>
-<td><img src="assets/readme/picks.jpg" alt="AI 选鸟"><br><b>4. AI 选鸟.</b> A few best frames of each species, from different moments, in one collection: here 1,361 frames became 47. Then on to Lightroom.</td>
+<td><img src="assets/readme/picks.jpg" alt="Good frames"><br><b>4. 好片 and 垃圾箱.</b> About a tenth of a shoot is offered as the good frames; the blurred and empty ones wait in the bin, and nothing leaves the disk until you empty it. Lightroom is optional.</td>
 </tr>
 </table>
 
@@ -38,20 +38,25 @@ https://github.com/user-attachments/assets/18bfad8b-6864-4edf-bb72-e1d05f7c075f
 
 Aesthetic score against crowd stars (100 EVA photos): Spearman 0.877. GPS from a GPX track: median error 7 m on synthetic tracks. All tables and how they were measured: [docs/results.md](docs/results.md); the bars they are held to: [docs/standards.md](docs/standards.md).
 
-Not measured yet: burst grouping, culling rules and AI 选鸟 on real albums; species outside birds and mammals beyond 18 test photos. The release gates in `docs/standards.md` are not all met. Known limits: [docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap).
+Not measured yet: burst grouping, culling rules and the per-species picks on real albums; species outside birds and mammals beyond 18 test photos. The release gates in `docs/standards.md` are not all met. Known limits: [docs/how-it-works.md](docs/how-it-works.md#known-limitations-and-roadmap).
 
 ## Quick start
 
-macOS on Apple Silicon (MPS) or CPU; Python 3.12 with `uv`.
+macOS on Apple Silicon; Python 3.12 with [`uv`](https://docs.astral.sh/uv/). About 10 GB of downloads, once.
 
 ```sh
 git clone https://github.com/lincleejun/gardener && cd gardener
-uv sync
-uv run python tests/models/download.py    # pinned weights, about 7 GB, once
-# name lists: download the AviList and MDD CSVs, see docs/usage.md#name-lists
-uv run gardener-engine names stats        # once, online: builds the name caches (3.26 GB download)
-uv run gardener serve                     # open http://127.0.0.1:8770
+./scripts/install.sh                      # dependencies, name lists, model weights, name caches
+uv run gardener serve                     # open http://127.0.0.1:8770; --port N, data in ~/.gardener ($GARDENER_HOME)
 ```
+
+Or in Docker (any machine; on a Mac it runs on the CPU, about seven times slower than the native install):
+
+```sh
+PHOTOS=~/Pictures docker compose up -d    # first start downloads about 16 GB (17 min on a fast line); then open http://127.0.0.1:8770
+```
+
+`PHOTOS` is the one folder the container can read. Emptying the bin there moves files to `PHOTOS/.gardener-trash`. Details: [docs/usage.md](docs/usage.md#docker).
 
 ## The engine on its own
 

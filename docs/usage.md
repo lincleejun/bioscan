@@ -17,7 +17,7 @@ uv run python tests/models/download.py      # pinned versions of the three model
 ```
 The name-vector cache records the BioCLIP / TreeOfLife versions it was built with and is rebuilt when they change; older caches without that record are still used.
 
-The name-list CSVs are large and not in git: download them as described [below](#name-lists) into `data/avilist/` and `data/mdd/`. Then run `uv run gardener-engine names stats` once, with network access, before the first `serve`: it encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which it fetches into `~/.cache/huggingface`; about half a minute once downloaded). The service cannot do this step itself, because it runs offline. The same run also builds the all-taxa list from that file if `download.py` has not already (no encoding; a float16 cache of about 1 GB). Delete the TreeOfLife file only after both are cached: if it is gone and the all-taxa cache is missing, the service still starts, logs a warning and gives other animals `species: null`, as before; `uv run python tests/models/download.py` or `uv run gardener-engine names stats` builds it again. Later starts take a few seconds (the all-taxa list is most of that). Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
+The name-list CSVs are large and not in git: `uv run python scripts/names/fetch_lists.py` downloads both into `data/avilist/` and `data/mdd/` from this project's release `names-2026.11` and checks their sha256 (`./scripts/install.sh` runs it with every other first-time step); where they come from is [below](#name-lists). Then run `uv run gardener-engine names stats` once, with network access, before the first `serve`: it encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which it fetches into `~/.cache/huggingface`; about half a minute once downloaded). The service cannot do this step itself, because it runs offline. The same run also builds the all-taxa list from that file if `download.py` has not already (no encoding; a float16 cache of about 1 GB). Delete the TreeOfLife file only after both are cached: if it is gone and the all-taxa cache is missing, the service still starts, logs a warning and gives other animals `species: null`, as before; `uv run python tests/models/download.py` or `uv run gardener-engine names stats` builds it again. Later starts take a few seconds (the all-taxa list is most of that). Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
 
 ```sh
 uv run gardener-engine names stats                # required once, online, before the first serve; later: name-list coverage
@@ -27,7 +27,7 @@ uv run gardener-engine names stats                # required once, online, befor
 
 Each folder must hold exactly one CSV. Sources, versions and checksums in detail (Chinese): [data/README.md](../data/README.md).
 
-- **Birds**, `data/avilist/AviList-v2026-20Oct2026-extended-version.csv`: AviList v2026 (CC BY 4.0), https://www.avilist.org/checklist/. Only the XLSX is published: https://www.avilist.org/wp-content/uploads/2026/10/AviList-v2026-20Oct2026-extended-version.xlsx (sha256 `df031d392b766673ce8a9eb37b8e57a91baabf9576b6b2bcfd6cf9aa4902797d`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `02663bc97888d8940eab5628ef60b951c3818d998174f8d7549ccc94fe0c85d9`). A v2025 CSV still reads; its headers differ and are mapped:
+- **Birds**, `data/avilist/AviList-v2026-20Oct2026-extended-version.csv`: AviList v2026 (CC BY 4.0), https://www.avilist.org/checklist/. Only the XLSX is published, and the site answers `curl` with 403, so download it in a browser: https://www.avilist.org/wp-content/uploads/2026/10/AviList-v2026-20Oct2026-extended-version.xlsx (sha256 `df031d392b766673ce8a9eb37b8e57a91baabf9576b6b2bcfd6cf9aa4902797d`). Convert its first sheet, as is, to a UTF-8 CSV (sha256 `02663bc97888d8940eab5628ef60b951c3818d998174f8d7549ccc94fe0c85d9`). A v2025 CSV still reads; its headers differ and are mapped:
 
   ```sh
   uv run --no-project --with openpyxl python -c "
@@ -36,7 +36,7 @@ Each folder must hold exactly one CSV. Sources, versions and checksums in detail
   with open('AviList-v2026-20Oct2026-extended-version.csv', 'w', newline='', encoding='utf-8') as f:
       csv.writer(f).writerows([('' if v is None else v) for v in r] for r in ws.iter_rows(values_only=True))"
   ```
-- **Mammals**, `data/mdd/MDD_v2.5_6904species.csv`: MDD v2.5, from `assets/data/MDD.zip` in https://github.com/mammaldiversity/mammaldiversity.github.io (commit `22ab0ad7`); unzip and take `MDD/MDD_v2.5_6904species.csv` (sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`).
+- **Mammals**, `data/mdd/MDD_v2.5_6904species.csv`: MDD v2.5, from `assets/data/MDD.zip` in https://github.com/mammaldiversity/mammaldiversity.github.io (commit `22ab0ad7`): `curl -LO https://raw.githubusercontent.com/mammaldiversity/mammaldiversity.github.io/22ab0ad7/assets/data/MDD.zip`; unzip and take `MDD/MDD_v2.5_6904species.csv` (sha256 `0d07a7e9409712fa86c1e3afadcf4c67bf4f9e16d5693a878e11ec1bf6860493`).
 
 ## Running
 
@@ -302,3 +302,17 @@ The response is an NDJSON stream of `progress` / `result` / `error` / `done` eve
 `POST /apply` acts on a review's marks for the score page (docs/album.md): `{"keep": [paths], "keep_to": DIR}` copies the keeps there, `{"drop": [paths], "delete": true}` deletes the drops, each with its XMP sidecars; it answers `{"copied", "moved", "deleted", "sidecars", "skipped": [...], "missing": [...]}`. Every path must be inside the `--allow-root`s, and the request must carry `X-Gardener-Token` equal to `~/.cache/bioscan/serve-token` (written by the first `gardener-engine serve`, mode 0600; `aesthetic score` bakes it into the page), so no other site the browser opens can call it. The service never moves drops; `gardener-engine aesthetic apply --drop-to` does.
 
 CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `eval` follows them too (1 when any ground-truth image failed or got no answer, the report's `failed` column, 3 when the stream ended early). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.
+
+## Docker
+
+`PHOTOS=/path/to/photos docker compose up -d` builds the image and starts the service on `http://127.0.0.1:8770`
+(published on this machine only: the service has no login). The first start downloads the name lists, the model weights
+and the name caches into Docker volumes: 16.4 GB and 16.5 minutes on a fast line (measured 2026-11-13); later starts take seconds. `PHOTOS` (default `~/Pictures`) is
+mounted at the same path inside the container, so the paths Gardener shows are the host's.
+
+- **Speed.** A container on a Mac has no GPU. 48 small JPGs with the 野生动物 preset took 151 s in the container and
+  20 s natively on the same M-series Mac (2026-11-13), with about 11 GB of memory. Use `./scripts/install.sh` for daily
+  work on a Mac; the container is for trying it out and for other machines.
+- **The bin.** There is no macOS Trash in a container: a confirmed cleanup moves each file to
+  `PHOTOS/.gardener-trash/<its full path>` (`GARDENER_TRASH_DIR`). Put a file back by moving it; delete the folder to free the space.
+- **Not there.** The Lightroom handoff and the 「文件夹」 page's default roots are for a native install.

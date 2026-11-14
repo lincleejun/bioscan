@@ -53,7 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--allow-root", action="append", default=[],
                     help="任务来源必须位于这些目录之内（可重复；默认不限制）")
     a = ap.parse_args(argv)
-    if a.host not in LOCAL_HOSTS:
+    in_container = os.environ.get("GARDENER_CONTAINER") == "1" and a.host == "0.0.0.0"   # the image: publish it on 127.0.0.1 only
+    if a.host not in LOCAL_HOSTS and not in_container:
         ap.error(f"--host 只能是本机地址 {LOCAL_HOSTS}：v0.1 没有局域网认证")
     data_dir = (a.data_dir or default_data_dir()).expanduser().resolve()
     try:

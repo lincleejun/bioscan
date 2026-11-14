@@ -293,8 +293,8 @@ def test_a_planned_file_that_is_no_longer_a_plain_file_is_reported_as_changed(en
 
 def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_emptying_it_plans_both(env, fakes, tmp_path, monkeypatch):
     """修订 21: pile=bin / pile=good read the person's mark first and the AI suggestion only where nobody marked the
-    photo; 放回 (use record) takes a photo out of the bin for good; emptying turns the AI-only rejects into the
-    person's and plans them."""
+    photo; 放回 (use record) takes a photo out of the bin for good; the plan to empty it lists both kinds and writes no
+    mark (修订 23); confirming it makes the AI-only rejects the person's, except one put back in between."""
     import sqlite3
 
     with env.client(trash=Bin(tmp_path / "bin")) as c:
@@ -321,4 +321,25 @@ def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_em
         assert pile("good") == [aids[3]]
         p = c.post(f"{API}/cleanup-plans", json={"pile": "bin"}).json()
         assert p["scope"] == {"pile": "bin"} and sorted(i["asset_id"] for i in p["items"]) == sorted([aids[1], aids[2]])
-        assert sorted(i["id"] for i in c.get(f"{API}/assets", params={"use": "reject"}).json()["items"]) == sorted([aids[1], aids[2]])
+        def rejected():
+            return sorted(i["id"] for i in c.get(f"{API}/assets", params={"use": "reject"}).json()["items"])
+        assert rejected() == [aids[2]]                                 # opening the plan changed nobody's marks
+        c.post(f"{API}/marks", json={"asset_ids": [aids[2]], "use": "record"})       # 放回 while the plan is open
+        with sqlite3.connect(env.data / "gardener.sqlite") as db:
+            db.execute("UPDATE ai_suggestions SET verdict = 'reject' WHERE asset_id = ?", (aids[0],))   # not in the plan
+        report = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()["report"]
+        assert rejected() == [aids[1]] and {"asset_id": aids[2], "reason": "not_rejected"} in report["skipped"]
+        assert [Path(f["path"]).exists() for i in p["items"] for f in i["files"] if i["asset_id"] == aids[1]] == [False]
+
+
+def test_in_a_container_the_trash_is_a_folder_that_keeps_each_files_full_path(tmp_path, monkeypatch):
+    """ADR 0005: no macOS Trash in the image; GARDENER_TRASH_DIR takes the files, and a second one from the same place stays too."""
+    monkeypatch.setenv("GARDENER_TRASH_DIR", str(tmp_path / "bin"))
+    for _ in range(2):
+        src = tmp_path / "shoot" / "a.jpg"
+        src.parent.mkdir(exist_ok=True)
+        src.write_bytes(b"x")
+        cleanup.trash(str(src))
+        assert not src.exists()
+    kept = sorted(p.name.split(".")[:2] for p in (tmp_path / "bin").rglob("a.jpg*"))
+    assert kept == [["a", "jpg"], ["a", "jpg"]]
