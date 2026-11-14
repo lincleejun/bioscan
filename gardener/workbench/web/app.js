@@ -847,7 +847,40 @@
   }
   const baseName = p => p.replace(/\/+$/, '').split('/').pop() || p;
   // 加入图库（ADR 0004）：kind 'browse' 只清点与出预览（meta，不跑模型），'sort' 用设置好的预设与能力
+  // 自动归类要用的模型在第一次用到时才下载（约 7 GB，只需一次）；只加入图库不需要
+  async function needModels() {
+    let m = await api('GET', '/models');
+    if (m.ready) return true;
+    const gb = n => (n / 1e9).toFixed(1);
+    const rows = x => x.items.map(i => `<li>${esc(i.name)} · ${i.present ? '已就绪' : `${gb(i.have_bytes)} / ${gb(i.bytes)} GB`}</li>`).join('');
+    return new Promise(resolve => {
+      let timer = null, ok = false;
+      const paint = d => { $('#md-body', d).innerHTML = `${bar(100 * m.have_bytes / m.bytes)}<p class="hint">${gb(m.have_bytes)} / ${gb(m.bytes)} GB${m.download.state === 'failed' ? ` · <span class="txt-warn">${esc(m.download.error || '下载失败')}（${esc(m.download.log || '')}）</span>` : ''}</p><ul class="hint">${rows(m)}</ul>`; };
+      const d = dialog({
+        title: '自动归类需要先下载模型',
+        body: `<p>识别物种、归并连拍、挑好片要用到几个模型，共约 ${gb(m.bytes)} GB，只需下载一次，之后离线运行。只浏览、标记不需要它们：可以先选「加入图库」。</p><div id="md-body"></div>`,
+        actions: [{ label: m.download.state === 'running' ? '下载中…' : '开始下载', value: 'ok', kind: 'primary' }],
+        onSubmit: async () => {
+          m = await api('POST', '/models/download', {});
+          paint(d);
+          $('.dlg-foot [type=submit]', d).hidden = true;      // 已经在下载：只留「取消」（关掉对话框不会中断下载）
+          const tick = async () => {        // 只在这个对话框开着时轮询
+            if (!document.contains(d)) return;
+            try { m = await api('GET', '/models'); } catch (e) { timer = setTimeout(tick, 1500); return; }
+            paint(d);
+            if (m.ready) { ok = true; d.close(); } else if (m.download.state !== 'failed') timer = setTimeout(tick, 1500);
+          };
+          clearTimeout(timer);
+          timer = setTimeout(tick, 1500);
+          return false;
+        },
+        onClose: () => { clearTimeout(timer); resolve(ok); },
+      });
+      paint(d);
+    });
+  }
   async function addToLibrary(d, kind, loc) {
+    if (kind !== 'browse' && !(await needModels())) { toast('模型还没有就绪，没有开始归类'); return null; }
     const body = Object.assign({ title: (d.title || '').trim() || baseName(d.sources[0]), subtitle: (d.subtitle || '').trim(), description: (d.description || '').trim(), sources: d.sources, run_mode: d.run_mode },
       kind === 'browse' ? { capabilities: ['meta'] } : { preset: d.preset, capabilities: d.caps }, loc || {});
     const t = await api('POST', '/tasks', body);
@@ -867,7 +900,7 @@
     if (!loc) { $('#create-more').open = true; $('#f-loc').focus(); return; }
     const kind = ($('input[name=kind]:checked') || {}).value || 'browse';
     prefs.set('addkind', kind);
-    try { await addToLibrary(d, kind, loc); ui.draft = null; } catch (e) { showErr('submit', errMsg(e)); }
+    try { if (await addToLibrary(d, kind, loc)) ui.draft = null; } catch (e) { showErr('submit', errMsg(e)); }
   }
 
   // ---------- 任务详情 ----------
@@ -2995,7 +3028,7 @@
     'restore-batch': el => undoBatch(el.dataset.id, el.dataset.label).then(() => { S.details.clear(); renderInspector(); }),
     'add-path': () => addPath(),
     'bin-empty': async el => { el.disabled = true; try { const plan = await api('POST', '/cleanup-plans', { pile: 'bin' }); location.hash = `#/cleanup/${encodeURIComponent(plan.id)}`; } catch (e) { toast(errMsg(e)); el.disabled = false; } },
-    'fs-add': async el => { el.disabled = true; try { await addToLibrary(Object.assign(defaultDraft(), { sources: [el.dataset.path] }), el.dataset.kind); } catch (e) { toast(errMsg(e)); el.disabled = false; } },
+    'fs-add': async el => { el.disabled = true; try { if (!(await addToLibrary(Object.assign(defaultDraft(), { sources: [el.dataset.path] }), el.dataset.kind))) el.disabled = false; } catch (e) { toast(errMsg(e)); el.disabled = false; } },
     'rm-path': el => { ui.draft.sources.splice(Number(el.dataset.i), 1); $('#path-chips').innerHTML = pathChipsHTML(ui.draft); $('#path-input').focus(); },
     'toggle-sel': el => {
       const ws = ui.ws, id = el.dataset.id;

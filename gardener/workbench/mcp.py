@@ -38,6 +38,8 @@ TOOLS = [
            "rule": {"type": "object"}, "description": _STR}, ("name",)),
     _tool("edit_collection_members", "集合增减成员：add / remove 各是素材 id 列表。",
           {"id": _STR, "add": _IDS, "remove": _IDS}, ("id",)),
+    _tool("models", "自动归类需要的模型是否已在本机（ready、各项大小与已下载量、下载状态）；download=true 时开始下载缺少的部分"
+          "（首次约 7 GB，后台进行，再调用本工具看进度）。只浏览、标记、建集合不需要模型。", {"download": {"type": "boolean"}}),
     _tool("diagnostics", "体检（只读）：数据库自检、行数、备份列表、磁盘余量、未完成的运行、日志里最近的警告。", {}),
     _tool("list_tasks", "任务列表：扫描状态（scan）与人工 Review 进度（review）分开给出。",
           {"archived": {"type": "string", "enum": ["0", "1", "all"]}}),
@@ -173,6 +175,8 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
         return "POST", "/collections", _pick(args, ("name", "kind", "asset_ids", "rule", "description")), None
     if name == "edit_collection_members":
         return "POST", f"/collections/{_seg(args['id'])}/members", _pick(args, ("add", "remove")), None
+    if name == "models":
+        return ("POST", "/models/download", {}, None) if args.get("download") else ("GET", "/models", None, None)
     if name == "diagnostics":
         return "GET", "/diagnostics", None, None
     if name == "list_tasks":

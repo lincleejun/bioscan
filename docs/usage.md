@@ -324,6 +324,9 @@ CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreacha
 - **`uv run gardener doctor`** prints what to look at when something seems wrong: the database's own check, row
   counts, the backups, free disk space, runs that did not complete and the newest warnings in the log
   (`GET /api/v1/diagnostics`; MCP tool `diagnostics`).
+- **Models.** Nothing is downloaded until 自动归类 is first asked for: the page then offers the download (about 7 GB,
+  once) and shows its progress. `uv run gardener models` says what is on disk, `--download` starts it;
+  `uv run python tests/models/download.py` does the same in the foreground. Its log is `<data dir>/logs/models-download.log`.
 - **For agents.** `uv run gardener mcp` is a stdio MCP server over the same service: find (`query_assets`, any filter
   the API has, `pile: good|bin` included), add (`add_folder`), sort (`control_task` rescan), choose (`set_marks`,
   `tag_assets`, `create_collection`, `edit_collection_members`, `keep_best`). An argument a tool does not know is an

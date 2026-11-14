@@ -42,18 +42,18 @@ https://github.com/user-attachments/assets/f8a49a63-00e3-4349-9201-a4f84e18181e
 
 ## 快速开始
 
-macOS，Apple Silicon；Python 3.12 和 [`uv`](https://docs.astral.sh/uv/)。首次下载约 6.5 GB：模型权重 5.7 GB，「其他动物」名录 0.8 GB。鸟类和哺乳类名录随仓库附带。
+macOS，Apple Silicon；Python 3.12 和 [`uv`](https://docs.astral.sh/uv/)。装好 Python 环境（约 1.3 GB）就能打开相册。自动归类要用的模型（约 7 GB）在你第一次点「加入并自动归类」时才下载，只需一次。
 
 ```sh
 git clone https://github.com/lincleejun/gardener && cd gardener
-./scripts/install.sh                      # 依赖、名录、模型权重、名录缓存，一步完成
+./scripts/install.sh                      # 只装 Python 环境；模型在第一次归类时下载
 uv run gardener serve                     # 打开 http://127.0.0.1:8770；--port N 换端口，数据在 ~/.gardener（$GARDENER_HOME）
 ```
 
 也可以用 Docker（任何机器都行；在 Mac 上只能用 CPU，比原生安装慢约七倍）：
 
 ```sh
-PHOTOS=~/Pictures docker compose up -d    # 首次启动下载同样的 6.5 GB；然后打开 http://127.0.0.1:8770
+PHOTOS=~/Pictures docker compose up -d    # 然后打开 http://127.0.0.1:8770
 ```
 
 `PHOTOS` 是容器唯一能读的文件夹。在容器里清空垃圾箱，文件移到 `PHOTOS/.gardener-trash`。详见 [docs/usage.md](docs/usage.md#docker)。

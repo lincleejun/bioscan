@@ -916,3 +916,12 @@ owner 整理一批之后：「没法批量选择组，批量标记为完成，�
   从 3.26 GB 的 TreeOfLife 文件构建。安装与容器入口不再运行取名录和 `names stats` 两步。首次下载约 10 GB → 约 6.5 GB。
 - 改了名单、`synonyms.csv` 或 `avilist_map.csv` 后要重建并替换 `data/names/cache/` 里的文件；`tests/unit/test_bundled_names.py`
   在两者对不上时失败。
+
+## 契约修订 28：模型在第一次归类时才下载（2026-11-13）
+
+- `GET /models` → `{ready, bytes, have_bytes, items: [{id, name, bytes, have_bytes, present}], download: {state: idle|running|done|failed, error, log}}`：
+  自动归类需要的五项（物种识别、画面理解、动物检测、人物、其他动物名录，共约 7 GB）在本机的情况。只读，不加载模型。
+- `POST /models/download`（202）：开始下载缺少的部分；已在下载或已齐全时只返回当前状态。下载在子进程里运行
+  `tests/models/download.py`（服务本身保持 Hugging Face 离线），输出写入 `logs/models-download.log`。
+- 界面：选「加入并自动归类」而模型不齐时先出一个对话框，说明大小并显示进度，下完自动继续；「加入图库」不受影响。
+  CLI `gardener models [--download]`，MCP `models`。`scripts/install.sh` 与容器入口只准备运行环境，不再下载模型。

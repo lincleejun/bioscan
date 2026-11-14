@@ -266,6 +266,8 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         return "GET", "/health", None, None
     if c == "caps":
         return ("POST", "/capabilities/check", {}, None) if a.check else ("GET", "/capabilities", None, None)
+    if c == "models":
+        return ("POST", "/models/download", {}, None) if a.download else ("GET", "/models", None, None)
     if c == "doctor":
         return "GET", "/diagnostics", None, None
     if c == "add":                             # 加入文件夹: one task per folder, titled by its name
@@ -446,6 +448,8 @@ def parser() -> argparse.ArgumentParser:
     st = s.add_parser("storage", help="数据与缓存位置、大小")
     st.add_argument("--clear-cache", action="store_true", help="清理预览缓存（整理记录保留）")
 
+    mo = s.add_parser("models", help="自动归类需要的模型：哪些已在本机、还差多少")
+    mo.add_argument("--download", action="store_true", help="开始下载缺少的部分（首次约 7 GB；再运行本命令看进度）")
     s.add_parser("doctor", help="体检：数据库自检、备份、磁盘、未完成的运行、日志里最近的警告")
     ad = s.add_parser("add", help="把一个文件夹加入图库（只读取，不复制、不移动）")
     ad.add_argument("path")

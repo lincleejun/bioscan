@@ -42,18 +42,18 @@ Not measured yet: burst grouping, culling rules and the per-species picks on rea
 
 ## Quick start
 
-macOS on Apple Silicon; Python 3.12 with [`uv`](https://docs.astral.sh/uv/). About 6.5 GB of downloads, once: the model weights (5.7 GB) and the all-taxa name list (0.8 GB). The bird and mammal lists ship in the repo.
+macOS on Apple Silicon; Python 3.12 with [`uv`](https://docs.astral.sh/uv/). The album runs as soon as the Python environment is in (about 1.3 GB). The models that sort a shoot (about 7 GB) download the first time you click 「加入并自动归类」, once.
 
 ```sh
 git clone https://github.com/lincleejun/gardener && cd gardener
-./scripts/install.sh                      # dependencies, name lists, model weights, name caches
+./scripts/install.sh                      # the Python environment; models come when you first sort
 uv run gardener serve                     # open http://127.0.0.1:8770; --port N, data in ~/.gardener ($GARDENER_HOME)
 ```
 
 Or in Docker (any machine; on a Mac it runs on the CPU, about seven times slower than the native install):
 
 ```sh
-PHOTOS=~/Pictures docker compose up -d    # first start downloads the same 6.5 GB; then open http://127.0.0.1:8770
+PHOTOS=~/Pictures docker compose up -d    # then open http://127.0.0.1:8770
 ```
 
 `PHOTOS` is the one folder the container can read. Emptying the bin there moves files to `PHOTOS/.gardener-trash`. Details: [docs/usage.md](docs/usage.md#docker).

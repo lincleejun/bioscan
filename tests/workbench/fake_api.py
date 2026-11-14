@@ -429,6 +429,14 @@ def create_app(fake: Fake | None = None, static: bool = True) -> FastAPI:
                 "cache_dir": "/tmp/gardener/cache", "cache_bytes": fk.cache_files * 40_000,
                 "cache_files": fk.cache_files}
 
+    @app.get(P + "/models")
+    def models():
+        return {"ready": True, "bytes": 1, "have_bytes": 1, "items": [], "download": {"state": "idle", "error": None}}
+
+    @app.post(P + "/models/download", status_code=202)
+    def models_download():
+        return models()
+
     @app.post(P + "/storage/clear-cache")
     def clear_cache():
         n, fk.cache_files = fk.cache_files, 0
