@@ -4,7 +4,7 @@ compositions/*.html into $PROMO_DIR (default: promo/ next to this file). Screens
 (assets/ui/boxes.json) come from cap.py (a running `gardener serve` on a copy of a library);
 lines.json holds each caption line and its seconds. `npx hyperframes render` in promo/ makes the file.
 The committed file is that render without audio, small enough to upload on GitHub for the README player (10 MB limit):
-`ffmpeg -i render.mp4 -an -c:v libx264 -crf 28 -preset slow -pix_fmt yuv420p -movflags +faststart gardener-promo.mp4`.
+`ffmpeg -i render.mp4 -an -c:v libx264 -crf 29 -preset slow -pix_fmt yuv420p -movflags +faststart gardener-promo.mp4`.
 The film is silent: captions only."""
 import json
 import os
@@ -135,11 +135,11 @@ show('$c2', 3.6);
 
 # 4 sort: the species it named (the real page), then one burst as one group (the real review page)
 scene("sort", dur["sort"], """<div class="cam" id="$cam"><img src="assets/ui/species.jpg"><img id="$i1" src="assets/ui/review.jpg" style="opacity:0"></div>
-<div class="chip" id="$c1" style="left:1180px;top:300px;opacity:0">认出<span class="acc">物种</span>，叫得出中文名</div>
+<div class="chip cc" id="$c1" style="top:50px;opacity:0">认出<span class="acc">物种</span>，叫得出中文名</div>
 <div class="chip" id="$c2" style="left:1180px;top:800px;opacity:0">一次连拍 = <span class="acc">一组</span></div>""",
       """
 gsap.set('$cam', { transformOrigin: '0 0' });
-cam('$cam', 0.3, 0.7, 700, 250, 1.8);
+cam('$cam', 0.3, 0.7, 1000, 520, 1.7);
 show('$c1', 1.1); hide('$c1', 2.9);
 tl.set('$i1', { opacity: 1 }, 3.05); tl.set('$cam', { x: 0, y: 0, scale: 1 }, 3.05);
 cam('$cam', 3.1, 0.6, 1066, 420, 1.55);
@@ -248,15 +248,15 @@ tl.to('$shade', { opacity: 1, duration: 0.35 }, 0.9);
 show('$a', 1.1, 0.25); show('$b', 2.9, 0.25);
 """)
 
-# 13 end card: the product's own mark, the name, where to get it
+# 13 end card: the product's own mark and the name (no address: owner 2026-11-13)
 scene("end", dur["end"], """<img id="$logo" src="assets/icon.svg" style="position:absolute;left:560px;top:370px;width:170px;height:170px;opacity:0">
 <div id="$w" style="position:absolute;left:770px;top:362px;font:900 170px Inter,sans-serif;letter-spacing:-.03em;opacity:0">Gardener</div>
 <div class="t" id="$s" style="top:600px;font-size:54px;color:#c6c6c6;opacity:0">拍野生动物的人的相册 · 开源 · 本地运行</div>
-<div class="t" id="$u" style="top:720px;font:600 46px 'JetBrains Mono',monospace;opacity:0"><span class="acc">github.com/lincleejun/gardener</span></div>""",
+""",
       """
 tl.fromTo('$logo', { opacity: 0, scale: 0.6, rotation: -40 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, ease: 'back.out(1.4)' }, 0.25);
 tl.fromTo('$w', { opacity: 0, clipPath: 'inset(0 100% 0 0)' }, { opacity: 1, clipPath: 'inset(0 0% 0 0)', duration: 0.45, ease: 'power3.out' }, 0.55);
-show('$s', 1.5, 0.25); show('$u', 2.3, 0.25);
+show('$s', 1.5, 0.25);
 """, outro=False)
 
 # captions: each line split at its punctuation, time shared by character count

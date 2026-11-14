@@ -50,7 +50,7 @@ for i, a in enumerate(good[::max(1, len(good) // 12)][:12]):
 run = lambda *a: subprocess.run(["gardener", "--url", B, *a], capture_output=True, text=True, check=True).stdout.splitlines()
 from gardener.workbench import mcp
 json.dump({"species": run("species")[:6],
-           "doctor": [l for l in run("doctor") if l.startswith(("counts", "backups"))], "mcp_tools": len(mcp.TOOLS)},
+           "doctor": [l for l in run("doctor") if l.startswith("backups")], "mcp_tools": len(mcp.TOOLS)},
           open(f"{OUT}/ui/cli.json", "w"), indent=1, ensure_ascii=False)
 json.dump({"boxes": boxes, "n": n}, open(f"{OUT}/ui/boxes.json", "w"), indent=1, ensure_ascii=False)
 print(json.dumps({"n": n, "boxes": boxes}, ensure_ascii=False)[:2500])
