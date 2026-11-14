@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS asset_tags (
   run_id TEXT, confidence REAL, created_at TEXT NOT NULL,
   PRIMARY KEY (asset_id, tag_id, source)
 );
+-- "The photos of this tag" (GET /tags counts every tag): 60 ms -> 0.7 ms on 191 tags.
+CREATE INDEX IF NOT EXISTS asset_tags_tag ON asset_tags (tag_id, asset_id);
 
 CREATE TABLE IF NOT EXISTS exports (
   id TEXT PRIMARY KEY, created_at TEXT NOT NULL, request TEXT NOT NULL, report TEXT NOT NULL
@@ -319,7 +321,7 @@ CREATE TABLE IF NOT EXISTS cleanup_files (
   plan_id TEXT NOT NULL REFERENCES cleanup_plans(id), asset_id TEXT NOT NULL REFERENCES assets(id),
   path TEXT NOT NULL, role TEXT NOT NULL,    -- raw | jpeg | image | video | sidecar | ...
   size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL,
-  result TEXT,                   -- NULL | trashed | failed | skipped
+  result TEXT,                   -- NULL | moving (the move was started) | trashed | failed | skipped
   reason TEXT, at TEXT, PRIMARY KEY (plan_id, path)
 );
 

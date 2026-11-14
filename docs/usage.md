@@ -303,6 +303,32 @@ The response is an NDJSON stream of `progress` / `result` / `error` / `done` eve
 
 CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreachable or refused, 3 incomplete stream (no `done`) or an upstream error (iNaturalist and similar). `eval` follows them too (1 when any ground-truth image failed or got no answer, the report's `failed` column, 3 when the stream ended early). `run --json` used to always return 0 and now follows these codes too; scripts that treat non-zero as failure should take note. eval now compares scientific names with the same normalisation as the synonym lookup (ignoring hyphens and case), so Top-1/Top-5 in older reports can differ slightly.
 
+## Running the album: `gardener serve`, backups, `gardener doctor`
+
+`uv run gardener serve` starts the service and the web UI on `http://127.0.0.1:8770`.
+
+| Flag | Does |
+|---|---|
+| `--port N` | another port |
+| `--data-dir DIR` | where the database, the preview cache, the backups and the logs live (default `$GARDENER_HOME`, else `~/.gardener`) |
+| `--allow-root DIR` | task sources must lie inside these folders (repeatable; no limit by default) |
+| `--lightroom-dir DIR` | where the Lightroom handoff files go |
+| `--backups` | list the database backups and exit |
+| `--restore NAME` | replace the database with a backup (a file name from `--backups`, a path, or `latest`) and exit |
+
+- **Backups.** `<data dir>/backups/` gets a copy of the database when the service starts and the newest copy is over a
+  day old, and before every schema migration. The newest five are kept. A restore first backs up what it replaces,
+  refuses a backup that fails SQLite's integrity check, and needs the service stopped.
+- **Logs.** `<data dir>/logs/gardener.log`: one line per event with its time and level, HTTP requests included;
+  5 MB per file, five files.
+- **`uv run gardener doctor`** prints what to look at when something seems wrong: the database's own check, row
+  counts, the backups, free disk space, runs that did not complete and the newest warnings in the log
+  (`GET /api/v1/diagnostics`; MCP tool `diagnostics`).
+- **For agents.** `uv run gardener mcp` is a stdio MCP server over the same service: find (`query_assets`, any filter
+  the API has, `pile: good|bin` included), add (`add_folder`), sort (`control_task` rescan), choose (`set_marks`,
+  `tag_assets`, `create_collection`, `edit_collection_members`, `keep_best`). An argument a tool does not know is an
+  error. Publishing anything stays outside Gardener.
+
 ## Docker
 
 `PHOTOS=/path/to/photos docker compose up -d` builds the image and starts the service on `http://127.0.0.1:8770`

@@ -298,7 +298,7 @@ def test_task_validation_and_local_only(env, tmp_path):
     with env.client() as c:
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": ["relative"]}).json()["code"] == "bad_request"
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": [str(tmp_path / "nope")]}).status_code == 400
-        assert c.post(f"{API}/tasks", json={"title": "", "sources": [str(src)]}).status_code == 400
+        assert c.post(f"{API}/tasks", json={"title": 3, "sources": [str(src)]}).status_code == 400
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": [str(tmp_path)]}).status_code == 400  # holds data
         assert c.post(f"{API}/tasks", json={"title": "x", "sources": [str(src)],
                                             "capabilities": ["nope"]}).status_code == 400

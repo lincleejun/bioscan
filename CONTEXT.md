@@ -532,6 +532,11 @@ out_of_range, prior_suppressed, within_genus, within_family, far_miss; `overconf
 What must work with no model loaded: browse, add a folder, mark, the bin, collections, export (ADR 0005).
 _Avoid_: library manager, DAM
 
+**Pile** (好片 / 垃圾箱):
+Two views of the album a person never fills by hand: 好片 = what they starred or chose to edit plus the AI's best
+tenth of each scan; 垃圾箱 = what they rejected plus what only the AI rejected. Files move only when the bin is emptied.
+_Avoid_: trash (that is the macOS Trash the files go to), AI picks
+
 **Wildlife** (野生动物):
 The vertical Gardener goes deepest in: birds, mammals and other animals named to species, bursts, picks and the bin.
 _Avoid_: bird recognition (birds are one kind of three)
