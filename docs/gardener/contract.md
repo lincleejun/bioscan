@@ -864,7 +864,7 @@ owner 整理一批之后：「没法批量选择组，批量标记为完成，�
 - 内建默认预设由 `quick` 改为 `wildlife`，所以界面的「加入并自动归类」默认识别物种。`schema_version` 升为 `5`：
   启动迁移把仍等于 `quick` 的 `default_preset` 改为 `wildlife`，只做一次；之后用户在「管理」里选什么就是什么。
 - 界面：流程页与图库的轮询游标初值是合法的 ISO 时间（原来的 `0` 每次返回 400）。
-- 中文名：随附 `data/names/names-zh.csv`（Wikidata 标签，CC0；`scripts/names/build_names_zh.py` 重建；约覆盖两份名录的一半）。
+- 中文名：随附 `data/names/names-zh.csv`（Wikidata 标签，CC0；`scripts/names/build_names_zh.py` 重建，统一为简体；约覆盖两份名录的一半）。
   用户自己的 `<数据目录>/names-zh.csv` 仍然读取，并且同一物种以它为准。取代修订 4 中“不内置中文名”的说法。
 - 容器镜像（`Dockerfile`、`compose.yaml`）：环境变量 `GARDENER_CONTAINER=1` 时 `gardener serve --host 0.0.0.0` 可用（端口只发布到本机）；
   `GARDENER_TRASH_DIR` 设置时，确认的清理把文件移到该目录下的原完整路径，而不是 macOS 废纸篓（ADR 0003 的“可恢复”不变）。
