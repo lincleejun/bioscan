@@ -5,10 +5,8 @@ __pycache__/
 tests/smoke/*.ARW
 tests/smoke/*.arw
 tests/smoke/*.jpg
-data/avilist/*.csv
 data/avilist/*.xlsx
 data/avilist/*.bak
-data/mdd/*.csv
 runs/
 uv.lock
 data/inat/*/

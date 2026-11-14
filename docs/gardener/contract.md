@@ -883,3 +883,12 @@ owner 整理一批之后：「没法批量选择组，批量标记为完成，�
 - 新索引 `task_assets_asset (asset_id, task_id)`（`CREATE INDEX IF NOT EXISTS`，已有数据库启动时自动建立，不改 `schema_version`）。
   「这张照片在哪些任务里」原来每次全表扫描；`GET /species` 对每个主体查一次。在 3,704 张的图库上：
   `GET /species?task=` 0.86 s → 0.07 s，`GET /species` 1.46 s → 0.07 s；审片页「并入前一组」从点击到页面静止 1.9 s → 0.33 s。
+
+## 契约修订 27：名录与名称向量随仓库附带（2026-11-13）
+
+- `data/avilist/*.csv`、`data/mdd/*.csv` 和它们的名称向量 `data/names/cache/*.npz`（共 96 MB）提交进仓库；
+  `names.load_lists` 在用户缓存没有时读仓库里的这份，所以鸟类和哺乳类的识别不需要下载 TreeOfLife。
+  「其他动物」的名录（0.8 GB）由 `tests/models/download.py` 从本项目的 release `names-2026.11` 下载并校验，失败才回退到
+  从 3.26 GB 的 TreeOfLife 文件构建。安装与容器入口不再运行取名录和 `names stats` 两步。首次下载约 10 GB → 约 6.5 GB。
+- 改了名单、`synonyms.csv` 或 `avilist_map.csv` 后要重建并替换 `data/names/cache/` 里的文件；`tests/unit/test_bundled_names.py`
+  在两者对不上时失败。

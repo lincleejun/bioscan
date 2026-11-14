@@ -1,6 +1,6 @@
 # data/
 
-名单原始文件。CSV/XLSX 体积大，已 gitignore，按下面步骤重新获取。`gardener/service/names.py` 读取 `avilist/*.csv` 与 `mdd/*.csv`（每个目录恰好一个 CSV）。
+名单原始文件。两份 CSV 随仓库提交（2026-11-13 起；XLSX 仍不提交），它们的名称向量在 `names/cache/`；下面的步骤只在更新名单版本时需要。`gardener/service/names.py` 读取 `avilist/*.csv` 与 `mdd/*.csv`（每个目录恰好一个 CSV）。
 
 ## avilist/ — 鸟类（list_id `avilist-2026`）
 

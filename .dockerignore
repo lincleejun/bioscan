@@ -9,5 +9,7 @@ tests/*
 !tests/models
 data/*
 !data/names
+!data/avilist
+!data/mdd
 !data/aesthetic
 **/__pycache__
