@@ -365,3 +365,17 @@ def test_frames_one_shutter_press_apart_chain_whatever_the_vectors_say():
     assert [on[p]["id"] for p in "abcd"] == ["b0001"] * 3 + [None]            # d: past the shutter gap and unlike
     with pytest.raises(ValueError, match="shutter_gap_s must be a number >= 0"):
         cull.check_burst(BURST | {"shutter_gap_s": -1})
+
+
+def test_a_category_is_ordered_by_aesthetic_alone_unless_weights_add_subject_size_and_burst_length():
+    """select.area_weight / burst_weight (Gardener sets them, the engine default is 0): a larger subject and a longer
+    burst move a frame up; a frame no head scored stays last."""
+    small = {"path": "a", "aesthetic": 0.60, "area": 0.002, "burst_size": 1, "sharpness": 0.5, "t": 1.0}
+    big = {"path": "b", "aesthetic": 0.55, "area": 0.2, "burst_size": 1, "sharpness": 0.5, "t": 2.0}
+    long = {"path": "c", "aesthetic": 0.57, "area": 0.002, "burst_size": 40, "sharpness": 0.5, "t": 3.0}
+    unscored = {"path": "d", "aesthetic": None, "area": 0.5, "burst_size": 30, "sharpness": 0.9, "t": 4.0}
+    frames = [small, big, long, unscored]
+    assert [f["path"] for f in cull.category_order(frames)] == ["a", "c", "b", "d"]
+    assert [f["path"] for f in cull.category_order(frames, {"area_weight": 0.1})] == ["b", "a", "c", "d"]
+    assert [f["path"] for f in cull.category_order(frames, {"burst_weight": 0.01})] == ["c", "a", "b", "d"]   # 40 counts as 20
+    assert cull.interest(long, {"burst_weight": 0.01}) == pytest.approx(0.57 + 0.2)

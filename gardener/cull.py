@@ -158,8 +158,9 @@ def check_select(o: dict[str, Any]) -> None:
     n = o["per_category"]
     if isinstance(n, bool) or not isinstance(n, int) or n < 0:
         raise ValueError("select.per_category must be an integer >= 0 (0 = no limit)")
-    for k in ("dup_cosine", "sharp_tie", "exposure_ok", "horizon_flag_deg", "headroom_min", "lead_room_min"):
-        v = o[k]
+    for k in ("dup_cosine", "sharp_tie", "exposure_ok", "horizon_flag_deg", "headroom_min", "lead_room_min",
+              "area_weight", "burst_weight"):
+        v = o.get(k, 0) if k.endswith("_weight") else o[k]     # the weights are optional: 0 = aesthetic alone
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
             raise ValueError(f"select.{k} must be a number >= 0")
     if o["headroom_min"] > 1:
@@ -246,6 +247,7 @@ def facts(ev: dict[str, Any], o: dict[str, Any]) -> dict[str, Any]:
     return {"path": ev["path"], "category": category, "reasons": [r for r in raw if r not in lifted],
             "waived": [r for r in raw if r in lifted], "flags": flags(ev, o), "sharpness": _sharpness(q),
             "cut": bool((q.get("subject") or {}).get("cut")), "exposure": _exposure(q),
+            "area": (q.get("subject") or {}).get("area"),
             "aesthetic": aesthetic if isinstance(aesthetic, (int, float)) and not isinstance(aesthetic, bool) else None,
             "t": seconds(taken), "vec": vector(ev), "burst": (p.get("burst") or {}).get("id")}
 
@@ -266,9 +268,26 @@ def burst_order(frames: list[dict[str, Any]], o: dict[str, Any]) -> list[dict[st
     return sorted(frames, key=key)
 
 
-def category_order(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Best frames of one category, best first: aesthetic (when present), sharpness, capture time."""
-    return sorted(frames, key=lambda f: (-(f["aesthetic"] if f["aesthetic"] is not None else -math.inf),
+BURST_CAP = 20          # frames of a burst that still add to its interest: a longer one counts as this many
+
+
+def interest(f: dict[str, Any], o: dict[str, Any]) -> float:
+    """What a category is ordered by: the aesthetic score, plus area_weight per tenfold of the subject's share of
+    the frame (no subject counts as a ten-thousandth), plus burst_weight per frame the photographer took of the
+    moment. With both weights 0 it is the aesthetic score alone."""
+    if f["aesthetic"] is None:
+        return -math.inf
+    area = f.get("area")
+    area = area if isinstance(area, (int, float)) and not isinstance(area, bool) else 0.0
+    return (f["aesthetic"] + o.get("area_weight", 0) * math.log10(max(area, 1e-4))
+            + o.get("burst_weight", 0) * min(f.get("burst_size", 1), BURST_CAP))
+
+
+def category_order(frames: list[dict[str, Any]], o: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Best frames of one category, best first: interest (aesthetic when present, see `interest`), sharpness,
+    capture time."""
+    o = o or {}
+    return sorted(frames, key=lambda f: (-interest(f, o),
                                           -(f["sharpness"] if f["sharpness"] is not None else -math.inf),
                                           f["t"] if f["t"] is not None else math.inf, f["path"]))
 
@@ -285,14 +304,14 @@ def select(events: list[dict[str, Any]], o: dict[str, Any]) -> dict[str, dict[st
     for members in groups.values():
         ordered = burst_order(members, o)
         for i, f in enumerate(ordered):
-            f["burst_rank"] = i + 1
+            f["burst_rank"], f["burst_size"] = i + 1, len(ordered)
             f["status"] = "reject" if f["reasons"] else ("duplicate" if i else None)
             f["duplicate_of"] = ordered[0]["path"] if i and not f["reasons"] else None
         if not ordered[0]["reasons"]:
             best.append(ordered[0])
     for category in sorted({f["category"] for f in best}):
         picked: list[dict[str, Any]] = []
-        for rank, f in enumerate(category_order([f for f in best if f["category"] == category]), start=1):
+        for rank, f in enumerate(category_order([f for f in best if f["category"] == category], o), start=1):
             f["rank"] = rank
             twin = next((p for p in picked if (cosine(p["vec"], f["vec"]) or -1.0) >= o["dup_cosine"]), None)
             if twin is not None:

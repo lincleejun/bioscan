@@ -271,6 +271,10 @@ class Analyzer:
 # seconds chains when the frame barely changed. On the owner's 1,361-photo card: 264 groups -> 194, a 39-frame
 # flight sequence 15 groups -> 2, groups holding two confident species 3 -> 2. Gardener Engine's own defaults are unchanged.
 GROUP = {"shutter_gap_s": 0.35, "max_gap_s": 5.0, "min_cosine": 0.94}
+# Which bursts come first in a category (好片): the aesthetic score alone put the owner's 18 starred bursts (of 194, one
+# 1,361-photo card, 2026-11-13) at a median rank of 53; with the subject's size and the burst's length, 26 (average
+# precision 0.23 -> 0.41, in sample). Gardener Engine's own defaults stay 0.
+PICKS = {"area_weight": 0.1, "burst_weight": 0.01}
 
 
 def burst_order(rows: list[dict]) -> list[str]:
@@ -296,10 +300,10 @@ def reduce(rows: list[dict], caps: list[str]) -> dict[str, dict]:
     if "burst" in caps:
         reducers["burst"] = res.reducer_options["burst"] | GROUP
         if "quality" in caps:
-            reducers["select"] = res.reducer_options["select"]
+            reducers["select"] = res.reducer_options["select"] | PICKS
     if "aesthetic" in caps:
         reducers["burst"] = res.reducer_options["burst"] | GROUP
-        reducers["select"] = res.reducer_options["select"]
+        reducers["select"] = res.reducer_options["select"] | PICKS
     events = []
     for r in rows:
         p = dict(r.get("products") or {})

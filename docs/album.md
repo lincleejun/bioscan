@@ -130,7 +130,9 @@ gardener-engine cull --preds cull.ndjson --html review.html      # again, offlin
 - **Selection** (`select`): the best frame of each burst: not rejected, subject sharpness (within 0.03 of the sharpest
   counts as equal), not cut off, exposure within ±0.2, then the aesthetic score when a run has one (it only reorders,
   never rejects). Then the top `per_category` (default 10; `--per-category`, 0 = all) of each category (`by`: the
-  scene group, the default, or `"label"` for the fine label), skipping a
+  scene group, the default, or `"label"` for the fine label); a category is ordered by the aesthetic score, plus `area_weight` per
+  tenfold of the subject's share of the frame and `burst_weight` per frame of the burst (at most 20), both 0 by
+  default and 0.1 / 0.01 in Gardener), skipping a
   photo whose frame vector is 0.95 alike to one already picked. Each photo gets a status: `pick`, `spare` (a keeper
   past the top N), `duplicate` or `reject`. `waive` lifts reject reasons per scene group, label or attribute value:
   the select default is `waive = { night = ["underexposed"] }`; the album profile adds `no_subject` for every group
