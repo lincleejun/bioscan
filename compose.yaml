@@ -9,11 +9,7 @@ services:
     volumes:
       - gardener-data:/data
       - gardener-home:/root                 # model weights and name caches
-      - gardener-avilist:/app/data/avilist
-      - gardener-mdd:/app/data/mdd
       - ${PHOTOS:-${HOME}/Pictures}:${PHOTOS:-${HOME}/Pictures}
 volumes:
   gardener-data:
   gardener-home:
-  gardener-avilist:
-  gardener-mdd:

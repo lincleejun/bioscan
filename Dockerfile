@@ -8,6 +8,8 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY gardener ./gardener
 COPY data/names ./data/names
+COPY data/avilist ./data/avilist
+COPY data/mdd ./data/mdd
 COPY data/aesthetic ./data/aesthetic
 COPY tests/models ./tests/models
 COPY scripts/names ./scripts/names

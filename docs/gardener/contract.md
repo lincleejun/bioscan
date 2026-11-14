@@ -907,3 +907,12 @@ owner 整理一批之后：「没法批量选择组，批量标记为完成，�
   `cleanup_plan` 接受 `pile: "bin"`，`create_task` 接受 `lat`、`lon` 且 `title` 可省。
 - **性能**：`pile=good` 里每次运行的建议数只算一次（3,704 张：接口 0.97 s → 0.06 s）；新索引 `asset_tags_tag (tag_id, asset_id)`
   （`GET /tags` 0.14 s → 0.004 s）。
+
+## 契约修订 27：名录与名称向量随仓库附带（2026-11-13）
+
+- `data/avilist/*.csv`、`data/mdd/*.csv` 和它们的名称向量 `data/names/cache/*.npz`（共 96 MB）提交进仓库；
+  `names.load_lists` 在用户缓存没有时读仓库里的这份，所以鸟类和哺乳类的识别不需要下载 TreeOfLife。
+  「其他动物」的名录（0.8 GB）由 `tests/models/download.py` 从本项目的 release `names-2026.11` 下载并校验，失败才回退到
+  从 3.26 GB 的 TreeOfLife 文件构建。安装与容器入口不再运行取名录和 `names stats` 两步。首次下载约 10 GB → 约 6.5 GB。
+- 改了名单、`synonyms.csv` 或 `avilist_map.csv` 后要重建并替换 `data/names/cache/` 里的文件；`tests/unit/test_bundled_names.py`
+  在两者对不上时失败。

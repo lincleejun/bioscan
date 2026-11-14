@@ -17,10 +17,10 @@ uv run python tests/models/download.py      # pinned versions of the three model
 ```
 The name-vector cache records the BioCLIP / TreeOfLife versions it was built with and is rebuilt when they change; older caches without that record are still used.
 
-The name-list CSVs are large and not in git: `uv run python scripts/names/fetch_lists.py` downloads both into `data/avilist/` and `data/mdd/` from this project's release `names-2026.11` and checks their sha256 (`./scripts/install.sh` runs it with every other first-time step); where they come from is [below](#name-lists). Then run `uv run gardener-engine names stats` once, with network access, before the first `serve`: it encodes the lists as BioCLIP text vectors and caches them in `~/.cache/bioscan/names/` (this needs the 3.26 GB official TreeOfLife-200M vector file, which it fetches into `~/.cache/huggingface`; about half a minute once downloaded). The service cannot do this step itself, because it runs offline. The same run also builds the all-taxa list from that file if `download.py` has not already (no encoding; a float16 cache of about 1 GB). Delete the TreeOfLife file only after both are cached: if it is gone and the all-taxa cache is missing, the service still starts, logs a warning and gives other animals `species: null`, as before; `uv run python tests/models/download.py` or `uv run gardener-engine names stats` builds it again. Later starts take a few seconds (the all-taxa list is most of that). Editing `data/names/synonyms.csv` or `avilist_map.csv` rebuilds the bird cache once. `mdd_map.csv` carries labels only and does not touch the mammal cache.
+The bird and mammal lists (`data/avilist/`, `data/mdd/`) and their name vectors (`data/names/cache/`, 96 MB) are in the repo, so naming birds and mammals downloads nothing. The all-taxa list for every other animal (0.8 GB) comes from this project's release `names-2026.11`; `tests/models/download.py` fetches it and checks its sha256, and builds it from the 3.26 GB TreeOfLife file only when that fails. After editing a list, `data/names/synonyms.csv` or `avilist_map.csv`, run `uv run gardener-engine names stats` once online (it rebuilds the vectors into `~/.cache/bioscan/names/`) and copy the new file into `data/names/cache/` in place of the old one: `tests/unit/test_bundled_names.py` fails until you do. Where the lists come from is [below](#name-lists).
 
 ```sh
-uv run gardener-engine names stats                # required once, online, before the first serve; later: name-list coverage
+uv run gardener-engine names stats                # name-list coverage; rebuilds a list's vectors after an edit
 ```
 
 ### Name lists
@@ -333,7 +333,7 @@ CLI exit codes: 0 all images succeeded, 1 some images failed, 2 service unreacha
 
 `PHOTOS=/path/to/photos docker compose up -d` builds the image and starts the service on `http://127.0.0.1:8770`
 (published on this machine only: the service has no login). The first start downloads the name lists, the model weights
-and the name caches into Docker volumes: 16.4 GB and 16.5 minutes on a fast line (measured 2026-11-13); later starts take seconds. `PHOTOS` (default `~/Pictures`) is
+into a Docker volume, about 6.5 GB (before the name vectors shipped in the repo it was 16.4 GB and 16.5 minutes on a fast line, measured 2026-11-13; not measured again since); later starts take seconds. `PHOTOS` (default `~/Pictures`) is
 mounted at the same path inside the container, so the paths Gardener shows are the host's.
 
 - **Speed.** A container on a Mac has no GPU. 48 small JPGs with the 野生动物 preset took 151 s in the container and

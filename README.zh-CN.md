@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/f8a49a63-00e3-4349-9201-a4f84e18181e
 
 ## 快速开始
 
-macOS，Apple Silicon；Python 3.12 和 [`uv`](https://docs.astral.sh/uv/)。首次下载约 10 GB。
+macOS，Apple Silicon；Python 3.12 和 [`uv`](https://docs.astral.sh/uv/)。首次下载约 6.5 GB：模型权重 5.7 GB，「其他动物」名录 0.8 GB。鸟类和哺乳类名录随仓库附带。
 
 ```sh
 git clone https://github.com/lincleejun/gardener && cd gardener
@@ -53,7 +53,7 @@ uv run gardener serve                     # 打开 http://127.0.0.1:8770；--por
 也可以用 Docker（任何机器都行；在 Mac 上只能用 CPU，比原生安装慢约七倍）：
 
 ```sh
-PHOTOS=~/Pictures docker compose up -d    # 首次启动下载约 16 GB（快网约 17 分钟）；然后打开 http://127.0.0.1:8770
+PHOTOS=~/Pictures docker compose up -d    # 首次启动下载同样的 6.5 GB；然后打开 http://127.0.0.1:8770
 ```
 
 `PHOTOS` 是容器唯一能读的文件夹。在容器里清空垃圾箱，文件移到 `PHOTOS/.gardener-trash`。详见 [docs/usage.md](docs/usage.md#docker)。

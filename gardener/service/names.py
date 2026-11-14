@@ -530,6 +530,8 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
         extra = b"".join(p.read_bytes() for p in (syn_path, tol_map) if p and p.is_file())
         sha = hashlib.sha256(f"{CACHE_VERSION}\0{src.list_id}\0".encode() + csv_path.read_bytes() + b"\0" + extra).hexdigest()[:16]
         path = cache_dir / f"{MODEL_NAME}-{sha}.npz"
+        if not (path.is_file() and not _stale(path)):         # the copy that ships with the lists (data/names/cache):
+            path = next((p for p in (data_dir / NAMES_DIR / "cache" / path.name,) if p.is_file()), path)   # no download
         rows = src.reader(csv_path)
         if path.is_file() and not _stale(path):
             cols = _load(path)
@@ -540,6 +542,7 @@ def load_lists(model, tokenizer, device, cache_dir: Path = CACHE_DIR, *,
             if tol_map:
                 keys = [(m["tol_name"], m["tol_how"]) if (m := amap.get(r[0])) else ("", "none") for r in rows]
             cols = _build(src, rows, tol, model, tokenizer, device, keys, synonyms)
+            path = cache_dir / path.name                      # a rebuilt list goes to the user's cache, never into data/
             _save(path, cols)
         labels = {}
         if amap:

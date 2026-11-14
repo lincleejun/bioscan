@@ -27,6 +27,12 @@ with open(Path(__file__).with_name("sample.csv"), newline="", encoding="utf-8") 
     OTHERS = sorted({r["scientific"] for r in csv.DictReader(f) if r["kind"] == "other_animal"})
 
 
+# The all-taxa list as this project's release holds it: the same file a build from TreeOfLife makes for the pinned
+# revision and names.ALL_TAXA_VERSION (its name carries that key, so a changed key misses and builds).
+ALL_TAXA_MIRROR = "https://github.com/lincleejun/gardener/releases/download/names-2026.11/"
+ALL_TAXA_SHA256 = "430175374993c3711dbf3fd65d9453920ac276baaf186581b187251c1b254f9a"
+
+
 def fetch(repo: str, **kw) -> None:
     path = snapshot_download(repo, ignore_patterns=["*.bin"], **kw)
     print(f"{repo} @ {Path(path).name}")
@@ -55,6 +61,21 @@ for repo, name, rev in (faces.YUNET, faces.SFACE):          # Gardener's people 
 # TreeOfLife-200M text vectors are pinned (names.TOL_REVISION); report whether upstream has moved since.
 main = HfApi().list_repo_commits(names.TOL_REPO, repo_type="dataset")[0].commit_id
 print(f"{names.TOL_REPO} pinned {names.TOL_REVISION[:12]}, upstream main {main[:12]}")
+if not names.all_taxa_path().is_file():      # first the copy this project hosts (0.8 GB), built from the pinned TreeOfLife
+    import hashlib
+    import urllib.request
+
+    try:
+        url = f"{ALL_TAXA_MIRROR}{names.all_taxa_path().name}"
+        names.all_taxa_path().parent.mkdir(parents=True, exist_ok=True)
+        part = names.all_taxa_path().with_suffix(".part")
+        urllib.request.urlretrieve(url, part)
+        if hashlib.sha256(part.read_bytes()).hexdigest() != ALL_TAXA_SHA256:
+            raise ValueError("sha256 mismatch")
+        part.replace(names.all_taxa_path())
+        print(f"fetched {names.all_taxa_path().name} from {ALL_TAXA_MIRROR}")
+    except Exception as exc:  # noqa: BLE001 - any failure falls back to building it from TreeOfLife below
+        print(f"no hosted all-taxa list ({type(exc).__name__}: {exc}); building it from TreeOfLife (3.26 GB)")
 if not names.all_taxa_path().is_file():
     t0 = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:          # kept out of ~/.cache/huggingface (and CI's weight cache)
