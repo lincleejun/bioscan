@@ -10,11 +10,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from gardener.workbench.query import KEYS as FILTERS  # one list for the API, the CLI and MCP (stdlib only)
+
 DEFAULT_URL = "http://127.0.0.1:8770"
 API = "/api/v1"
-FILTERS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "ai", "judged", "online",
-           "analysis", "date_from", "date_to", "has_gps", "tag", "content", "species", "concept", "id_state", "q",
-           "changed_after", "use")
 EXIT_OK, EXIT_ERROR, EXIT_SERVICE = 0, 1, 2
 
 
@@ -267,6 +266,15 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         return "GET", "/health", None, None
     if c == "caps":
         return ("POST", "/capabilities/check", {}, None) if a.check else ("GET", "/capabilities", None, None)
+    if c == "doctor":
+        return "GET", "/diagnostics", None, None
+    if c == "add":                             # 加入文件夹: one task per folder, titled by its name
+        body = {"sources": _abs([a.path]), "lat": a.lat, "lon": a.lon} | ({} if a.sort else {"capabilities": ["meta"]})
+        return "POST", "/tasks", {k: v for k, v in body.items() if v is not None}, None
+    if c == "tag":
+        if sub == "list":
+            return "GET", "/tags", None, None
+        return "POST", "/assets/tags", {"asset_ids": a.ids, "tag": a.name} | ({"remove": True} if sub == "remove" else {}), None
     if c == "storage":
         return ("POST", "/storage/clear-cache", {}, None) if a.clear_cache else ("GET", "/storage", None, None)
     if c == "task":
@@ -365,7 +373,7 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
         return ("GET", "/handoffs", None, None) if sub == "list" else ("GET", f"/handoffs/{a.id}", None, None)
     if c == "cleanup":
         if sub == "plan":
-            return "POST", "/cleanup-plans", _scope_5e(a), None
+            return "POST", "/cleanup-plans", {"pile": "bin"} if a.bin else _scope_5e(a), None
         if sub == "run":
             if not a.yes:
                 raise SystemExit("cleanup run: 先用 cleanup show 看清计划，再加 --yes 确认移到废纸篓")
@@ -374,6 +382,10 @@ def request(a) -> tuple[str, str, dict | None, dict | None]:
     if c == "collections":
         return "GET", "/collections", None, {"task": a.task, "kind": a.kind, "deleted": "1" if a.deleted else "0"}
     if c == "collection":
+        if sub == "create":
+            return "POST", "/collections", {"name": a.name, "asset_ids": a.ids}, None
+        if sub in ("add", "remove"):
+            return "POST", f"/collections/{a.id}/members", {sub: a.ids}, None
         if sub == "delete":
             return "DELETE", f"/collections/{a.id}", None, None
         if sub == "complete":
@@ -434,10 +446,22 @@ def parser() -> argparse.ArgumentParser:
     st = s.add_parser("storage", help="数据与缓存位置、大小")
     st.add_argument("--clear-cache", action="store_true", help="清理预览缓存（整理记录保留）")
 
+    s.add_parser("doctor", help="体检：数据库自检、备份、磁盘、未完成的运行、日志里最近的警告")
+    ad = s.add_parser("add", help="把一个文件夹加入图库（只读取，不复制、不移动）")
+    ad.add_argument("path")
+    ad.add_argument("--sort", action="store_true", help="同时自动归类（默认预设：识别物种、连拍、好片与垃圾箱）；不加只入库、不跑模型")
+    ad.add_argument("--lat", type=float)
+    ad.add_argument("--lon", type=float)
+    tg = s.add_parser("tag", help="标签").add_subparsers(dest="sub", required=True)
+    tg.add_parser("list", help="全部标签")
+    for name, hlp in (("add", "给照片加标签（没有这个标签就新建）"), ("remove", "去掉照片上的这个标签")):
+        x = tg.add_parser(name, help=hlp)
+        x.add_argument("name")
+        x.add_argument("ids", nargs="+")
     t = s.add_parser("task", help="扫描任务").add_subparsers(dest="sub", required=True)
     tc = t.add_parser("create", help="创建任务并加入扫描队列")
     tc.add_argument("--source", action="append", required=True, help="来源目录（可重复）")
-    tc.add_argument("--title", required=True)
+    tc.add_argument("--title", help="默认取第一个来源目录的名字")
     tc.add_argument("--subtitle")
     tc.add_argument("--description")
     tc.add_argument("--preset", help="预设 id（quick / photo / wildlife / 自定义）")
@@ -468,7 +492,7 @@ def parser() -> argparse.ArgumentParser:
 
     a = s.add_parser("assets", help="查询素材")
     _add_filters(a)
-    a.add_argument("--order", default="time", choices=("time", "path", "score"))
+    a.add_argument("--order", default="time", choices=("time", "path", "score", "discovered"))
     a.add_argument("--limit", type=int, default=200)
     a.add_argument("--offset", type=int, default=0)
 
@@ -536,7 +560,14 @@ def parser() -> argparse.ArgumentParser:
     cs.add_argument("--task")
     cs.add_argument("--kind", choices=("manual", "smart"))
     cs.add_argument("--deleted", action="store_true", help="只看已删除")
-    co = s.add_parser("collection", help="集合审阅操作").add_subparsers(dest="sub", required=True)
+    co = s.add_parser("collection", help="集合：新建、增减成员、审阅操作").add_subparsers(dest="sub", required=True)
+    x = co.add_parser("create", help="新建手动集合")
+    x.add_argument("name")
+    x.add_argument("ids", nargs="*")
+    for name, hlp in (("add", "加入照片"), ("remove", "移出照片")):
+        x = co.add_parser(name, help=hlp)
+        x.add_argument("id")
+        x.add_argument("ids", nargs="+")
     cc = co.add_parser("complete", help="完成本组（未处理项保持原状）")
     cc.add_argument("id")
     cc.add_argument("--note")
@@ -594,7 +625,9 @@ def parser() -> argparse.ArgumentParser:
     ho.add_parser("list", help="交接历史")
     ho.add_parser("retry", help="只重新交接失败和因离线跳过的照片（同名集合，按身份找回，不重复导入）").add_argument("id")
     cl = s.add_parser("cleanup", help="清理计划：淘汰的照片移到废纸篓（可恢复）").add_subparsers(dest="sub", required=True)
-    scope_args(cl.add_parser("plan", help="列出范围内淘汰照片的全部文件、容量与物种影响（默认全库）"))
+    cp = cl.add_parser("plan", help="列出范围内淘汰照片的全部文件、容量与物种影响（默认全库）")
+    scope_args(cp)
+    cp.add_argument("--bin", action="store_true", help="整个垃圾箱：人淘汰的，加上没人标过而 AI 建议舍弃的")
     cl.add_parser("show", help="计划与执行结果").add_argument("id")
     cl.add_parser("list", help="清理计划历史")
     cr = cl.add_parser("run", help="重新核对后把文件移到废纸篓")

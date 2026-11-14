@@ -252,10 +252,35 @@ def run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str,
             _RUNNING.discard(pid)
 
 
+def _record(c: Any, pid: str, aid: str, path: str, result: str, reason: str | None) -> None:
+    """One file's outcome; a moved file also reads offline and marks its asset trashed."""
+    t = now()
+    c.execute("UPDATE cleanup_files SET result = ?, reason = ?, at = ? WHERE plan_id = ? AND path = ? "
+              "AND coalesce(result, '') != 'trashed'", (result, reason, t, pid, path))
+    if result == "trashed":
+        c.execute("UPDATE asset_files SET online = 0 WHERE path = ?", (path,))
+        meta = loads(c.execute("SELECT meta FROM assets WHERE id = ?", (aid,)).fetchone()[0], {})
+        meta["trashed"] = {"at": t, "plan": pid}
+        online = c.execute("SELECT 1 FROM asset_files WHERE asset_id = ? AND online = 1", (aid,)).fetchone()
+        c.execute("UPDATE assets SET meta = ?, online = ?, updated_at = ? WHERE id = ?",
+                  (dumps(meta), 1 if online else 0, t, aid))
+
+
+def _settle(c: Any, pid: str) -> None:
+    """Files an earlier run was moving when the process died: gone from their place means moved (record it), still
+    there means the move never happened (try again)."""
+    for r in c.execute("SELECT asset_id, path FROM cleanup_files WHERE plan_id = ? AND result = 'moving'", (pid,)).fetchall():
+        if os.path.lexists(r["path"]):
+            c.execute("UPDATE cleanup_files SET result = NULL, at = NULL WHERE plan_id = ? AND path = ?", (pid, r["path"]))
+        else:
+            _record(c, pid, r["asset_id"], r["path"], "trashed", None)
+
+
 def _run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str, Any]:
     with store.tx() as c:
         if not c.execute("SELECT 1 FROM cleanup_plans WHERE id = ?", (pid,)).fetchone():
             raise st.NotFound(f"no cleanup plan {pid}")
+        _settle(c, pid)
         go, skipped = recheck(c, pid)
         t = now()
         for s in skipped:
@@ -274,6 +299,9 @@ def _run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str
                 _skip(c, pid, skipped[-1], now())
                 files = [g for g in files if g is not f]
         for f in files:
+            with store.tx() as c:          # the intent first: a crash between the move and its record is finished by
+                c.execute("UPDATE cleanup_files SET result = 'moving', at = ? WHERE plan_id = ? AND path = ? AND "   # _settle
+                          "coalesce(result, '') != 'trashed'", (now(), pid, f["path"]))
             try:
                 trash_fn(f["path"])
                 result, reason = "trashed", None
@@ -281,16 +309,7 @@ def _run(store: st.Store, pid: str, trash_fn: Callable[[str], None]) -> dict[str
                 result, reason = "failed", str(exc) or type(exc).__name__
                 failed.append({"asset_id": aid, "path": f["path"], "error": reason})
             with store.tx() as c:
-                t = now()
-                c.execute("UPDATE cleanup_files SET result = ?, reason = ?, at = ? WHERE plan_id = ? AND path = ? "
-                          "AND coalesce(result, '') != 'trashed'", (result, reason, t, pid, f["path"]))
-                if result == "trashed":
-                    c.execute("UPDATE asset_files SET online = 0 WHERE path = ?", (f["path"],))
-                    meta = loads(c.execute("SELECT meta FROM assets WHERE id = ?", (aid,)).fetchone()[0], {})
-                    meta["trashed"] = {"at": t, "plan": pid}
-                    online = c.execute("SELECT 1 FROM asset_files WHERE asset_id = ? AND online = 1", (aid,)).fetchone()
-                    c.execute("UPDATE assets SET meta = ?, online = ?, updated_at = ? WHERE id = ?",
-                              (dumps(meta), 1 if online else 0, t, aid))
+                _record(c, pid, aid, f["path"], result, reason)
     with store.tx() as c:
         rows = c.execute("SELECT result, size FROM cleanup_files WHERE plan_id = ?", (pid,)).fetchall()
         moved = [r for r in rows if r["result"] == "trashed"]

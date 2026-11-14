@@ -24,8 +24,21 @@ def _tool(name: str, description: str, props: dict, required: tuple[str, ...] = 
 TOOLS = [
     _tool("create_task", "创建扫描任务（来源为服务所在电脑的绝对目录路径），返回 Task。扫描在后台排队执行，不复制原片。",
           {"title": _STR, "sources": _IDS, "subtitle": _STR, "description": _STR, "preset": _STR,
-           "capabilities": _IDS, "run_mode": {"type": "string", "enum": ["quiet", "balanced", "full"]}},
-          ("title", "sources")),
+           "capabilities": _IDS, "run_mode": {"type": "string", "enum": ["quiet", "balanced", "full"]},
+           "lat": {"type": "number"}, "lon": {"type": "number"}},
+          ("sources",)),
+    _tool("add_folder", "把一个文件夹加入图库（绝对路径；只读取，不复制、不移动），标题取文件夹名。sort=false（默认）只入库、不跑模型，"
+          "马上可浏览；sort=true 同时自动归类（识别物种、连拍、好片与垃圾箱），耗时较长。lat/lon：照片没有 GPS 时的拍摄地。",
+          {"path": _STR, "sort": {"type": "boolean"}, "lat": {"type": "number"}, "lon": {"type": "number"}}, ("path",)),
+    _tool("list_tags", "全部标签（id、名称、别名、上级、素材数）。", {}),
+    _tool("tag_assets", "给照片加标签（按名称；没有就新建），remove=true 则去掉。照片上的 AI 标签不受影响。",
+          {"asset_ids": _IDS, "tag": _STR, "remove": {"type": "boolean"}}, ("asset_ids", "tag")),
+    _tool("create_collection", "新建集合：手动集合给 asset_ids；智能集合给 kind=smart 和 rule（§6.4 筛选，如 {\"pile\": \"good\"}）。",
+          {"name": _STR, "kind": {"type": "string", "enum": ["manual", "smart"]}, "asset_ids": _IDS,
+           "rule": {"type": "object"}, "description": _STR}, ("name",)),
+    _tool("edit_collection_members", "集合增减成员：add / remove 各是素材 id 列表。",
+          {"id": _STR, "add": _IDS, "remove": _IDS}, ("id",)),
+    _tool("diagnostics", "体检（只读）：数据库自检、行数、备份列表、磁盘余量、未完成的运行、日志里最近的警告。", {}),
     _tool("list_tasks", "任务列表：扫描状态（scan）与人工 Review 进度（review）分开给出。",
           {"archived": {"type": "string", "enum": ["0", "1", "all"]}}),
     _tool("get_task", "任务详情，含运行历史 runs 与汇总。", {"id": _STR}, ("id",)),
@@ -35,7 +48,7 @@ TOOLS = [
                                                              "verify_sources", "append", "rescan", "retry"]},
            "paths": _IDS, "capabilities": _IDS, "asset_ids": _IDS}, ("id", "action")),
     _tool("query_assets", "按 §6.4 筛选查询素材，分页返回 {total, items, offset}。",
-          {**_FILTER_PROPS, "order": {"type": "string", "enum": ["time", "path", "score"]},
+          {**_FILTER_PROPS, "order": {"type": "string", "enum": ["time", "path", "score", "discovered"]},
            "limit": {"type": "integer"}, "offset": {"type": "integer"}}),
     _tool("get_asset", "素材详情：文件、元数据、逐能力状态、AI 建议历史（与人工判断分开）、标记历史、所在集合。",
           {"id": _STR}, ("id",)),
@@ -114,7 +127,8 @@ TOOLS = [
     _tool("get_handoff", "交接的逐张结果：ok / skipped / failed 与原因，以及因 Lightroom 中已被改过而跳过的字段（conflicts）。",
           {"id": _STR}, ("id",)),
     _tool("cleanup_plan", "生成清理计划：范围内（collection_id / concept / asset_ids，缺省全库）淘汰照片的全部文件（含 sidecar）、"
-          "容量、是否某物种的最后一张。只生成计划，不动文件。", {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS}),
+          "容量、是否某物种的最后一张。pile=bin 是整个垃圾箱（人淘汰的，加上没人标过而 AI 建议舍弃的）。只生成计划，不动文件。",
+          {"collection_id": _STR, "concept": _STR, "asset_ids": _IDS, "pile": {"type": "string", "enum": ["bin"]}}),
     _tool("get_cleanup_plan", "清理计划与执行结果。", {"id": _STR}, ("id",)),
     _tool("run_cleanup_plan", "执行清理计划：重新核对每张（仍为淘汰、文件未变），把文件移到废纸篓（可恢复，不释放空间，不永久删除）。"
           "只有用户看过计划（尤其是最后的物种照片）并明确同意后才调用；confirm 必须为 true。",
@@ -131,6 +145,7 @@ TOOLS = [
     # ---- end 契约修订 7B ----
 ]
 _NAMES = {t["name"] for t in TOOLS}
+_PROPS = {t["name"]: t["inputSchema"]["properties"] for t in TOOLS}
 
 
 def _seg(v) -> str:
@@ -146,7 +161,20 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     """(method, path, body, query) for one tool call."""
     if name == "create_task":
         return "POST", "/tasks", _pick(args, ("title", "sources", "subtitle", "description", "preset",
-                                               "capabilities", "run_mode")), None
+                                               "capabilities", "run_mode", "lat", "lon")), None
+    if name == "add_folder":
+        return "POST", "/tasks", ({"sources": [args["path"]]} | _pick(args, ("lat", "lon"))
+                                  | ({} if args.get("sort") else {"capabilities": ["meta"]})), None
+    if name == "list_tags":
+        return "GET", "/tags", None, None
+    if name == "tag_assets":
+        return "POST", "/assets/tags", _pick(args, ("asset_ids", "tag", "remove")), None
+    if name == "create_collection":
+        return "POST", "/collections", _pick(args, ("name", "kind", "asset_ids", "rule", "description")), None
+    if name == "edit_collection_members":
+        return "POST", f"/collections/{_seg(args['id'])}/members", _pick(args, ("add", "remove")), None
+    if name == "diagnostics":
+        return "GET", "/diagnostics", None, None
     if name == "list_tasks":
         return "GET", "/tasks", None, {"archived": args.get("archived", "0")}
     if name == "get_task":
@@ -207,7 +235,7 @@ def route(name: str, args: dict) -> tuple[str, str, dict | None, dict | None]:
     if name == "get_handoff":
         return "GET", f"/handoffs/{args['id']}", None, None
     if name == "cleanup_plan":
-        return "POST", "/cleanup-plans", _pick(args, ("collection_id", "concept", "asset_ids")), None
+        return "POST", "/cleanup-plans", _pick(args, ("collection_id", "concept", "asset_ids", "pile")), None
     if name == "get_cleanup_plan":
         return "GET", f"/cleanup-plans/{args['id']}", None, None
     if name == "run_cleanup_plan":
@@ -256,6 +284,9 @@ def handle(msg: dict, url: str) -> dict | None:
         name, args = params.get("name"), params.get("arguments") or {}
         if name not in _NAMES:
             return err(-32602, f"unknown tool: {name}")
+        unknown = sorted(set(args) - set(_PROPS[name]))      # never drop what the caller asked for and answer anyway
+        if unknown:
+            return err(-32602, f"unknown argument(s) for {name}: {', '.join(unknown)} (known: {', '.join(sorted(_PROPS[name]))})")
         try:
             m, path, body, query = route(name, args)
         except KeyError as e:

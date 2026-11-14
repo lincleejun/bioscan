@@ -883,3 +883,27 @@ owner 整理一批之后：「没法批量选择组，批量标记为完成，�
 - 新索引 `task_assets_asset (asset_id, task_id)`（`CREATE INDEX IF NOT EXISTS`，已有数据库启动时自动建立，不改 `schema_version`）。
   「这张照片在哪些任务里」原来每次全表扫描；`GET /species` 对每个主体查一次。在 3,704 张的图库上：
   `GET /species?task=` 0.86 s → 0.07 s，`GET /species` 1.46 s → 0.07 s；审片页「并入前一组」从点击到页面静止 1.9 s → 0.33 s。
+
+## 契约修订 26：体检后的修复（2026-11-13）
+
+- **备份与恢复**（`backup.py`）。`<数据目录>/backups/gardener-<UTC 时间>-<原因>.sqlite`：服务启动且最新一份超过一天时做一份
+  （`start`），每次数据迁移前做一份（`schema<旧版本>`），恢复前做一份（`before-restore`）；只留最新 5 份；磁盘余量不到数据库两倍时
+  不做并记一条 WARNING。`gardener serve --backups` 列出备份；`gardener serve --restore <文件名|路径|latest>` 在没有服务占用数据目录时
+  用一份通过完整性检查的备份替换数据库，然后退出。每一步都写日志。
+- **日志**。每行带时间和级别（`时间 级别 名称 消息`），HTTP 访问行也走同一格式；`logs/gardener.log` 每 5 MB 轮转，留 5 份。
+- **`GET /diagnostics`**（只读）：数据库自检（`quick_check`、外键）、行数、离线素材数、备份列表、磁盘余量（不到 10 GB 时 `low`）、
+  缓存大小、未完成的运行、日志里最近 30 条 WARNING/ERROR。CLI `gardener doctor`，MCP `diagnostics`。
+- **`POST /storage/clear-cache`** 不再删除原片离线的照片的预览（它们无法重建），返回里多一项 `kept_offline_files`。
+- **清理计划的执行**：移动每个文件前先把它记为 `moving`；进程在“已移动、未记录”之间中断时，下一次执行按文件是否还在原处
+  补记为已移动或重试，同组其余文件照常处理。
+- **筛选**：`analysis` 新增 `partial`，与界面显示的“部分完成”一致；`pending`、`done` 也按界面的口径。`failed`、`unavailable` 仍是
+  “有一项失败 / 有一项不可用”，所以筛出来的照片可能显示为部分完成。CLI 与 MCP 的筛选项直接取自 `query.KEYS`（原来各抄一份，
+  缺 `pile`、`versions`）；排序多一个 `discovered`。MCP 遇到工具不认识的参数返回错误，不再丢掉参数照常回答。
+- **`POST /tasks`** 的 `title` 可省略，默认取第一个来源目录的名字。**`POST /assets/tags`** 可用 `tag`（名称）代替 `tag_id`：
+  没有这个标签就新建。
+- **CLI 新命令**：`gardener add <目录> [--sort] [--lat --lon]`、`gardener tag list|add|remove`、
+  `gardener collection create|add|remove`、`gardener cleanup plan --bin`、`gardener doctor`。
+  **MCP 新工具**：`add_folder`、`list_tags`、`tag_assets`、`create_collection`、`edit_collection_members`、`diagnostics`；
+  `cleanup_plan` 接受 `pile: "bin"`，`create_task` 接受 `lat`、`lon` 且 `title` 可省。
+- **性能**：`pile=good` 里每次运行的建议数只算一次（3,704 张：接口 0.97 s → 0.06 s）；新索引 `asset_tags_tag (tag_id, asset_id)`
+  （`GET /tags` 0.14 s → 0.004 s）。

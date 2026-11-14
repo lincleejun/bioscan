@@ -351,13 +351,45 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 "cache_dir": str(store.cache_dir), "cache_bytes": size, "cache_files": files,
                 "disk_total": disk.total, "disk_free": disk.free}
 
+    @r.get("/diagnostics")
+    def diagnostics() -> dict[str, Any]:
+        """What to look at when something seems wrong: the database's own check, sizes, the backups, the disk, the
+        runs that did not complete and the newest warnings in the log. Reads only."""
+        from gardener.workbench import backup
+
+        c = store.conn()
+        disk = shutil.disk_usage(store.data_dir)
+        log_file = store.logs_dir / "gardener.log"
+        lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-4000:] if log_file.is_file() else []
+        return {"database": {"path": str(store.db_path), "bytes": store.db_path.stat().st_size,
+                             "schema_version": st.SCHEMA_VERSION,
+                             "check": "; ".join(r[0] for r in c.execute("PRAGMA quick_check")),
+                             "foreign_key_violations": len(c.execute("PRAGMA foreign_key_check").fetchall())},
+                "counts": {t: c.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                           for t in ("assets", "tasks", "marks", "identifications", "collections")},
+                "offline_assets": c.execute("SELECT count(*) FROM assets WHERE online = 0").fetchone()[0],
+                "backups": [{"name": p.name, "bytes": p.stat().st_size,
+                             "at": st.datetime.fromtimestamp(p.stat().st_mtime, st.UTC).strftime(st.TIME_FMT)}
+                            for p in backup.listing(store.data_dir)],
+                "disk": {"free": disk.free, "total": disk.total, "low": disk.free < 10 << 30},
+                "cache_bytes": cache_usage()[1],
+                "unfinished_runs": store.all("SELECT id, task_id, kind, status, phase FROM runs WHERE status NOT IN "
+                                             "('completed', 'cancelled') ORDER BY rowid DESC LIMIT 20"),
+                "log": {"path": str(log_file),
+                        "warnings": [x for x in lines if " WARNING " in x or " ERROR " in x or "Traceback" in x][-30:]}}
+
     @r.post("/storage/clear-cache")
     def clear_cache() -> dict[str, Any]:
-        """Deletes only cache/; records stay, previews read pending and rebuild on request (§2)."""
-        removed = freed = 0
+        """Deletes cache/ except the previews of photos whose originals are offline: those cannot be made again
+        until the card or disk is back. Records stay; the rest read pending and rebuild on request (§2)."""
+        removed = freed = kept = 0
+        offline = {r["id"] for r in store.all("SELECT id FROM assets WHERE online = 0")}
         for d, _, names in os.walk(store.cache_dir):
             for n in names:
                 p = os.path.join(d, n)
+                if n.split(".")[0] in offline and Path(d).parent == store.preview_dir:
+                    kept += 1
+                    continue
                 try:                  # a running preview may rename or drop its .part meanwhile
                     size = os.path.getsize(p)
                     os.remove(p)
@@ -367,8 +399,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 removed += 1
         with store.tx() as c:
             c.execute("UPDATE assets SET preview_status = 'pending', preview_method = NULL, preview_error = NULL, "
-                      "updated_at = ? WHERE preview_status != 'pending'", (now(),))
-        return {"removed_files": removed, "freed_bytes": freed}
+                      "updated_at = ? WHERE preview_status != 'pending' AND online = 1", (now(),))
+        return {"removed_files": removed, "freed_bytes": freed, "kept_offline_files": kept}
 
     # ---- tags ----
     def tag_or_404(tid: str) -> dict[str, Any]:
@@ -492,9 +524,20 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
 
     @r.post("/assets/tags")
     def tag_assets(body: dict[str, Any] = BODY) -> dict[str, Any]:
-        ids, tid = strs(body.get("asset_ids"), "asset_ids"), text(body, "tag_id", required=True)
-        tag_or_404(tid)
+        ids, tid, name = strs(body.get("asset_ids"), "asset_ids"), text(body, "tag_id"), text(body, "tag").strip()
         check_assets(ids)
+        if not tid and name:          # by name, for a caller that never listed the tags: the live tag, or a new one
+            hit = store.one("SELECT id FROM tags WHERE name = ? AND active = 1", (name,))
+            if hit is None and body.get("remove"):
+                return {"changed": 0}
+            if hit is None:
+                with store.tx() as c:
+                    tid = new_tag(c, name, None)
+            else:
+                tid = hit["id"]
+        if not tid:
+            raise Error("tag_id or tag (a name) is required")
+        tag_or_404(tid)
         t, n = now(), 0
         with store.tx() as c:
             for a in ids:
@@ -510,8 +553,8 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
     # ---- 6.2 tasks and runs ----
     @r.post("/tasks", status_code=201)
     def post_task(body: dict[str, Any] = BODY) -> dict[str, Any]:
-        title = text(body, "title", required=True)
         sources = source_paths(body.get("sources"))
+        title = text(body, "title").strip() or Path(sources[0]).name     # 加入文件夹: the folder's name (ADR 0004)
         default = store.setting("default_preset")
         if store.one("SELECT 1 FROM presets WHERE id = ?", (default,)) is None:
             default = BUILTIN_DEFAULT

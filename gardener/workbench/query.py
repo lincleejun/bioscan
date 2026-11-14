@@ -10,7 +10,7 @@ KEYS = ("task", "collection", "source", "media", "flag", "stars_min", "stars", "
         "changed_after", "versions", "use", "pile")
 CHOICES = {"media": ("photo", "video"), "flag": ("pick", "reject", "none"), "ai": ("pick", "reject", "none"),
            "judged": ("yes", "no"), "online": ("1", "0"), "has_gps": ("1", "0"),
-           "analysis": ("pending", "done", "failed", "unavailable"), "versions": ("hide", "all", "only"),
+           "analysis": ("pending", "done", "failed", "unavailable", "partial"), "versions": ("hide", "all", "only"),
            "id_state": ("confirmed", "candidate", "unresolved", "reconfirm"), "use": ("record", "edit", "pending", "reject"), "pile": ("good", "bin")}
 MAX_DEPTH = 4    # smart rules may name other collections; this bounds the chain (and cycles)
 
@@ -26,13 +26,30 @@ ID_STATES = {"confirmed": "ci.level = 'species' AND ci.source = 'user' AND ci.co
 TOUCHED = "EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id)"
 GOOD_SHARE = 0.10    # owner 2026-11-13: about a tenth of a scan's photos are 好片
 # the AI's good photos: its picks, then the best frames of the other bursts in rank order, up to GOOD_SHARE of the run
+# (a run's size comes from one grouped subquery: counted again for every photo it made 好片 quadratic, 0.37 s at
+# 3,700 photos and 10 s at ten times that)
 AI_GOOD = ("EXISTS (SELECT 1 FROM current_suggestions s WHERE s.asset_id = a.id AND s.verdict != 'reject' AND "
-           "(s.verdict = 'pick' OR (s.rank IS NOT NULL AND s.rank <= ? * (SELECT count(*) FROM current_suggestions n "
-           "WHERE n.run_id = s.run_id))))")
+           "(s.verdict = 'pick' OR (s.rank IS NOT NULL AND s.rank <= ? * (SELECT r.n FROM (SELECT run_id, count(*) n "
+           "FROM current_suggestions GROUP BY run_id) r WHERE r.run_id = s.run_id))))")
 PILES = {"bin": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject') OR "
                 f"(NOT {TOUCHED} AND {LATEST_AI} = 'reject'))",
          "good": f"(EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND (m.use = 'edit' OR m.stars > 0)) OR "
                  f"({AI_GOOD} AND NOT EXISTS (SELECT 1 FROM marks m WHERE m.asset_id = a.id AND m.use = 'reject')))"}
+
+
+def _cap(cond: str) -> str:
+    return ("EXISTS (SELECT 1 FROM asset_caps c WHERE c.asset_id = a.id AND c.state NOT IN ('not_enabled', "
+            f"'not_applicable') AND {cond})")
+
+
+# pending, done and partial are the states `store.analysis_state` shows on a photo (the run-in-progress part aside).
+# failed / unavailable ask a wider question on purpose: "has a capability that failed / could not run", which is
+# what a person retries; a photo they find may read 部分完成 when its other capabilities are done.
+_ANY, _PENDING, _NOT_DONE = _cap("1"), _cap("c.state = 'pending'"), _cap("c.state NOT IN ('done', 'unrecognized')")
+ANALYSIS = {"pending": f"(NOT {_ANY} OR {_PENDING})", "done": f"({_ANY} AND NOT {_NOT_DONE})",
+            "failed": _cap("c.state = 'failed'"), "unavailable": _cap("c.state = 'unavailable'"),
+            "partial": (f"({_ANY} AND NOT {_PENDING} AND {_NOT_DONE} AND " + _cap("c.state != 'failed'") + " AND "
+                        + _cap("c.state != 'unavailable'") + ")")}
 BASENAME = "replace(a.primary_path, rtrim(a.primary_path, replace(a.primary_path, '/', '')), '')"
 # within one task (param: task id) an asset stands for its capture unless its representative is in that task too;
 # a version whose representative only another task holds (a wider folder) is that task's business
@@ -138,11 +155,7 @@ def where(store: Any, filters: dict[str, Any], depth: int = 0,
     if "online" in f:
         add("a.online = ?", int(f["online"]))
     if "analysis" in f:
-        caps = "SELECT 1 FROM asset_caps c WHERE c.asset_id = a.id AND c.state"
-        add({"pending": f"(EXISTS ({caps} = 'pending') OR NOT EXISTS ({caps} != 'not_enabled'))",
-             "done": f"EXISTS ({caps} != 'not_enabled') AND NOT EXISTS ({caps} IN ('pending', 'failed', 'unavailable'))",
-             "failed": f"EXISTS ({caps} = 'failed')",
-             "unavailable": f"EXISTS ({caps} = 'unavailable')"}[f["analysis"]])
+        add(ANALYSIS[f["analysis"]])
     if "date_from" in f:
         add("a.taken_at >= ?", f["date_from"])
     if "date_to" in f:       # a date-only bound includes that whole day
