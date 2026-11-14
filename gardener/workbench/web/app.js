@@ -517,7 +517,7 @@
         <aside class="fl-panel fr-rules" id="fr-rules">${frRulesHTML()}</aside></div>
       <footer class="fl-foot"><div class="fl-note">${ic('compare')}<p>一组一组过：要留的打星（1–5），不要的淘汰；按「完成」时没决定的都留下。</p></div>
         <a class="btn ghost" href="#/import/${esc(t.id)}" title="把留下的照片导入照片库：可选，之后再做也行">导入…</a>
-        <span class="fl-picks"><select class="input sm" id="fr-picks" aria-label="AI 选鸟：每个物种几张">${[1, 2, 3, 4].map(i => `<option value="${i}" ${pickN() === i ? 'selected' : ''}>每种 ${i} 张</option>`).join('')}</select><button type="button" class="btn ghost" data-action="ai-picks" data-task="${esc(t.id)}" data-title="${esc(t.title)}" title="每个物种从不同的组里各挑最好的几张，放进一个「AI 选鸟」集合；不改留 / 淘汰标记">AI 选鸟</button></span>
+        <span class="fl-picks"><select class="input sm" id="fr-picks" aria-label="按物种挑片：每个物种几张">${[1, 2, 3, 4].map(i => `<option value="${i}" ${pickN() === i ? 'selected' : ''}>每种 ${i} 张</option>`).join('')}</select><button type="button" class="btn ghost" data-action="ai-picks" data-task="${esc(t.id)}" data-title="${esc(t.title)}" title="每个物种从不同的组里各挑最好的几张，放进一个「按物种挑片」集合；不改留 / 淘汰标记">按物种挑片</button></span>
         <button type="button" class="btn ghost lg" data-action="task-done" data-task="${esc(t.id)}" title="这次拍摄看完了：还没决定的照片都留下（可撤销）。不导入。">完成${ic('check')}</button>
         ${first && k ? `<a class="btn primary lg" href="${esc(groupHref(t.id, k.concept, first))}">${fr.groups.some(g => groupState(g).any) ? '继续' : '开始'}：第 ${first.n} 组${ic('right')}</a>` : ''}</footer>
     </div>`;
@@ -1526,7 +1526,7 @@
       afterMarks(r.assets);
       if (!r.assets.some(x => x.version !== body.expect[x.id])) toast(`已经是「${label}」，没有变化`);   // 没改东西：没有可撤销的批次
       else { ui.undo.push({ batch: r.batch_id, label, ids }); toast(`${label} · ${ids.length} 张`, { action: { label: '撤销', run: doUndo } }); }
-      if (advance && prefs.get('advance', '1') === '1' && ui.ws === ws && ws.current === from) move(1);
+      if (advance && ws && ws.mode === 'loupe' && prefs.get('advance', '1') === '1' && ui.ws === ws && ws.current === from) move(1);   // 只在单张视图前进（开关也只在那里）：网格里连按 P、5 都落在同一张
     } catch (e) {
       if (e.status === 409) { toast('有素材刚被其他客户端修改，已载入最新标记，请重新操作'); await Promise.all(ids.map(id => { S.details.delete(id); return ensureDetail(id); })); patchTiles(ids); renderInspector(); }
       else toast(errMsg(e));
@@ -2858,8 +2858,8 @@
       try {
         const r = await api('GET', `/tasks/${encodeURIComponent(el.dataset.task)}/picks`, null, { per_species: n });
         if (!r.asset_ids.length) { toast('还没有认出物种的照片，选不出来'); return; }
-        const col = await api('POST', '/collections', { name: `AI 选鸟 · ${el.dataset.title} · 每种 ${n} 张`, asset_ids: r.asset_ids });
-        toast(`AI 选鸟：${r.species} 个物种，${r.asset_ids.length} 张，已放进集合`, { action: { label: '打开', run: () => { location.hash = '#/review/' + col.id; } } });
+        const col = await api('POST', '/collections', { name: `按物种挑片 · ${el.dataset.title} · 每种 ${n} 张`, asset_ids: r.asset_ids });
+        toast(`按物种挑片：${r.species} 个物种，${r.asset_ids.length} 张，已放进集合`, { action: { label: '打开', run: () => { location.hash = '#/review/' + col.id; } } });
       } catch (e) { toast(errMsg(e)); } finally { el.disabled = false; }
     },
     'sp-done': el => bulkMark(Object.assign({ asset_ids: fr.ids }, DONE), `「${el.dataset.name}」已全部完成`, () => route()),
