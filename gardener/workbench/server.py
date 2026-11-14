@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import os
 from pathlib import Path
 from typing import IO
@@ -52,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="Lightroom 交接文件目录（插件读取；默认 ~/Library/Application Support/bioscan/lightroom）")
     ap.add_argument("--allow-root", action="append", default=[],
                     help="任务来源必须位于这些目录之内（可重复；默认不限制）")
+    ap.add_argument("--backups", action="store_true", help="列出数据库备份后退出")
+    ap.add_argument("--restore", metavar="备份", help="用一份备份替换数据库后退出：文件名、路径或 latest（先备份当前数据库）")
     a = ap.parse_args(argv)
     in_container = os.environ.get("GARDENER_CONTAINER") == "1" and a.host == "0.0.0.0"   # the image: publish it on 127.0.0.1 only
     if a.host not in LOCAL_HOSTS and not in_container:
@@ -64,8 +67,25 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         ap.error(f"无法锁定数据目录 {data_dir}：{exc}")
     (data_dir / "logs").mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s",
-                        handlers=[logging.StreamHandler(), logging.FileHandler(data_dir / "logs" / "gardener.log")])
+    # one line per event with its time and level; 5 files of 5 MB, so the log never fills the disk
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", handlers=[
+        logging.StreamHandler(),
+        logging.handlers.RotatingFileHandler(data_dir / "logs" / "gardener.log", maxBytes=5 << 20, backupCount=5,
+                                             encoding="utf-8")])
+    from gardener.workbench import backup
+
+    if a.backups or a.restore:
+        try:
+            if a.restore:
+                print(f"已恢复：{backup.restore(data_dir, a.restore).name}")
+            for p in backup.listing(data_dir):
+                print(f"{p.name}\t{p.stat().st_size >> 20} MB")
+        except ValueError as exc:
+            held.close()
+            ap.error(str(exc))
+        held.close()
+        return 0
+    backup.on_start(data_dir)
 
     import uvicorn
 
@@ -73,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
 
     app = create_gardener_app(data_dir, allow_roots=a.allow_root, lightroom_dir=a.lightroom_dir)
     logging.getLogger("gardener").info("data_dir=%s url=http://%s:%d/", data_dir, a.host, a.port)
-    uvicorn.run(app, host=a.host, port=a.port, workers=1)
+    uvicorn.run(app, host=a.host, port=a.port, workers=1, log_config=None)    # its lines go through the format above
     held.close()
     return 0
 

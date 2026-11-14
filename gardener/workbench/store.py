@@ -170,6 +170,9 @@ class Store:
             elif int(row[0]) > SCHEMA_VERSION:
                 raise RuntimeError(f"{self.db_path} has schema {row[0]}; this Gardener reads {SCHEMA_VERSION}")
             elif int(row[0]) < SCHEMA_VERSION:
+                from gardener.workbench import backup
+
+                backup.make(self.data_dir, f"schema{row[0]}")     # what the migration is about to change (WAL: a reader's copy)
                 if int(row[0]) < 2:
                     from gardener.workbench import identities
 
