@@ -1,12 +1,16 @@
 """Rebuild data/names/names-zh.csv (scientific,zh) from Wikidata labels (CC0): every species item with an eBird taxon
 ID (birds) or an ASM Mammal Diversity Database ID (mammals). zh-cn wins over zh-hans over zh; a label with no Chinese
-character (a Latin name filed as the label) is dropped. Run from the repo root, online: `uv run python scripts/names/build_names_zh.py`."""
+character (a Latin name filed as the label) is dropped, and every name is written in simplified characters (many `zh`
+labels are traditional). Run from the repo root, online:
+`uv run --with opencc-python-reimplemented python scripts/names/build_names_zh.py`."""
 import csv
 import io
 import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+from opencc import OpenCC
 
 OUT = Path("data/names/names-zh.csv")
 QUERY = """SELECT DISTINCT ?n ?a ?b ?c WHERE { ?i wdt:%s ?e ; wdt:P225 ?n ; wdt:P105 wd:Q7432 .
@@ -34,5 +38,6 @@ if __name__ == "__main__":
     with OUT.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(["scientific", "zh"])
-        w.writerows(sorted(names.items()))
+        t2s = OpenCC("t2s")
+        w.writerows(sorted((k, t2s.convert(v)) for k, v in names.items()))
     print(len(names), "names ->", OUT)

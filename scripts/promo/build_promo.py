@@ -106,7 +106,7 @@ show('$c2', 4.6);
 
 # 3 sort: the species it named (the real page), then one burst as one group (the real review page)
 scene("sort", dur[2], """<div class="cam" id="$cam"><img src="assets/ui/species.jpg"><img id="$i1" src="assets/ui/review.jpg" style="opacity:0"></div>
-<div class="chip" id="$c1" style="left:1180px;top:300px;opacity:0">认出<span class="acc">物种</span></div>
+<div class="chip" id="$c1" style="left:1180px;top:300px;opacity:0">认出<span class="acc">物种</span>，叫得出中文名</div>
 <div class="chip" id="$c2" style="left:1180px;top:800px;opacity:0">一次连拍 = <span class="acc">一组</span></div>""",
       """
 gsap.set('$cam', { transformOrigin: '0 0' });
@@ -175,7 +175,7 @@ show('$a', 1.1, 0.25); show('$b', 2.9, 0.25);
 # 8 end card: the product's own mark, the name, where to get it
 scene("end", dur[7], """<img id="$logo" src="assets/icon.svg" style="position:absolute;left:560px;top:370px;width:170px;height:170px;opacity:0">
 <div id="$w" style="position:absolute;left:770px;top:362px;font:900 170px Inter,sans-serif;letter-spacing:-.03em;opacity:0">Gardener</div>
-<div class="t" id="$s" style="top:600px;font-size:54px;color:#c6c6c6;opacity:0">开源 · 在你的 Mac 上本地运行</div>
+<div class="t" id="$s" style="top:600px;font-size:54px;color:#c6c6c6;opacity:0">拍野生动物的人的相册 · 开源 · 本地运行</div>
 <div class="t" id="$u" style="top:720px;font:600 46px 'JetBrains Mono',monospace;opacity:0"><span class="acc">github.com/lincleejun/gardener</span></div>""",
       """
 tl.fromTo('$logo', { opacity: 0, scale: 0.6, rotation: -40 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, ease: 'back.out(1.4)' }, 0.25);

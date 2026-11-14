@@ -36,7 +36,7 @@ with sync_playwright() as p:
     pg.locator("[data-action=fs-add][data-kind=browse]").click(); shot("added", [".tile >> nth=0"], 7000)
     n["added"] = pg.locator(".tile").count()
     b.close()
-good = [a["id"] for a in api("/assets?pile=good&limit=200")["items"]]
+good = [a["id"] for a in api("/assets?pile=good&limit=200")["items"] if a.get("species")]   # the picks that show a named animal
 for i, a in enumerate(good[::max(1, len(good) // 12)][:12]):
     urllib.request.urlretrieve(f"{B}/api/v1/assets/{a}/large", f"{OUT}/ph/g{i:02d}.jpg")
 json.dump({"boxes": boxes, "n": n}, open(f"{OUT}/ui/boxes.json", "w"), indent=1, ensure_ascii=False)
