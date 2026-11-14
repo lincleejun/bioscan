@@ -4,7 +4,7 @@ compositions/*.html into $PROMO_DIR (default: promo/ next to this file). Screens
 (assets/ui/boxes.json) come from cap.py (a running `gardener serve` on a copy of a library);
 lines.json holds each caption line and its seconds. `npx hyperframes render` in promo/ makes the file.
 The committed file is that render without audio, small enough to upload on GitHub for the README player (10 MB limit):
-`ffmpeg -i render.mp4 -an -c:v libx264 -crf 27 -preset slow -pix_fmt yuv420p -movflags +faststart gardener-promo.mp4`.
+`ffmpeg -i render.mp4 -an -c:v libx264 -crf 28 -preset slow -pix_fmt yuv420p -movflags +faststart gardener-promo.mp4`.
 The film is silent: captions only."""
 import json
 import os
@@ -12,7 +12,10 @@ from pathlib import Path
 
 P = Path(os.environ.get("PROMO_DIR") or Path(__file__).parent / "promo")
 N = json.load(open(P / "assets/ui/boxes.json"))["n"]      # all, good, bin, species, added: what the screens show
+CLI = json.load(open(P / "assets/ui/cli.json"))        # what the gardener commands printed, and the MCP tool count
 lines = json.load(open(Path(__file__).parent / "lines.json"))
+for ln in lines:                                        # the captions say the counts the screens show
+    ln["text"] = ln["text"].format(all=f"{N['all']:,}", good=N["good"])
 VO_IN = 0.4
 starts, t = [], 0.0
 for ln in lines:
@@ -20,7 +23,7 @@ for ln in lines:
     t += VO_IN + ln["dur"] + 0.35
 TOTAL = round(starts[-1] + VO_IN + lines[-1]["dur"] + 2.4, 2)
 ends = starts[1:] + [TOTAL]
-NAMES = ["hook", "lib", "sort", "good", "bin", "proof", "local", "end"]
+NAMES = ["hook", "lib", "light", "sort", "review", "good", "bin", "safe", "out", "agent", "proof", "local", "end"]
 
 CSS = """
 #root{position:absolute;inset:0;overflow:hidden;font-family:'PingFang SC','Inter',sans-serif;color:#ededed}
@@ -30,6 +33,9 @@ CSS = """
 .cam img{position:absolute;left:0;top:0;width:1920px;height:1080px}
 .t{position:absolute;left:0;width:1920px;text-align:center;font-weight:600;letter-spacing:.01em}
 .chip{position:absolute;padding:14px 30px;border-radius:14px;background:rgba(18,20,21,.92);border:2px solid rgba(255,255,255,.22);font-size:40px;font-weight:600;white-space:nowrap}
+.cc{left:960px;transform:translateX(-50%)}
+.term{position:absolute;left:120px;width:1680px;padding:34px 40px;border-radius:18px;background:#0f1011;border:2px solid rgba(255,255,255,.16);font:500 28px 'JetBrains Mono','PingFang SC',monospace;line-height:1.7;white-space:nowrap;overflow:hidden;color:#cfd3d6}
+.term b{color:#93d29a;font-weight:600}.term .tb{display:table;width:100%}.term .tc{display:table-caption}.term .tr{display:table-row}.term .tr span{display:table-cell;padding-right:2ch}
 .acc{color:#93d29a}
 .cur{position:absolute;left:0;top:0;width:44px;height:44px;z-index:9}
 """
@@ -70,11 +76,22 @@ def scene(name, dur, body, script, intro=True, outro=True):
     (P / f"compositions/{sid}.html").write_text(html)
 
 
-dur = [round(e - s, 2) for s, e in zip(starts, ends)]
+dur = dict(zip(NAMES, [round(e - s, 2) for s, e in zip(starts, ends)]))
+
+
+def term(cmd, out):
+    """A command and what it printed. Table rows (cells two or more spaces apart) are laid out as columns, because
+    the CLI pads by character count and Chinese cells are two columns wide."""
+    import html
+    import re
+    rows = [re.split(r" {2,}", l) for l in out]
+    body = "".join(f'<div class="tr">{"".join(f"<span>{html.escape(c)}</span>" for c in r)}</div>' if len(r) > 2 else f'<div class="tc">{html.escape(l)}</div>'
+                   for r, l in zip(rows, out))
+    return f'<b>&#36; {cmd}</b><div class="tb">{body}</div>'
 
 # 1 hook: the library floods in, the count, the question
 tiles = "".join(f'<img id="$p{i}" src="assets/ph/p{i:02d}.jpg" style="position:absolute;left:{(i % 8) * 240}px;top:{(i // 8) * 180}px;width:240px;height:180px;object-fit:cover;opacity:0">' for i in range(48))
-scene("hook", dur[0], f"""<div id="$grid" style="position:absolute;inset:0">{tiles}</div>
+scene("hook", dur["hook"], f"""<div id="$grid" style="position:absolute;inset:0">{tiles}</div>
 <div id="$shade" style="position:absolute;inset:0;background:rgba(14,15,16,.82);opacity:0"></div>
 <div class="t" id="$n" style="top:300px;font-size:250px;font-weight:900;font-family:Inter,sans-serif;opacity:0"><span id="$num">0</span><span style="font-size:110px;font-family:'PingFang SC';font-weight:600"> 张</span></div>
 <div class="t" id="$s" style="top:610px;font-size:60px;color:#c6c6c6;opacity:0">都在硬盘里</div>
@@ -88,7 +105,7 @@ hide('$n', 3.3); hide('$s', 3.3); show('$q', 3.5, 0.25);
 """.replace("__ALL__", str(N["all"])), intro=False)
 
 # 2 lib: the real folder page; one click on 加入图库; the same photos in the library
-scene("lib", dur[1], """<div class="cam" id="$cam"><img src="assets/ui/fs.jpg"><img id="$i1" src="assets/ui/added.jpg" style="opacity:0"><div class="cur" id="$cur"></div></div>
+scene("lib", dur["lib"], """<div class="cam" id="$cam"><img src="assets/ui/fs.jpg"><img id="$i1" src="assets/ui/added.jpg" style="opacity:0"><div class="cur" id="$cur"></div></div>
 <div class="chip" id="$c1" style="left:1090px;top:420px;opacity:0">选一个<span class="acc">文件夹</span></div>
 <div class="chip" id="$c2" style="left:1130px;top:820px;opacity:0">不复制 · 不移动 · <span class="acc">马上可看</span></div>""",
       """
@@ -104,8 +121,20 @@ cam('$cam', 3.7, 0.7, 960, 540, 1);
 show('$c2', 4.6);
 """)
 
-# 3 sort: the species it named (the real page), then one burst as one group (the real review page)
-scene("sort", dur[2], """<div class="cam" id="$cam"><img src="assets/ui/species.jpg"><img id="$i1" src="assets/ui/review.jpg" style="opacity:0"></div>
+# 3 light: a new install with no models: the real dialog that 加入并自动归类 opens (cap.py never starts the download)
+scene("light", dur["light"], f"""<div class="cam" id="$cam"><img src="assets/ui/fs.jpg"><img id="$i1" src="assets/ui/models.jpg" style="opacity:0"></div>
+<div class="chip cc" id="$c1" style="top:150px;opacity:0">浏览、标记：<span class="acc">不需要模型</span></div>
+<div class="chip cc" id="$c2" style="top:150px;opacity:0">约 {N["models_gb"]} GB · <span class="acc">只下一次</span> · 之后离线</div>""",
+      """
+gsap.set('$cam', { transformOrigin: '0 0' });
+show('$c1', 0.6); hide('$c1', 2.5);
+tl.to('$i1', { opacity: 1, duration: 0.25 }, 2.6);
+cam('$cam', 2.7, 0.7, 960, 560, 1.75);
+show('$c2', 3.6);
+""")
+
+# 4 sort: the species it named (the real page), then one burst as one group (the real review page)
+scene("sort", dur["sort"], """<div class="cam" id="$cam"><img src="assets/ui/species.jpg"><img id="$i1" src="assets/ui/review.jpg" style="opacity:0"></div>
 <div class="chip" id="$c1" style="left:1180px;top:300px;opacity:0">认出<span class="acc">物种</span>，叫得出中文名</div>
 <div class="chip" id="$c2" style="left:1180px;top:800px;opacity:0">一次连拍 = <span class="acc">一组</span></div>""",
       """
@@ -117,9 +146,22 @@ cam('$cam', 3.1, 0.6, 1066, 420, 1.55);
 show('$c2', 3.8);
 """)
 
-# 4 good: the real 好片 page, then photos that are in it
+# 5 review: the real review page by species, then the real two-up compare of one burst
+scene("review", dur["review"], """<div class="cam" id="$cam"><img src="assets/ui/review.jpg"><img id="$i1" src="assets/ui/compare.jpg" style="opacity:0"></div>
+<div class="chip" id="$c1" style="left:1040px;top:640px;opacity:0">按<span class="acc">物种</span>，一组一组过</div>
+<div class="chip cc" id="$c2" style="top:40px;opacity:0">两张并排 · 放大到<span class="acc">眼睛</span></div>""",
+      """
+gsap.set('$cam', { transformOrigin: '0 0' });
+cam('$cam', 0.2, 0.7, 700, 400, 1.6);
+show('$c1', 0.5); hide('$c1', 2.6);
+tl.set('$i1', { opacity: 1 }, 2.75); tl.set('$cam', { x: 0, y: 0, scale: 1 }, 2.75);
+cam('$cam', 2.8, D - 2.8, 1280, 420, 1.25, 'none');
+show('$c2', 3.5);
+""")
+
+# 6 good: the real 好片 page, then photos that are in it
 pk = "".join(f'<img id="$g{i}" src="assets/ph/g{i:02d}.jpg" style="position:absolute;left:{120 + (i % 4) * 425}px;top:{320 + (i // 4) * 205}px;width:405px;height:190px;object-fit:cover;border-radius:10px;opacity:0">' for i in range(12))
-scene("good", dur[3], f"""<div class="cam" id="$cam"><img src="assets/ui/good.jpg"></div>
+scene("good", dur["good"], f"""<div class="cam" id="$cam"><img src="assets/ui/good.jpg"></div>
 <div id="$shade" style="position:absolute;inset:0;background:rgba(18,19,20,.94);opacity:0"></div>
 <div class="t" id="$h" style="top:90px;font-size:92px;opacity:0"><span class="acc">好片</span></div>
 <div class="t" id="$s" style="top:215px;font-size:46px;color:#c6c6c6;opacity:0">{N["all"]:,} 张里的 <span style="color:#fff;font-weight:600">{N["good"]}</span> 张</div>
@@ -133,7 +175,7 @@ for (let i = 0; i < 12; i++) tl.fromTo('$g' + i, { opacity: 0, scale: 0.9 }, { o
 """)
 
 # 5 bin: a photo selected in the library, X, the real 垃圾箱 page and its 清空 button
-scene("bin", dur[4], """<div class="cam" id="$cam"><img src="assets/ui/selected.jpg"><img id="$i1" src="assets/ui/bin.jpg" style="opacity:0">
+scene("bin", dur["bin"], """<div class="cam" id="$cam"><img src="assets/ui/selected.jpg"><img id="$i1" src="assets/ui/bin.jpg" style="opacity:0">
 <div id="$key" style="position:absolute;left:440px;top:420px;width:84px;height:84px;border-radius:14px;background:#ededed;color:#1a1a1a;font:800 50px Inter,sans-serif;display:grid;place-items:center;box-shadow:0 8px 0 #9a9a9a;opacity:0">X</div></div>
 <div class="chip" id="$c1" style="left:1120px;top:330px;opacity:0">进<span class="acc">垃圾箱</span>，文件不动</div>
 <div class="chip" id="$c2" style="left:980px;top:420px;opacity:0">清空时，才移到废纸篓</div>""",
@@ -148,20 +190,54 @@ cam('$cam', 3.9, 0.6, 1640, 120, 2.3);
 show('$c2', 4.7);
 """)
 
-# 6 proof: the measured number, with what it was measured on
-scene("proof", dur[5], """<div class="t" id="$k" style="top:150px;font-size:44px;color:#a8a8a8;opacity:0">iNaturalist 标准集 · 加州 64 个物种 · 1,571 张照片</div>
-<div class="t" id="$n" style="top:280px;font-size:330px;font-weight:900;font-family:Inter,sans-serif;opacity:0"><span id="$num">0.0</span><span style="font-size:170px">%</span></div>
-<div class="t" id="$l" style="top:690px;font-size:64px;opacity:0">鸟类 <span class="acc">首选正确率</span><span style="color:#a8a8a8;font-size:44px">（1,046 张）</span></div>
-<div class="t" id="$m" style="top:810px;font-size:44px;color:#c6c6c6;opacity:0">定到种的照片里，97.1% 是对的</div>""",
+# 8 safe: the real 撤销 button, then what `gardener doctor` printed about the backups
+scene("safe", dur["safe"], f"""<div class="cam" id="$cam"><img src="assets/ui/library.jpg"></div>
+<div class="chip" id="$c1" style="left:560px;top:420px;opacity:0">每次标记都能<span class="acc">撤销</span></div>
+<div id="$shade" style="position:absolute;inset:0;background:rgba(16,17,18,.93);opacity:0"></div>
+<div class="term" id="$t" style="top:330px;white-space:normal;word-break:break-all;opacity:0">{term("gardener doctor", CLI["doctor"])}</div>
+<div class="chip cc" id="$c2" style="top:170px;opacity:0">每天自动<span class="acc">备份</span> · 留最近五份 · 可恢复</div>""",
       """
-show('$k', 0.5, 0.25);
-show('$n', 2.9, 0.2);
-const c = { v: 0 }; tl.to(c, { v: 91.7, duration: 1.3, ease: 'power3.out', onUpdate: () => { document.querySelector('$num').textContent = c.v.toFixed(1); } }, 2.9);
-show('$l', 3.2, 0.2); show('$m', 4.3, 0.25);
+gsap.set('$cam', { transformOrigin: '0 0' });
+cam('$cam', 0.2, 0.6, 1700, 140, 2.4);
+show('$c1', 0.9); hide('$c1', 2.5);
+tl.to('$shade', { opacity: 1, duration: 0.3 }, 2.5);
+show('$t', 2.8, 0.25); show('$c2', 3.3);
 """)
 
-# 7 local: nothing leaves, nothing touched, over the real compare page
-scene("local", dur[6], """<div class="cam" id="$cam"><img src="assets/ui/compare.jpg"></div>
+# 9 out: the real 完成与导入 page
+scene("out", dur["out"], """<div class="cam" id="$cam"><img src="assets/ui/import.jpg"></div>
+<div class="chip" id="$c1" style="left:330px;top:300px;opacity:0">复制并<span class="acc">校验</span> · 原片不动</div>
+<div class="chip" id="$c2" style="left:330px;top:300px;opacity:0">星级 · 物种关键词 → <span class="acc">Lightroom Classic</span></div>""",
+      """
+gsap.set('$cam', { transformOrigin: '0 0' });
+cam('$cam', 0.3, 0.8, 1500, 300, 1.6);
+show('$c1', 1.2); hide('$c1', 3.3); show('$c2', 3.6);
+""")
+
+# 10 agent: three ways into one service; the real output of one command and the MCP tool count
+scene("agent", dur["agent"], f"""<div class="t" id="$h" style="top:90px;font-size:84px;opacity:0">网页 · 命令行 · <span class="acc">MCP</span></div>
+<div class="t" id="$s" style="top:215px;font-size:44px;color:#c6c6c6;opacity:0">同一个本机服务 · MCP 工具 {CLI["mcp_tools"]} 个</div>
+<div class="term" id="$t1" style="top:340px;opacity:0">{term("gardener species", CLI["species"])}</div>""",
+      """
+show('$h', 0.3, 0.25); show('$s', 0.8, 0.25);
+show('$t1', 1.3, 0.25);
+""")
+
+# 11 proof: the measured number, with what it was measured on
+scene("proof", dur["proof"], """<div class="t" id="$k" style="top:150px;font-size:44px;color:#a8a8a8;opacity:0">iNaturalist 标准集 · 加州 64 个物种 · 1,571 张照片</div>
+<div id="$n" style="position:absolute;left:0;top:300px;width:1920px;display:flex;justify-content:center;gap:150px;opacity:0">
+<div style="text-align:center"><div style="font:900 230px Inter,sans-serif"><span id="$a">0.0</span><span style="font-size:120px">%</span></div><div style="font-size:56px;font-weight:600">鸟类 <span style="color:#a8a8a8;font-size:40px">（1,046 张）</span></div></div>
+<div style="text-align:center"><div style="font:900 230px Inter,sans-serif"><span id="$b">0.0</span><span style="font-size:120px">%</span></div><div style="font-size:56px;font-weight:600">哺乳类 <span style="color:#a8a8a8;font-size:40px">（525 张）</span></div></div></div>
+<div class="t" id="$m" style="top:780px;font-size:44px;color:#c6c6c6;opacity:0"><span class="acc">首选正确率</span> · 定到种的照片里，97.1% / 96.5% 是对的</div>""",
+      """
+show('$k', 0.5, 0.25);
+show('$n', 2.0, 0.2);
+const c = { a: 0, b: 0 }; tl.to(c, { a: 91.7, b: 91.0, duration: 1.3, ease: 'power3.out', onUpdate: () => { document.querySelector('$a').textContent = c.a.toFixed(1); document.querySelector('$b').textContent = c.b.toFixed(1); } }, 2.0);
+show('$m', 3.0, 0.25);
+""")
+
+# 12 local: nothing leaves, nothing touched, over the real compare page
+scene("local", dur["local"], """<div class="cam" id="$cam"><img src="assets/ui/compare.jpg"></div>
 <div id="$shade" style="position:absolute;inset:0;background:rgba(16,17,18,.8);opacity:0"></div>
 <div class="t" id="$a" style="top:330px;font-size:104px;opacity:0">照片<span class="acc">不离开</span>你的电脑</div>
 <div class="t" id="$b" style="top:520px;font-size:104px;opacity:0">不经你确认，原片<span class="acc">一张不动</span></div>""",
@@ -172,8 +248,8 @@ tl.to('$shade', { opacity: 1, duration: 0.35 }, 0.9);
 show('$a', 1.1, 0.25); show('$b', 2.9, 0.25);
 """)
 
-# 8 end card: the product's own mark, the name, where to get it
-scene("end", dur[7], """<img id="$logo" src="assets/icon.svg" style="position:absolute;left:560px;top:370px;width:170px;height:170px;opacity:0">
+# 13 end card: the product's own mark, the name, where to get it
+scene("end", dur["end"], """<img id="$logo" src="assets/icon.svg" style="position:absolute;left:560px;top:370px;width:170px;height:170px;opacity:0">
 <div id="$w" style="position:absolute;left:770px;top:362px;font:900 170px Inter,sans-serif;letter-spacing:-.03em;opacity:0">Gardener</div>
 <div class="t" id="$s" style="top:600px;font-size:54px;color:#c6c6c6;opacity:0">拍野生动物的人的相册 · 开源 · 本地运行</div>
 <div class="t" id="$u" style="top:720px;font:600 46px 'JetBrains Mono',monospace;opacity:0"><span class="acc">github.com/lincleejun/gardener</span></div>""",
@@ -189,7 +265,7 @@ for s, ln in zip(starts, lines):
     parts, cur = [], ""
     for ch in ln["text"]:
         cur += ch
-        if ch in "，。？：":
+        if ch in "，。？：" and len(cur) > 3:
             parts.append(cur)
             cur = ""
     if cur:
