@@ -42,16 +42,21 @@ https://github.com/user-attachments/assets/18bfad8b-6864-4edf-bb72-e1d05f7c075f
 
 ## 快速开始
 
-macOS，Apple Silicon（MPS）或 CPU；Python 3.12 和 `uv`。
+macOS，Apple Silicon；Python 3.12 和 [`uv`](https://docs.astral.sh/uv/)。首次下载约 10 GB。
 
 ```sh
 git clone https://github.com/lincleejun/gardener && cd gardener
-uv sync
-uv run python tests/models/download.py    # 固定版本的权重，约 7 GB，只需一次
-# 名单：下载 AviList 和 MDD 的 CSV，见 docs/usage.md#name-lists
-uv run gardener-engine names stats        # 只需一次，联网：建立名单缓存（下载 3.26 GB）
+./scripts/install.sh                      # 依赖、名录、模型权重、名录缓存，一步完成
 uv run gardener serve                     # 打开 http://127.0.0.1:8770；--port N 换端口，数据在 ~/.gardener（$GARDENER_HOME）
 ```
+
+也可以用 Docker（任何机器都行；在 Mac 上只能用 CPU，比原生安装慢约七倍）：
+
+```sh
+PHOTOS=~/Pictures docker compose up -d    # 首次启动下载同样的 10 GB；然后打开 http://127.0.0.1:8770
+```
+
+`PHOTOS` 是容器唯一能读的文件夹。在容器里清空垃圾箱，文件移到 `PHOTOS/.gardener-trash`。详见 [docs/usage.md](docs/usage.md#docker)。
 
 ## 单独使用识别引擎
 

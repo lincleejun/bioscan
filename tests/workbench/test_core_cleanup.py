@@ -330,3 +330,16 @@ def test_the_bin_is_what_a_person_rejected_plus_what_only_the_ai_rejected_and_em
         report = c.post(f"{API}/cleanup-plans/{p['id']}/run", json={"confirm": True}).json()["report"]
         assert rejected() == [aids[1]] and {"asset_id": aids[2], "reason": "not_rejected"} in report["skipped"]
         assert [Path(f["path"]).exists() for i in p["items"] for f in i["files"] if i["asset_id"] == aids[1]] == [False]
+
+
+def test_in_a_container_the_trash_is_a_folder_that_keeps_each_files_full_path(tmp_path, monkeypatch):
+    """ADR 0005: no macOS Trash in the image; GARDENER_TRASH_DIR takes the files, and a second one from the same place stays too."""
+    monkeypatch.setenv("GARDENER_TRASH_DIR", str(tmp_path / "bin"))
+    for _ in range(2):
+        src = tmp_path / "shoot" / "a.jpg"
+        src.parent.mkdir(exist_ok=True)
+        src.write_bytes(b"x")
+        cleanup.trash(str(src))
+        assert not src.exists()
+    kept = sorted(p.name.split(".")[:2] for p in (tmp_path / "bin").rglob("a.jpg*"))
+    assert kept == [["a", "jpg"], ["a", "jpg"]]

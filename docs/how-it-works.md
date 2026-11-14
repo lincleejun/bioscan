@@ -66,6 +66,7 @@ Models and data:
 | Location prior (birds, mammals) | BirdNET geo 3.0 (`birdnet` package) | CC BY-NC-SA 4.0 |
 | Bird list | AviList v2026 | CC BY 4.0 |
 | Mammal list | Mammal Diversity Database v2.5 | CC BY 4.0 |
+| Chinese names | Wikidata labels of species with an eBird or ASM MDD ID (`data/names/names-zh.csv`, 9,491 names) | CC0 |
 | All-taxa list (other animals) | species-level Animalia rows of `imageomics/TreeOfLife-200M`, birds and mammals excluded, official vectors | CC0 |
 
 The BirdNET prior model is licensed non-commercially; for commercial use, drop the prior or replace its source.

@@ -1,8 +1,8 @@
 """The name index (contract revision 4, S5): every name a taxon concept goes by -> the concept, in the table
 `taxon_names`, so searches and Smart rules resolve names in SQL. Sources: the bird and mammal lists
 (scientific and English names, MDD's other common names), synonyms.csv aliases (spellings and the names a
-list upgrade replaced) and the person's own Chinese names in `<data dir>/names-zh.csv` (`scientific,zh`).
-There is no licensed Chinese list to ship (research note §3), so none is bundled. The index is rebuilt when
+list upgrade replaced) and Chinese names (`scientific,zh`): the person's own `<data dir>/names-zh.csv` first, then the
+bundled `data/names/names-zh.csv` (Wikidata labels, CC0; `scripts/names/build_names_zh.py`). The index is rebuilt when
 any of those files change; a missing list is skipped (CI has none)."""
 from __future__ import annotations
 
@@ -22,7 +22,8 @@ LISTS = (("avilist", "bird"), ("mdd", "mammal"))
 
 def _inputs(data_dir: Path, lists_dir: Path) -> list[Path]:
     files = [p for sub, _ in LISTS for p in sorted((lists_dir / sub).glob("*.csv"))[:1]]
-    return files + [p for p in (lists_dir / naming.NAMES_DIR / "synonyms.csv", data_dir / ZH_FILE) if p.is_file()]
+    return files + [p for p in (lists_dir / naming.NAMES_DIR / "synonyms.csv", data_dir / ZH_FILE,
+                                lists_dir / naming.NAMES_DIR / ZH_FILE) if p.is_file()]
 
 
 def rows(data_dir: Path, lists_dir: Path = naming.DATA_DIR) -> tuple[list[tuple[str, str, str, str, str]], list[str]]:
@@ -56,15 +57,16 @@ def rows(data_dir: Path, lists_dir: Path = naming.DATA_DIR) -> tuple[list[tuple[
             out.append((hit[0], r["alias"].strip(), "alias", "synonym", hit[1]))
             by_sci.setdefault(naming.norm_binomial(r["alias"]), hit)
     unmatched = []
-    zh = data_dir / ZH_FILE
-    if zh.is_file():
+    for zh, source in ((data_dir / ZH_FILE, "user"), (lists_dir / naming.NAMES_DIR / ZH_FILE, "wikidata")):
+        if not zh.is_file():                       # the person's file is read first: the first name of a concept is shown
+            continue
         with open(zh, newline="", encoding="utf-8-sig") as f:
             for r in csv.DictReader(f):
                 sci, name = (r.get("scientific") or "").strip(), (r.get("zh") or "").strip()
                 hit = by_sci.get(naming.norm_binomial(sci))
                 if hit and name:
-                    out.append((hit[0], name, "zh", "user", hit[1]))
-                elif name:
+                    out.append((hit[0], name, "zh", source, hit[1]))
+                elif name and source == "user":    # the bundled list follows other taxonomies: its misses are expected
                     unmatched.append(sci or name)
     return list(dict.fromkeys(out)), unmatched
 

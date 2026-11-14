@@ -1,0 +1,19 @@
+# docker compose up -d   then open http://127.0.0.1:8770
+# PHOTOS is the folder Gardener may read (default ~/Pictures); it is mounted at the same path, so paths match the host.
+services:
+  gardener:
+    build: .
+    ports: ["127.0.0.1:8770:8770"]          # this machine only: the service has no login
+    environment:
+      GARDENER_TRASH_DIR: ${PHOTOS:-${HOME}/Pictures}/.gardener-trash   # no macOS Trash in a container
+    volumes:
+      - gardener-data:/data
+      - gardener-home:/root                 # model weights and name caches
+      - gardener-avilist:/app/data/avilist
+      - gardener-mdd:/app/data/mdd
+      - ${PHOTOS:-${HOME}/Pictures}:${PHOTOS:-${HOME}/Pictures}
+volumes:
+  gardener-data:
+  gardener-home:
+  gardener-avilist:
+  gardener-mdd:

@@ -1,0 +1,13 @@
+.git
+.venv
+.worktrees
+assets
+baselines
+docs
+extensions
+tests/*
+!tests/models
+data/*
+!data/names
+!data/aesthetic
+**/__pycache__

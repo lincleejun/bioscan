@@ -282,6 +282,12 @@ def test_the_name_index_rebuilds_only_when_its_inputs_change(tmp_path):
     (tmp_path / "d" / "names-zh.csv").write_text("scientific,zh\nMegascops asio,东美角鸮\n", encoding="utf-8")
     assert taxa.sync(store, lists)
     assert [x["zh"] for x in taxa.search(store.conn(), "东美")] == ["东美角鸮"]
+    bundled = lists / "names" / "names-zh.csv"                    # the bundled list (Wikidata) fills what the person left
+    bundled.parent.mkdir(exist_ok=True)
+    bundled.write_text("scientific,zh\nMegascops asio,东鸣角鸮\nAquila chrysaetos,金雕\nNot listed,无\n", encoding="utf-8")
+    assert taxa.sync(store, lists)
+    assert [x["zh"] for x in taxa.search(store.conn(), "Megascops asio")] == ["东美角鸮"]      # the person's name is shown
+    assert [x["zh"] for x in taxa.search(store.conn(), "金雕")] == ["金雕"]
 
 
 def test_the_web_ui_revalidates_so_an_upgrade_is_never_served_stale(env):

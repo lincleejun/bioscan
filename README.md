@@ -42,16 +42,21 @@ Not measured yet: burst grouping, culling rules and the per-species picks on rea
 
 ## Quick start
 
-macOS on Apple Silicon (MPS) or CPU; Python 3.12 with `uv`.
+macOS on Apple Silicon; Python 3.12 with [`uv`](https://docs.astral.sh/uv/). About 10 GB of downloads, once.
 
 ```sh
 git clone https://github.com/lincleejun/gardener && cd gardener
-uv sync
-uv run python tests/models/download.py    # pinned weights, about 7 GB, once
-# name lists: download the AviList and MDD CSVs, see docs/usage.md#name-lists
-uv run gardener-engine names stats        # once, online: builds the name caches (3.26 GB download)
+./scripts/install.sh                      # dependencies, name lists, model weights, name caches
 uv run gardener serve                     # open http://127.0.0.1:8770; --port N, data in ~/.gardener ($GARDENER_HOME)
 ```
+
+Or in Docker (any machine; on a Mac it runs on the CPU, about seven times slower than the native install):
+
+```sh
+PHOTOS=~/Pictures docker compose up -d    # first start downloads the same 10 GB; then open http://127.0.0.1:8770
+```
+
+`PHOTOS` is the one folder the container can read. Emptying the bin there moves files to `PHOTOS/.gardener-trash`. Details: [docs/usage.md](docs/usage.md#docker).
 
 ## The engine on its own
 
