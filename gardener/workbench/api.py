@@ -351,6 +351,20 @@ def create_gardener_app(data_dir: str | Path, *, engine: Any = None, toolkit: ta
                 "cache_dir": str(store.cache_dir), "cache_bytes": size, "cache_files": files,
                 "disk_total": disk.total, "disk_free": disk.free}
 
+    @r.get("/models")
+    def models() -> dict[str, Any]:
+        """What 自动归类 needs on disk and what is there; browsing needs none of it (ADR 0005)."""
+        from gardener.workbench import weights
+
+        return weights.status()
+
+    @r.post("/models/download", status_code=202)
+    def models_download() -> dict[str, Any]:
+        """Start fetching what is missing (about 7 GB the first time); poll GET /models for progress."""
+        from gardener.workbench import weights
+
+        return weights.start(store.logs_dir)
+
     @r.get("/diagnostics")
     def diagnostics() -> dict[str, Any]:
         """What to look at when something seems wrong: the database's own check, sizes, the backups, the disk, the

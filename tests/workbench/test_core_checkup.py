@@ -199,6 +199,7 @@ with TestClient(create_gardener_app({str(tmp_path / "home")!r}), base_url="http:
     assert c.post(A + "/collections", json={{"name": "x", "asset_ids": [a]}}).status_code == 201
     assert c.post(A + "/cleanup-plans", json={{"pile": "bin"}}).status_code == 201
     assert c.get(A + "/diagnostics").json()["database"]["check"] == "ok"
+    assert set(c.get(A + "/models").json()) == {{"ready", "items", "bytes", "have_bytes", "download"}}
 print(sorted(m for m in ("torch", "transformers", "open_clip", "cv2", "rawpy") if m in sys.modules))
 """
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

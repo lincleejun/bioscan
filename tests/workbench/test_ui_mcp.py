@@ -43,8 +43,8 @@ def test_handshake_list_and_errors(svc):
     init = replies[0]["result"]
     assert init["protocolVersion"] == "2025-06-18" and "tools" in init["capabilities"]
     names = [t["name"] for t in replies[1]["result"]["tools"]]
-    assert names[1:7] == ["add_folder", "list_tags", "tag_assets", "create_collection", "edit_collection_members", "diagnostics"]
-    names = names[:1] + names[7:]
+    assert names[1:8] == ["add_folder", "list_tags", "tag_assets", "create_collection", "edit_collection_members", "models", "diagnostics"]
+    names = names[:1] + names[8:]
     assert names == ["create_task", "list_tasks", "get_task", "control_task", "query_assets", "get_asset", "set_marks",
                      "list_collections", "review_collection", "export", "capabilities", "list_species", "search_names",
                      "identify_species", "undo_identification", "set_species_card", "keep_best", "undo_marks",
